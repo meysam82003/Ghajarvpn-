@@ -1,0 +1,36 @@
+name: Android CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - name: Install native prerequisites
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+      - uses: android-actions/setup-android@v3
+      - name: Install Android SDK and NDK
+        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+      - name: Build debug APK
+        run: ./gradlew --no-daemon :app:assembleDebug
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-Android-debug
+          path: app/build/outputs/apk/**/*.apk
