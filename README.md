@@ -39,6 +39,10 @@ Requirements: JDK 21, Android SDK 36.1, NDK 28.2 and SWIG.
 
 Release signing is read from CI secrets or a local untracked `keystore.properties`. Never commit the signing key.
 
+When the repository is distributed as a compact patch series, run
+`./scripts/bootstrap-from-upstream.sh` first. See
+[`docs/GITHUB_BOOTSTRAP_FA.md`](docs/GITHUB_BOOTSTRAP_FA.md).
+
 ## Branding and backend safety
 
 All public labels are sanitized through `BrandConfig`; legacy engine identifiers remain internal only where protocol compatibility requires them. Checkout allows HTTPS in the embedded view, blocks insecure HTTP/file navigation, cancels SSL errors and never falls back to an external browser.
