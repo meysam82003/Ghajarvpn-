@@ -17,6 +17,9 @@ snapshots=(
   "app/src/main/java/net/gozar/app/GhajarSplashRepository.kt"
   "app/src/main/java/net/gozar/app/GhajarStoreApi.kt"
   "app/src/main/java/net/gozar/app/SecurePaymentActivity.kt"
+  "app/src/main/java/net/gozar/app/GhajarUiRules.kt"
+  "openvpn/src/main/cpp/CMakeLists.txt"
+  "openvpn/src/main/cpp/ghajar-openssl-arch.cmake"
 )
 for path in "${snapshots[@]}"; do
   if ! cmp -s -- "${package_root}/${path}" "${source_root}/${path}"; then

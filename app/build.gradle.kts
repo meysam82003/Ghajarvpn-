@@ -6,6 +6,12 @@ plugins {
 }
 
 val ghajarDemoBuild = providers.gradleProperty("ghajar.demo").orNull == "true"
+val ghajarSignedDemo = providers.gradleProperty("ghajar.demo.signed").orNull == "true"
+check(!ghajarSignedDemo || ghajarDemoBuild) { "Signed demo requires -Pghajar.demo=true" }
+
+fun demoSigningValue(name: String): String = System.getenv(name)
+    ?.takeIf { it.isNotBlank() }
+    ?: error("Missing demo signing setting: $name. No ephemeral-key fallback is allowed.")
 
 android {
     namespace = "net.gozar.app"
@@ -21,12 +27,21 @@ android {
         // explicit while building an honestly labelled Android 8+ demo.
         minSdk = if (ghajarDemoBuild) 26 else 24
         targetSdk = 36
-        versionCode = 30001
-        versionName = if (ghajarDemoBuild) "3.0.1-demo-ui" else "3.0.1"
+        versionCode = 30002
+        versionName = if (ghajarDemoBuild) "3.0.2-demo" else "3.0.2"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
+        if (ghajarSignedDemo) {
+            create("demo") {
+                storeFile = file(demoSigningValue("GHAJAR_DEMO_KEYSTORE_FILE"))
+                    .also { check(it.isFile) { "Demo keystore file is missing" } }
+                storePassword = demoSigningValue("GHAJAR_DEMO_KEYSTORE_PASSWORD")
+                keyAlias = demoSigningValue("GHAJAR_DEMO_KEY_ALIAS")
+                keyPassword = demoSigningValue("GHAJAR_DEMO_KEY_PASSWORD")
+            }
+        }
         create("release") {
             val envKeystore = System.getenv("KEYSTORE_FILE")
             val propsFile = rootProject.file("keystore.properties")
@@ -64,6 +79,9 @@ android {
     }
 
     buildTypes {
+        debug {
+            if (ghajarSignedDemo) signingConfig = signingConfigs.getByName("demo")
+        }
         release {
             val hasSigning = System.getenv("KEYSTORE_FILE") != null ||
                     rootProject.file("keystore.properties").exists()

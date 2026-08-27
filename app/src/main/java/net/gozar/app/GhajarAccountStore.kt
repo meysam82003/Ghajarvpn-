@@ -1,6 +1,7 @@
 package net.gozar.app
 
 import android.content.Context
+import org.json.JSONObject
 
 /**
  * Keeps the Mini App bearer token encrypted by Android Keystore (AES-GCM).
@@ -9,6 +10,34 @@ import android.content.Context
 class GhajarAccountStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+
+    fun pendingLink(): GhajarLinkSession? {
+        val encrypted = prefs.getString(KEY_PENDING_LINK, null) ?: return null
+        val link = runCatching {
+            val plain = Crypto.decrypt(encrypted) ?: return@runCatching null
+            val json = JSONObject(plain)
+            if (json.optInt("version") != 1) return@runCatching null
+            GhajarLinkSession(json.getString("code"), json.getString("session_token"),
+                json.optString("bot_username", "Ghajar_vpnbot"), json.getInt("expires_in"),
+                json.getLong("expires_at_ms"))
+        }.getOrNull()?.takeIf { GhajarUiRules.validPendingLink(it.code, it.sessionToken,
+            it.expiresAtMillis, System.currentTimeMillis()) }
+        if (link == null) clearPendingLink()
+        return link
+    }
+
+    /** Called on the API's IO dispatcher before the external bot is opened. */
+    fun savePendingLink(link: GhajarLinkSession): Boolean {
+        if (!GhajarUiRules.validPendingLink(link.code, link.sessionToken,
+                link.expiresAtMillis, System.currentTimeMillis())) return false
+        val plain = JSONObject().put("version", 1).put("code", link.code)
+            .put("session_token", link.sessionToken).put("bot_username", link.botUsername)
+            .put("expires_in", link.expiresInSeconds).put("expires_at_ms", link.expiresAtMillis).toString()
+        val encrypted = Crypto.encrypt(plain) ?: return false
+        return prefs.edit().putString(KEY_PENDING_LINK, encrypted).commit()
+    }
+
+    fun clearPendingLink() { prefs.edit().remove(KEY_PENDING_LINK).apply() }
 
     fun token(): String {
         prefs.getString(KEY_TOKEN_ENCRYPTED, null)
@@ -35,13 +64,14 @@ class GhajarAccountStore(context: Context) {
         prefs.edit()
             .putString(KEY_TOKEN_ENCRYPTED, encrypted)
             .remove(KEY_TOKEN_PLAINTEXT)
+            .remove(KEY_PENDING_LINK)
             .apply()
         clearLegacyPlaintext()
         return true
     }
 
     fun clear() {
-        prefs.edit().remove(KEY_TOKEN_ENCRYPTED).remove(KEY_TOKEN_PLAINTEXT).apply()
+        prefs.edit().remove(KEY_TOKEN_ENCRYPTED).remove(KEY_TOKEN_PLAINTEXT).remove(KEY_PENDING_LINK).apply()
         clearLegacyPlaintext()
     }
 
@@ -56,5 +86,6 @@ class GhajarAccountStore(context: Context) {
         const val PREFS = "ghajarvpn_account_v2"
         private const val KEY_TOKEN_ENCRYPTED = "account_token_aes_gcm"
         private const val KEY_TOKEN_PLAINTEXT = "account_token"
+        private const val KEY_PENDING_LINK = "pending_link_aes_gcm"
     }
 }
