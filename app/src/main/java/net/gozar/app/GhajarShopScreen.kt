@@ -104,6 +104,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
     var linked by remember { mutableStateOf(api.isLinked) }
     var linkSession by remember { mutableStateOf(api.pendingLink()) }
+    var linkGate by remember(linkSession?.sessionToken) { mutableStateOf<GhajarLinkState?>(null) }
     var linkState by remember { mutableStateOf(GhajarLinkState.PENDING) }
     var linkChecking by remember { mutableStateOf(false) }
     var linkCheckKey by remember { mutableIntStateOf(0) }
@@ -186,7 +187,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             error = "کد اتصال معتبر نیست یا منقضی شده؛ دوباره «اتصال با تلگرام» را بزن."
             return
         }
-        val verification = linkState == GhajarLinkState.FORCE_JOIN || linkState == GhajarLinkState.PHONE_REQUIRED
+        val verification = linkGate != null
         val launch: (String) -> Boolean = { url ->
             runCatching {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
@@ -299,6 +300,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
                 currentCoroutineContext().ensureActive()
                 linkState = result
+                linkGate = GhajarLinkFlow.verificationGate(linkGate, result)
                 when (result) {
                     GhajarLinkState.LINKED -> {
                         linked = true; linkSession = null; error = null
@@ -340,6 +342,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     session = linkSession,
                     busy = busy,
                     state = linkState,
+                    verification = linkGate != null,
                     checking = linkChecking,
                     remainingSeconds = linkRemaining,
                     onBegin = {
@@ -648,7 +651,7 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
 }
 
 @Composable
-private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, state: GhajarLinkState,
+private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, state: GhajarLinkState, verification: Boolean,
     checking: Boolean, remainingSeconds: Int, onBegin: () -> Unit, onOpenBot: () -> Unit,
     onCheck: () -> Unit, onCancel: () -> Unit, onCopyCommand: () -> Unit) {
     Card(
@@ -664,7 +667,6 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, state: G
             if (session == null) {
                 Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("اتصال با تلگرام") }
             } else {
-                val verification = state == GhajarLinkState.FORCE_JOIN || state == GhajarLinkState.PHONE_REQUIRED
                 if (!verification) {
                     TextButton(onClick = onOpenBot, enabled = remainingSeconds > 0) {
                         Text(session.code, style = MaterialTheme.typography.headlineMedium,

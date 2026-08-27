@@ -52,6 +52,15 @@ class GhajarLinkFlowTest {
         assertTrue(GhajarUiRules.botVerificationUrls("not/a/bot").all { !it.contains("link_") })
     }
 
+    @Test fun aNetworkFailureDoesNotForgetThatTheCodeWasAlreadyClaimed() {
+        var gate = GhajarLinkFlow.verificationGate(null, GhajarLinkState.FORCE_JOIN)
+        gate = GhajarLinkFlow.verificationGate(gate, GhajarLinkState.NETWORK_ERROR)
+        assertEquals(GhajarLinkState.FORCE_JOIN, gate)
+        assertEquals(GhajarLinkState.PHONE_REQUIRED, GhajarLinkFlow.verificationGate(gate, GhajarLinkState.PHONE_REQUIRED))
+        assertNull(GhajarLinkFlow.verificationGate(gate, GhajarLinkState.EXPIRED))
+        assertNull(GhajarLinkFlow.verificationGate(gate, GhajarLinkState.LINKED))
+    }
+
     @Test fun expiredAndMissingSessionsDoNotWaitUntilTheLocalTimerEnds() {
         assertEquals(GhajarLinkState.EXPIRED, GhajarLinkFlow.responseState("expired", null, null))
         assertEquals(GhajarLinkState.NOT_FOUND, GhajarLinkFlow.responseState("not_found", null, null))

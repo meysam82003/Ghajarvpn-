@@ -42,6 +42,12 @@ internal object GhajarLinkFlow {
     fun invalidatesAccount(authenticated: Boolean, httpCode: Int): Boolean =
         authenticated && (httpCode == 401 || httpCode == 403)
 
+    fun verificationGate(previous: GhajarLinkState?, current: GhajarLinkState): GhajarLinkState? = when (current) {
+        GhajarLinkState.FORCE_JOIN, GhajarLinkState.PHONE_REQUIRED -> current
+        GhajarLinkState.NETWORK_ERROR, GhajarLinkState.SERVER_ERROR, GhajarLinkState.STORAGE_ERROR -> previous
+        else -> null
+    }
+
     fun message(state: GhajarLinkState): String = when (state) {
         GhajarLinkState.PENDING -> "منتظر تأیید ربات هستیم؛ در تلگرام «Start / شروع» را بزن و برگرد."
         GhajarLinkState.LINKED -> "حساب با موفقیت و به‌صورت امن متصل شد"
