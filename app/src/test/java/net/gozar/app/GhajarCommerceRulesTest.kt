@@ -52,4 +52,24 @@ class GhajarCommerceRulesTest {
         assertTrue(GhajarPaymentPolicy.allows("https://checkout.example/p", "checkout.example", trusted))
         assertFalse(GhajarPaymentPolicy.allows("https://other.checkout.example/p", "checkout.example", trusted))
     }
+
+    @Test fun pendingReceiptDoesNotCreditWalletOrDeliverService() {
+        listOf("waiting", "pending", "unpaid").forEach {
+            assertEquals(GhajarPaymentOutcome.PENDING, GhajarCommerceRules.paymentOutcome(it, true, true, true, true))
+        }
+    }
+    @Test fun paidStandaloneTopUpOnlyCreditsWallet() {
+        assertEquals(GhajarPaymentOutcome.WALLET_CREDITED, GhajarCommerceRules.paymentOutcome("paid", true, false, false, false))
+    }
+    @Test fun adminWalletOnlyModeOverridesAutomaticServiceDelivery() {
+        assertEquals(GhajarPaymentOutcome.WALLET_CREDITED, GhajarCommerceRules.paymentOutcome("paid", false, true, true, true))
+    }
+    @Test fun deliveryRequiresPaidReadyAndActualServiceTogether() {
+        assertEquals(GhajarPaymentOutcome.PAID_WAITING, GhajarCommerceRules.paymentOutcome("paid", false, false, false, true))
+        assertEquals(GhajarPaymentOutcome.PAID_WAITING, GhajarCommerceRules.paymentOutcome("paid", false, false, true, false))
+        assertEquals(GhajarPaymentOutcome.SERVICE_READY, GhajarCommerceRules.paymentOutcome("paid", false, false, true, true))
+    }
+    @Test fun rejectedInvoiceCannotBeClassifiedAsSuccess() {
+        assertEquals(GhajarPaymentOutcome.NOT_APPROVED, GhajarCommerceRules.paymentOutcome("rejected", true, true, true, true))
+    }
 }

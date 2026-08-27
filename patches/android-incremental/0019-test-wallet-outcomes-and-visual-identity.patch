@@ -1,0 +1,138 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 19:04:00 +0000
+Subject: [PATCH] test: verify wallet and fulfillment outcomes; stabilize poster and QR identity
+
+---
+diff --git a/app/src/main/java/net/gozar/app/GhajarOperation.kt b/app/src/main/java/net/gozar/app/GhajarOperation.kt
+--- a/app/src/main/java/net/gozar/app/GhajarOperation.kt
++++ b/app/src/main/java/net/gozar/app/GhajarOperation.kt
+@@ -11,7 +11,18 @@
+     Result.failure(error)
+ }
+ 
++internal enum class GhajarPaymentOutcome { WALLET_CREDITED, SERVICE_READY, PAID_WAITING, NOT_APPROVED, PENDING }
++
+ internal object GhajarCommerceRules {
++    fun paymentOutcome(status: String, walletTopUp: Boolean, walletOnly: Boolean,
++        serviceReady: Boolean, hasService: Boolean): GhajarPaymentOutcome = when {
++        paid(status) && (walletTopUp || walletOnly) -> GhajarPaymentOutcome.WALLET_CREDITED
++        paid(status) && serviceReady && hasService -> GhajarPaymentOutcome.SERVICE_READY
++        paid(status) -> GhajarPaymentOutcome.PAID_WAITING
++        terminal(status) -> GhajarPaymentOutcome.NOT_APPROVED
++        else -> GhajarPaymentOutcome.PENDING
++    }
++
+     fun paid(value: String) = value.trim().equals("paid", ignoreCase = true)
+     fun terminal(value: String) = value.trim().lowercase(java.util.Locale.ROOT) in
+         setOf("reject", "rejected", "expire", "expired", "canceled", "cancelled")
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+@@ -170,8 +170,9 @@
+         val status = api.paymentStatus(invoice.orderId)
+         val value = status.optString("payment_status")
+         val service = status.optJSONObject("service")
++        when (GhajarCommerceRules.paymentOutcome(value, walletTopUp.value, status.optBoolean("wallet_credited_only"),
++            status.optBoolean("is_service_ready"), service != null)) {
++            GhajarPaymentOutcome.WALLET_CREDITED -> {
+-        when {
+-            GhajarCommerceRules.paid(value) && (walletTopUp.value || status.optBoolean("wallet_credited_only")) -> {
+                 methods.value = api.paymentOptions()
+                 message.value = if (walletTopUp.value) "شارژ کیف پول تأیید شد و موجودی بروزرسانی شد."
+                     else "پرداخت تأیید و کیف پول شارژ شد؛ طبق تنظیم ادمین، خرید خودکار فعال نیست. خرید را از محصولات ادامه بده."
+@@ -179,14 +180,14 @@
+                 receiptSent.value = false; walletTopUp.value = false
+                 prefs.edit().clear().apply()
+             }
++            GhajarPaymentOutcome.SERVICE_READY ->
++                deliver(api.serviceFrom(requireNotNull(service), purchase.value?.username.orEmpty()), finishCheckout = true)
++            GhajarPaymentOutcome.PAID_WAITING ->
+-            GhajarCommerceRules.paid(value) && status.optBoolean("is_service_ready") && service != null ->
+-                deliver(api.serviceFrom(service, purchase.value?.username.orEmpty()), finishCheckout = true)
+-            GhajarCommerceRules.paid(value) ->
+                 message.value = "پرداخت تأیید شد؛ سرویس در حال آماده‌سازی است. دوباره پرداخت نکن."
++            GhajarPaymentOutcome.NOT_APPROVED ->
+-            GhajarCommerceRules.terminal(value) ->
+                 message.value = status.optString("reason").takeUnless { it.isBlank() || it == "null" }
+                     ?: "این فاکتور تأیید نشده یا منقضی است."
++            GhajarPaymentOutcome.PENDING -> message.value = if (receiptSent.value) "رسید ارسال شده و در انتظار بررسی ادمین است."
+-            else -> message.value = if (receiptSent.value) "رسید ارسال شده و در انتظار بررسی ادمین است."
+                 else "فاکتور در انتظار پرداخت یا تأیید سرور است؛ پس از پرداخت، بررسی وضعیت را بزن."
+         }
+     }
+diff --git a/app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt
+--- a/app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt
++++ b/app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt
+@@ -52,4 +52,24 @@
+         assertTrue(GhajarPaymentPolicy.allows("https://checkout.example/p", "checkout.example", trusted))
+         assertFalse(GhajarPaymentPolicy.allows("https://other.checkout.example/p", "checkout.example", trusted))
+     }
++
++    @Test fun pendingReceiptDoesNotCreditWalletOrDeliverService() {
++        listOf("waiting", "pending", "unpaid").forEach {
++            assertEquals(GhajarPaymentOutcome.PENDING, GhajarCommerceRules.paymentOutcome(it, true, true, true, true))
++        }
++    }
++    @Test fun paidStandaloneTopUpOnlyCreditsWallet() {
++        assertEquals(GhajarPaymentOutcome.WALLET_CREDITED, GhajarCommerceRules.paymentOutcome("paid", true, false, false, false))
++    }
++    @Test fun adminWalletOnlyModeOverridesAutomaticServiceDelivery() {
++        assertEquals(GhajarPaymentOutcome.WALLET_CREDITED, GhajarCommerceRules.paymentOutcome("paid", false, true, true, true))
++    }
++    @Test fun deliveryRequiresPaidReadyAndActualServiceTogether() {
++        assertEquals(GhajarPaymentOutcome.PAID_WAITING, GhajarCommerceRules.paymentOutcome("paid", false, false, false, true))
++        assertEquals(GhajarPaymentOutcome.PAID_WAITING, GhajarCommerceRules.paymentOutcome("paid", false, false, true, false))
++        assertEquals(GhajarPaymentOutcome.SERVICE_READY, GhajarCommerceRules.paymentOutcome("paid", false, false, true, true))
++    }
++    @Test fun rejectedInvoiceCannotBeClassifiedAsSuccess() {
++        assertEquals(GhajarPaymentOutcome.NOT_APPROVED, GhajarCommerceRules.paymentOutcome("rejected", true, true, true, true))
++    }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -63,18 +63,19 @@
+     val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
+     val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
+     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
++    // Stable ordering also prevents a repeated image when the theme changes between launches.
++    val posters = remember {
++        listOf(R.drawable.ghajar_welcome_world, R.drawable.ghajar_welcome_connection,
++            R.drawable.ghajar_welcome_locations, R.drawable.ghajar_welcome_royal)
+-    val posters = remember(dark) {
+-        val light = listOf(R.drawable.ghajar_welcome_world, R.drawable.ghajar_welcome_connection, R.drawable.ghajar_welcome_locations)
+-        if (dark) listOf(R.drawable.ghajar_welcome_royal) + light
+-        else light + R.drawable.ghajar_welcome_royal
+     }
+     val selectedPoster = remember { GhajarCommerceRules.nextPoster(prefs.getInt("last_poster", -1), posters.size) }
++    val pager = rememberPagerState(initialPage = if (returning) selectedPoster else if (dark) 3 else 0, pageCount = { posters.size })
+-    val pager = rememberPagerState(initialPage = if (returning) selectedPoster else 0, pageCount = { posters.size })
+     val finish by rememberUpdatedState(onDone)
+     var entered by remember { mutableStateOf(false) }
+     val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(450), label = "welcome-reveal")
+     fun close() {
++        prefs.edit().putBoolean("soft_intro_seen", true)
++            .putInt("last_poster", if (returning) selectedPoster else pager.currentPage).apply()
+-        prefs.edit().putBoolean("soft_intro_seen", true).apply()
+         finish()
+     }
+     LaunchedEffect(Unit) {
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+@@ -108,10 +108,11 @@
+ internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Unit, onRetry: () -> Unit, busy: Boolean) {
+     val service = delivery.service
+     val payloads = remember(service) { (listOfNotNull(service.subscriptionUrl) + service.outputs).filter { it.isNotBlank() }.distinct() }
++    var index by remember(payloads) { mutableIntStateOf(0) }
+-    var index by remember(service.username) { mutableIntStateOf(0) }
+     val payload = payloads.getOrNull(index)
+     var qrFailed by remember(payload) { mutableStateOf(false) }
+     val bitmap by produceState<Bitmap?>(null, payload) {
++        value = null // Never flash the previous profile's QR under a different label.
+         value = withContext(Dispatchers.Default) { payload?.let { text ->
+             runCatching {
+                 val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 768, 768,
+-- 
+2.43.0

@@ -108,10 +108,11 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
 internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Unit, onRetry: () -> Unit, busy: Boolean) {
     val service = delivery.service
     val payloads = remember(service) { (listOfNotNull(service.subscriptionUrl) + service.outputs).filter { it.isNotBlank() }.distinct() }
-    var index by remember(service.username) { mutableIntStateOf(0) }
+    var index by remember(payloads) { mutableIntStateOf(0) }
     val payload = payloads.getOrNull(index)
     var qrFailed by remember(payload) { mutableStateOf(false) }
     val bitmap by produceState<Bitmap?>(null, payload) {
+        value = null // Never flash the previous profile's QR under a different label.
         value = withContext(Dispatchers.Default) { payload?.let { text ->
             runCatching {
                 val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 768, 768,

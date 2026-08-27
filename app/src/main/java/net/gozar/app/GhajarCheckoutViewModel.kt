@@ -170,8 +170,9 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         val status = api.paymentStatus(invoice.orderId)
         val value = status.optString("payment_status")
         val service = status.optJSONObject("service")
-        when {
-            GhajarCommerceRules.paid(value) && (walletTopUp.value || status.optBoolean("wallet_credited_only")) -> {
+        when (GhajarCommerceRules.paymentOutcome(value, walletTopUp.value, status.optBoolean("wallet_credited_only"),
+            status.optBoolean("is_service_ready"), service != null)) {
+            GhajarPaymentOutcome.WALLET_CREDITED -> {
                 methods.value = api.paymentOptions()
                 message.value = if (walletTopUp.value) "شارژ کیف پول تأیید شد و موجودی بروزرسانی شد."
                     else "پرداخت تأیید و کیف پول شارژ شد؛ طبق تنظیم ادمین، خرید خودکار فعال نیست. خرید را از محصولات ادامه بده."
@@ -179,14 +180,14 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 receiptSent.value = false; walletTopUp.value = false
                 prefs.edit().clear().apply()
             }
-            GhajarCommerceRules.paid(value) && status.optBoolean("is_service_ready") && service != null ->
-                deliver(api.serviceFrom(service, purchase.value?.username.orEmpty()), finishCheckout = true)
-            GhajarCommerceRules.paid(value) ->
+            GhajarPaymentOutcome.SERVICE_READY ->
+                deliver(api.serviceFrom(requireNotNull(service), purchase.value?.username.orEmpty()), finishCheckout = true)
+            GhajarPaymentOutcome.PAID_WAITING ->
                 message.value = "پرداخت تأیید شد؛ سرویس در حال آماده‌سازی است. دوباره پرداخت نکن."
-            GhajarCommerceRules.terminal(value) ->
+            GhajarPaymentOutcome.NOT_APPROVED ->
                 message.value = status.optString("reason").takeUnless { it.isBlank() || it == "null" }
                     ?: "این فاکتور تأیید نشده یا منقضی است."
-            else -> message.value = if (receiptSent.value) "رسید ارسال شده و در انتظار بررسی ادمین است."
+            GhajarPaymentOutcome.PENDING -> message.value = if (receiptSent.value) "رسید ارسال شده و در انتظار بررسی ادمین است."
                 else "فاکتور در انتظار پرداخت یا تأیید سرور است؛ پس از پرداخت، بررسی وضعیت را بزن."
         }
     }

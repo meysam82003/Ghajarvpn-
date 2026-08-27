@@ -11,7 +11,18 @@ internal inline fun <T> storeResult(block: () -> T): Result<T> = try {
     Result.failure(error)
 }
 
+internal enum class GhajarPaymentOutcome { WALLET_CREDITED, SERVICE_READY, PAID_WAITING, NOT_APPROVED, PENDING }
+
 internal object GhajarCommerceRules {
+    fun paymentOutcome(status: String, walletTopUp: Boolean, walletOnly: Boolean,
+        serviceReady: Boolean, hasService: Boolean): GhajarPaymentOutcome = when {
+        paid(status) && (walletTopUp || walletOnly) -> GhajarPaymentOutcome.WALLET_CREDITED
+        paid(status) && serviceReady && hasService -> GhajarPaymentOutcome.SERVICE_READY
+        paid(status) -> GhajarPaymentOutcome.PAID_WAITING
+        terminal(status) -> GhajarPaymentOutcome.NOT_APPROVED
+        else -> GhajarPaymentOutcome.PENDING
+    }
+
     fun paid(value: String) = value.trim().equals("paid", ignoreCase = true)
     fun terminal(value: String) = value.trim().lowercase(java.util.Locale.ROOT) in
         setOf("reject", "rejected", "expire", "expired", "canceled", "cancelled")

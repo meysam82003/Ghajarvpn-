@@ -63,18 +63,19 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
     val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
     val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val posters = remember(dark) {
-        val light = listOf(R.drawable.ghajar_welcome_world, R.drawable.ghajar_welcome_connection, R.drawable.ghajar_welcome_locations)
-        if (dark) listOf(R.drawable.ghajar_welcome_royal) + light
-        else light + R.drawable.ghajar_welcome_royal
+    // Stable ordering also prevents a repeated image when the theme changes between launches.
+    val posters = remember {
+        listOf(R.drawable.ghajar_welcome_world, R.drawable.ghajar_welcome_connection,
+            R.drawable.ghajar_welcome_locations, R.drawable.ghajar_welcome_royal)
     }
     val selectedPoster = remember { GhajarCommerceRules.nextPoster(prefs.getInt("last_poster", -1), posters.size) }
-    val pager = rememberPagerState(initialPage = if (returning) selectedPoster else 0, pageCount = { posters.size })
+    val pager = rememberPagerState(initialPage = if (returning) selectedPoster else if (dark) 3 else 0, pageCount = { posters.size })
     val finish by rememberUpdatedState(onDone)
     var entered by remember { mutableStateOf(false) }
     val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(450), label = "welcome-reveal")
     fun close() {
-        prefs.edit().putBoolean("soft_intro_seen", true).apply()
+        prefs.edit().putBoolean("soft_intro_seen", true)
+            .putInt("last_poster", if (returning) selectedPoster else pager.currentPage).apply()
         finish()
     }
     LaunchedEffect(Unit) {
