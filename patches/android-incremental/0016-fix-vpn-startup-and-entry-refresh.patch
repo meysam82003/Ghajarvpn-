@@ -53,7 +53,7 @@ diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java
 diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/java/net/gozar/app/GozarVpnService.kt
 --- a/app/src/main/java/net/gozar/app/GozarVpnService.kt
 +++ b/app/src/main/java/net/gozar/app/GozarVpnService.kt
-@@ -25,5 +25,11 @@
+@@ -25,7 +25,13 @@
      private var aetherSpec: AetherSpec? = null
      private var torSpec: String? = null
      private var blockFd: ParcelFileDescriptor? = null
@@ -66,7 +66,9 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 +    private var startJob: Job? = null
 -    private val scope = CoroutineScope(Dispatchers.IO)
      private var pollJob: Job? = null
-@@ -33,12 +39,20 @@
+     private var configName: String = "VPN"
+     private var stopLabel: String = "Disconnect"
+@@ -34,14 +40,22 @@
      private var autoSelector: AutoSelector? = null
      private var autoJob: Job? = null
  
@@ -93,7 +95,9 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 -        })
 -        TorLog.sink = { line -> Log.i("XrayCore", line) }
      }
-@@ -74,11 +88,20 @@
+ 
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+@@ -79,11 +93,20 @@
      }
  
      private fun startTunnel(configJson: String) {
@@ -115,9 +119,9 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 +            }
 -        scope.launch {
              val builder = Builder()
-                 .setSession("GozarNet")
+                 .setSession(BrandConfig.APP_NAME_FA)
                  .setMtu(1500)
-@@ -138,7 +161,9 @@
+@@ -143,9 +166,11 @@
                  }
                  VpnBridge.sendConnected(applicationContext)
                  startPolling()
@@ -129,14 +133,19 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 -                Log.e(TAG, "Xray core failed to start", e)
 -                die(e.message ?: "Engine failed to start")
              }
-@@ -257,5 +282,6 @@
+         }
+     }
+@@ -261,6 +286,7 @@
+ 
      private fun die(error: String?) {
          if (tearingDown) return
 +        startJob?.cancel(); startJob = null
          val killOn = runCatching { ConfigStore.get(applicationContext).killSwitch.value }.getOrDefault(false)
          if (error != null && killOn) {
              AetherController.stop()
-@@ -277,6 +303,3 @@
+@@ -280,10 +306,7 @@
+         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+         runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
          stopSelf()
 +        // Lifecycle owns cleanup. A delayed process kill can kill a subsequent reconnect.
 -        scope.launch {
@@ -144,7 +153,11 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 -            android.os.Process.killProcess(android.os.Process.myPid())
 -        }
      }
-@@ -303,7 +326,11 @@
+ 
+     private fun enterKillSwitch(reason: String) {
+@@ -306,9 +329,13 @@
+     }
+ 
      override fun onDestroy() {
 +        tearingDown = true
 +        scope.coroutineContext[Job]?.cancel()
@@ -161,7 +174,7 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 diff --git a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
 --- a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
 +++ b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
-@@ -2,9 +2,9 @@
+@@ -2,15 +2,15 @@
  
  object SubscriptionRefresher {
  
@@ -172,8 +185,6 @@ diff --git a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt b/app/src/
 -        if (hours <= 0) return
          val cutoff = System.currentTimeMillis() - hours * 3_600_000L
  
-         store.subscriptions.value
-@@ -10,7 +10,7 @@
          store.subscriptions.value
 +            .filter { (force || it.lastUpdated <= cutoff) && (it.url.startsWith("https://") || it.url.startsWith("http://")) }
 -            .filter { it.lastUpdated <= cutoff }
@@ -186,7 +197,9 @@ diff --git a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt b/app/src/
 diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
 --- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
 +++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
-@@ -21,4 +21,8 @@
+@@ -21,8 +21,12 @@
+ 
+         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
              override fun onActivityStarted(activity: Activity) {
 +                val enteringApp = startedActivities == 0
                  startedActivities++
@@ -195,5 +208,7 @@ diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/
 +                    SubscriptionRefresher.refreshStale(ConfigStore.get(this@GozarApplication), force = true)
 +                }
              }
+ 
+             override fun onActivityStopped(activity: Activity) {
 -- 
 2.43.0
