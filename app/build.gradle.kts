@@ -21,8 +21,8 @@ android {
         // explicit while building an honestly labelled Android 8+ demo.
         minSdk = if (ghajarDemoBuild) 26 else 24
         targetSdk = 36
-        versionCode = 30000
-        versionName = if (ghajarDemoBuild) "3.0.0-demo" else "3.0.0"
+        versionCode = 30001
+        versionName = if (ghajarDemoBuild) "3.0.1-demo-ui" else "3.0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

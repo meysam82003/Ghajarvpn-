@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -38,6 +39,12 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -45,6 +52,8 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -61,6 +70,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -89,6 +100,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
     var error by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var refreshKey by remember { mutableIntStateOf(0) }
+    var section by remember { mutableIntStateOf(0) }
+    val listState = rememberLazyListState()
+    var confirmation by remember { mutableStateOf<GhajarPurchaseRequest?>(null) }
+    var confirmationTitle by remember { mutableStateOf("") }
+    var confirmationPrice by remember { mutableStateOf<Long?>(null) }
 
     var panels by remember { mutableStateOf<List<GhajarPanel>>(emptyList()) }
     var selectedPanel by remember { mutableStateOf<GhajarPanel?>(null) }
@@ -150,12 +166,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
         )
     }
 
-    fun openBot(username: String = linkSession?.botUsername ?: "Ghajar_vpnbot") {
-        val clean = username.trim().removePrefix("@").ifBlank { "Ghajar_vpnbot" }
-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/$clean")))
+    fun openBot(session: GhajarLinkSession? = linkSession) {
+        val uri = Uri.parse(GhajarUiRules.botLink(session?.botUsername, session?.code))
+        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+            .onFailure { error = "تلگرام یا مرورگر در دسترس نیست؛ فرمان اتصال را کپی کن." }
     }
 
     suspend fun beginPurchase(request: GhajarPurchaseRequest) {
+        if (busy) return
         busy = true
         error = null
         message = null
@@ -166,6 +184,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                     paymentOptions = api.paymentOptions()
                     message = "موجودی کیف پول کافی نیست؛ روش پرداخت را انتخاب کن"
                 } else {
+                    pendingPurchase = null
+                    paymentInit = null
                     val count = importIssuedService(result.username)
                     refreshOwnedAndNotices()
                     message = if (count > 0) "$count پیکربندی سرویس خودکار اضافه شد" else "سرویس با موفقیت ساخته شد"
@@ -174,6 +194,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
             .onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در خرید") }
         busy = false
     }
+
+    LaunchedEffect(section, pendingPurchase) { listState.scrollToItem(0) }
 
     LaunchedEffect(linked, refreshKey) {
         if (!linked) return@LaunchedEffect
@@ -215,6 +237,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                 linked = true
                 linkSession = null
                 message = "حساب با موفقیت و به‌صورت امن متصل شد"
+                GhajarNotificationMonitor.refresh(context.applicationContext)
                 return@LaunchedEffect
             }
         }
@@ -224,11 +247,15 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
 
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 14.dp),
+        state = listState,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
         item {
             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
         }
+        if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
+        error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
 
         if (!linked) {
             item {
@@ -240,19 +267,35 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                             busy = true
                             error = null
                             runCatching { api.beginLink() }
-                                .onSuccess { linkSession = it }
+                                .onSuccess { linkSession = it; openBot(it) }
                                 .onFailure { error = it.message }
                             busy = false
                         }
                     },
-                    onOpenBot = ::openBot
+                    onOpenBot = { openBot() },
+                    onCopyCommand = {
+                        linkSession?.let { clipboard.setText(AnnotatedString("/link ${it.code}")) }
+                        message = "فرمان اتصال کپی شد؛ آن را بدون ویرایش در ربات بفرست."
+                    }
                 )
             }
         } else {
-            notices.firstOrNull()?.let { notice -> item { NoticeCard(notice) } }
+            item {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf("خرید", "سرویس‌های من", "پیام‌ها").forEachIndexed { index, label ->
+                        FilterChip(selected = section == index, onClick = { section = index },
+                            label = { Text(label, maxLines = 1) }, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            if (section == 2) {
+                if (notices.isEmpty() && !busy) item { Text("پیام تازه‌ای ندارید", modifier = Modifier.padding(16.dp)) }
+                items(notices, key = { "notice:${it.id}" }) { NoticeCard(it) }
+            }
 
-            if (owned.isNotEmpty()) {
+            if (section == 1) {
                 item { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
+                if (owned.isEmpty() && !busy) item { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
                 items(owned, key = { "owned:${it.username}" }) { service ->
                     OwnedServiceCard(service) {
                         scope.launch {
@@ -268,7 +311,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                 }
             }
 
-            item { SectionTitle("خرید سرویس", "لوکیشن، دسته و مدت مستقیماً از پنل خوانده می‌شود") }
+            if (section == 0) {
+            if (pendingPurchase == null) {
+            item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
             if (panels.isNotEmpty()) {
                 item {
                     FilterRow(
@@ -317,15 +362,20 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                         traffic = customTraffic,
                         days = customDays,
                         quote = customQuote,
-                        onTrafficChange = { customTraffic = it.filter(Char::isDigit).take(5) },
-                        onDaysChange = { customDays = it.filter(Char::isDigit).take(4) },
+                        onTrafficChange = { customTraffic = asciiDigits(it).take(5); customQuote = null },
+                        onDaysChange = { customDays = asciiDigits(it).take(4); customQuote = null },
                         onQuote = {
                             val panel = selectedPanel ?: return@CustomServiceCard
+                            if (busy) return@CustomServiceCard
+                            val requestedTraffic = customTraffic
+                            val requestedDays = customDays
                             scope.launch {
                                 busy = true
                                 runCatching {
-                                    api.customQuote(panel.id, customTraffic.toIntOrNull() ?: 0, customDays.toIntOrNull() ?: 0)
-                                }.onSuccess { customQuote = it }.onFailure { error = it.message }
+                                    api.customQuote(panel.id, requestedTraffic.toIntOrNull() ?: 0, requestedDays.toIntOrNull() ?: 0)
+                                }.onSuccess {
+                                    if (customTraffic == requestedTraffic && customDays == requestedDays && selectedPanel?.id == panel.id) customQuote = it
+                                }.onFailure { error = it.message }
                                 busy = false
                             }
                         }
@@ -333,54 +383,23 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                 }
             } else {
                 items(products, key = { "product:${it.id}" }) { product ->
-                    ProductCard(product) {
-                        scope.launch {
-                            beginPurchase(
-                                GhajarPurchaseRequest(
-                                    countryId = product.countryId,
-                                    serviceId = product.id,
-                                    customUsername = customUsername,
-                                    note = customNote,
-                                    discountCode = discountCode
-                                )
-                            )
-                        }
+                    ProductCard(product, enabled = !busy) {
+                        confirmationTitle = product.name
+                        confirmationPrice = product.price
+                        confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
                     }
                 }
             }
 
             selectedPanel?.let { panel ->
-                if (panel.customUsername || panel.noteEnabled || customMode) {
-                    item {
-                        PurchaseExtras(
-                            username = customUsername,
-                            usernameRequired = panel.usernameRequired,
-                            note = customNote,
-                            showUsername = panel.customUsername,
-                            showNote = panel.noteEnabled,
-                            discount = discountCode,
-                            onUsername = { customUsername = it.take(40) },
-                            onNote = { customNote = it.take(120) },
-                            onDiscount = { discountCode = it.take(60) }
-                        )
-                    }
-                }
                 if (customMode) {
                     item {
                         Button(
                             onClick = {
-                                scope.launch {
-                                    beginPurchase(
-                                        GhajarPurchaseRequest(
-                                            countryId = panel.id,
-                                            customTrafficGb = customTraffic.toIntOrNull(),
-                                            customTimeDays = customDays.toIntOrNull(),
-                                            customUsername = customUsername,
-                                            note = customNote,
-                                            discountCode = discountCode
-                                        )
-                                    )
-                                }
+                                confirmationTitle = "سرویس سفارشی · $customTraffic گیگ · $customDays روز"
+                                confirmationPrice = customQuote?.price
+                                confirmation = GhajarPurchaseRequest(countryId = panel.id,
+                                    customTrafficGb = customTraffic.toIntOrNull(), customTimeDays = customDays.toIntOrNull())
                             },
                             enabled = customQuote?.price != null && !busy,
                             modifier = Modifier.fillMaxWidth()
@@ -388,8 +407,10 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                     }
                 }
             }
+            }
 
             pendingPurchase?.takeIf { it.requiresPayment }?.let { purchase ->
+                item { SectionTitle("۳. پرداخت", "برای همین سفارش یک روش پرداخت انتخاب کن") }
                 item { PaymentSummary(purchase) }
                 paymentOptions?.methods?.let { methods ->
                     items(methods, key = { "pay:${it.id}" }) { method ->
@@ -483,30 +504,48 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                     ) { Text("تست ${panel.name}") }
                 }
             }
-        }
-
-        if (busy) {
-            item {
-                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator()
-                }
             }
         }
-        message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
-        error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
+
         item { Spacer(Modifier.height(28.dp)) }
     }
+    confirmation?.let { request ->
+        AlertDialog(
+            onDismissRequest = { confirmation = null },
+            title = { Text("۲. تأیید سفارش") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(confirmationTitle, fontWeight = FontWeight.Bold)
+                    Text(confirmationPrice?.let { "قیمت پایه: ${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست")
+                    Text("با تأیید، خرید با موجودی کیف پول انجام می‌شود؛ اگر کافی نباشد مرحلهٔ پرداخت باز می‌شود.", style = MaterialTheme.typography.bodySmall)
+                    PurchaseExtras(customUsername, selectedPanel?.usernameRequired == true, customNote,
+                        selectedPanel?.customUsername == true, selectedPanel?.noteEnabled == true, discountCode,
+                        { customUsername = it.take(40) }, { customNote = it.take(120) }, { discountCode = it.take(60) })
+                }
+            },
+            confirmButton = {
+                Button(enabled = !busy && confirmationPrice != null &&
+                    (selectedPanel?.usernameRequired != true || customUsername.isNotBlank()),
+                    onClick = {
+                        confirmation = null
+                        scope.launch { beginPurchase(request.copy(customUsername = customUsername, note = customNote, discountCode = discountCode)) }
+                    }) { Text("تأیید و ادامه") }
+            },
+            dismissButton = { TextButton(onClick = { confirmation = null }) { Text("بازگشت") } }
+        )
+    }
 }
+
+private fun asciiDigits(value: String): String = GhajarUiRules.asciiDigits(value)
 
 @Composable
 private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
     Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(50.dp).clip(CircleShape).background(Color(0xFF0E5A49)), contentAlignment = Alignment.Center) {
-            Icon(Icons.Filled.Shield, null, tint = Color(0xFFD6B45F))
-        }
+        Image(painterResource(R.drawable.ghajar_treasury), contentDescription = "وزیر خزانه‌داری قاجار با سبد خرید",
+            contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp))
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text("فروشگاه قاجار وی پی ان", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text("خزانهٔ قاجار", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(if (linked) "حساب متصل و همگام است" else "برای خرید، حساب ربات را یک‌بار متصل کن", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (linked) IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, "بروزرسانی") }
@@ -514,7 +553,7 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
 }
 
 @Composable
-private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin: () -> Unit, onOpenBot: () -> Unit) {
+private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin: () -> Unit, onOpenBot: () -> Unit, onCopyCommand: () -> Unit) {
     Card(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0B211C)),
@@ -526,11 +565,12 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin:
             Text("توکن فقط به‌صورت AES-GCM داخل Android Keystore ذخیره می‌شود.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
             Spacer(Modifier.height(14.dp))
             if (session == null) {
-                Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("ساخت کد اتصال") }
+                Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("اتصال با تلگرام") }
             } else {
                 Text(session.code, style = MaterialTheme.typography.headlineMedium, color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
-                Text("کد را داخل ربات تأیید کن؛ برنامه خودش متصل می‌شود.", color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
+                Text("کد همراه لینک به ربات می‌رود. در تلگرام «شروع / Start» را بزن و سپس به برنامه برگرد.", color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
                 Button(onClick = onOpenBot) { Icon(Icons.Filled.OpenInNew, null); Spacer(Modifier.width(7.dp)); Text("باز کردن ربات") }
+                TextButton(onClick = onCopyCommand) { Text("کپی فرمان کامل اتصال") }
             }
         }
     }
@@ -572,9 +612,15 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) 
         Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(service.productName, fontWeight = FontWeight.Bold)
-                Text("${service.username} · ${service.location}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("\u2066${service.username}\u2069", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(service.location, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            Text(service.status, color = if (service.status.contains("active", true) || service.status.contains("فعال")) Color(0xFF0E8067) else MaterialTheme.colorScheme.error)
+            val active = service.status.lowercase() in setOf("active", "enabled", "فعال")
+            Text(if (active) "فعال" else when(service.status.lowercase()) { "expired" -> "منقضی"; "disabled", "inactive" -> "غیرفعال"; else -> service.status },
+                style = MaterialTheme.typography.labelMedium,
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
             Spacer(Modifier.width(6.dp))
             Icon(Icons.Filled.AddCircle, "افزودن")
         }
@@ -583,32 +629,52 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) 
 
 @Composable
 private fun <T> FilterRow(items: List<T>, selected: T?, label: (T) -> String, onSelect: (T) -> Unit) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        items.forEach { item -> FilterChip(selected = item == selected, onClick = { onSelect(item) }, label = { Text(label(item)) }) }
+    var open by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text(selected?.let(label) ?: "انتخاب لوکیشن", maxLines = 2)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
+        }
     }
 }
 
 @Composable
 private fun <T> NullableFilterRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text(allLabel) })
-        items.forEach { item -> FilterChip(selected = item == selected, onClick = { onSelect(item) }, label = { Text(label(item)) }) }
+    var open by remember { mutableStateOf(false) }
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Text(selected?.let(label) ?: allLabel, maxLines = 2)
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelect(null); open = false })
+            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
+        }
     }
 }
 
 @Composable
-private fun ProductCard(product: GhajarProduct, onBuy: () -> Unit) {
-    Card(border = BorderStroke(1.dp, Color(0x5591BCC7)), shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
+    var expanded by remember(product.id) { mutableStateOf(false) }
+    Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
+        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Filled.ShoppingCart, null, tint = Color(0xFFD6B45F))
                 Spacer(Modifier.width(8.dp))
-                Text(product.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
-                Text("${formatPrice(product.price)} تومان", color = Color(0xFF0E8067), fontWeight = FontWeight.ExtraBold)
+                Text(product.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
+            Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
+                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text(listOfNotNull(product.trafficGb?.let { "$it گیگ" }, product.days?.let { "$it روز" }).joinToString(" · "))
-            if (product.description.isNotBlank()) Text(product.description, style = MaterialTheme.typography.bodySmall)
-            Button(onClick = onBuy, modifier = Modifier.fillMaxWidth()) { Text("خرید و فعال‌سازی") }
+            if (product.description.isNotBlank()) {
+                Text(product.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "بستن توضیحات" else "جزئیات سرویس") }
+            }
+            Button(onClick = onBuy, enabled = enabled && product.price != null,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("انتخاب سرویس") }
         }
     }
 }

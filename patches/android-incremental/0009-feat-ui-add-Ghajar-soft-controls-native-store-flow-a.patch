@@ -1,0 +1,1455 @@
+From b9054fd8e9c04c2bf9e944ca37a0132edc8a1791 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 15:38:20 +0400
+Subject: [PATCH] feat(ui): add Ghajar soft controls, native store flow and
+ full portrait welcome
+
+---
+ app/build.gradle.kts                          |   4 +-
+ .../main/java/net/gozar/app/BrandConfig.kt    |   1 +
+ .../main/java/net/gozar/app/FreeConfigs.kt    |   2 +-
+ .../java/net/gozar/app/GhajarNoticeBanner.kt  |  56 ++++
+ .../gozar/app/GhajarNotificationMonitor.kt    |  78 ++++--
+ .../java/net/gozar/app/GhajarShopScreen.kt    | 228 +++++++++++------
+ .../main/java/net/gozar/app/GhajarStoreApi.kt |   4 +-
+ .../main/java/net/gozar/app/GhajarUiRules.kt  |  15 ++
+ .../main/java/net/gozar/app/GhajarVisuals.kt  | 123 +++++++++
+ app/src/main/java/net/gozar/app/Globe.kt      |  13 +-
+ .../main/java/net/gozar/app/MainActivity.kt   | 241 ++++--------------
+ app/src/main/java/net/gozar/app/Strings.kt    |   8 +-
+ app/src/main/res/drawable/ic_royal_home.xml   |   3 +
+ .../main/res/drawable/ic_royal_settings.xml   |   4 +
+ app/src/main/res/drawable/ic_royal_shop.xml   |   3 +
+ app/src/main/res/drawable/ic_royal_tools.xml  |   3 +
+ app/src/main/res/drawable/ic_royal_tunnel.xml |   3 +
+ .../java/net/gozar/app/GhajarUiRulesTest.kt   |  20 ++
+ 18 files changed, 494 insertions(+), 315 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarUiRules.kt
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarVisuals.kt
+ create mode 100644 app/src/main/res/drawable/ic_royal_home.xml
+ create mode 100644 app/src/main/res/drawable/ic_royal_settings.xml
+ create mode 100644 app/src/main/res/drawable/ic_royal_shop.xml
+ create mode 100644 app/src/main/res/drawable/ic_royal_tools.xml
+ create mode 100644 app/src/main/res/drawable/ic_royal_tunnel.xml
+ create mode 100644 app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 276203c..af60769 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -21,8 +21,8 @@ android {
+         // explicit while building an honestly labelled Android 8+ demo.
+         minSdk = if (ghajarDemoBuild) 26 else 24
+         targetSdk = 36
+-        versionCode = 30000
+-        versionName = if (ghajarDemoBuild) "3.0.0-demo" else "3.0.0"
++        versionCode = 30001
++        versionName = if (ghajarDemoBuild) "3.0.1-demo-ui" else "3.0.1"
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+     }
+ 
+diff --git a/app/src/main/java/net/gozar/app/BrandConfig.kt b/app/src/main/java/net/gozar/app/BrandConfig.kt
+index 56dfd8d..66685bc 100644
+--- a/app/src/main/java/net/gozar/app/BrandConfig.kt
++++ b/app/src/main/java/net/gozar/app/BrandConfig.kt
+@@ -10,6 +10,7 @@ object BrandConfig {
+ 
+     const val GITHUB_URL = "https://github.com/meysam82003/Ghajarvpn-"
+     const val TELEGRAM_CHANNEL_URL = "https://t.me/Ghajarvpn"
++    const val FREE_CONFIG_CHANNEL = "Ghajarvpn"
+     const val TELEGRAM_BOT_URL = "https://t.me/Ghajar_vpnbot"
+ 
+     // The historical server path is internal and must never be rendered in UI.
+diff --git a/app/src/main/java/net/gozar/app/FreeConfigs.kt b/app/src/main/java/net/gozar/app/FreeConfigs.kt
+index fa273de..80c6bd9 100644
+--- a/app/src/main/java/net/gozar/app/FreeConfigs.kt
++++ b/app/src/main/java/net/gozar/app/FreeConfigs.kt
+@@ -18,7 +18,7 @@ import java.net.URL
+ 
+ object FreeConfigs {
+ 
+-    const val CHANNEL = "ConfigsHUB"
++    const val CHANNEL = BrandConfig.FREE_CONFIG_CHANNEL
+     const val SOURCE_URL = "https://t.me/s/$CHANNEL"
+ 
+     private const val TAG = "GhajarFree"
+diff --git a/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt b/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
+new file mode 100644
+index 0000000..a36730a
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
+@@ -0,0 +1,56 @@
++package net.gozar.app
++
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.*
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.Close
++import androidx.compose.material.icons.filled.Notifications
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.semantics.LiveRegionMode
++import androidx.compose.ui.semantics.liveRegion
++import androidx.compose.ui.semantics.semantics
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++
++/** One shared banner below the app bar, on every tab and nested screen. */
++@Composable
++internal fun GhajarNoticeBanner() {
++    val notice by GhajarNoticeBus.notice.collectAsState()
++    val context = LocalContext.current
++    var expandedId by remember { mutableStateOf<String?>(null) }
++    val current = notice ?: return
++    Surface(
++        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
++            .semantics { liveRegion = LiveRegionMode.Polite },
++        shape = MaterialTheme.shapes.medium,
++        color = if (current.important) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
++    ) {
++        Row(verticalAlignment = Alignment.CenterVertically) {
++            Row(Modifier.weight(1f).clickable { expandedId = current.id }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
++                Icon(Icons.Filled.Notifications, null, modifier = Modifier.size(22.dp))
++                Spacer(Modifier.width(10.dp))
++                Column {
++                    Text(current.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
++                    Text(current.message, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
++                }
++            }
++            IconButton(onClick = { GhajarNotificationMonitor.acknowledge(context, current.id) }) {
++                Icon(Icons.Filled.Close, "بستن این اعلان")
++            }
++        }
++    }
++    if (expandedId == current.id) {
++        AlertDialog(
++            onDismissRequest = { expandedId = null },
++            title = { Text(current.title) },
++            text = { Text(current.message) },
++            confirmButton = { TextButton(onClick = { GhajarNotificationMonitor.acknowledge(context, current.id); expandedId = null }) { Text("خواندم") } },
++            dismissButton = { TextButton(onClick = { expandedId = null }) { Text("بازگشت") } }
++        )
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt b/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
+index bf80fb2..967603c 100644
+--- a/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
++++ b/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
+@@ -24,12 +24,26 @@ import kotlinx.coroutines.cancel
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import java.security.MessageDigest
+ 
+ object GhajarNoticeBus {
+     private val _notice = MutableStateFlow<GhajarNotice?>(null)
+     val notice = _notice.asStateFlow()
+-    fun publish(value: GhajarNotice) { _notice.value = value }
+-    fun clear() { _notice.value = null }
++    private var account = ""
++    private var pending = emptyList<GhajarNotice>()
++    @Synchronized fun publish(accountKey: String, values: List<GhajarNotice>, acknowledged: Set<String>) {
++        if (account != accountKey) { pending = emptyList(); account = accountKey }
++        pending = values.distinctBy { it.id }.filterNot { it.id in acknowledged }
++            .sortedByDescending { if (it.important) 2 else if (it.serviceAlert) 1 else 0 }
++        _notice.value = pending.firstOrNull()
++    }
++    @Synchronized fun dismiss(id: String) {
++        pending = pending.filterNot { it.id == id }
++        _notice.value = pending.firstOrNull()
++    }
++    @Synchronized fun reset() { pending = emptyList(); account = ""; _notice.value = null }
+ }
+ 
+ class GhajarNotificationJob : JobService() {
+@@ -57,6 +71,22 @@ class GhajarNotificationJob : JobService() {
+ 
+ object GhajarNotificationMonitor {
+     private const val JOB_ID = 0x514A52
++    private val deliveryLock = Mutex()
++
++    private fun accountKey(context: Context): String? = GhajarAccountStore(context).token()
++        .takeIf { it.isNotBlank() }?.let { token ->
++            MessageDigest.getInstance("SHA-256").digest(token.toByteArray())
++                .take(12).joinToString("") { "%02x".format(it) }
++        }
++
++    fun acknowledge(context: Context, id: String) {
++        val key = accountKey(context) ?: return
++        val prefs = context.getSharedPreferences("ghajarvpn_notices_$key", Context.MODE_PRIVATE)
++        val acknowledged = prefs.getStringSet("acknowledged", emptySet()).orEmpty().toMutableSet()
++        acknowledged += id
++        prefs.edit().putStringSet("acknowledged", acknowledged.toList().takeLast(500).toSet()).apply()
++        GhajarNoticeBus.dismiss(id)
++    }
+ 
+     fun initialize(context: Context) {
+         createChannels(context)
+@@ -74,23 +104,23 @@ object GhajarNotificationMonitor {
+ 
+     suspend fun refresh(context: Context) {
+         val api = GhajarStoreApi(context)
+-        if (!api.isLinked) return
+-        val prefs = context.getSharedPreferences("ghajarvpn_notices_v2", Context.MODE_PRIVATE)
+-        val seen = prefs.getStringSet("seen_notices", emptySet()).orEmpty().toMutableSet()
+-        val notices = runCatching { api.notices() }.getOrDefault(emptyList())
+-        notices.filterNot { it.id in seen }.forEach { notice ->
+-            val enriched = notice.withUsageSummary()
+-            GhajarNoticeBus.publish(enriched)
+-            post(context, enriched)
+-            seen += notice.id
++        val key = accountKey(context) ?: run { GhajarNoticeBus.reset(); return }
++        val notices = try { api.notices() } catch (e: kotlinx.coroutines.CancellationException) { throw e }
++            catch (_: Exception) { return }
++        deliveryLock.withLock {
++            if (accountKey(context) != key) return@withLock
++            val prefs = context.getSharedPreferences("ghajarvpn_notices_$key", Context.MODE_PRIVATE)
++            val notified = prefs.getStringSet("notified", emptySet()).orEmpty().toMutableSet()
++            val acknowledged = prefs.getStringSet("acknowledged", emptySet()).orEmpty()
++            val enriched = notices.map { it.withUsageSummary() }
++            // In-app acknowledgement and OS delivery are independent. Fetching a
++            // notice in the shop or denying OS permission cannot hide the banner.
++            GhajarNoticeBus.publish(key, enriched, acknowledged)
++            enriched.filterNot { it.id in notified }.forEach { notice ->
++                if (post(context, notice)) notified += notice.id
++            }
++            prefs.edit().putStringSet("notified", notified.toList().takeLast(500).toSet()).apply()
+         }
+-        if (seen.size > 250) {
+-            val keep = seen.toList().takeLast(200).toSet()
+-            prefs.edit().putStringSet("seen_notices", keep).apply()
+-        } else {
+-            prefs.edit().putStringSet("seen_notices", seen).apply()
+-        }
+-
+     }
+ 
+     /** Uses the panel-provided meta values; no guessed quota or expiry is emitted. */
+@@ -105,16 +135,19 @@ object GhajarNotificationMonitor {
+         return copy(message = "$message\n$suffix")
+     }
+ 
+-    private fun post(context: Context, notice: GhajarNotice) {
++    private fun post(context: Context, notice: GhajarNotice): Boolean {
+         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
+                 context, Manifest.permission.POST_NOTIFICATIONS
+             ) != PackageManager.PERMISSION_GRANTED
+-        ) return
++        ) return false
++        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
+         val channel = when {
+             notice.important -> BrandConfig.NOTIFICATION_CHANNEL_IMPORTANT
+             notice.serviceAlert -> BrandConfig.NOTIFICATION_CHANNEL_SERVICE
+             else -> BrandConfig.NOTIFICATION_CHANNEL_GENERAL
+         }
++        if (Build.VERSION.SDK_INT >= 26 && context.getSystemService(NotificationManager::class.java)
++                .getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE) return false
+         val open = PendingIntent.getActivity(
+             context,
+             notice.id.hashCode(),
+@@ -130,7 +163,10 @@ object GhajarNotificationMonitor {
+             .setAutoCancel(true)
+             .setContentIntent(open)
+             .build()
+-        NotificationManagerCompat.from(context).notify(notice.id.hashCode(), notification)
++        return runCatching {
++            NotificationManagerCompat.from(context).notify(notice.id.hashCode(), notification)
++            true
++        }.getOrDefault(false)
+     }
+ 
+     private fun createChannels(context: Context) {
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index 72b88a7..4fc6be1 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -6,6 +6,7 @@ import android.net.Uri
+ import androidx.activity.compose.rememberLauncherForActivityResult
+ import androidx.activity.result.contract.ActivityResultContracts
+ import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.Image
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.horizontalScroll
+ import androidx.compose.foundation.layout.Arrangement
+@@ -38,6 +39,12 @@ import androidx.compose.material.icons.filled.Security
+ import androidx.compose.material.icons.filled.Shield
+ import androidx.compose.material.icons.filled.ShoppingCart
+ import androidx.compose.material3.Button
++import androidx.compose.material3.AlertDialog
++import androidx.compose.material3.LinearProgressIndicator
++import androidx.compose.foundation.lazy.rememberLazyListState
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.foundation.layout.heightIn
++import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.material3.Card
+ import androidx.compose.material3.CardDefaults
+ import androidx.compose.material3.CircularProgressIndicator
+@@ -45,6 +52,8 @@ import androidx.compose.material3.FilterChip
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.DropdownMenu
++import androidx.compose.material3.DropdownMenuItem
+ import androidx.compose.material3.OutlinedButton
+ import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.Text
+@@ -61,6 +70,8 @@ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.platform.LocalClipboardManager
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.text.AnnotatedString
+@@ -89,6 +100,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+     var error by remember { mutableStateOf<String?>(null) }
+     var message by remember { mutableStateOf<String?>(null) }
+     var refreshKey by remember { mutableIntStateOf(0) }
++    var section by remember { mutableIntStateOf(0) }
++    val listState = rememberLazyListState()
++    var confirmation by remember { mutableStateOf<GhajarPurchaseRequest?>(null) }
++    var confirmationTitle by remember { mutableStateOf("") }
++    var confirmationPrice by remember { mutableStateOf<Long?>(null) }
+ 
+     var panels by remember { mutableStateOf<List<GhajarPanel>>(emptyList()) }
+     var selectedPanel by remember { mutableStateOf<GhajarPanel?>(null) }
+@@ -150,12 +166,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+         )
+     }
+ 
+-    fun openBot(username: String = linkSession?.botUsername ?: "Ghajar_vpnbot") {
+-        val clean = username.trim().removePrefix("@").ifBlank { "Ghajar_vpnbot" }
+-        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/$clean")))
++    fun openBot(session: GhajarLinkSession? = linkSession) {
++        val uri = Uri.parse(GhajarUiRules.botLink(session?.botUsername, session?.code))
++        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
++            .onFailure { error = "تلگرام یا مرورگر در دسترس نیست؛ فرمان اتصال را کپی کن." }
+     }
+ 
+     suspend fun beginPurchase(request: GhajarPurchaseRequest) {
++        if (busy) return
+         busy = true
+         error = null
+         message = null
+@@ -166,6 +184,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                     paymentOptions = api.paymentOptions()
+                     message = "موجودی کیف پول کافی نیست؛ روش پرداخت را انتخاب کن"
+                 } else {
++                    pendingPurchase = null
++                    paymentInit = null
+                     val count = importIssuedService(result.username)
+                     refreshOwnedAndNotices()
+                     message = if (count > 0) "$count پیکربندی سرویس خودکار اضافه شد" else "سرویس با موفقیت ساخته شد"
+@@ -175,6 +195,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+         busy = false
+     }
+ 
++    LaunchedEffect(section, pendingPurchase) { listState.scrollToItem(0) }
++
+     LaunchedEffect(linked, refreshKey) {
+         if (!linked) return@LaunchedEffect
+         busy = true
+@@ -215,6 +237,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                 linked = true
+                 linkSession = null
+                 message = "حساب با موفقیت و به‌صورت امن متصل شد"
++                GhajarNotificationMonitor.refresh(context.applicationContext)
+                 return@LaunchedEffect
+             }
+         }
+@@ -224,11 +247,15 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+ 
+     LazyColumn(
+         modifier = modifier.fillMaxSize().padding(horizontal = 14.dp),
++        state = listState,
+         verticalArrangement = Arrangement.spacedBy(12.dp)
+     ) {
+         item {
+             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
+         }
++        if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
++        message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
++        error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
+ 
+         if (!linked) {
+             item {
+@@ -240,19 +267,35 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                             busy = true
+                             error = null
+                             runCatching { api.beginLink() }
+-                                .onSuccess { linkSession = it }
++                                .onSuccess { linkSession = it; openBot(it) }
+                                 .onFailure { error = it.message }
+                             busy = false
+                         }
+                     },
+-                    onOpenBot = ::openBot
++                    onOpenBot = { openBot() },
++                    onCopyCommand = {
++                        linkSession?.let { clipboard.setText(AnnotatedString("/link ${it.code}")) }
++                        message = "فرمان اتصال کپی شد؛ آن را بدون ویرایش در ربات بفرست."
++                    }
+                 )
+             }
+         } else {
+-            notices.firstOrNull()?.let { notice -> item { NoticeCard(notice) } }
++            item {
++                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
++                    listOf("خرید", "سرویس‌های من", "پیام‌ها").forEachIndexed { index, label ->
++                        FilterChip(selected = section == index, onClick = { section = index },
++                            label = { Text(label, maxLines = 1) }, modifier = Modifier.weight(1f))
++                    }
++                }
++            }
++            if (section == 2) {
++                if (notices.isEmpty() && !busy) item { Text("پیام تازه‌ای ندارید", modifier = Modifier.padding(16.dp)) }
++                items(notices, key = { "notice:${it.id}" }) { NoticeCard(it) }
++            }
+ 
+-            if (owned.isNotEmpty()) {
++            if (section == 1) {
+                 item { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
++                if (owned.isEmpty() && !busy) item { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
+                 items(owned, key = { "owned:${it.username}" }) { service ->
+                     OwnedServiceCard(service) {
+                         scope.launch {
+@@ -268,7 +311,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                 }
+             }
+ 
+-            item { SectionTitle("خرید سرویس", "لوکیشن، دسته و مدت مستقیماً از پنل خوانده می‌شود") }
++            if (section == 0) {
++            if (pendingPurchase == null) {
++            item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
+             if (panels.isNotEmpty()) {
+                 item {
+                     FilterRow(
+@@ -317,15 +362,20 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                         traffic = customTraffic,
+                         days = customDays,
+                         quote = customQuote,
+-                        onTrafficChange = { customTraffic = it.filter(Char::isDigit).take(5) },
+-                        onDaysChange = { customDays = it.filter(Char::isDigit).take(4) },
++                        onTrafficChange = { customTraffic = asciiDigits(it).take(5); customQuote = null },
++                        onDaysChange = { customDays = asciiDigits(it).take(4); customQuote = null },
+                         onQuote = {
+                             val panel = selectedPanel ?: return@CustomServiceCard
++                            if (busy) return@CustomServiceCard
++                            val requestedTraffic = customTraffic
++                            val requestedDays = customDays
+                             scope.launch {
+                                 busy = true
+                                 runCatching {
+-                                    api.customQuote(panel.id, customTraffic.toIntOrNull() ?: 0, customDays.toIntOrNull() ?: 0)
+-                                }.onSuccess { customQuote = it }.onFailure { error = it.message }
++                                    api.customQuote(panel.id, requestedTraffic.toIntOrNull() ?: 0, requestedDays.toIntOrNull() ?: 0)
++                                }.onSuccess {
++                                    if (customTraffic == requestedTraffic && customDays == requestedDays && selectedPanel?.id == panel.id) customQuote = it
++                                }.onFailure { error = it.message }
+                                 busy = false
+                             }
+                         }
+@@ -333,54 +383,23 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                 }
+             } else {
+                 items(products, key = { "product:${it.id}" }) { product ->
+-                    ProductCard(product) {
+-                        scope.launch {
+-                            beginPurchase(
+-                                GhajarPurchaseRequest(
+-                                    countryId = product.countryId,
+-                                    serviceId = product.id,
+-                                    customUsername = customUsername,
+-                                    note = customNote,
+-                                    discountCode = discountCode
+-                                )
+-                            )
+-                        }
++                    ProductCard(product, enabled = !busy) {
++                        confirmationTitle = product.name
++                        confirmationPrice = product.price
++                        confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
+                     }
+                 }
+             }
+ 
+             selectedPanel?.let { panel ->
+-                if (panel.customUsername || panel.noteEnabled || customMode) {
+-                    item {
+-                        PurchaseExtras(
+-                            username = customUsername,
+-                            usernameRequired = panel.usernameRequired,
+-                            note = customNote,
+-                            showUsername = panel.customUsername,
+-                            showNote = panel.noteEnabled,
+-                            discount = discountCode,
+-                            onUsername = { customUsername = it.take(40) },
+-                            onNote = { customNote = it.take(120) },
+-                            onDiscount = { discountCode = it.take(60) }
+-                        )
+-                    }
+-                }
+                 if (customMode) {
+                     item {
+                         Button(
+                             onClick = {
+-                                scope.launch {
+-                                    beginPurchase(
+-                                        GhajarPurchaseRequest(
+-                                            countryId = panel.id,
+-                                            customTrafficGb = customTraffic.toIntOrNull(),
+-                                            customTimeDays = customDays.toIntOrNull(),
+-                                            customUsername = customUsername,
+-                                            note = customNote,
+-                                            discountCode = discountCode
+-                                        )
+-                                    )
+-                                }
++                                confirmationTitle = "سرویس سفارشی · $customTraffic گیگ · $customDays روز"
++                                confirmationPrice = customQuote?.price
++                                confirmation = GhajarPurchaseRequest(countryId = panel.id,
++                                    customTrafficGb = customTraffic.toIntOrNull(), customTimeDays = customDays.toIntOrNull())
+                             },
+                             enabled = customQuote?.price != null && !busy,
+                             modifier = Modifier.fillMaxWidth()
+@@ -388,8 +407,10 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                     }
+                 }
+             }
++            }
+ 
+             pendingPurchase?.takeIf { it.requiresPayment }?.let { purchase ->
++                item { SectionTitle("۳. پرداخت", "برای همین سفارش یک روش پرداخت انتخاب کن") }
+                 item { PaymentSummary(purchase) }
+                 paymentOptions?.methods?.let { methods ->
+                     items(methods, key = { "pay:${it.id}" }) { method ->
+@@ -483,30 +504,48 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                     ) { Text("تست ${panel.name}") }
+                 }
+             }
+-        }
+-
+-        if (busy) {
+-            item {
+-                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+-                    CircularProgressIndicator()
+-                }
+             }
+         }
+-        message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
+-        error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
++
+         item { Spacer(Modifier.height(28.dp)) }
+     }
++    confirmation?.let { request ->
++        AlertDialog(
++            onDismissRequest = { confirmation = null },
++            title = { Text("۲. تأیید سفارش") },
++            text = {
++                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
++                    Text(confirmationTitle, fontWeight = FontWeight.Bold)
++                    Text(confirmationPrice?.let { "قیمت پایه: ${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست")
++                    Text("با تأیید، خرید با موجودی کیف پول انجام می‌شود؛ اگر کافی نباشد مرحلهٔ پرداخت باز می‌شود.", style = MaterialTheme.typography.bodySmall)
++                    PurchaseExtras(customUsername, selectedPanel?.usernameRequired == true, customNote,
++                        selectedPanel?.customUsername == true, selectedPanel?.noteEnabled == true, discountCode,
++                        { customUsername = it.take(40) }, { customNote = it.take(120) }, { discountCode = it.take(60) })
++                }
++            },
++            confirmButton = {
++                Button(enabled = !busy && confirmationPrice != null &&
++                    (selectedPanel?.usernameRequired != true || customUsername.isNotBlank()),
++                    onClick = {
++                        confirmation = null
++                        scope.launch { beginPurchase(request.copy(customUsername = customUsername, note = customNote, discountCode = discountCode)) }
++                    }) { Text("تأیید و ادامه") }
++            },
++            dismissButton = { TextButton(onClick = { confirmation = null }) { Text("بازگشت") } }
++        )
++    }
+ }
+ 
++private fun asciiDigits(value: String): String = GhajarUiRules.asciiDigits(value)
++
+ @Composable
+ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
+     Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+-        Box(Modifier.size(50.dp).clip(CircleShape).background(Color(0xFF0E5A49)), contentAlignment = Alignment.Center) {
+-            Icon(Icons.Filled.Shield, null, tint = Color(0xFFD6B45F))
+-        }
++        Image(painterResource(R.drawable.ghajar_treasury), contentDescription = "وزیر خزانه‌داری قاجار با سبد خرید",
++            contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp))
+         Spacer(Modifier.width(10.dp))
+         Column(Modifier.weight(1f)) {
+-            Text("فروشگاه قاجار وی پی ان", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
++            Text("خزانهٔ قاجار", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+             Text(if (linked) "حساب متصل و همگام است" else "برای خرید، حساب ربات را یک‌بار متصل کن", color = MaterialTheme.colorScheme.onSurfaceVariant)
+         }
+         if (linked) IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, "بروزرسانی") }
+@@ -514,7 +553,7 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
+ }
+ 
+ @Composable
+-private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin: () -> Unit, onOpenBot: () -> Unit) {
++private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin: () -> Unit, onOpenBot: () -> Unit, onCopyCommand: () -> Unit) {
+     Card(
+         shape = RoundedCornerShape(24.dp),
+         colors = CardDefaults.cardColors(containerColor = Color(0xFF0B211C)),
+@@ -526,11 +565,12 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin:
+             Text("توکن فقط به‌صورت AES-GCM داخل Android Keystore ذخیره می‌شود.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
+             Spacer(Modifier.height(14.dp))
+             if (session == null) {
+-                Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("ساخت کد اتصال") }
++                Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("اتصال با تلگرام") }
+             } else {
+                 Text(session.code, style = MaterialTheme.typography.headlineMedium, color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
+-                Text("کد را داخل ربات تأیید کن؛ برنامه خودش متصل می‌شود.", color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
++                Text("کد همراه لینک به ربات می‌رود. در تلگرام «شروع / Start» را بزن و سپس به برنامه برگرد.", color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
+                 Button(onClick = onOpenBot) { Icon(Icons.Filled.OpenInNew, null); Spacer(Modifier.width(7.dp)); Text("باز کردن ربات") }
++                TextButton(onClick = onCopyCommand) { Text("کپی فرمان کامل اتصال") }
+             }
+         }
+     }
+@@ -572,9 +612,15 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit)
+         Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
+             Column(Modifier.weight(1f)) {
+                 Text(service.productName, fontWeight = FontWeight.Bold)
+-                Text("${service.username} · ${service.location}", color = MaterialTheme.colorScheme.onSurfaceVariant)
++                Text("\u2066${service.username}\u2069", style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
++                Text(service.location, style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+             }
+-            Text(service.status, color = if (service.status.contains("active", true) || service.status.contains("فعال")) Color(0xFF0E8067) else MaterialTheme.colorScheme.error)
++            val active = service.status.lowercase() in setOf("active", "enabled", "فعال")
++            Text(if (active) "فعال" else when(service.status.lowercase()) { "expired" -> "منقضی"; "disabled", "inactive" -> "غیرفعال"; else -> service.status },
++                style = MaterialTheme.typography.labelMedium,
++                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+             Spacer(Modifier.width(6.dp))
+             Icon(Icons.Filled.AddCircle, "افزودن")
+         }
+@@ -583,32 +629,52 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit)
+ 
+ @Composable
+ private fun <T> FilterRow(items: List<T>, selected: T?, label: (T) -> String, onSelect: (T) -> Unit) {
+-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+-        items.forEach { item -> FilterChip(selected = item == selected, onClick = { onSelect(item) }, label = { Text(label(item)) }) }
++    var open by remember { mutableStateOf(false) }
++    Box(Modifier.fillMaxWidth()) {
++        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
++            Text(selected?.let(label) ?: "انتخاب لوکیشن", maxLines = 2)
++        }
++        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
++            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
++        }
+     }
+ }
+ 
+ @Composable
+ private fun <T> NullableFilterRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
+-    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+-        FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text(allLabel) })
+-        items.forEach { item -> FilterChip(selected = item == selected, onClick = { onSelect(item) }, label = { Text(label(item)) }) }
++    var open by remember { mutableStateOf(false) }
++    Box(Modifier.fillMaxWidth()) {
++        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
++            Text(selected?.let(label) ?: allLabel, maxLines = 2)
++        }
++        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
++            DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelect(null); open = false })
++            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
++        }
+     }
+ }
+ 
+ @Composable
+-private fun ProductCard(product: GhajarProduct, onBuy: () -> Unit) {
+-    Card(border = BorderStroke(1.dp, Color(0x5591BCC7)), shape = RoundedCornerShape(20.dp)) {
+-        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
++private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
++    var expanded by remember(product.id) { mutableStateOf(false) }
++    Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
++        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
++        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+             Row(verticalAlignment = Alignment.CenterVertically) {
+                 Icon(Icons.Filled.ShoppingCart, null, tint = Color(0xFFD6B45F))
+                 Spacer(Modifier.width(8.dp))
+-                Text(product.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+-                Text("${formatPrice(product.price)} تومان", color = Color(0xFF0E8067), fontWeight = FontWeight.ExtraBold)
++                Text(product.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+             }
++            Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
++                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+             Text(listOfNotNull(product.trafficGb?.let { "$it گیگ" }, product.days?.let { "$it روز" }).joinToString(" · "))
+-            if (product.description.isNotBlank()) Text(product.description, style = MaterialTheme.typography.bodySmall)
+-            Button(onClick = onBuy, modifier = Modifier.fillMaxWidth()) { Text("خرید و فعال‌سازی") }
++            if (product.description.isNotBlank()) {
++                Text(product.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
++                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "بستن توضیحات" else "جزئیات سرویس") }
++            }
++            Button(onClick = onBuy, enabled = enabled && product.price != null,
++                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("انتخاب سرویس") }
+         }
+     }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+index 2a6515c..417ceb4 100644
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -36,7 +36,7 @@ data class GhajarTimeRange(val days: Int, val name: String)
+ data class GhajarProduct(
+     val id: String,
+     val name: String,
+-    val price: Long,
++    val price: Long?,
+     val trafficGb: Double?,
+     val days: Int?,
+     val description: String,
+@@ -219,7 +219,7 @@ class GhajarStoreApi(context: Context) {
+             GhajarProduct(
+                 id = id,
+                 name = visible(row.optString("name", "سرویس قاجار")),
+-                price = row.optDouble("price", 0.0).toLong(),
++                price = row.optNullableDouble("price")?.takeIf { it.isFinite() && it >= 0 }?.toLong(),
+                 trafficGb = row.optNullableDouble("traffic_gb")?.takeIf { it >= 0 },
+                 days = row.optInt("time_days", -1).takeIf { it >= 0 },
+                 description = visible(row.optString("description")),
+diff --git a/app/src/main/java/net/gozar/app/GhajarUiRules.kt b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+new file mode 100644
+index 0000000..c200113
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+@@ -0,0 +1,15 @@
++package net.gozar.app
++
++/** Pure contracts shared by native UI and regression tests. */
++internal object GhajarUiRules {
++    fun asciiDigits(value: String): String = value.mapNotNull { char ->
++        char.digitToIntOrNull()?.let { ('0'.code + it).toChar() }
++    }.joinToString("")
++
++    fun botLink(username: String?, code: String?): String {
++        val bot = username?.trim()?.removePrefix("@")
++            ?.takeIf { it.matches(Regex("[A-Za-z0-9_]{5,32}")) } ?: "Ghajar_vpnbot"
++        val payload = code?.takeIf { it.matches(Regex("[0-9]{6}")) }?.let { "?start=link_$it" }.orEmpty()
++        return "https://t.me/$bot$payload"
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+new file mode 100644
+index 0000000..c591034
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -0,0 +1,123 @@
++package net.gozar.app
++
++import android.content.Context
++import androidx.compose.animation.core.animateFloatAsState
++import androidx.compose.animation.core.tween
++import androidx.compose.foundation.Image
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.pager.HorizontalPager
++import androidx.compose.foundation.pager.rememberPagerState
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.shadow
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.Shape
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.graphics.luminance
++import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.res.painterResource
++import androidx.compose.ui.semantics.contentDescription
++import androidx.compose.ui.semantics.semantics
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.dp
++import kotlinx.coroutines.delay
++
++internal val GhajarSoftShapes = Shapes(
++    extraSmall = RoundedCornerShape(10.dp),
++    small = RoundedCornerShape(16.dp),
++    medium = RoundedCornerShape(22.dp),
++    large = RoundedCornerShape(28.dp),
++    extraLarge = RoundedCornerShape(32.dp)
++)
++
++/** Soft native surfaces, with readable foregrounds and no bitmap controls. */
++@Composable
++internal fun ghajarSoftSurface(shape: Shape, enabled: Boolean = true): Modifier {
++    val colors = MaterialTheme.colorScheme
++    return Modifier.shadow(if (enabled) 3.dp else 0.dp, shape, clip = false)
++        .background(Brush.verticalGradient(listOf(colors.surface, colors.surfaceContainerLow)), shape)
++}
++
++@Composable
++internal fun GhajarWordmark(modifier: Modifier = Modifier) {
++    Image(
++        painterResource(R.drawable.ghajar_wordmark),
++        contentDescription = "قاجار VPN",
++        contentScale = ContentScale.Fit,
++        modifier = modifier
++    )
++}
++
++/** Posters are intro illustrations, never a substitute for live VPN state. */
++@Composable
++internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
++    val context = LocalContext.current
++    val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
++    val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
++    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
++    val posters = remember(dark) {
++        val light = listOf(R.drawable.ghajar_welcome_world, R.drawable.ghajar_welcome_connection, R.drawable.ghajar_welcome_locations)
++        if (dark) listOf(R.drawable.ghajar_welcome_royal) + light
++        else light + R.drawable.ghajar_welcome_royal
++    }
++    val pager = rememberPagerState(pageCount = { posters.size })
++    val finish by rememberUpdatedState(onDone)
++    var entered by remember { mutableStateOf(false) }
++    val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(450), label = "welcome-reveal")
++    fun close() {
++        prefs.edit().putBoolean("soft_intro_seen", true).apply()
++        finish()
++    }
++    LaunchedEffect(Unit) {
++        entered = true
++        if (returning) { delay(1800); close() }
++    }
++    val posterDark = posters[pager.currentPage] == R.drawable.ghajar_welcome_royal
++    val backdrop = if (posterDark) Color(0xFF061226) else Color(0xFFEAF1FB)
++    Column(
++        Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
++        horizontalAlignment = Alignment.CenterHorizontally
++    ) {
++        HorizontalPager(
++            state = pager,
++            modifier = Modifier.weight(1f).fillMaxWidth(),
++            beyondViewportPageCount = 0
++        ) { page ->
++            Image(
++                painterResource(posters[page]),
++                contentDescription = "تصویر معرفی قاجار VPN، صفحه ${page + 1}",
++                // FIT is deliberate: hats, feet, captions and all four edges stay visible.
++                contentScale = ContentScale.Fit,
++                modifier = Modifier.fillMaxSize().padding(4.dp).graphicsLayer {
++                    alpha = reveal
++                    scaleX = 0.985f + reveal * 0.015f
++                    scaleY = scaleX
++                }
++            )
++        }
++        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
++            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
++                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.semantics { contentDescription = "صفحه ${pager.currentPage + 1} از ${posters.size}" }) {
++                    posters.indices.forEach { index ->
++                        Box(Modifier.size(if (index == pager.currentPage) 8.dp else 6.dp)
++                            .background(if (index == pager.currentPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, CircleShape))
++                    }
++                }
++                Text("تصاویر معرفی • وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود", style = MaterialTheme.typography.labelSmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
++                    modifier = Modifier.padding(vertical = 6.dp))
++                Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
++                    shape = RoundedCornerShape(20.dp), elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)) {
++                    Text("ورود به قاجار VPN")
++                }
++            }
++        }
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/Globe.kt b/app/src/main/java/net/gozar/app/Globe.kt
+index 5787878..b0c79fe 100644
+--- a/app/src/main/java/net/gozar/app/Globe.kt
++++ b/app/src/main/java/net/gozar/app/Globe.kt
+@@ -266,8 +266,10 @@ private fun globeFrameRateModifier(): Modifier {
+     } else Modifier
+ }
+ 
+-private const val GLOBE_RENDER_MAX = 768
+-private const val GLOBE_RENDER_SCALE = 100
++// CPU rasterization is capped independently of screen density: 75% fewer
++// pixels at the cap, retaining the same globe geometry and geographic data.
++private const val GLOBE_RENDER_MAX = 384
++private const val GLOBE_RENDER_SCALE = 75
+ private const val GLOBE_RAD_FRAC = 0.86
+ 
+ private fun sampleMask(lon: Float, lat: Float): Float {
+@@ -464,7 +466,7 @@ private fun renderRange(
+     }
+ }
+ 
+-private val RENDER_CORES = Runtime.getRuntime().availableProcessors().coerceIn(2, 8)
++private val RENDER_CORES = Runtime.getRuntime().availableProcessors().coerceIn(1, 4)
+ 
+ private suspend fun renderGlobeParallel(
+     px: IntArray, lut: GlobeLut, spin: Float, tilt: Float, bilinear: Boolean, light: Boolean
+@@ -608,8 +610,8 @@ fun EarthSection(modifier: Modifier = Modifier) {
+             tiltX.snapTo(targetTilt)
+         } else {
+             coroutineScope {
+-                launch { spinY.animateTo(targetSpin, tween(900, easing = FastOutSlowInEasing)) }
+-                launch { tiltX.animateTo(targetTilt, tween(900, easing = FastOutSlowInEasing)) }
++                launch { spinY.animateTo(targetSpin, tween(550, easing = FastOutSlowInEasing)) }
++                launch { tiltX.animateTo(targetTilt, tween(550, easing = FastOutSlowInEasing)) }
+             }
+         }
+     }
+@@ -714,7 +716,6 @@ fun EarthSection(modifier: Modifier = Modifier) {
+                 Box(
+                     Modifier
+                         .size(side)
+-                        .then(globeFrameRateModifier())
+                         .graphicsLayer {
+                             val a = if (introAlpha.isNaN()) 1f else introAlpha
+                             val sc = if (introScale.isNaN()) 1f else introScale
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 710fe12..f2e7f3e 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -186,6 +186,7 @@ import androidx.compose.ui.viewinterop.AndroidView
+ import androidx.compose.ui.graphics.FilterQuality
+ import android.content.ContextWrapper
+ import androidx.lifecycle.LifecycleOwner
++import androidx.lifecycle.repeatOnLifecycle
+ import androidx.camera.core.CameraSelector
+ import androidx.camera.core.ImageAnalysis
+ import androidx.camera.core.ImageProxy
+@@ -360,7 +361,7 @@ private val GnetLightColors = lightColorScheme(
+     onTertiary = Color(0xFFFFFFFF),
+     tertiaryContainer = Color(0xFFC9EDF7),
+     onTertiaryContainer = Color(0xFF04333F),
+-    background = Color(0xFFF5F0E2),
++    background = Color(0xFFEEF3FA),
+     onBackground = Color(0xFF131720),
+     surface = Color(0xFFFFFFFF),
+     onSurface = Color(0xFF131720),
+@@ -396,7 +397,7 @@ private val GnetDarkColors = darkColorScheme(
+     onSecondaryContainer = Color(0xFFD9E2F2),
+     background = Color(0xFF071B2E),
+     onBackground = Color(0xFFE6EAF2),
+-    surface = Color(0xFF0C2631),
++    surface = Color(0xFF102637),
+     onSurface = Color(0xFFE6EAF2),
+     surfaceVariant = Color(0xFF232C40),
+     onSurfaceVariant = Color(0xFFA2B0C8),
+@@ -489,158 +490,6 @@ private fun stringsFn(): (String) -> String {
+ }
+ 
+ 
+-@Composable
+-private fun WelcomeScreen(onDone: () -> Unit) {
+-    val t = stringsFn()
+-    val context = LocalContext.current
+-    val welcomeFont = if (LocalLang.current == Lang.FA) VazirFont else LexendFont
+-    var showLogo by remember { mutableStateOf(false) }
+-    var showTagline by remember { mutableStateOf(false) }
+-    var livePoster by remember { mutableStateOf<ImageBitmap?>(null) }
+-
+-    LaunchedEffect("ghajar-live-poster") {
+-        livePoster = GhajarSplashRepository.load(context)?.asImageBitmap()
+-    }
+-
+-    LaunchedEffect(Unit) {
+-        showLogo = true
+-        delay(400)
+-        showTagline = true
+-        delay(1600)
+-        onDone()
+-    }
+-
+-    val logoAlpha by animateFloatAsState(
+-        targetValue = if (showLogo) 1f else 0f,
+-        animationSpec = tween(600),
+-        label = "logoAlpha"
+-    )
+-    val logoScale by animateFloatAsState(
+-        targetValue = if (showLogo) 1f else 0.7f,
+-        animationSpec = tween(600),
+-        label = "logoScale"
+-    )
+-    val taglineAlpha by animateFloatAsState(
+-        targetValue = if (showTagline) 1f else 0f,
+-        animationSpec = tween(700),
+-        label = "taglineAlpha"
+-    )
+-    val taglineShift by animateFloatAsState(
+-        targetValue = if (showTagline) 0f else 30f,
+-        animationSpec = tween(700),
+-        label = "taglineShift"
+-    )
+-
+-    Box(
+-        Modifier
+-            .fillMaxSize()
+-            .background(SplashBackground),
+-        contentAlignment = Alignment.Center
+-    ) {
+-        Column(
+-            horizontalAlignment = Alignment.CenterHorizontally,
+-            verticalArrangement = Arrangement.Center
+-        ) {
+-            Image(
+-                painter = livePoster?.let { androidx.compose.ui.graphics.painter.BitmapPainter(it) }
+-                    ?: painterResource(R.drawable.ghajarvpn_royal_badge),
+-                contentDescription = null,
+-                contentScale = ContentScale.Fit,
+-                modifier = Modifier
+-                    .size(200.dp)
+-                    .graphicsLayer {
+-                        alpha = logoAlpha
+-                        scaleX = logoScale
+-                        scaleY = logoScale
+-                    }
+-            )
+-
+-            val taglineParts = remember(t("welcome_tagline")) {
+-                t("welcome_tagline").split(Regex("[,\u060C]"))
+-                    .map { it.trim() }.filter { it.isNotEmpty() }
+-            }
+-            val taglineColor = Color(0xFFEDEFF3)
+-
+-            Row(
+-                horizontalArrangement = Arrangement.Center,
+-                verticalAlignment = Alignment.CenterVertically,
+-                modifier = Modifier
+-                    .fillMaxWidth()
+-                    .offset(y = (-40).dp)
+-                    .padding(horizontal = 10.dp)
+-                    .graphicsLayer {
+-                        alpha = taglineAlpha
+-                        translationY = taglineShift
+-                    }
+-            ) {
+-                val taglineStyle = MaterialTheme.typography.titleMedium
+-
+-                Icon(
+-                    Icons.Filled.Security,
+-                    contentDescription = null,
+-                    tint = taglineColor,
+-                    modifier = Modifier.size(17.dp)
+-                )
+-                Spacer(Modifier.width(7.dp))
+-                Text(
+-                    text = taglineParts.getOrElse(0) { "" },
+-                    style = taglineStyle,
+-                    fontSize = 16.sp,
+-                    lineHeight = 22.sp,
+-                    fontWeight = FontWeight.Bold,
+-                    fontFamily = welcomeFont,
+-                    color = taglineColor,
+-                    maxLines = 1,
+-                    softWrap = false,
+-                    overflow = TextOverflow.Clip,
+-                    modifier = Modifier.weight(1f, fill = false)
+-                )
+-                Text(
+-                    text = " | ",
+-                    style = taglineStyle,
+-                    fontSize = 16.sp,
+-                    fontWeight = FontWeight.Bold,
+-                    fontFamily = welcomeFont,
+-                    color = taglineColor.copy(alpha = 0.45f)
+-                )
+-                Text(
+-                    text = taglineParts.getOrElse(1) { "" },
+-                    style = taglineStyle,
+-                    fontSize = 16.sp,
+-                    lineHeight = 22.sp,
+-                    fontWeight = FontWeight.Bold,
+-                    fontFamily = welcomeFont,
+-                    color = taglineColor,
+-                    maxLines = 1,
+-                    softWrap = false,
+-                    overflow = TextOverflow.Clip,
+-                    modifier = Modifier.weight(1f, fill = false)
+-                )
+-                Spacer(Modifier.width(7.dp))
+-                Icon(
+-                    painter = painterResource(R.drawable.dove),
+-                    contentDescription = null,
+-                    tint = taglineColor,
+-                    modifier = Modifier.size(17.dp)
+-                )
+-            }
+-        }
+-
+-        Text(
+-            text = t("welcome_dev"),
+-            style = MaterialTheme.typography.bodyMedium,
+-            fontSize = 15.sp,
+-            fontWeight = FontWeight.Bold,
+-            fontFamily = welcomeFont,
+-            color = Color(0xFFAAB4C4),
+-            textAlign = TextAlign.Center,
+-            modifier = Modifier
+-                .align(Alignment.BottomCenter)
+-                .navigationBarsPadding()
+-                .padding(bottom = 24.dp)
+-        )
+-    }
+-}
+ internal val LocalHazeState = compositionLocalOf<HazeState?> { null }
+ 
+ object WindscribeBrand {
+@@ -790,7 +639,8 @@ class MainActivity : ComponentActivity() {
+                 colorScheme = if (!dark) GnetLightColors
+                 else if (themeMode == ThemeMode.AMOLED) GnetAmoledColors
+                 else GnetDarkColors,
+-                typography = if (lang == Lang.FA) VazirTypography else LexendTypography
++                typography = if (lang == Lang.FA) VazirTypography else LexendTypography,
++                shapes = GhajarSoftShapes
+             ) {
+                 CompositionLocalProvider(
+                     LocalLang provides lang,
+@@ -798,8 +648,15 @@ class MainActivity : ComponentActivity() {
+                 ) {
+                     var showWelcome by remember { mutableStateOf(true) }
+                     var startMain by remember { mutableStateOf(false) }
+-                    val globalNotice by GhajarNoticeBus.notice.collectAsState()
+                     val pendingOvpn by GhajarOpenVpnBridge.pending.collectAsState()
++                    LaunchedEffect(Unit) {
++                        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
++                            while (true) {
++                                GhajarNotificationMonitor.refresh(applicationContext)
++                                delay(60_000)
++                            }
++                        }
++                    }
+                     LaunchedEffect(Unit) {
+                         delay(1100)
+                         startMain = true
+@@ -812,18 +669,7 @@ class MainActivity : ComponentActivity() {
+                             visible = showWelcome,
+                             exit = fadeOut(tween(400))
+                         ) {
+-                            WelcomeScreen(onDone = { showWelcome = false })
+-                        }
+-                        globalNotice?.let { notice ->
+-                            AlertDialog(
+-                                onDismissRequest = { if (!notice.important) GhajarNoticeBus.clear() },
+-                                icon = { Icon(Icons.Filled.Shield, contentDescription = null) },
+-                                title = { Text(notice.title, fontWeight = FontWeight.Bold) },
+-                                text = { Text(notice.message) },
+-                                confirmButton = {
+-                                    TextButton(onClick = GhajarNoticeBus::clear) { Text("متوجه شدم") }
+-                                }
+-                            )
++                            GhajarWelcomeScreen(onDone = { startMain = true; showWelcome = false })
+                         }
+                         pendingOvpn?.let { profile ->
+                             var ovpnUser by remember(profile) { mutableStateOf(profile.embeddedUsername) }
+@@ -1450,22 +1296,11 @@ private fun GozarApp(
+         contentColor = MaterialTheme.colorScheme.onBackground,
+         modifier = Modifier.background(gradient),
+         topBar = {
++            Column {
+             CenterAlignedTopAppBar(
+                 title = {
+                     if (screenKey == "connection") {
+-                        val logoRes = if (effectiveDark) R.drawable.logo else R.drawable.logo_black
+-                        Box {
+-                            Image(
+-                                painter = painterResource(logoRes),
+-                                contentDescription = null,
+-                                modifier = Modifier.height(34.dp)
+-                            )
+-                            Image(
+-                                painter = painterResource(logoRes),
+-                                contentDescription = t("app_title"),
+-                                modifier = Modifier.height(34.dp)
+-                            )
+-                        }
++                        GhajarWordmark(Modifier.height(48.dp).width(164.dp))
+                     } else {
+                         Text(
+                             mixedText(when (screenKey) {
+@@ -1545,19 +1380,26 @@ private fun GozarApp(
+                     }
+                 }
+             )
++            GhajarNoticeBanner()
++            }
+         },
+         bottomBar = {
+-            NavigationBar {
++            NavigationBar(
++                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
++                    .clip(RoundedCornerShape(28.dp)),
++                containerColor = MaterialTheme.colorScheme.surface,
++                tonalElevation = 3.dp
++            ) {
+                 NavigationBarItem(
+                     selected = page == PAGE_SHOP,
+                     onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } },
+-                    icon = { Icon(Icons.Filled.ShoppingBag, contentDescription = null) },
++                    icon = { Icon(painterResource(R.drawable.ic_royal_shop), contentDescription = null, modifier = Modifier.size(28.dp)) },
+                     label = { Text(t("shop")) }
+                 )
+                 NavigationBarItem(
+                     selected = page == PAGE_SSH,
+                     onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SSH) } },
+-                    icon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
++                    icon = { Icon(painterResource(R.drawable.ic_royal_tunnel), contentDescription = null, modifier = Modifier.size(28.dp)) },
+                     label = { Text(t("ssh")) }
+                 )
+                 NavigationBarItem(
+@@ -1566,13 +1408,13 @@ private fun GozarApp(
+                         showPicker = false; showManual = false; showProjects = false; showTorNodes = false; showWindscribe = false; editingConfig = null
+                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
+                     },
+-                    icon = { Icon(Icons.Rounded.Home, contentDescription = null) },
++                    icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(28.dp)) },
+                     label = { Text(t("home")) }
+                 )
+                 NavigationBarItem(
+                     selected = page == PAGE_DEBUG,
+                     onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_DEBUG) } },
+-                    icon = { Icon(Icons.Filled.BugReport, contentDescription = null) },
++                    icon = { Icon(painterResource(R.drawable.ic_royal_tools), contentDescription = null, modifier = Modifier.size(28.dp)) },
+                     label = { Text(t("debugger")) }
+                 )
+                 NavigationBarItem(
+@@ -1594,7 +1436,7 @@ private fun GozarApp(
+                         prefsDetail = false
+                         scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
+                     },
+-                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
++                    icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(28.dp)) },
+                     label = { Text(t("settings")) }
+                 )
+             }
+@@ -6793,7 +6635,7 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
+     var updateUrl by remember { mutableStateOf<String?>(null) }
+     val scope = rememberCoroutineScope()
+     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+-    val logoRes = R.drawable.ghajarvpn_royal_badge
++    val logoRes = R.drawable.ghajar_wordmark
+     val primary = MaterialTheme.colorScheme.primary
+ 
+     Column(
+@@ -6802,11 +6644,11 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
+         horizontalAlignment = Alignment.CenterHorizontally
+     ) {
+         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 2.dp)) {
+-            PulseHalo(color = primary, size = 190.dp)
+             Image(
+                 painter = painterResource(logoRes),
+                 contentDescription = null,
+-                modifier = Modifier.size(152.dp)
++                contentScale = ContentScale.Fit,
++                modifier = Modifier.fillMaxWidth(0.78f).height(104.dp)
+             )
+         }
+ 
+@@ -6828,7 +6670,7 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
+         AboutCard(
+             icon = Icons.Filled.Hub,
+             title = t("source_code"),
+-            value = "github.com/meysam82003/Ghajarvpn",
++            value = BrandConfig.GITHUB_URL.removePrefix("https://"),
+             onClick = { runCatching { uriHandler.openUri(BrandConfig.GITHUB_URL) } }
+         )
+ 
+@@ -6990,7 +6832,8 @@ private fun AboutCard(
+                 Crossfade(targetState = value, animationSpec = tween(300), label = "aboutValue") { v ->
+                     if (!v.isNullOrBlank()) {
+                         Text(
+-                            mixedText(localizeDigits(v, LocalLang.current)),
++                            if (v.contains("github.com/") || v.startsWith("@")) "\u2066$v\u2069"
++                            else mixedText(localizeDigits(v, LocalLang.current)),
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.primary,
+                             maxLines = 2,
+@@ -8741,7 +8584,7 @@ private fun Modifier.pressBounce(
+         awaitEachGesture {
+             awaitFirstDown(requireUnconsumed = false)
+             scope.launch {
+-                scale.animateTo(0.9f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
++                scale.animateTo(0.97f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
+             }
+             waitForUpOrCancellation()
+             scope.launch {
+@@ -8767,7 +8610,7 @@ private fun FillButton(
+     val primary = accent
+     val onPrimary = MaterialTheme.colorScheme.onPrimary
+     val disabled = primary.copy(alpha = 0.35f)
+-    val shape = RoundedCornerShape(16.dp)
++    val shape = RoundedCornerShape(22.dp)
+     val hazeState = LocalHazeState.current
+     val surfaceColor = MaterialTheme.colorScheme.surface
+ 
+@@ -8777,7 +8620,7 @@ private fun FillButton(
+     var pressed by remember { mutableStateOf(false) }
+ 
+     val scale by animateFloatAsState(
+-        targetValue = if (pressed) 0.95f else 1f,
++        targetValue = if (pressed) 0.98f else 1f,
+         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+         label = "fillScale"
+     )
+@@ -8797,6 +8640,7 @@ private fun FillButton(
+     Box(
+         modifier
+             .graphicsLayer { scaleX = scale; scaleY = scale }
++            .then(ghajarSoftSurface(shape, enabled))
+             .clip(shape)
+             .then(
+                 if (hazeState != null) Modifier.hazeEffect(hazeState) {
+@@ -8809,7 +8653,7 @@ private fun FillButton(
+             .drawBehind {
+                 if (radius > 0.5f) drawCircle(color = primary, radius = radius, center = center)
+             }
+-            .border(BorderStroke(borderWidth, if (enabled) primary else disabled), shape)
++            .border(BorderStroke(0.7.dp, if (enabled) primary.copy(alpha = 0.22f) else disabled.copy(alpha = 0.3f)), shape)
+             .defaultMinSize(minWidth = 56.dp, minHeight = minHeight)
+             .onSizeChanged { sz = it }
+             .pointerInput(enabled) {
+@@ -8822,7 +8666,7 @@ private fun FillButton(
+                     pressed = false
+                 }
+             }
+-            .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() },
++            .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = androidx.compose.ui.semantics.Role.Button) { onClick() },
+         contentAlignment = Alignment.Center
+     ) {
+         CompositionLocalProvider(LocalContentColor provides contentColor) {
+@@ -8882,7 +8726,8 @@ private fun BounceIconButton(
+     IconButton(
+         onClick = onClick,
+         enabled = enabled,
+-        modifier = modifier.pressBounce(scale, scope),
++        modifier = modifier.pressBounce(scale, scope)
++            .then(ghajarSoftSurface(RoundedCornerShape(16.dp), enabled)),
+         content = content
+     )
+ }
+diff --git a/app/src/main/java/net/gozar/app/Strings.kt b/app/src/main/java/net/gozar/app/Strings.kt
+index 0667907..73af742 100644
+--- a/app/src/main/java/net/gozar/app/Strings.kt
++++ b/app/src/main/java/net/gozar/app/Strings.kt
+@@ -302,7 +302,7 @@ object Strings {
+         "proj_warp_desc" to "Cloudflare WARP over WireGuard. Free and no sign-up, but classic WARP is blocked in Iran \u2014 use Aether instead there.",
+         "proj_more_soon" to "More free projects are on the way.",
+         "proj_free" to "Free Configs",
+-        "proj_free_desc" to "Fresh community servers. The channel or group source can be changed in Ghajarvpn settings.",
++        "proj_free_desc" to "Free configurations published by @Ghajarvpn. An empty channel shows no servers; no other source is substituted.",
+         "proj_free_testing" to "Testing %d of %d, %d alive",
+         "proj_free_working" to "Testing…",
+         "proj_free_added" to "%d working configs added",
+@@ -310,7 +310,7 @@ object Strings {
+         "proj_free_unreachable" to "Could not reach the channel. Connect first, then refresh.",
+         "proj_free_nocfg" to "No usable configs in the latest messages",
+         "proj_aether" to "Aether",
+-        "proj_aether_title" to "Aether by @CluvexStudio",
++        "proj_aether_title" to "Aether tunnel",
+         "proj_aether_desc" to "MASQUE, WireGuard and nested WireGuard tunnels with automatic endpoint discovery.",
+         "proj_aether_h2" to "Use HTTP/2",
+         "proj_aether_h2_sub" to "Turn on when the network blocks or throttles UDP",
+@@ -968,7 +968,7 @@ object Strings {
+         "proj_warp_desc" to "کلودفلر WARP روی WireGuard. رایگان و بدون ثبت‌نام توسط اپ انجام می شود، اما WARP کلاسیک در ایران مسدود است — در ایران از Aether استفاده کنید.",
+         "proj_more_soon" to "پروژه‌های رایگان بیشتری به‌زودی اضافه می‌شود.",
+         "proj_free" to "کانفیگ‌های رایگان",
+-        "proj_free_desc" to "سرورهای تازه از کانال تلگرام @ConfigsHUB. برای دسترسی به کانال باید به VPN متصل باشید.",
++        "proj_free_desc" to "کانفیگ‌های رایگان منتشرشده در @Ghajarvpn؛ اگر کانال کانفیگی نداشته باشد، منبع دیگری جایگزین نمی‌شود.",
+         "proj_free_testing" to "تست %d از %d، %d سالم",
+         "proj_free_working" to "در حال تست…",
+         "proj_free_added" to "%d کانفیگ سالم اضافه شد",
+@@ -976,7 +976,7 @@ object Strings {
+         "proj_free_unreachable" to "دسترسی به کانال وجود نداشت. اول به وی پی ان متصل شوید و دوباره بزنید.",
+         "proj_free_nocfg" to "در پیام‌های اخیر کانفیگ قابل استفاده‌ای نبود",
+         "proj_aether" to "اتر",
+-        "proj_aether_title" to "اتر از @CluvexStudio",
++        "proj_aether_title" to "تونل اتر",
+         "proj_aether_desc" to "تونل MASQUE، وایرگارد و وایرگارد تودرتو با پیدا کردن خودکار مسیر.",
+         "proj_aether_h2" to "استفاده از HTTP/2",
+         "proj_aether_h2_sub" to "مخصوص مواقعی که شبکه UDP را مسدود یا کند کرده",
+diff --git a/app/src/main/res/drawable/ic_royal_home.xml b/app/src/main/res/drawable/ic_royal_home.xml
+new file mode 100644
+index 0000000..f2f6d10
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_royal_home.xml
+@@ -0,0 +1,3 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="28" android:viewportHeight="28">
++    <path android:fillColor="#00000000" android:strokeColor="#D6AD54" android:strokeWidth="1.7" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M3,25H25M5,25V14H23V25M9,14V9Q9,6 14,3Q19,6 19,9V14M14,3V1M11,25V20Q14,16 17,20V25M5,14V10M23,14V10M8,18V20M20,18V20"/>
++</vector>
+diff --git a/app/src/main/res/drawable/ic_royal_settings.xml b/app/src/main/res/drawable/ic_royal_settings.xml
+new file mode 100644
+index 0000000..5029c8a
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_royal_settings.xml
+@@ -0,0 +1,4 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="28" android:viewportHeight="28">
++    <path android:fillColor="#00000000" android:strokeColor="#D6AD54" android:strokeWidth="1.7" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M4,7H24M4,14H24M4,21H24M9,4V10M19,11V17M11,18V24"/>
++    <path android:fillColor="#D6AD54" android:pathData="M9,3L12,7L9,11L6,7ZM19,10L22,14L19,18L16,14ZM11,17L14,21L11,25L8,21Z"/>
++</vector>
+diff --git a/app/src/main/res/drawable/ic_royal_shop.xml b/app/src/main/res/drawable/ic_royal_shop.xml
+new file mode 100644
+index 0000000..ad87bd8
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_royal_shop.xml
+@@ -0,0 +1,3 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="28" android:viewportHeight="28">
++    <path android:fillColor="#00000000" android:strokeColor="#D6AD54" android:strokeWidth="1.7" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M9,10L7,4L11,6L14,2L17,6L21,4L19,10ZM4,14H24L21,25H7ZM9,14L11,10M19,14L17,10M11,18V21M17,18V21"/>
++</vector>
+diff --git a/app/src/main/res/drawable/ic_royal_tools.xml b/app/src/main/res/drawable/ic_royal_tools.xml
+new file mode 100644
+index 0000000..eaddffe
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_royal_tools.xml
+@@ -0,0 +1,3 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="28" android:viewportHeight="28">
++    <path android:fillColor="#00000000" android:strokeColor="#D6AD54" android:strokeWidth="1.7" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M21,12A9,9 0,1 1,3 12A9,9 0,1 1,21 12M19,19L25,25M12,3V5M3,12H5M12,19V21M19,12H21M15,8L13,13L8,16L10,11Z"/>
++</vector>
+diff --git a/app/src/main/res/drawable/ic_royal_tunnel.xml b/app/src/main/res/drawable/ic_royal_tunnel.xml
+new file mode 100644
+index 0000000..c2cafbc
+--- /dev/null
++++ b/app/src/main/res/drawable/ic_royal_tunnel.xml
+@@ -0,0 +1,3 @@
++<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="28dp" android:height="28dp" android:viewportWidth="28" android:viewportHeight="28">
++    <path android:fillColor="#00000000" android:strokeColor="#D6AD54" android:strokeWidth="1.7" android:strokeLineCap="round" android:strokeLineJoin="round" android:pathData="M5,25V13Q5,7 14,2Q23,7 23,13V25M9,25V14Q9,10 14,7Q19,10 19,14V25M2,25H26M12,16L14,18L12,20M16,21H18"/>
++</vector>
+diff --git a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+new file mode 100644
+index 0000000..23aeaba
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+@@ -0,0 +1,20 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class GhajarUiRulesTest {
++    @Test fun botReceivesTheExactLinkPayload() {
++        assertEquals("https://t.me/Ghajar_vpnbot?start=link_012345", GhajarUiRules.botLink("@Ghajar_vpnbot", "012345"))
++    }
++    @Test fun malformedBotCannotRedirectOutsideTelegram() {
++        assertEquals("https://t.me/Ghajar_vpnbot?start=link_123456", GhajarUiRules.botLink("evil.example/?x=", "123456"))
++    }
++    @Test fun malformedCodeIsNeverInjectedIntoDeepLink() {
++        assertEquals("https://t.me/Ghajar_vpnbot", GhajarUiRules.botLink(null, "123&x=1"))
++    }
++    @Test fun persianAndArabicDigitsWorkInCustomPurchase() {
++        assertEquals("1234567890", GhajarUiRules.asciiDigits("۱۲۳۴۵٦٧٨٩٠"))
++        assertEquals("30", GhajarUiRules.asciiDigits("۳۰ روز"))
++    }
++}
+-- 
+2.51.1
+

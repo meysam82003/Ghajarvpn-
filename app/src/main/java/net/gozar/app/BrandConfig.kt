@@ -10,6 +10,7 @@ object BrandConfig {
 
     const val GITHUB_URL = "https://github.com/meysam82003/Ghajarvpn-"
     const val TELEGRAM_CHANNEL_URL = "https://t.me/Ghajarvpn"
+    const val FREE_CONFIG_CHANNEL = "Ghajarvpn"
     const val TELEGRAM_BOT_URL = "https://t.me/Ghajar_vpnbot"
 
     // The historical server path is internal and must never be rendered in UI.
