@@ -42,7 +42,10 @@ jobs:
         run: |
           test -f .ghajarvpn-src/scripts/fetch-openvpn-native.sh
           chmod +x .ghajarvpn-src/scripts/fetch-openvpn-native.sh
-          .ghajarvpn-src/scripts/fetch-openvpn-native.sh .ghajarvpn-src
+          # The fetch script takes the package root and appends .ghajarvpn-src.
+          .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
+          test -s .ghajarvpn-src/openvpn/src/main/cpp/openvpn3/client/ovpncli.i
+          test -s .ghajarvpn-src/openvpn/src/main/cpp/openssl/openssl.cmake
       - name: Build debug APK
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: ./gradlew --no-daemon :app:assembleDebug
