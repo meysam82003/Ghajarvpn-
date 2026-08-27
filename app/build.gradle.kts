@@ -27,8 +27,8 @@ android {
         // explicit while building an honestly labelled Android 8+ demo.
         minSdk = if (ghajarDemoBuild) 26 else 24
         targetSdk = 36
-        versionCode = 30002
-        versionName = if (ghajarDemoBuild) "3.0.2-demo" else "3.0.2"
+        versionCode = 30003
+        versionName = if (ghajarDemoBuild) "3.0.3-demo" else "3.0.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -123,6 +123,7 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation(files("libs/gozarcore.aar"))
     implementation("androidx.compose.material:material-icons-extended")
     implementation("dev.chrisbanes.haze:haze:1.6.0")

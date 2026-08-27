@@ -46,6 +46,9 @@ Automatic CI APKs use ephemeral test keys and cannot be assumed to update earlie
 installations. The optional main-only signed demo workflow uses a separate private
 demo key from GitHub Secrets. See [3.0.2 build and login notes](docs/BUILD-3.0.2.md).
 
+The [3.0.3 login follow-up](docs/BUILD-3.0.3.md) adds clear network/gate feedback,
+original-expiry countdowns and lifecycle-aware retry without accepting null tokens.
+
 When the repository is distributed as a compact patch series, run
 `./scripts/bootstrap-from-upstream.sh` first. See
 [`docs/GITHUB_BOOTSTRAP_FA.md`](docs/GITHUB_BOOTSTRAP_FA.md).

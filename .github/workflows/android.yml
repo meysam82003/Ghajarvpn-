@@ -107,14 +107,14 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-3.0.2-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
+          name: Ghajarvpn-3.0.3-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
           path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-3.0.2-test-reports
+          name: Ghajarvpn-3.0.3-test-reports
           path: |
             ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/test-results/testDebugUnitTest/*.xml
             ${{ runner.temp }}/ghajar-native-arch-tests/Testing/Temporary/LastTest.log

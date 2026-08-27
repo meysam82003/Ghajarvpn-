@@ -18,6 +18,9 @@ snapshots=(
   "app/src/main/java/net/gozar/app/GhajarStoreApi.kt"
   "app/src/main/java/net/gozar/app/SecurePaymentActivity.kt"
   "app/src/main/java/net/gozar/app/GhajarUiRules.kt"
+  "app/src/main/java/net/gozar/app/GhajarLinkFlow.kt"
+  "app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt"
+  "app/src/test/java/net/gozar/app/GhajarLinkFlowTest.kt"
   "openvpn/src/main/cpp/CMakeLists.txt"
   "openvpn/src/main/cpp/ghajar-openssl-arch.cmake"
 )

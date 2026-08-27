@@ -37,4 +37,10 @@ internal object GhajarUiRules {
 
     fun launchBotLogin(username: String?, code: String?, launch: (String) -> Boolean): Boolean =
         botLoginUrls(username, code).any(launch)
+
+    /** A claimed one-time code must not be claimed again while completing bot gates. */
+    fun botVerificationUrls(username: String?): List<String> {
+        val bot = botUsername(username)
+        return listOf("tg://resolve?domain=$bot&start=start", "https://t.me/$bot?start=start")
+    }
 }
