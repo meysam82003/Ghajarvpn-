@@ -1,0 +1,55 @@
+From c88f2ff66ae3f10916ce3299a5ce7f71daae8d1d Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Thu, 27 Aug 2026 10:56:27 +0330
+Subject: [PATCH] fix(build): use classic srcDirs API for custom source sets
+
+The typed directories DSL crashes under AGP 9 Kotlin DSL configuration with a ClassCastException between decorated and public source set classes. Revert to the classic AndroidSourceDirectorySet srcDirs API for both the openvpn and strongswan library modules.
+---
+ openvpn/build.gradle.kts    | 11 ++++-------
+ strongswan/build.gradle.kts |  8 +++-----
+ 2 files changed, 7 insertions(+), 12 deletions(-)
+
+diff --git a/openvpn/build.gradle.kts b/openvpn/build.gradle.kts
+index a50d73fd..cc5e117e 100644
+--- a/openvpn/build.gradle.kts
++++ b/openvpn/build.gradle.kts
+@@ -38,13 +38,10 @@ android {
+     }
+ 
+     sourceSets.getByName("main") {
+-        // AGP 9: srcDirs must be expressed through the new directories DSL.
+-        java.directories.clear()
+-        java.directories.add("src/main/java")
+-        java.directories.add("src/skeleton/java")
+-        res.directories.clear()
+-        res.directories.add("src/main/res")
+-        res.directories.add("src/skeleton/res")
++        // Keep the classic AndroidSourceDirectorySet API; the typed
++        // directories DSL crashes under AGP 9 Kotlin DSL configuration.
++        java.srcDirs("src/main/java", "src/skeleton/java")
++        res.srcDirs("src/main/res", "src/skeleton/res")
+         manifest.srcFile("src/main/AndroidManifest.xml")
+     }
+ 
+diff --git a/strongswan/build.gradle.kts b/strongswan/build.gradle.kts
+index 0c2f3335..013e1f7f 100644
+--- a/strongswan/build.gradle.kts
++++ b/strongswan/build.gradle.kts
+@@ -40,11 +40,9 @@ android {
+ 	sourceSets {
+ 		getByName("main") {
+ 			manifest.srcFile("src/main/AndroidManifest.xml")
+-			java.directories.clear()
+-			java.directories.add("src/upstream-java")
+-			java.directories.add("src/patched")
+-			res.directories.clear()
+-			res.directories.add("src/frontends/android/app/src/main/res")
++			// Classic API; the typed directories DSL breaks under AGP 9.
++			java.srcDirs("src/upstream-java", "src/patched")
++			res.srcDirs("src/frontends/android/app/src/main/res")
+ 		}
+ 	}
+ 
+-- 
+2.55.0
+
