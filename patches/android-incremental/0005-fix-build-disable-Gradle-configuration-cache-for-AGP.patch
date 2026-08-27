@@ -1,0 +1,29 @@
+From b5eace9e185c3ad9e721e3f7e907655a8c7244cc Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Thu, 27 Aug 2026 11:05:57 +0330
+Subject: [PATCH] fix(build): disable Gradle configuration cache for AGP 9
+ sourcesSets access
+
+---
+ gradle.properties | 5 +++--
+ 1 file changed, 3 insertions(+), 2 deletions(-)
+
+diff --git a/gradle.properties b/gradle.properties
+index 7bced68a..e874235c 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -10,8 +10,9 @@ org.gradle.parallel=true
+ org.gradle.caching=true
+ # Only configure the projects actually needed for the requested tasks.
+ org.gradle.configureondemand=true
+-# Skip the configuration phase entirely when nothing build-affecting changed.
+-org.gradle.configuration-cache=true
++# NOTE: configuration-cache is disabled; with AGP 9 it breaks android.sourceSets
++# access from Kotlin DSL (DefaultAndroidLibrarySourceSet_Decorated ClassCast).
++org.gradle.configuration-cache=false
+ 
+ # --- Kotlin ---
+ kotlin.code.style=official
+-- 
+2.55.0
+
