@@ -1,0 +1,37 @@
+From d1c460b29802f2ade3391893e7a0c1f600194ddd Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Thu, 27 Aug 2026 11:16:16 +0330
+Subject: [PATCH] fix(build): configure openvpn sourcesets through container
+ block
+
+---
+ openvpn/build.gradle.kts | 13 +++++++------
+ 1 file changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/openvpn/build.gradle.kts b/openvpn/build.gradle.kts
+index cc5e117e..37e6c38a 100644
+--- a/openvpn/build.gradle.kts
++++ b/openvpn/build.gradle.kts
+@@ -37,12 +37,13 @@ android {
+         cmake { path = file("src/main/cpp/CMakeLists.txt") }
+     }
+ 
+-    sourceSets.getByName("main") {
+-        // Keep the classic AndroidSourceDirectorySet API; the typed
+-        // directories DSL crashes under AGP 9 Kotlin DSL configuration.
+-        java.srcDirs("src/main/java", "src/skeleton/java")
+-        res.srcDirs("src/main/res", "src/skeleton/res")
+-        manifest.srcFile("src/main/AndroidManifest.xml")
++    sourceSets {
++        getByName("main") {
++            // Container-block form matches the working strongswan module.
++            java.srcDirs("src/main/java", "src/skeleton/java")
++            res.srcDirs("src/main/res", "src/skeleton/res")
++            manifest.srcFile("src/main/AndroidManifest.xml")
++        }
+     }
+ 
+     packaging { jniLibs { useLegacyPackaging = true } }
+-- 
+2.55.0
+
