@@ -2,3 +2,4 @@
 .ghajarvpn-src.failed/
 .toolchains/
 *.apk
+.ghajarvpn-src-verify/

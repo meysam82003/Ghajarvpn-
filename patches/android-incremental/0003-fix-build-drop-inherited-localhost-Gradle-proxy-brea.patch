@@ -1,0 +1,26 @@
+From bd36a1e265fd6a3392603a02c4f0099c651e9816 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Thu, 27 Aug 2026 10:50:28 +0330
+Subject: [PATCH] fix(build): drop inherited localhost Gradle proxy breaks CI
+ downloads
+
+---
+ gradle.properties | 4 ----
+ 1 file changed, 4 deletions(-)
+
+diff --git a/gradle.properties b/gradle.properties
+index 20fc8b3..7bced68 100644
+--- a/gradle.properties
++++ b/gradle.properties
+@@ -25,7 +25,3 @@ android.nonTransitiveRClass=true
+ android.enableR8.fullMode=true
+ # Don't build per-density/ABI unless you configure splits; keeps universal APK simple.
+ 
+-systemProp.http.proxyHost=127.0.0.1
+-systemProp.http.proxyPort=10626
+-systemProp.https.proxyHost=127.0.0.1
+-systemProp.https.proxyPort=10626
+\ No newline at end of file
+-- 
+2.55.0
+
