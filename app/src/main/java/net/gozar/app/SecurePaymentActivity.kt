@@ -41,6 +41,11 @@ class SecurePaymentActivity : Activity() {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Color.rgb(7, 27, 46)
         window.navigationBarColor = Color.rgb(7, 27, 46)
+        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
+        if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
 
         val checkoutUrl = intent.getStringExtra(EXTRA_URL)?.toUri()
@@ -100,7 +105,14 @@ class SecurePaymentActivity : Activity() {
             addView(column, FrameLayout.LayoutParams(-1, -1))
             addView(progress, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
         }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
         setContentView(root)
+        androidx.core.view.ViewCompat.requestApplyInsets(root)
         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) webView.loadUrl(checkoutUrl.toString())
     }
 
