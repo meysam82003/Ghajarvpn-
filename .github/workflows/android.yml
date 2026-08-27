@@ -21,7 +21,7 @@ jobs:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '21'
+          java-version: '17'
           cache: gradle
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y swig ninja-build
@@ -43,4 +43,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Ghajarvpn-Android-debug
-          path: app/build/outputs/apk/**/*.apk
+          path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
