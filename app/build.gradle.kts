@@ -5,6 +5,8 @@ plugins {
     alias(libs.plugins.kotlin.compose)
 }
 
+val ghajarDemoBuild = providers.gradleProperty("ghajar.demo").orNull == "true"
+
 android {
     namespace = "net.gozar.app"
     compileSdk {
@@ -15,10 +17,12 @@ android {
 
     defaultConfig {
         applicationId = "com.ghajarvpn.app"
-        minSdk = 24
+        // The bundled core AAR requires API 26. Keep the API 24 release target
+        // explicit while building an honestly labelled Android 8+ demo.
+        minSdk = if (ghajarDemoBuild) 26 else 24
         targetSdk = 36
         versionCode = 30000
-        versionName = "3.0.0"
+        versionName = if (ghajarDemoBuild) "3.0.0-demo" else "3.0.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -37,6 +37,8 @@ jobs:
             scripts/bootstrap-from-upstream.sh
             echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
           fi
+      - name: Verify reviewed snapshots match reconstructed source
+        run: bash scripts/verify-source-snapshots.sh "$GHAJAR_SOURCE_ROOT"
       - name: Fetch pinned native OpenVPN engine sources
         if: env.GHAJAR_SOURCE_ROOT != '.'
         run: |
@@ -46,11 +48,11 @@ jobs:
           .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
           test -s .ghajarvpn-src/openvpn/src/main/cpp/openvpn3/client/ovpncli.i
           test -s .ghajarvpn-src/openvpn/src/main/cpp/openssl/openssl.cmake
-      - name: Build debug APK
+      - name: Build Android 8+ demo APK
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
-        run: ./gradlew --no-daemon :app:assembleDebug
+        run: ./gradlew --no-daemon -Pghajar.demo=true :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-Android-debug
+          name: Ghajarvpn-demo-Android8plus
           path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
           if-no-files-found: error

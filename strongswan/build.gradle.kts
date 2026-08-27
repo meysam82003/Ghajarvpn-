@@ -40,11 +40,9 @@ android {
 	sourceSets {
 		getByName("main") {
 			manifest.srcFile("src/main/AndroidManifest.xml")
-			java.directories.clear()
-			java.directories.add("src/upstream-java")
-			java.directories.add("src/patched")
-			res.directories.clear()
-			res.directories.add("src/frontends/android/app/src/main/res")
+			// Classic API; the typed directories DSL breaks under AGP 9.
+			java.srcDirs("src/upstream-java", "src/patched")
+			res.srcDirs("src/frontends/android/app/src/main/res")
 		}
 	}
 

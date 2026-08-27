@@ -1,10 +1,10 @@
 package net.gozar.app
 
 import android.Manifest
-import android.app.JobInfo
-import android.app.JobParameters
-import android.app.JobScheduler
-import android.app.JobService
+import android.app.job.JobInfo
+import android.app.job.JobParameters
+import android.app.job.JobScheduler
+import android.app.job.JobService
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -73,13 +73,15 @@ object GhajarNotificationMonitor {
     }
 
     suspend fun refresh(context: Context) {
-        val prefs = context.getSharedPreferences("ghajar_store", Context.MODE_PRIVATE)
-        val token = prefs.getString("telegram_init_data", null)
+        val api = GhajarStoreApi(context)
+        if (!api.isLinked) return
+        val prefs = context.getSharedPreferences("ghajarvpn_notices_v2", Context.MODE_PRIVATE)
         val seen = prefs.getStringSet("seen_notices", emptySet()).orEmpty().toMutableSet()
-        val notices = runCatching { GhajarStoreApi.loadNotices(token) }.getOrDefault(emptyList())
+        val notices = runCatching { api.notices() }.getOrDefault(emptyList())
         notices.filterNot { it.id in seen }.forEach { notice ->
-            GhajarNoticeBus.publish(notice)
-            post(context, notice)
+            val enriched = notice.withUsageSummary()
+            GhajarNoticeBus.publish(enriched)
+            post(context, enriched)
             seen += notice.id
         }
         if (seen.size > 250) {
@@ -89,24 +91,18 @@ object GhajarNotificationMonitor {
             prefs.edit().putStringSet("seen_notices", seen).apply()
         }
 
-        val services = runCatching { GhajarStoreApi.loadSnapshot(token).services }.getOrDefault(emptyList())
-        services.filter { it.remainingGb in 0.0..2.0 || !it.status.contains("active", true) }.forEach { service ->
-            val low = GhajarNotice(
-                id = "quota:${service.username}:${service.remainingGb}:${service.status}",
-                title = "هشدار سرویس قاجار",
-                message = if (service.remainingGb in 0.0..2.0)
-                    "حجم ${service.productName} رو به پایان است؛ ${service.remainingGb} گیگابایت باقی مانده."
-                else "وضعیت ${service.productName}: ${service.status}",
-                important = true,
-                serviceAlert = true
-            )
-            if (low.id !in seen) {
-                GhajarNoticeBus.publish(low)
-                post(context, low)
-                seen += low.id
-                prefs.edit().putStringSet("seen_notices", seen).apply()
-            }
-        }
+    }
+
+    /** Uses the panel-provided meta values; no guessed quota or expiry is emitted. */
+    private fun GhajarNotice.withUsageSummary(): GhajarNotice {
+        val values = meta ?: return this
+        val remainingGb = values.remainingBytes?.div(1024.0 * 1024 * 1024)
+        val suffix = listOfNotNull(
+            remainingGb?.let { "حجم باقی‌مانده: ${"%.2f".format(java.util.Locale.US, it)} گیگابایت" },
+            values.daysRemaining?.let { "زمان باقی‌مانده: $it روز" }
+        ).joinToString(" • ")
+        if (suffix.isBlank() || message.contains(suffix)) return this
+        return copy(message = "$message\n$suffix")
     }
 
     private fun post(context: Context, notice: GhajarNotice) {
