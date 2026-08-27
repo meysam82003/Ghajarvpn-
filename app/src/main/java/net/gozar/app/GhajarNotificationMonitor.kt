@@ -33,17 +33,19 @@ object GhajarNoticeBus {
     val notice = _notice.asStateFlow()
     private var account = ""
     private var pending = emptyList<GhajarNotice>()
+    private val dismissedInSession = mutableSetOf<String>()
     @Synchronized fun publish(accountKey: String, values: List<GhajarNotice>, acknowledged: Set<String>) {
-        if (account != accountKey) { pending = emptyList(); account = accountKey }
-        pending = values.distinctBy { it.id }.filterNot { it.id in acknowledged }
+        if (account != accountKey) { pending = emptyList(); account = accountKey; dismissedInSession.clear() }
+        pending = values.distinctBy { it.id }.filterNot { it.id in acknowledged || it.id in dismissedInSession }
             .sortedByDescending { if (it.important) 2 else if (it.serviceAlert) 1 else 0 }
         _notice.value = pending.firstOrNull()
     }
     @Synchronized fun dismiss(id: String) {
+        dismissedInSession += id
         pending = pending.filterNot { it.id == id }
         _notice.value = pending.firstOrNull()
     }
-    @Synchronized fun reset() { pending = emptyList(); account = ""; _notice.value = null }
+    @Synchronized fun reset() { pending = emptyList(); account = ""; dismissedInSession.clear(); _notice.value = null }
 }
 
 class GhajarNotificationJob : JobService() {

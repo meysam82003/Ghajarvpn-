@@ -1,0 +1,208 @@
+From 45bd3e3c983f7802dbe658f7a5b6fba2dc6559cb Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 16:03:38 +0400
+Subject: [PATCH] fix(ui): compile link labels and test notice queue and feed
+ upgrade
+
+---
+ .../main/java/net/gozar/app/ConfigStore.kt    | 16 ++++++--
+ .../java/net/gozar/app/GhajarNoticeBanner.kt  |  4 +-
+ .../gozar/app/GhajarNotificationMonitor.kt    |  8 ++--
+ .../main/java/net/gozar/app/GhajarUiRules.kt  |  4 ++
+ .../main/java/net/gozar/app/MainActivity.kt   |  2 +-
+ .../java/net/gozar/app/GhajarNoticeBusTest.kt | 40 +++++++++++++++++++
+ .../java/net/gozar/app/GhajarUiRulesTest.kt   |  6 +++
+ 7 files changed, 72 insertions(+), 8 deletions(-)
+ create mode 100644 app/src/test/java/net/gozar/app/GhajarNoticeBusTest.kt
+
+diff --git a/app/src/main/java/net/gozar/app/ConfigStore.kt b/app/src/main/java/net/gozar/app/ConfigStore.kt
+index 6126f16..cbaae73 100644
+--- a/app/src/main/java/net/gozar/app/ConfigStore.kt
++++ b/app/src/main/java/net/gozar/app/ConfigStore.kt
+@@ -38,9 +38,11 @@ class ConfigStore private constructor(context: Context) {
+     init {
+         scope.launch {
+             val cfgs = loadConfigs()
+-            val subs = loadSubscriptions()
++            val storedSubs = loadSubscriptions()
++            val subs = archiveLegacyFreeFeeds(storedSubs)
+             _configs.value = cfgs
+             _subscriptions.value = subs
++            if (subs != storedSubs) persistSubscriptions()
+             loadedSignal.complete(Unit)
+         }
+     }
+@@ -437,7 +439,7 @@ class ConfigStore private constructor(context: Context) {
+ 
+     fun restoreBackup(configs: List<ProxyConfig>, subs: List<Subscription>, settings: JSONObject?) {
+         _configs.value = configs
+-        _subscriptions.value = subs
++        _subscriptions.value = archiveLegacyFreeFeeds(subs)
+         persistConfigs()
+         persistSubscriptions()
+         settings?.let { restoreSettings(it) }
+@@ -489,6 +491,14 @@ class ConfigStore private constructor(context: Context) {
+         } catch (e: Exception) { emptyList() }
+     }
+ 
++    // Retain IDs and saved configs, but stop fetching the obsolete automatic
++    // feed on upgrade/restore. Manually named subscriptions remain untouched.
++    private fun archiveLegacyFreeFeeds(subs: List<Subscription>): List<Subscription> = subs.map { sub ->
++        if (GhajarUiRules.isLegacyAutomaticFreeFeed(sub.name, sub.url))
++            sub.copy(name = "${sub.name} · بایگانی", url = "")
++        else sub
++    }
++
+     private fun loadSubscriptions(): List<Subscription> {
+         val raw = readSecret(KEY_SUBS) ?: return emptyList()
+         return try {
+@@ -600,4 +610,4 @@ class ConfigStore private constructor(context: Context) {
+         private const val KEY_LAST_TEST = "last_test_json"
+         private const val KEY_LAST_TEST_TIME = "last_test_time"
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt b/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
+index a36730a..745ae00 100644
+--- a/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
++++ b/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
+@@ -1,6 +1,8 @@
+ package net.gozar.app
+ 
+ import androidx.compose.foundation.clickable
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.verticalScroll
+ import androidx.compose.foundation.layout.*
+ import androidx.compose.material.icons.Icons
+ import androidx.compose.material.icons.filled.Close
+@@ -48,7 +50,7 @@ internal fun GhajarNoticeBanner() {
+         AlertDialog(
+             onDismissRequest = { expandedId = null },
+             title = { Text(current.title) },
+-            text = { Text(current.message) },
++            text = { Text(current.message, modifier = Modifier.verticalScroll(rememberScrollState())) },
+             confirmButton = { TextButton(onClick = { GhajarNotificationMonitor.acknowledge(context, current.id); expandedId = null }) { Text("خواندم") } },
+             dismissButton = { TextButton(onClick = { expandedId = null }) { Text("بازگشت") } }
+         )
+diff --git a/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt b/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
+index 967603c..6376c9d 100644
+--- a/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
++++ b/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
+@@ -33,17 +33,19 @@ object GhajarNoticeBus {
+     val notice = _notice.asStateFlow()
+     private var account = ""
+     private var pending = emptyList<GhajarNotice>()
++    private val dismissedInSession = mutableSetOf<String>()
+     @Synchronized fun publish(accountKey: String, values: List<GhajarNotice>, acknowledged: Set<String>) {
+-        if (account != accountKey) { pending = emptyList(); account = accountKey }
+-        pending = values.distinctBy { it.id }.filterNot { it.id in acknowledged }
++        if (account != accountKey) { pending = emptyList(); account = accountKey; dismissedInSession.clear() }
++        pending = values.distinctBy { it.id }.filterNot { it.id in acknowledged || it.id in dismissedInSession }
+             .sortedByDescending { if (it.important) 2 else if (it.serviceAlert) 1 else 0 }
+         _notice.value = pending.firstOrNull()
+     }
+     @Synchronized fun dismiss(id: String) {
++        dismissedInSession += id
+         pending = pending.filterNot { it.id == id }
+         _notice.value = pending.firstOrNull()
+     }
+-    @Synchronized fun reset() { pending = emptyList(); account = ""; _notice.value = null }
++    @Synchronized fun reset() { pending = emptyList(); account = ""; dismissedInSession.clear(); _notice.value = null }
+ }
+ 
+ class GhajarNotificationJob : JobService() {
+diff --git a/app/src/main/java/net/gozar/app/GhajarUiRules.kt b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+index c200113..264aeb7 100644
+--- a/app/src/main/java/net/gozar/app/GhajarUiRules.kt
++++ b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+@@ -2,6 +2,10 @@ package net.gozar.app
+ 
+ /** Pure contracts shared by native UI and regression tests. */
+ internal object GhajarUiRules {
++    fun isLegacyAutomaticFreeFeed(name: String, url: String): Boolean =
++        name in setOf("Free Configs", "کانفیگ‌های رایگان") &&
++            url.trimEnd('/').equals("https://t.me/s/ConfigsHUB", ignoreCase = true)
++
+     fun asciiDigits(value: String): String = value.mapNotNull { char ->
+         char.digitToIntOrNull()?.let { ('0'.code + it).toChar() }
+     }.joinToString("")
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index f2e7f3e..911a77f 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -6832,7 +6832,7 @@ private fun AboutCard(
+                 Crossfade(targetState = value, animationSpec = tween(300), label = "aboutValue") { v ->
+                     if (!v.isNullOrBlank()) {
+                         Text(
+-                            if (v.contains("github.com/") || v.startsWith("@")) "\u2066$v\u2069"
++                            if (v.contains("github.com/") || v.startsWith("@")) AnnotatedString("\u2066$v\u2069")
+                             else mixedText(localizeDigits(v, LocalLang.current)),
+                             style = MaterialTheme.typography.bodySmall,
+                             color = MaterialTheme.colorScheme.primary,
+diff --git a/app/src/test/java/net/gozar/app/GhajarNoticeBusTest.kt b/app/src/test/java/net/gozar/app/GhajarNoticeBusTest.kt
+new file mode 100644
+index 0000000..cca971f
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarNoticeBusTest.kt
+@@ -0,0 +1,40 @@
++package net.gozar.app
++
++import org.junit.After
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class GhajarNoticeBusTest {
++    private fun notice(id: String, important: Boolean = false, service: Boolean = false) =
++        GhajarNotice(id, id, "message", important, service)
++
++    @After fun reset() = GhajarNoticeBus.reset()
++
++    @Test fun noticesQueueInsteadOfOverwritingEachOther() {
++        GhajarNoticeBus.publish("account", listOf(notice("general"), notice("quota", service = true), notice("important", important = true)), emptySet())
++        assertEquals("important", GhajarNoticeBus.notice.value?.id)
++        GhajarNoticeBus.dismiss("important")
++        assertEquals("quota", GhajarNoticeBus.notice.value?.id)
++        GhajarNoticeBus.dismiss("quota")
++        assertEquals("general", GhajarNoticeBus.notice.value?.id)
++    }
++
++    @Test fun acknowledgementIsRespectedOnRefresh() {
++        GhajarNoticeBus.publish("account", listOf(notice("read"), notice("new")), setOf("read"))
++        assertEquals("new", GhajarNoticeBus.notice.value?.id)
++    }
++
++    @Test fun duplicateNoticeIsNotShownTwice() {
++        GhajarNoticeBus.publish("account", listOf(notice("same"), notice("same")), emptySet())
++        GhajarNoticeBus.dismiss("same")
++        GhajarNoticeBus.publish("account", listOf(notice("same")), emptySet())
++        assertNull(GhajarNoticeBus.notice.value)
++    }
++
++    @Test fun switchingAccountCannotKeepThePreviousMessage() {
++        GhajarNoticeBus.publish("first", listOf(notice("private-first")), emptySet())
++        GhajarNoticeBus.publish("second", emptyList(), emptySet())
++        assertNull(GhajarNoticeBus.notice.value)
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+index 23aeaba..e9649a4 100644
+--- a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
++++ b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+@@ -4,6 +4,12 @@ import org.junit.Assert.assertEquals
+ import org.junit.Test
+ 
+ class GhajarUiRulesTest {
++    @Test fun onlyTheOldAutomaticFeedIsArchived() {
++        org.junit.Assert.assertTrue(GhajarUiRules.isLegacyAutomaticFreeFeed("Free Configs", "https://t.me/s/ConfigsHUB"))
++        org.junit.Assert.assertTrue(GhajarUiRules.isLegacyAutomaticFreeFeed("کانفیگ‌های رایگان", "https://t.me/s/configshub/"))
++        org.junit.Assert.assertFalse(GhajarUiRules.isLegacyAutomaticFreeFeed("My manual feed", "https://t.me/s/ConfigsHUB"))
++        org.junit.Assert.assertFalse(GhajarUiRules.isLegacyAutomaticFreeFeed("Free Configs", "https://t.me/s/Ghajarvpn"))
++    }
+     @Test fun botReceivesTheExactLinkPayload() {
+         assertEquals("https://t.me/Ghajar_vpnbot?start=link_012345", GhajarUiRules.botLink("@Ghajar_vpnbot", "012345"))
+     }
+-- 
+2.51.1
+

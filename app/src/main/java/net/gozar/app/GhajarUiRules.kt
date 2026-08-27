@@ -2,6 +2,10 @@ package net.gozar.app
 
 /** Pure contracts shared by native UI and regression tests. */
 internal object GhajarUiRules {
+    fun isLegacyAutomaticFreeFeed(name: String, url: String): Boolean =
+        name in setOf("Free Configs", "کانفیگ‌های رایگان") &&
+            url.trimEnd('/').equals("https://t.me/s/ConfigsHUB", ignoreCase = true)
+
     fun asciiDigits(value: String): String = value.mapNotNull { char ->
         char.digitToIntOrNull()?.let { ('0'.code + it).toChar() }
     }.joinToString("")

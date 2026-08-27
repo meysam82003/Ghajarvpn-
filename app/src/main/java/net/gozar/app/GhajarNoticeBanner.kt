@@ -1,6 +1,8 @@
 package net.gozar.app
 
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -48,7 +50,7 @@ internal fun GhajarNoticeBanner() {
         AlertDialog(
             onDismissRequest = { expandedId = null },
             title = { Text(current.title) },
-            text = { Text(current.message) },
+            text = { Text(current.message, modifier = Modifier.verticalScroll(rememberScrollState())) },
             confirmButton = { TextButton(onClick = { GhajarNotificationMonitor.acknowledge(context, current.id); expandedId = null }) { Text("خواندم") } },
             dismissButton = { TextButton(onClick = { expandedId = null }) { Text("بازگشت") } }
         )
