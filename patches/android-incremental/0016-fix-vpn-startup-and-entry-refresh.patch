@@ -1,0 +1,169 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 19:01:00 +0000
+Subject: [PATCH] fix: guard VPN launch and refresh subscriptions on app entry
+
+Defensive lifecycle changes. Device crash reproduction remains required.
+---
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -574,5 +574,7 @@
+     private val vpnPermission =
+         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
++            val continuation = afterPermission
++            afterPermission = null
++            if (result.resultCode == Activity.RESULT_OK) guardedConnect { continuation?.invoke() }
+-            if (result.resultCode == Activity.RESULT_OK) afterPermission?.invoke()
+             else VpnState.setDisconnected()
+         }
+@@ -938,2 +940,16 @@
++    private fun guardedConnect(block: () -> Unit) {
++        try { block() }
++        catch (error: LinkageError) {
++            VpnState.setError("هستهٔ اتصال بارگذاری نشد؛ نسخهٔ سازگار با گوشی را نصب کن.")
++        } catch (error: Exception) {
++            android.util.Log.e("GhajarConnect", error.javaClass.simpleName)
++            VpnState.setError("شروع اتصال ناموفق بود؛ مجوز VPN و تنظیمات سرویس را بررسی کن.")
++        }
++    }
++
+     private fun proceedConnect(config: ProxyConfig) {
++        guardedConnect { proceedConnectChecked(config) }
++    }
++
++    private fun proceedConnectChecked(config: ProxyConfig) {
+         if (VpnState.state.value == Connection.CONNECTED) return
+@@ -981,10 +997,10 @@
+     private fun startTunnel(configJson: String, name: String, aether: String, tor: String?) {
++        guardedConnect { androidx.core.content.ContextCompat.startForegroundService(this,
+-        startService(
+             Intent(this, GozarVpnService::class.java)
+                 .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
+                 .putExtra(GozarVpnService.EXTRA_NAME, name)
+                 .putExtra(GozarVpnService.EXTRA_AETHER, aether)
+                 .putExtra(GozarVpnService.EXTRA_TOR, tor)
+                 .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
++        ) }
+-        )
+     }
+diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/java/net/gozar/app/GozarVpnService.kt
+--- a/app/src/main/java/net/gozar/app/GozarVpnService.kt
++++ b/app/src/main/java/net/gozar/app/GozarVpnService.kt
+@@ -23,2 +23,8 @@
++    private val scope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO +
++        kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
++            // No raw exception text: it may contain a subscription credential.
++            Log.e(TAG, error.javaClass.simpleName)
++            die("شروع اتصال ناموفق بود؛ مجوز VPN و تنظیمات سرویس را بررسی کن.")
++        })
++    private var startJob: Job? = null
+-    private val scope = CoroutineScope(Dispatchers.IO)
+     private var pollJob: Job? = null
+@@ -36,9 +42,17 @@
++    private var nativeInitializationFailed = false
++
+     override fun onCreate() {
+         super.onCreate()
++        try {
++            Gozarcore.setLogger(object : gozarcore.Logger {
++                override fun log(line: String?) { Log.i("XrayCore", line ?: "") }
++            })
++            TorLog.sink = { line -> Log.i("XrayCore", line) }
++        } catch (failure: LinkageError) {
++            nativeInitializationFailed = true
++            Log.e(TAG, failure.javaClass.simpleName)
++        } catch (failure: Exception) {
++            nativeInitializationFailed = true
++            Log.e(TAG, failure.javaClass.simpleName)
++        }
+-        Gozarcore.setLogger(object : gozarcore.Logger {
+-            override fun log(line: String?) {
+-                Log.i("XrayCore", line ?: "")
+-            }
+-        })
+-        TorLog.sink = { line -> Log.i("XrayCore", line) }
+     }
+@@ -81,5 +95,14 @@
++        if (tunFd != null || startJob?.isActive == true) return
+-        if (tunFd != null) return
+         tearingDown = false
++        try { startForeground(NOTIF_ID, buildNotification()) }
++        catch (error: Exception) {
++            VpnBridge.sendError(applicationContext, "اعلان اتصال شروع نشد؛ مجوزهای برنامه را بررسی کن.")
++            stopSelf()
++            return
++        }
+-        startForeground(NOTIF_ID, buildNotification())
+ 
++        startJob = scope.launch {
++            if (nativeInitializationFailed) {
++                die("هستهٔ اتصال بارگذاری نشد؛ نسخهٔ سازگار با گوشی را نصب کن.")
++                return@launch
++            }
+-        scope.launch {
+@@ -141,4 +164,6 @@
++            } catch (cancelled: kotlinx.coroutines.CancellationException) {
++                throw cancelled
+             } catch (e: Exception) {
++                Log.e(TAG, e.javaClass.simpleName)
++                die("هستهٔ اتصال شروع نشد؛ تنظیمات سرویس را بررسی کن.")
+-                Log.e(TAG, "Xray core failed to start", e)
+-                die(e.message ?: "Engine failed to start")
+             }
+@@ -264,2 +289,3 @@
+     private fun die(error: String?) {
+         if (tearingDown) return
++        startJob?.cancel(); startJob = null
+@@ -285,6 +311,3 @@
+         stopSelf()
++        // Lifecycle owns cleanup. A delayed process kill can kill a subsequent reconnect.
+-        scope.launch {
+-            delay(60)
+-            android.os.Process.killProcess(android.os.Process.myPid())
+-        }
+     }
+@@ -313,7 +336,11 @@
+     override fun onDestroy() {
++        tearingDown = true
++        scope.coroutineContext[Job]?.cancel()
+         stopAutoSelect()
++        runCatching { Gozarcore.stop() }
++        runCatching { AetherController.stop() }
++        runCatching { TorController.stop() }
++        runCatching { tunFd?.close() }; tunFd = null
+-        AetherController.stop()
+-        TorController.stop()
+         runCatching { blockFd?.close() }; blockFd = null
+         runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
+         super.onDestroy()
+diff --git a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+--- a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
++++ b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+@@ -5,3 +5,3 @@
++    suspend fun refreshStale(store: ConfigStore, force: Boolean = false) {
+-    suspend fun refreshStale(store: ConfigStore) {
+         val hours = store.autoRefreshHours.value
++        if (hours <= 0 && !force) return
+-        if (hours <= 0) return
+@@ -10,4 +10,4 @@
+         store.subscriptions.value
++            .filter { (force || it.lastUpdated <= cutoff) && (it.url.startsWith("https://") || it.url.startsWith("http://")) }
+-            .filter { it.lastUpdated <= cutoff }
+             .forEach { sub ->
++                storeResult {
+-                runCatching {
+diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+--- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
++++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+@@ -25,4 +25,8 @@
+             override fun onActivityStarted(activity: Activity) {
++                val enteringApp = startedActivities == 0
+                 startedActivities++
+                 foreground.value = startedActivities > 0
++                if (enteringApp) scope.launch {
++                    SubscriptionRefresher.refreshStale(ConfigStore.get(this@GozarApplication), force = true)
++                }
+             }
+-- 
+2.43.0

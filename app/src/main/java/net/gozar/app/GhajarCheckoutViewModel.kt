@@ -2,6 +2,7 @@ package net.gozar.app
 
 import android.app.Application
 import android.net.Uri
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -20,6 +21,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     private val api = GhajarStoreApi(app)
     private val store = ConfigStore.get(app)
     private val prefs = app.getSharedPreferences("ghajar_checkout_v1", 0)
+    val revision = mutableIntStateOf(0)
     val busy = mutableStateOf(false)
     val error = mutableStateOf<String?>(null)
     val message = mutableStateOf<String?>(null)
@@ -34,9 +36,14 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     private var owner = ""
 
     init {
+        busy.value = true
         viewModelScope.launch {
-            owner = accountId()
-            restore()
+            try {
+                owner = accountId()
+                restore()
+            } finally {
+                busy.value = false
+            }
             if (purchase.value != null) runOperation { methods.value = api.paymentOptions() }
         }
     }
@@ -55,7 +62,9 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 if (current.isBlank()) throw GhajarApiException("ابتدا حساب را به ربات متصل کن.")
                 if (owner.isNotBlank() && owner != current) {
                     purchase.value = null; payment.value = null; methods.value = null
-                    receipt.value = null; delivery.value = null
+                    receipt.value = null; delivery.value = null; openUrl.value = null
+                    receiptSent.value = false; walletTopUp.value = false
+                    owner = current
                     prefs.edit().clear().apply()
                     throw GhajarApiException("حساب تغییر کرده است؛ سفارش مربوط به حساب قبلی بود.")
                 }
@@ -72,6 +81,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun buy(request: GhajarPurchaseRequest) = runOperation {
+        if (payment.value != null) throw GhajarApiException("ابتدا وضعیت فاکتور فعلی را بررسی کن؛ پرداخت دوباره لازم نیست.")
         walletTopUp.value = false
         val result = api.purchase(request)
         if (result.requiresPayment) {
@@ -83,7 +93,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
             require(result.completed) { "خرید تأیید نشد؛ وضعیت سرویس را بررسی کن." }
             val service = result.service ?: result.username?.let { api.service(it) }
                 ?: throw GhajarApiException("سفارش ثبت شد؛ خروجی سرویس هنوز آماده نیست.")
-            deliver(service)
+            deliver(service, finishCheckout = true)
         }
     }
 
@@ -120,6 +130,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     }
 
     fun uploadReceipt() = runOperation {
+        if (receiptSent.value) return@runOperation
         val invoice = payment.value ?: return@runOperation
         val photo = receipt.value ?: return@runOperation
         message.value = api.uploadReceipt(invoice.orderId, photo)
@@ -134,18 +145,22 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
 
     fun importOwned(username: String) = runOperation { deliver(api.service(username)) }
 
-    private suspend fun deliver(service: GhajarServiceDetails) {
+    private suspend fun deliver(service: GhajarServiceDetails, finishCheckout: Boolean = false) {
         delivery.value = GhajarDelivery(service, 0, false)
         val count = api.importServiceOnce(store, service)
-        // A previous local (non-subscription) delivery is already installed.
-        val installed = count > 0 || (service.subscriptionUrl == null && service.outputs.isNotEmpty())
+        // Only a parsed/imported configuration counts as installed.
+        val installed = count > 0
         delivery.value = GhajarDelivery(service, count, installed)
         message.value = if (installed) "سرویس به قاجار VPN اضافه شد؛ QR و اطلاعات اتصال آماده است."
             else "سرویس صادر شد؛ خروجی اتصال هنوز در دسترس نیست."
         if (installed) {
-            purchase.value = null; payment.value = null; receipt.value = null
-            receiptSent.value = false
-            prefs.edit().clear().apply()
+            revision.intValue++
+            // Importing a trial/owned service must not discard an unrelated unpaid invoice.
+            if (finishCheckout) {
+                purchase.value = null; payment.value = null; receipt.value = null
+                receiptSent.value = false; walletTopUp.value = false
+                prefs.edit().clear().apply()
+            }
         }
     }
 
@@ -165,7 +180,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 prefs.edit().clear().apply()
             }
             GhajarCommerceRules.paid(value) && status.optBoolean("is_service_ready") && service != null ->
-                deliver(api.serviceFrom(service, purchase.value?.username.orEmpty()))
+                deliver(api.serviceFrom(service, purchase.value?.username.orEmpty()), finishCheckout = true)
             GhajarCommerceRules.paid(value) ->
                 message.value = "پرداخت تأیید شد؛ سرویس در حال آماده‌سازی است. دوباره پرداخت نکن."
             GhajarCommerceRules.terminal(value) ->
@@ -180,7 +195,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         if (busy.value) return
         // Local navigation only: this does not cancel a real payment on the server.
         purchase.value = null; payment.value = null; methods.value = null
-        receipt.value = null; receiptSent.value = false
+        receipt.value = null; receiptSent.value = false; walletTopUp.value = false
         prefs.edit().clear().apply()
         message.value = "به محصولات برگشتی. اگر پرداخت کرده‌ای، قبل از خرید دوباره «سرویس‌های من» را بررسی کن."
     }

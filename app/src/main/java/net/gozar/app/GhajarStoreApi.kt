@@ -477,7 +477,6 @@ class GhajarStoreApi(context: Context) {
         val installed = prefs.getStringSet("installed", emptySet()).orEmpty().toMutableSet()
         // A known URL still needs an immediate refresh; a previous import may
         // have registered the subscription without any usable configurations.
-        if (fingerprint in installed && service.subscriptionUrl == null) return 0
 
         val imported = if (service.subscriptionUrl?.startsWith("https://") == true) {
             val url = service.subscriptionUrl
@@ -498,7 +497,12 @@ class GhajarStoreApi(context: Context) {
         } else {
             val configs = ConfigParser.parseBundle(joined)
             withContext(Dispatchers.Main) {
-                if (configs.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, configs)
+                val current = store.configs.value
+                val missing = configs.filter { candidate -> current.none { existing ->
+                    existing.protocol == candidate.protocol && existing.address == candidate.address &&
+                        existing.port == candidate.port && existing.uuid == candidate.uuid && existing.password == candidate.password
+                } }
+                if (missing.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, missing)
             }
             configs.size
         }

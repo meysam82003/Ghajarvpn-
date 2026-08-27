@@ -105,6 +105,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val checkoutModel = remember(context) { ViewModelProvider(context as ComponentActivity)[GhajarCheckoutViewModel::class.java] }
     val checkoutBusy by checkoutModel.busy
+    val deliveryRevision by checkoutModel.revision
     val delivery by checkoutModel.delivery
     val receiptSent by checkoutModel.receiptSent
     val walletTopUp by checkoutModel.walletTopUp
@@ -165,6 +166,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
     val receiptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         receiptUri = uri
+        if (uri != null) checkoutModel.receiptSent.value = false
         if (uri != null) storeResult { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
 
@@ -201,6 +203,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         }
     }
 
+    LaunchedEffect(deliveryRevision) {
+        if (deliveryRevision > 0) storeResult { refreshOwnedAndNotices() }
+    }
     LaunchedEffect(requestedUrl, active) {
         if (active && requestedUrl != null) {
             checkoutModel.openUrl.value = null
@@ -552,7 +557,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
             pendingPurchase?.takeIf { it.requiresPayment }?.let { purchase ->
                 item { SectionTitle("۳. پرداخت", "فاکتور روی گوشی حفظ می‌شود؛ وضعیت را از سرور بررسی کن") }
-                item { PaymentSummary(purchase, walletTopUp) }
+                item { PaymentSummary(purchase, walletTopUp, paymentInit?.takeIf { GhajarCommerceRules.cardPayment(it.kind, it.cardNumber) }?.amount) }
                 if (paymentInit == null) {
                     if (paymentOptions == null) item {
                         OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
@@ -594,7 +599,10 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     }
     delivery?.let { result ->
         GhajarDeliveryDialog(result, onDismiss = { checkoutModel.delivery.value = null },
-            onRetry = { checkoutModel.importOwned(result.service.username) }, busy = checkoutBusy)
+            onRetry = {
+                if (paymentInit != null && pendingPurchase?.username == result.service.username) checkoutModel.checkPayment()
+                else checkoutModel.importOwned(result.service.username)
+            }, busy = checkoutBusy)
     }
     confirmation?.let { request ->
         AlertDialog(
@@ -841,13 +849,13 @@ private fun PurchaseExtras(
 }
 
 @Composable
-private fun PaymentSummary(purchase: GhajarPurchaseResult, walletTopUp: Boolean) {
+private fun PaymentSummary(purchase: GhajarPurchaseResult, walletTopUp: Boolean, exactCardAmount: Long?) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF143A32))) {
         Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Text(if (walletTopUp) "شارژ کیف پول" else "پرداخت مبلغ کسری", color = Color(0xFFD6B45F), fontWeight = FontWeight.ExtraBold)
             Text("موجودی: ${formatPrice(purchase.balance)} تومان", color = Color.White)
             if (!walletTopUp) Text("قیمت سرویس: ${formatPrice(purchase.price)} تومان", color = Color.White)
-            Text("قابل پرداخت: ${formatPrice(purchase.amountDue)} تومان", color = Color.White, fontWeight = FontWeight.Bold)
+            Text("قابل پرداخت: ${formatPrice(exactCardAmount ?: purchase.amountDue)} تومان", color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }

@@ -110,6 +110,7 @@ internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Uni
     val payloads = remember(service) { (listOfNotNull(service.subscriptionUrl) + service.outputs).filter { it.isNotBlank() }.distinct() }
     var index by remember(service.username) { mutableIntStateOf(0) }
     val payload = payloads.getOrNull(index)
+    var qrFailed by remember(payload) { mutableStateOf(false) }
     val bitmap by produceState<Bitmap?>(null, payload) {
         value = withContext(Dispatchers.Default) { payload?.let { text ->
             runCatching {
@@ -119,6 +120,7 @@ internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Uni
                 Bitmap.createBitmap(pixels, 768, 768, Bitmap.Config.ARGB_8888)
             }.getOrNull()
         } }
+        qrFailed = payload != null && value == null
     }
     val clipboard = LocalClipboardManager.current
     AlertDialog(onDismissRequest = onDismiss,
@@ -131,7 +133,7 @@ internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Uni
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 bitmap?.let { Image(it.asImageBitmap(), "QR اتصال همین سرویس",
                     Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White), contentScale = ContentScale.Fit) }
-                if (payload != null && bitmap == null && !busy) Text("QR در حال آماده‌سازی است؛ لینک قابل کپی است.")
+                if (payload != null && bitmap == null && !busy) Text(if (qrFailed) "این خروجی در QR جا نمی‌شود؛ از کپی لینک استفاده کن." else "QR در حال آماده‌سازی است؛ لینک قابل کپی است.")
                 if (payloads.size > 1) Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { index-- }, enabled = index > 0) { Text("قبلی") }
                     Text("${index + 1} / ${payloads.size}")
