@@ -24,12 +24,28 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import java.security.MessageDigest
 
 object GhajarNoticeBus {
     private val _notice = MutableStateFlow<GhajarNotice?>(null)
     val notice = _notice.asStateFlow()
-    fun publish(value: GhajarNotice) { _notice.value = value }
-    fun clear() { _notice.value = null }
+    private var account = ""
+    private var pending = emptyList<GhajarNotice>()
+    private val dismissedInSession = mutableSetOf<String>()
+    @Synchronized fun publish(accountKey: String, values: List<GhajarNotice>, acknowledged: Set<String>) {
+        if (account != accountKey) { pending = emptyList(); account = accountKey; dismissedInSession.clear() }
+        pending = values.distinctBy { it.id }.filterNot { it.id in acknowledged || it.id in dismissedInSession }
+            .sortedByDescending { if (it.important) 2 else if (it.serviceAlert) 1 else 0 }
+        _notice.value = pending.firstOrNull()
+    }
+    @Synchronized fun dismiss(id: String) {
+        dismissedInSession += id
+        pending = pending.filterNot { it.id == id }
+        _notice.value = pending.firstOrNull()
+    }
+    @Synchronized fun reset() { pending = emptyList(); account = ""; dismissedInSession.clear(); _notice.value = null }
 }
 
 class GhajarNotificationJob : JobService() {
@@ -57,6 +73,22 @@ class GhajarNotificationJob : JobService() {
 
 object GhajarNotificationMonitor {
     private const val JOB_ID = 0x514A52
+    private val deliveryLock = Mutex()
+
+    private fun accountKey(context: Context): String? = GhajarAccountStore(context).token()
+        .takeIf { it.isNotBlank() }?.let { token ->
+            MessageDigest.getInstance("SHA-256").digest(token.toByteArray())
+                .take(12).joinToString("") { "%02x".format(it) }
+        }
+
+    fun acknowledge(context: Context, id: String) {
+        val key = accountKey(context) ?: return
+        val prefs = context.getSharedPreferences("ghajarvpn_notices_$key", Context.MODE_PRIVATE)
+        val acknowledged = prefs.getStringSet("acknowledged", emptySet()).orEmpty().toMutableSet()
+        acknowledged += id
+        prefs.edit().putStringSet("acknowledged", acknowledged.toList().takeLast(500).toSet()).apply()
+        GhajarNoticeBus.dismiss(id)
+    }
 
     fun initialize(context: Context) {
         createChannels(context)
@@ -74,23 +106,23 @@ object GhajarNotificationMonitor {
 
     suspend fun refresh(context: Context) {
         val api = GhajarStoreApi(context)
-        if (!api.isLinked) return
-        val prefs = context.getSharedPreferences("ghajarvpn_notices_v2", Context.MODE_PRIVATE)
-        val seen = prefs.getStringSet("seen_notices", emptySet()).orEmpty().toMutableSet()
-        val notices = runCatching { api.notices() }.getOrDefault(emptyList())
-        notices.filterNot { it.id in seen }.forEach { notice ->
-            val enriched = notice.withUsageSummary()
-            GhajarNoticeBus.publish(enriched)
-            post(context, enriched)
-            seen += notice.id
+        val key = accountKey(context) ?: run { GhajarNoticeBus.reset(); return }
+        val notices = try { api.notices() } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (_: Exception) { return }
+        deliveryLock.withLock {
+            if (accountKey(context) != key) return@withLock
+            val prefs = context.getSharedPreferences("ghajarvpn_notices_$key", Context.MODE_PRIVATE)
+            val notified = prefs.getStringSet("notified", emptySet()).orEmpty().toMutableSet()
+            val acknowledged = prefs.getStringSet("acknowledged", emptySet()).orEmpty()
+            val enriched = notices.map { it.withUsageSummary() }
+            // In-app acknowledgement and OS delivery are independent. Fetching a
+            // notice in the shop or denying OS permission cannot hide the banner.
+            GhajarNoticeBus.publish(key, enriched, acknowledged)
+            enriched.filterNot { it.id in notified }.forEach { notice ->
+                if (post(context, notice)) notified += notice.id
+            }
+            prefs.edit().putStringSet("notified", notified.toList().takeLast(500).toSet()).apply()
         }
-        if (seen.size > 250) {
-            val keep = seen.toList().takeLast(200).toSet()
-            prefs.edit().putStringSet("seen_notices", keep).apply()
-        } else {
-            prefs.edit().putStringSet("seen_notices", seen).apply()
-        }
-
     }
 
     /** Uses the panel-provided meta values; no guessed quota or expiry is emitted. */
@@ -105,16 +137,19 @@ object GhajarNotificationMonitor {
         return copy(message = "$message\n$suffix")
     }
 
-    private fun post(context: Context, notice: GhajarNotice) {
+    private fun post(context: Context, notice: GhajarNotice): Boolean {
         if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(
                 context, Manifest.permission.POST_NOTIFICATIONS
             ) != PackageManager.PERMISSION_GRANTED
-        ) return
+        ) return false
+        if (!NotificationManagerCompat.from(context).areNotificationsEnabled()) return false
         val channel = when {
             notice.important -> BrandConfig.NOTIFICATION_CHANNEL_IMPORTANT
             notice.serviceAlert -> BrandConfig.NOTIFICATION_CHANNEL_SERVICE
             else -> BrandConfig.NOTIFICATION_CHANNEL_GENERAL
         }
+        if (Build.VERSION.SDK_INT >= 26 && context.getSystemService(NotificationManager::class.java)
+                .getNotificationChannel(channel)?.importance == NotificationManager.IMPORTANCE_NONE) return false
         val open = PendingIntent.getActivity(
             context,
             notice.id.hashCode(),
@@ -130,7 +165,10 @@ object GhajarNotificationMonitor {
             .setAutoCancel(true)
             .setContentIntent(open)
             .build()
-        NotificationManagerCompat.from(context).notify(notice.id.hashCode(), notification)
+        return runCatching {
+            NotificationManagerCompat.from(context).notify(notice.id.hashCode(), notification)
+            true
+        }.getOrDefault(false)
     }
 
     private fun createChannels(context: Context) {

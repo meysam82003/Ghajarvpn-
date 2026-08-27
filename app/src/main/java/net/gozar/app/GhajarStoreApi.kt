@@ -36,7 +36,7 @@ data class GhajarTimeRange(val days: Int, val name: String)
 data class GhajarProduct(
     val id: String,
     val name: String,
-    val price: Long,
+    val price: Long?,
     val trafficGb: Double?,
     val days: Int?,
     val description: String,
@@ -219,7 +219,7 @@ class GhajarStoreApi(context: Context) {
             GhajarProduct(
                 id = id,
                 name = visible(row.optString("name", "سرویس قاجار")),
-                price = row.optDouble("price", 0.0).toLong(),
+                price = row.optNullableDouble("price")?.takeIf { it.isFinite() && it >= 0 }?.toLong(),
                 trafficGb = row.optNullableDouble("traffic_gb")?.takeIf { it >= 0 },
                 days = row.optInt("time_days", -1).takeIf { it >= 0 },
                 description = visible(row.optString("description")),

@@ -50,9 +50,9 @@ jobs:
           test -s .ghajarvpn-src/openvpn/src/main/cpp/openssl/openssl.cmake
       - name: Build Android 8+ demo APK
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
-        run: ./gradlew --no-daemon -Pghajar.demo=true :app:assembleDebug
+        run: ./gradlew --no-daemon -Pghajar.demo=true :app:testDebugUnitTest :app:assembleDebug
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-demo-Android8plus
+          name: Ghajarvpn-3.0.1-soft-ui-Android8plus
           path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
           if-no-files-found: error

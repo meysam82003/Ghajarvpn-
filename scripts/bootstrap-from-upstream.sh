@@ -44,5 +44,7 @@ if [[ -d "${incremental_patch_dir}" ]]; then
   done < <(find "${incremental_patch_dir}" -maxdepth 1 -type f -name '*.patch' -print | sort)
 fi
 
+bash "${project_root}/scripts/install-ui-assets.sh" "${destination}"
+
 echo "Ghajarvpn source materialized at ${destination}"
 git -C "${destination}" log -5 --oneline
