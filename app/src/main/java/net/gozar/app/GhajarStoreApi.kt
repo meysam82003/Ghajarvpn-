@@ -18,7 +18,8 @@ data class GhajarLinkSession(
     val code: String,
     val sessionToken: String,
     val botUsername: String,
-    val expiresInSeconds: Int
+    val expiresInSeconds: Int,
+    val expiresAtMillis: Long = GhajarUiRules.linkExpiresAt(System.currentTimeMillis(), expiresInSeconds)
 )
 
 data class GhajarPanel(
@@ -146,6 +147,10 @@ class GhajarStoreApi(context: Context) {
 
     val isLinked: Boolean get() = account.token().isNotBlank()
 
+    fun pendingLink(): GhajarLinkSession? = account.pendingLink()
+
+    fun clearPendingLink() = account.clearPendingLink()
+
     suspend fun beginLink(): GhajarLinkSession = withContext(Dispatchers.IO) {
         val root = requestJson(
             URL("${BrandConfig.WEBLINK_API_URL}?action=generate"),
@@ -156,15 +161,19 @@ class GhajarStoreApi(context: Context) {
         val code = root.optString("code")
         val session = root.optString("session_token")
         if (code.isBlank() || session.isBlank()) throw GhajarApiException("سرور کد اتصال صادر نکرد")
-        GhajarLinkSession(
+        val link = GhajarLinkSession(
             code = code,
             sessionToken = session,
             botUsername = root.optString("bot_username", "Ghajar_vpnbot"),
             expiresInSeconds = root.optInt("expires_in", 300)
         )
+        // Complete durable, encrypted storage before leaving for Telegram.
+        if (!account.savePendingLink(link)) throw GhajarApiException("ذخیرهٔ امن کد اتصال ناموفق بود؛ دوباره تلاش کن")
+        link
     }
 
     suspend fun pollLink(sessionToken: String): Boolean = withContext(Dispatchers.IO) {
+        if (account.pendingLink()?.sessionToken != sessionToken) return@withContext false
         val encoded = URLEncoder.encode(sessionToken, Charsets.UTF_8.name())
         val root = requestJson(
             URL("${BrandConfig.WEBLINK_API_URL}?action=status&session_token=$encoded"),
@@ -175,6 +184,8 @@ class GhajarStoreApi(context: Context) {
         if (!root.optString("link_status").equals("linked", true)) return@withContext false
         val issued = root.optString("token")
         if (issued.isBlank()) return@withContext false
+        // A response to a cancelled/older session must not replace a newer one.
+        if (account.pendingLink()?.sessionToken != sessionToken) return@withContext false
         if (!account.saveToken(issued)) throw GhajarApiException("ذخیرهٔ امن حساب در گوشی ناموفق بود")
         true
     }

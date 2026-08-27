@@ -6,6 +6,12 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      signed_demo:
+        description: 'Build an updateable demo using the configured private demo key (main only)'
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -15,6 +21,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
+      - name: Reject signed demos from non-main refs
+        if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref != 'refs/heads/main'
+        run: |
+          echo 'Signed demos are permitted only from main.' >&2
+          exit 1
       - uses: actions/checkout@v4
         with:
           submodules: recursive
@@ -39,6 +50,13 @@ jobs:
           fi
       - name: Verify reviewed snapshots match reconstructed source
         run: bash scripts/verify-source-snapshots.sh "$GHAJAR_SOURCE_ROOT"
+      - name: Test OpenSSL architecture selection
+        run: |
+          cmake_bin="$ANDROID_HOME/cmake/3.22.1/bin/cmake"
+          ctest_bin="$ANDROID_HOME/cmake/3.22.1/bin/ctest"
+          "$cmake_bin" -S "$GHAJAR_SOURCE_ROOT/tests/native-arch" -B "$RUNNER_TEMP/ghajar-native-arch-tests"
+          "$cmake_bin" --build "$RUNNER_TEMP/ghajar-native-arch-tests"
+          "$ctest_bin" --test-dir "$RUNNER_TEMP/ghajar-native-arch-tests" --output-on-failure
       - name: Fetch pinned native OpenVPN engine sources
         if: env.GHAJAR_SOURCE_ROOT != '.'
         run: |
@@ -48,11 +66,56 @@ jobs:
           .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
           test -s .ghajarvpn-src/openvpn/src/main/cpp/openvpn3/client/ovpncli.i
           test -s .ghajarvpn-src/openvpn/src/main/cpp/openssl/openssl.cmake
-      - name: Build Android 8+ demo APK
+      - name: Build Android 8+ CI APK (ephemeral test key)
+        if: github.event_name != 'workflow_dispatch' || !inputs.signed_demo
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: ./gradlew --no-daemon -Pghajar.demo=true :app:testDebugUnitTest :app:assembleDebug
+      - name: Prepare private demo signing key
+        if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref == 'refs/heads/main'
+        env:
+          DEMO_KEYSTORE_B64: ${{ secrets.GHAJAR_DEMO_KEYSTORE_B64 }}
+          DEMO_STORE_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEYSTORE_PASSWORD }}
+          DEMO_KEY_ALIAS: ${{ secrets.GHAJAR_DEMO_KEY_ALIAS }}
+          DEMO_KEY_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEY_PASSWORD }}
+        run: |
+          if [[ "$GITHUB_REF" != 'refs/heads/main' ]]; then
+            echo 'Signed demos are permitted only from main.' >&2
+            exit 1
+          fi
+          if [[ -z "$DEMO_KEYSTORE_B64" || -z "$DEMO_STORE_PASSWORD" || -z "$DEMO_KEY_ALIAS" || -z "$DEMO_KEY_PASSWORD" ]]; then
+            echo 'Configure all four GHAJAR_DEMO signing secrets; no temporary key will be substituted.' >&2
+            exit 1
+          fi
+          umask 077
+          printf '%s' "$DEMO_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/ghajar-demo-signing.p12"
+          test -s "$RUNNER_TEMP/ghajar-demo-signing.p12"
+          echo "GHAJAR_DEMO_KEYSTORE_FILE=$RUNNER_TEMP/ghajar-demo-signing.p12" >> "$GITHUB_ENV"
+      - name: Build Android 8+ signed demo APK
+        if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref == 'refs/heads/main'
+        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
+        env:
+          GHAJAR_DEMO_KEYSTORE_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEYSTORE_PASSWORD }}
+          GHAJAR_DEMO_KEY_ALIAS: ${{ secrets.GHAJAR_DEMO_KEY_ALIAS }}
+          GHAJAR_DEMO_KEY_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEY_PASSWORD }}
+        run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true :app:testDebugUnitTest :app:assembleDebug
+      - name: Verify APK signatures and hashes
+        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
+        run: |
+          for apk in app/build/outputs/apk/debug/*.apk; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
+            sha256sum "$apk"
+          done
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-3.0.1-soft-ui-Android8plus
+          name: Ghajarvpn-3.0.2-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
           path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-3.0.2-test-reports
+          path: |
+            ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/test-results/testDebugUnitTest/*.xml
+            ${{ runner.temp }}/ghajar-native-arch-tests/Testing/Temporary/LastTest.log
+          if-no-files-found: warn

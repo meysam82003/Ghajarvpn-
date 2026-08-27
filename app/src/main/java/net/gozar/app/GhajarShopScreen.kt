@@ -81,6 +81,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.util.Locale
@@ -95,7 +96,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
 
     var linked by remember { mutableStateOf(api.isLinked) }
-    var linkSession by remember { mutableStateOf<GhajarLinkSession?>(null) }
+    var linkSession by remember { mutableStateOf(api.pendingLink()) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -167,9 +168,24 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
     }
 
     fun openBot(session: GhajarLinkSession? = linkSession) {
-        val uri = Uri.parse(GhajarUiRules.botLink(session?.botUsername, session?.code))
-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
-            .onFailure { error = "تلگرام یا مرورگر در دسترس نیست؛ فرمان اتصال را کپی کن." }
+        if (session == null || !GhajarUiRules.validPendingLink(session.code, session.sessionToken,
+                session.expiresAtMillis, System.currentTimeMillis())) {
+            api.clearPendingLink()
+            linkSession = null
+            error = "کد اتصال معتبر نیست یا منقضی شده؛ دوباره «اتصال با تلگرام» را بزن."
+            return
+        }
+        val opened = GhajarUiRules.launchBotLogin(session.botUsername, session.code) { url ->
+            runCatching {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                    .addCategory(Intent.CATEGORY_BROWSABLE))
+            }.isSuccess
+        }
+        if (opened) {
+            message = "لینک تلگرام با کد اتصال آماده باز شد؛ «Start / شروع» را بزن و برگرد. نیازی به تایپ کد نیست."
+        } else {
+            error = "تلگرام یا مرورگر در دسترس نیست؛ فرمان کامل اتصال را کپی کن."
+        }
     }
 
     suspend fun beginPurchase(request: GhajarPurchaseRequest) {
@@ -229,10 +245,10 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
 
     LaunchedEffect(linkSession?.sessionToken) {
         val session = linkSession ?: return@LaunchedEffect
-        val attempts = (session.expiresInSeconds / 2).coerceIn(30, 180)
-        repeat(attempts) {
-            delay(2_000)
-            val linkedNow = runCatching { api.pollLink(session.sessionToken) }.getOrDefault(false)
+        while (System.currentTimeMillis() < session.expiresAtMillis) {
+            val linkedNow = try { api.pollLink(session.sessionToken) }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { false }
             if (linkedNow) {
                 linked = true
                 linkSession = null
@@ -240,7 +256,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                 GhajarNotificationMonitor.refresh(context.applicationContext)
                 return@LaunchedEffect
             }
+            delay(2_000)
         }
+        api.clearPendingLink()
         error = "زمان کد اتصال تمام شد؛ دوباره کد بساز"
         linkSession = null
     }
@@ -567,9 +585,14 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin:
             if (session == null) {
                 Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("اتصال با تلگرام") }
             } else {
-                Text(session.code, style = MaterialTheme.typography.headlineMedium, color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
-                Text("کد همراه لینک به ربات می‌رود. در تلگرام «شروع / Start» را بزن و سپس به برنامه برگرد.", color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
-                Button(onClick = onOpenBot) { Icon(Icons.Filled.OpenInNew, null); Spacer(Modifier.width(7.dp)); Text("باز کردن ربات") }
+                TextButton(onClick = onOpenBot) {
+                    Text(session.code, style = MaterialTheme.typography.headlineMedium,
+                        color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
+                }
+                Text("۱. «تأیید اتصال در تلگرام» را بزن.\n۲. پایین چت ربات، «شروع / Start» را بزن.\n۳. به قاجار برگرد؛ حساب خودکار متصل می‌شود.",
+                    color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
+                Text("کد از قبل داخل لینک است؛ آن را تایپ یا اصلاح نکن.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
+                Button(onClick = onOpenBot) { Icon(Icons.Filled.OpenInNew, null); Spacer(Modifier.width(7.dp)); Text("تأیید اتصال در تلگرام") }
                 TextButton(onClick = onCopyCommand) { Text("کپی فرمان کامل اتصال") }
             }
         }
