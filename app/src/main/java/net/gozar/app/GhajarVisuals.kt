@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
@@ -67,7 +68,8 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
         if (dark) listOf(R.drawable.ghajar_welcome_royal) + light
         else light + R.drawable.ghajar_welcome_royal
     }
-    val pager = rememberPagerState(pageCount = { posters.size })
+    val selectedPoster = remember { GhajarCommerceRules.nextPoster(prefs.getInt("last_poster", -1), posters.size) }
+    val pager = rememberPagerState(initialPage = if (returning) selectedPoster else 0, pageCount = { posters.size })
     val finish by rememberUpdatedState(onDone)
     var entered by remember { mutableStateOf(false) }
     val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(450), label = "welcome-reveal")
@@ -77,7 +79,11 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
     }
     LaunchedEffect(Unit) {
         entered = true
-        if (returning) { delay(1800); close() }
+        if (returning) {
+            prefs.edit().putInt("last_poster", selectedPoster).apply()
+            delay(1500)
+            close()
+        }
     }
     val posterDark = posters[pager.currentPage] == R.drawable.ghajar_welcome_royal
     val backdrop = if (posterDark) Color(0xFF061226) else Color(0xFFEAF1FB)
@@ -85,7 +91,11 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
         Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        HorizontalPager(
+        if (returning) {
+            Image(painterResource(posters[selectedPoster]), contentDescription = "خوش آمدی به قاجار VPN",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.weight(1f).fillMaxWidth().clickable(onClick = ::close).graphicsLayer { alpha = reveal })
+        } else HorizontalPager(
             state = pager,
             modifier = Modifier.weight(1f).fillMaxWidth(),
             beyondViewportPageCount = 0
@@ -102,7 +112,7 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
                 }
             )
         }
-        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
+        if (!returning) Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.semantics { contentDescription = "صفحه ${pager.currentPage + 1} از ${posters.size}" }) {
                     posters.indices.forEach { index ->

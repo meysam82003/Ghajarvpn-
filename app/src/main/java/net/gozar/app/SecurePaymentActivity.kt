@@ -14,6 +14,8 @@ import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebChromeClient
+import android.os.Message
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.ImageView
@@ -56,12 +58,13 @@ class SecurePaymentActivity : Activity() {
             settings.allowFileAccess = false
             settings.allowContentAccess = false
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            settings.setSupportMultipleWindows(false)
+            settings.setSupportMultipleWindows(true)
             settings.javaScriptCanOpenWindowsAutomatically = false
             settings.userAgentString = settings.userAgentString + " Ghajarvpn/${BuildConfig.VERSION_NAME}"
             isLongClickable = false
             setOnLongClickListener { true }
             webViewClient = CheckoutClient()
+            webChromeClient = CheckoutChrome()
         }
         progress = ProgressBar(this)
         val header = LinearLayout(this).apply {
@@ -84,7 +87,7 @@ class SecurePaymentActivity : Activity() {
                 setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
                 setColorFilter(Color.WHITE)
                 setBackgroundColor(Color.TRANSPARENT)
-                contentDescription = "بستن پرداخت"
+                contentDescription = "بازگشت به برنامه و بررسی پرداخت"
                 setOnClickListener { finish() }
             }, LinearLayout.LayoutParams(dp(44), dp(44)))
         }
@@ -98,7 +101,48 @@ class SecurePaymentActivity : Activity() {
             addView(progress, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
         }
         setContentView(root)
-        webView.loadUrl(checkoutUrl.toString())
+        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) webView.loadUrl(checkoutUrl.toString())
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        if (::webView.isInitialized) webView.saveState(outState)
+        super.onSaveInstanceState(outState)
+    }
+
+    private inner class CheckoutChrome : WebChromeClient() {
+        override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
+            if (!isUserGesture || resultMsg == null) return false
+            val popup = WebView(this@SecurePaymentActivity)
+            popup.settings.allowFileAccess = false
+            popup.settings.allowContentAccess = false
+            popup.webViewClient = object : WebViewClient() {
+                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                    val uri = request?.url ?: return true
+                    if (!route(uri)) webView.loadUrl(uri.toString())
+                    popup.post { popup.destroy() }
+                    return true
+                }
+            }
+            (resultMsg.obj as? WebView.WebViewTransport)?.webView = popup
+            resultMsg.sendToTarget()
+            return true
+        }
+    }
+
+    private fun route(uri: Uri): Boolean {
+        // The bot-return button closes checkout; the native client will verify
+        // the invoice via its authenticated API, even if the user pressed Back.
+        val botReturn = (uri.scheme.equals("https", true) && uri.host.equals("t.me", true) &&
+            uri.path.orEmpty().trim('/').equals("Ghajar_vpnbot", true)) ||
+            (uri.scheme.equals("tg", true) && uri.getQueryParameter("domain").equals("Ghajar_vpnbot", true))
+        if (botReturn) { setResult(RESULT_OK); finish(); return true }
+        if (uri.scheme.equals("https", true)) {
+            if (BrandConfig.isTrustedPaymentUri(uri, initialHost) && uri.userInfo == null) return false
+            Toast.makeText(this, "این نشانی در فهرست دامنه‌های پرداخت نیست.", Toast.LENGTH_LONG).show()
+            return true
+        }
+        if (uri.scheme?.lowercase() in setOf("http", "file", "content", "javascript", "data", "about")) return true
+        return openInstalledBankApp(uri)
     }
 
     @Deprecated("Deprecated in Android")
@@ -152,14 +196,8 @@ class SecurePaymentActivity : Activity() {
         }
 
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-            val uri = request?.url ?: return true
-            if (uri.scheme.equals("https", true)) {
-                return !BrandConfig.isTrustedPaymentUri(uri, initialHost)
-            }
-            if (uri.scheme.equals("http", true) || uri.scheme.equals("file", true) || uri.scheme.equals("content", true)) {
-                return true
-            }
-            return openInstalledBankApp(uri)
+            if (request?.isForMainFrame != true) return false
+            return request.url?.let(::route) ?: true
         }
 
         override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
@@ -168,7 +206,10 @@ class SecurePaymentActivity : Activity() {
         }
 
         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-            if (request?.isForMainFrame == true) progress.visibility = View.GONE
+            if (request?.isForMainFrame == true) {
+                progress.visibility = View.GONE
+                Toast.makeText(this@SecurePaymentActivity, "صفحهٔ درگاه بارگذاری نشد؛ برگرد و «ادامهٔ همین پرداخت» را بزن.", Toast.LENGTH_LONG).show()
+            }
         }
     }
 

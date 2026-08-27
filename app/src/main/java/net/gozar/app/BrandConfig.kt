@@ -45,6 +45,7 @@ object BrandConfig {
         "plisio.net",
         "nowpayments.io",
         "bluepal.ir",
+        "blupal.net",
         "uniquepay.ir"
     )
 
@@ -64,13 +65,7 @@ object BrandConfig {
      * Checkout is limited to the URL host issued by the API, the store callback
      * host and known PSP domains. Arbitrary HTTPS navigation is never accepted.
      */
-    fun isTrustedPaymentUri(uri: Uri, initialHost: String?): Boolean {
-        if (!uri.scheme.equals("https", ignoreCase = true)) return false
-        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
-        val first = initialHost?.lowercase()?.trimEnd('.')
-        if (first != null && (host == first || host.endsWith(".$first"))) return true
-        return trustedPaymentSuffixes.any { suffix ->
-            host == suffix || host.endsWith(".$suffix")
-        }
-    }
+    fun isTrustedPaymentUri(uri: Uri, initialHost: String?): Boolean =
+        GhajarPaymentPolicy.allows(uri.toString(), initialHost, trustedPaymentSuffixes)
+
 }

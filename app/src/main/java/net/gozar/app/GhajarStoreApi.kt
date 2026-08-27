@@ -7,6 +7,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.DataOutputStream
@@ -398,7 +400,8 @@ class GhajarStoreApi(context: Context) {
         val fileName = resolver.query(photo, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         }?.replace(Regex("[^A-Za-z0-9._-]"), "_") ?: "receipt.jpg"
-        val mime = resolver.getType(photo)?.takeIf { it.startsWith("image/") } ?: "image/jpeg"
+        val mime = resolver.getType(photo)?.takeIf { it in setOf("image/jpeg", "image/png", "image/webp") }
+            ?: throw GhajarApiException("رسید باید تصویر JPEG، PNG یا WebP باشد")
         val boundary = "Ghajarvpn-${UUID.randomUUID()}"
         val connection = (URL("${BrandConfig.MINIAPP_API_URL}?actions=payment_receipt").openConnection() as HttpURLConnection).apply {
             requestMethod = "POST"
@@ -419,7 +422,18 @@ class GhajarStoreApi(context: Context) {
                 output.writeUtf8("\r\n--$boundary\r\n")
                 output.writeUtf8("Content-Disposition: form-data; name=\"photo\"; filename=\"$fileName\"\r\n")
                 output.writeUtf8("Content-Type: $mime\r\n\r\n")
-                resolver.openInputStream(photo)?.use { input -> input.copyTo(output, 64 * 1024) }
+                resolver.openInputStream(photo)?.use { input ->
+                    val buffer = ByteArray(64 * 1024)
+                    var total = 0L
+                    while (true) {
+                        currentCoroutineContext().ensureActive()
+                        val read = input.read(buffer)
+                        if (read < 0) break
+                        total += read
+                        if (total > MAX_RECEIPT_BYTES) throw GhajarApiException("حجم رسید نباید بیشتر از ۸ مگابایت باشد")
+                        output.write(buffer, 0, read)
+                    }
+                }
                     ?: throw GhajarApiException("فایل رسید قابل خواندن نیست")
                 output.writeUtf8("\r\n--$boundary--\r\n")
             }
@@ -450,30 +464,42 @@ class GhajarStoreApi(context: Context) {
         return serviceFrom(payload, issuedUsername)
     }
 
-    fun importServiceOnce(store: ConfigStore, service: GhajarServiceDetails): Int {
+    suspend fun importServiceOnce(store: ConfigStore, service: GhajarServiceDetails): Int = deliveryMutex.withLock {
+        importServiceLocked(store, service)
+    }
+
+    private suspend fun importServiceLocked(store: ConfigStore, service: GhajarServiceDetails): Int {
         val joined = service.outputs.filter { it.isNotBlank() }.joinToString("\n")
         val payload = service.subscriptionUrl?.takeIf { it.isNotBlank() } ?: joined
         if (payload.isBlank()) return 0
         val fingerprint = sha256("${service.username}:$payload")
         val prefs = appContext.getSharedPreferences("ghajarvpn_deliveries_v2", Context.MODE_PRIVATE)
         val installed = prefs.getStringSet("installed", emptySet()).orEmpty().toMutableSet()
-        if (fingerprint in installed) return 0
+        // A known URL still needs an immediate refresh; a previous import may
+        // have registered the subscription without any usable configurations.
+        if (fingerprint in installed && service.subscriptionUrl == null) return 0
 
         val imported = if (service.subscriptionUrl?.startsWith("https://") == true) {
-            store.upsertSubscription(
-                Subscription(
-                    name = service.productName.ifBlank { "سرویس قاجار" },
-                    url = service.subscriptionUrl,
-                    used = ((service.usedGb ?: 0.0) * BYTES_PER_GB).toLong(),
-                    total = ((service.totalGb ?: 0.0) * BYTES_PER_GB).toLong(),
+            val url = service.subscriptionUrl
+            val fetched = SubscriptionFetcher.fetchFull(url)
+            if (fetched.configs.isEmpty()) throw GhajarApiException("سرویس صادر شد، اما ساب هنوز کانفیگ ندارد؛ از «سرویس‌های من» دوباره دریافت کن.")
+            withContext(Dispatchers.Main) {
+                val existing = store.subscriptions.value.firstOrNull { it.url == url }
+                val subscription = existing ?: Subscription(name = service.productName.ifBlank { "سرویس قاجار" }, url = url)
+                val info = fetched.userInfo
+                store.upsertSubscription(subscription.copy(
+                    used = info?.used ?: subscription.used,
+                    total = info?.total ?: subscription.total,
+                    expire = info?.expire ?: subscription.expire,
                     lastUpdated = System.currentTimeMillis()
-                ),
-                emptyList()
-            )
-            1
+                ), fetched.configs)
+                fetched.configs.size
+            }
         } else {
             val configs = ConfigParser.parseBundle(joined)
-            if (configs.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, configs)
+            withContext(Dispatchers.Main) {
+                if (configs.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, configs)
+            }
             configs.size
         }
         if (imported > 0) {
@@ -557,7 +583,7 @@ class GhajarStoreApi(context: Context) {
     private fun requireToken(): String = account.token().takeIf { it.isNotBlank() }
         ?: throw GhajarApiException("حساب قاجار وی پی ان هنوز متصل نشده است", 401)
 
-    private fun serviceFrom(row: JSONObject, fallbackUsername: String): GhajarServiceDetails {
+    internal fun serviceFrom(row: JSONObject, fallbackUsername: String): GhajarServiceDetails {
         val outputs = row.optJSONArray("service_output").orEmpty().values().flatMap { value ->
             when (value) {
                 is JSONObject -> when (val entry = value.opt("value")) {
@@ -657,6 +683,7 @@ class GhajarStoreApi(context: Context) {
     private fun DataOutputStream.writeUtf8(value: String) = write(value.toByteArray(Charsets.UTF_8))
 
     companion object {
+        private val deliveryMutex = Mutex()
         private const val CONNECT_TIMEOUT = 12_000
         private const val READ_TIMEOUT = 20_000
         private const val UPLOAD_TIMEOUT = 60_000

@@ -1,0 +1,1407 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 19:00:00 +0000
+Subject: [PATCH] fix: retain checkout, verify delivery, wallet and compact catalog
+
+Matched to the user-provided Ghajar bot API. Device validation remains open.
+---
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -27,8 +27,8 @@
+         // explicit while building an honestly labelled Android 8+ demo.
+         minSdk = if (ghajarDemoBuild) 26 else 24
+         targetSdk = 36
++        versionCode = 30004
++        versionName = if (ghajarDemoBuild) "3.0.4-demo" else "3.0.4"
+-        versionCode = 30003
+-        versionName = if (ghajarDemoBuild) "3.0.3-demo" else "3.0.3"
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+     }
+ 
+@@ -124,6 +124,7 @@
+     implementation(libs.androidx.core.ktx)
+     implementation(libs.androidx.lifecycle.runtime.ktx)
+     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
++    implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
+     implementation(files("libs/gozarcore.aar"))
+     implementation("androidx.compose.material:material-icons-extended")
+     implementation("dev.chrisbanes.haze:haze:1.6.0")
+diff --git a/app/src/main/java/net/gozar/app/BrandConfig.kt b/app/src/main/java/net/gozar/app/BrandConfig.kt
+--- a/app/src/main/java/net/gozar/app/BrandConfig.kt
++++ b/app/src/main/java/net/gozar/app/BrandConfig.kt
+@@ -45,6 +45,7 @@
+         "plisio.net",
+         "nowpayments.io",
+         "bluepal.ir",
++        "blupal.net",
+         "uniquepay.ir"
+     )
+ 
+@@ -64,13 +65,7 @@
+      * Checkout is limited to the URL host issued by the API, the store callback
+      * host and known PSP domains. Arbitrary HTTPS navigation is never accepted.
+      */
++    fun isTrustedPaymentUri(uri: Uri, initialHost: String?): Boolean =
++        GhajarPaymentPolicy.allows(uri.toString(), initialHost, trustedPaymentSuffixes)
++
+-    fun isTrustedPaymentUri(uri: Uri, initialHost: String?): Boolean {
+-        if (!uri.scheme.equals("https", ignoreCase = true)) return false
+-        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
+-        val first = initialHost?.lowercase()?.trimEnd('.')
+-        if (first != null && (host == first || host.endsWith(".$first"))) return true
+-        return trustedPaymentSuffixes.any { suffix ->
+-            host == suffix || host.endsWith(".$suffix")
+-        }
+-    }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -80,6 +80,8 @@
+ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
++import androidx.lifecycle.ViewModelProvider
++import androidx.activity.ComponentActivity
+ import androidx.lifecycle.Lifecycle
+ import androidx.lifecycle.compose.LocalLifecycleOwner
+ import androidx.lifecycle.repeatOnLifecycle
+@@ -101,6 +103,13 @@
+     val api = remember { GhajarStoreApi(context) }
+     val scope = rememberCoroutineScope()
+     val lifecycle = LocalLifecycleOwner.current.lifecycle
++    val checkoutModel = remember(context) { ViewModelProvider(context as ComponentActivity)[GhajarCheckoutViewModel::class.java] }
++    val checkoutBusy by checkoutModel.busy
++    val delivery by checkoutModel.delivery
++    val receiptSent by checkoutModel.receiptSent
++    val walletTopUp by checkoutModel.walletTopUp
++    var walletAmount by remember { mutableStateOf("") }
++    val requestedUrl by checkoutModel.openUrl
+ 
+     var linked by remember { mutableStateOf(api.isLinked) }
+     var linkSession by remember { mutableStateOf(api.pendingLink()) }
+@@ -110,8 +119,8 @@
+     var linkCheckKey by remember { mutableIntStateOf(0) }
+     var linkRemaining by remember { mutableIntStateOf(0) }
+     var busy by remember { mutableStateOf(false) }
++    var error by checkoutModel.error
++    var message by checkoutModel.message
+-    var error by remember { mutableStateOf<String?>(null) }
+-    var message by remember { mutableStateOf<String?>(null) }
+     var refreshKey by remember { mutableIntStateOf(0) }
+     var section by remember { mutableIntStateOf(0) }
+     val listState = rememberLazyListState()
+@@ -138,10 +147,10 @@
+     var customNote by remember { mutableStateOf("") }
+     var discountCode by remember { mutableStateOf("") }
+ 
++    val pendingPurchase by checkoutModel.purchase
++    val paymentOptions by checkoutModel.methods
++    val paymentInit by checkoutModel.payment
++    var receiptUri by checkoutModel.receipt
+-    var pendingPurchase by remember { mutableStateOf<GhajarPurchaseResult?>(null) }
+-    var paymentOptions by remember { mutableStateOf<GhajarPaymentOptions?>(null) }
+-    var paymentInit by remember { mutableStateOf<GhajarPaymentInit?>(null) }
+-    var receiptUri by remember { mutableStateOf<Uri?>(null) }
+     var trialOptions by remember { mutableStateOf<GhajarTrialOptions?>(null) }
+ 
+     suspend fun refreshOwnedAndNotices() {
+@@ -149,27 +158,14 @@
+         notices = api.notices()
+     }
+ 
++    val checkout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
++        checkoutModel.checkPayment()
++        refreshKey++
+-    suspend fun importIssuedService(username: String?): Int {
+-        if (username.isNullOrBlank()) return 0
+-        val service = api.service(username)
+-        return api.importServiceOnce(store, service)
+     }
+ 
++    val receiptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+-    val checkout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+-        if (result.resultCode == Activity.RESULT_OK) {
+-            scope.launch {
+-                busy = true
+-                delay(700)
+-                val count = runCatching { importIssuedService(pendingPurchase?.username) }.getOrDefault(0)
+-                runCatching { refreshOwnedAndNotices() }
+-                message = if (count > 0) "$count پیکربندی خریداری‌شده خودکار اضافه شد" else "پرداخت ثبت شد؛ وضعیت سرویس بروزرسانی شد"
+-                busy = false
+-            }
+-        }
+-    }
+-
+-    val receiptPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+         receiptUri = uri
++        if (uri != null) storeResult { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+     }
+ 
+     fun openCheckout(url: String) {
+@@ -189,7 +185,7 @@
+         }
+         val verification = linkGate != null
+         val launch: (String) -> Boolean = { url ->
++            storeResult {
+-            runCatching {
+                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
+                     .addCategory(Intent.CATEGORY_BROWSABLE))
+             }.isSuccess
+@@ -205,36 +201,32 @@
+         }
+     }
+ 
++    LaunchedEffect(requestedUrl, active) {
++        if (active && requestedUrl != null) {
++            checkoutModel.openUrl.value = null
++            openCheckout(requestedUrl!!)
++        }
++    }
++    LaunchedEffect(active, paymentInit?.orderId, lifecycle) {
++        if (!active || paymentInit == null) return@LaunchedEffect
++        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
++            while (true) {
++                checkoutModel.checkPayment()
++                delay(15_000)
+-    suspend fun beginPurchase(request: GhajarPurchaseRequest) {
+-        if (busy) return
+-        busy = true
+-        error = null
+-        message = null
+-        runCatching { api.purchase(request) }
+-            .onSuccess { result ->
+-                if (result.requiresPayment) {
+-                    pendingPurchase = result
+-                    paymentOptions = api.paymentOptions()
+-                    message = "موجودی کیف پول کافی نیست؛ روش پرداخت را انتخاب کن"
+-                } else {
+-                    pendingPurchase = null
+-                    paymentInit = null
+-                    val count = importIssuedService(result.username)
+-                    refreshOwnedAndNotices()
+-                    message = if (count > 0) "$count پیکربندی سرویس خودکار اضافه شد" else "سرویس با موفقیت ساخته شد"
+-                }
+             }
++        }
+-            .onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در خرید") }
+-        busy = false
+     }
+ 
++    LaunchedEffect(section, pendingPurchase) {
++        listState.scrollToItem(0)
++        if (section == 3 && linked) checkoutModel.refreshMethods()
++    }
+-    LaunchedEffect(section, pendingPurchase) { listState.scrollToItem(0) }
+ 
+     LaunchedEffect(linked, refreshKey) {
+         if (!linked) return@LaunchedEffect
+         busy = true
+         error = null
++        storeResult {
+-        runCatching {
+             panels = api.countries()
+             if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull()
+             refreshOwnedAndNotices()
+@@ -242,22 +234,29 @@
+         busy = false
+     }
+ 
++    LaunchedEffect(selectedPanel?.id) {
++        val panel = selectedPanel ?: return@LaunchedEffect
++        loadedPanelId = null
++        selectedCategory = null
++        selectedTime = null
++        customMode = false
++        customQuote = null
++        products = emptyList()
++        storeResult {
++            categories = api.categories(panel.id)
++            timeRanges = api.timeRanges(panel.id)
++            loadedPanelId = panel.id
++        }.onFailure { error = GhajarCommerceRules.publicMessage(it.message.orEmpty()) }
++    }
++    LaunchedEffect(loadedPanelId, selectedCategory?.id, selectedTime?.days, customMode) {
+-    LaunchedEffect(selectedPanel?.id, selectedCategory?.id, selectedTime?.days, customMode) {
+         val panel = selectedPanel ?: return@LaunchedEffect
++        if (loadedPanelId != panel.id) return@LaunchedEffect
+         busy = true
++        try {
++            storeResult {
++                products = if (customMode) emptyList() else api.products(panel.id, selectedCategory?.id, selectedTime?.days)
++            }.onFailure { error = GhajarCommerceRules.publicMessage(it.message.orEmpty()) }
++        } finally { busy = false }
+-        runCatching {
+-            if (loadedPanelId != panel.id) {
+-                categories = api.categories(panel.id)
+-                timeRanges = api.timeRanges(panel.id)
+-                selectedCategory = null
+-                selectedTime = null
+-                customMode = false
+-                customQuote = null
+-                loadedPanelId = panel.id
+-            }
+-            products = if (customMode) emptyList() else api.products(panel.id, selectedCategory?.id, selectedTime?.days)
+-        }.onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در دریافت پلن‌ها") }
+-        busy = false
+     }
+ 
+     LaunchedEffect(linkSession?.sessionToken, active, lifecycle) {
+@@ -332,7 +331,7 @@
+         item {
+             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
+         }
++        if (busy || checkoutBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+-        if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+         message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
+         error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
+ 
+@@ -380,12 +379,34 @@
+         } else {
+             item {
+                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
++                    listOf("خرید", "سرویس‌ها", "پیام‌ها", "کیف پول").forEachIndexed { index, label ->
+-                    listOf("خرید", "سرویس‌های من", "پیام‌ها").forEachIndexed { index, label ->
+                         FilterChip(selected = section == index, onClick = { section = index },
+                             label = { Text(label, maxLines = 1) }, modifier = Modifier.weight(1f))
+                     }
+                 }
+             }
++            if (section == 3) {
++                item {
++                    Card(shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
++                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
++                            Text("کیف پول قاجار", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
++                            Text(paymentOptions?.let { "${formatPrice(it.balance)} ${it.currency}" } ?: "در حال دریافت موجودی…",
++                                style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
++                            OutlinedTextField(walletAmount, { walletAmount = asciiDigits(it).filter(Char::isDigit).take(12) },
++                                label = { Text("مبلغ شارژ به تومان") },
++                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
++                                singleLine = true, modifier = Modifier.fillMaxWidth())
++                            Button(onClick = { checkoutModel.topUp(walletAmount.toLongOrNull() ?: 0); section = 0 },
++                                enabled = !checkoutBusy && (walletAmount.toLongOrNull() ?: 0) > 0,
++                                modifier = Modifier.fillMaxWidth()) { Text("شارژ کیف پول") }
++                            OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
++                                modifier = Modifier.fillMaxWidth()) { Text("بروزرسانی موجودی") }
++                            Text("شارژ پس از تأیید پنل به موجودی اضافه می‌شود. برای شارژ، سرویس جدید ساخته نمی‌شود.",
++                                style = MaterialTheme.typography.bodySmall)
++                        }
++                    }
++                }
++            }
+             if (section == 2) {
+                 if (notices.isEmpty() && !busy) item { Text("پیام تازه‌ای ندارید", modifier = Modifier.padding(16.dp)) }
+                 items(notices, key = { "notice:${it.id}" }) { NoticeCard(it) }
+@@ -395,22 +416,44 @@
+                 item { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
+                 if (owned.isEmpty() && !busy) item { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
+                 items(owned, key = { "owned:${it.username}" }) { service ->
++                    OwnedServiceCard(service) { checkoutModel.importOwned(service.username) }
++                }
++            }
++
++            if (section == 0) {
++            if (pendingPurchase == null) {
++            item {
++                OutlinedButton(
++                    onClick = {
+-                    OwnedServiceCard(service) {
+                         scope.launch {
+                             busy = true
++                            storeResult { api.trialOptions() }
++                                .onSuccess { trialOptions = it }
+-                            runCatching { importIssuedService(service.username) }
+-                                .onSuccess { count ->
+-                                    message = if (count > 0) "$count پیکربندی اضافه شد" else "این سرویس قبلاً اضافه شده یا هنوز خروجی ندارد"
+-                                }
+                                 .onFailure { error = it.message }
+                             busy = false
+                         }
++                    },
++                    enabled = !busy && !checkoutBusy,
++                    modifier = Modifier.fillMaxWidth()
++                ) {
++                    Icon(Icons.Filled.CardGiftcard, null)
++                    Spacer(Modifier.width(8.dp))
++                    Text("دریافت سرویس تست")
++                }
++            }
++            trialOptions?.let { options ->
++                if (!options.canRequest) item { Text("سهمیهٔ سرویس تست در دسترس نیست", color = MaterialTheme.colorScheme.error) }
++                items(options.panels, key = { "trial:${it.code}" }) { panel ->
++                    OutlinedButton(
++                        onClick = {
++                            checkoutModel.trial(panel.code, customUsername)
++                            trialOptions = null
++                        },
++                        enabled = options.canRequest && !checkoutBusy,
++                        modifier = Modifier.fillMaxWidth()
++                    ) { Text("تست ${panel.name}") }
+-                    }
+                 }
+             }
+-
+-            if (section == 0) {
+-            if (pendingPurchase == null) {
+             item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
+             if (panels.isNotEmpty()) {
+                 item {
+@@ -469,7 +512,7 @@
+                             val requestedDays = customDays
+                             scope.launch {
+                                 busy = true
++                                storeResult {
+-                                runCatching {
+                                     api.customQuote(panel.id, requestedTraffic.toIntOrNull() ?: 0, requestedDays.toIntOrNull() ?: 0)
+                                 }.onSuccess {
+                                     if (customTraffic == requestedTraffic && customDays == requestedDays && selectedPanel?.id == panel.id) customQuote = it
+@@ -481,7 +524,7 @@
+                 }
+             } else {
+                 items(products, key = { "product:${it.id}" }) { product ->
++                    ProductCard(product, enabled = !busy && !checkoutBusy) {
+-                    ProductCard(product, enabled = !busy) {
+                         confirmationTitle = product.name
+                         confirmationPrice = product.price
+                         confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
+@@ -508,105 +551,51 @@
+             }
+ 
+             pendingPurchase?.takeIf { it.requiresPayment }?.let { purchase ->
++                item { SectionTitle("۳. پرداخت", "فاکتور روی گوشی حفظ می‌شود؛ وضعیت را از سرور بررسی کن") }
++                item { PaymentSummary(purchase, walletTopUp) }
++                if (paymentInit == null) {
++                    if (paymentOptions == null) item {
++                        OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
++                            modifier = Modifier.fillMaxWidth()) { Text("دریافت روش‌های پرداخت") }
++                    }
++                    items(paymentOptions?.methods.orEmpty(), key = { "pay:${it.id}" }) { method ->
++                        PaymentMethodCard(method, purchase.amountDue, !checkoutBusy) { checkoutModel.beginPayment(method) }
+-                item { SectionTitle("۳. پرداخت", "برای همین سفارش یک روش پرداخت انتخاب کن") }
+-                item { PaymentSummary(purchase) }
+-                paymentOptions?.methods?.let { methods ->
+-                    items(methods, key = { "pay:${it.id}" }) { method ->
+-                        PaymentMethodCard(method, purchase.amountDue) {
+-                            scope.launch {
+-                                if (method.directUrl?.contains("t.me/") == true) {
+-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(method.directUrl)))
+-                                    return@launch
+-                                }
+-                                if (purchase.amountDue < method.minimum || (method.maximum > 0 && purchase.amountDue > method.maximum)) {
+-                                    error = "مبلغ این خرید خارج از محدودهٔ روش ${method.label} است"
+-                                    return@launch
+-                                }
+-                                busy = true
+-                                runCatching { api.beginPayment(method.id, purchase.amountDue, purchase.username) }
+-                                    .onSuccess { result ->
+-                                        paymentInit = result
+-                                        receiptUri = null
+-                                        if (result.url != null) openCheckout(result.url)
+-                                        else message = result.message.ifBlank { "درخواست پرداخت ثبت شد" }
+-                                    }
+-                                    .onFailure { error = it.message }
+-                                busy = false
+-                            }
+-                        }
+                     }
+                 }
+             }
++            paymentInit?.let { payment ->
++                if (GhajarCommerceRules.cardPayment(payment.kind, payment.cardNumber)) item {
++                    CardToCardCard(payment, receiptUri, checkoutBusy, receiptSent,
++                        onPickReceipt = { receiptPicker.launch(arrayOf("image/jpeg", "image/png", "image/webp")) },
++                        onUpload = checkoutModel::uploadReceipt)
++                }
+-
+-            paymentInit?.takeIf { it.kind == "carttocart" }?.let { payment ->
+                 item {
++                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                        Text("کد پیگیری: ${payment.orderId}", style = MaterialTheme.typography.labelMedium)
++                        payment.url?.let { url ->
++                            Button(onClick = { openCheckout(url) }, enabled = !checkoutBusy,
++                                modifier = Modifier.fillMaxWidth()) { Text("ادامهٔ همین پرداخت") }
+-                    CardToCardCard(
+-                        payment = payment,
+-                        receiptSelected = receiptUri != null,
+-                        onCopyCard = {
+-                            clipboard.setText(AnnotatedString(payment.cardNumber.orEmpty()))
+-                            message = "شماره کارت کپی شد"
+-                        },
+-                        onPickReceipt = { receiptPicker.launch("image/*") },
+-                        onUpload = {
+-                            val uri = receiptUri ?: return@CardToCardCard
+-                            scope.launch {
+-                                busy = true
+-                                runCatching { api.uploadReceipt(payment.orderId, uri) }
+-                                    .onSuccess { message = it; receiptUri = null }
+-                                    .onFailure { error = it.message }
+-                                busy = false
+-                            }
+                         }
++                        OutlinedButton(onClick = checkoutModel::checkPayment, enabled = !checkoutBusy,
++                            modifier = Modifier.fillMaxWidth()) { Text("پرداخت کردم؛ بررسی و دریافت سرویس") }
++                        Text("بستن صفحه به معنی لغو تراکنش نیست. در صورت پرداخت، دوباره واریز نکن.",
++                            style = MaterialTheme.typography.bodySmall)
++                    }
+-                    )
+                 }
+             }
++            if (pendingPurchase != null) item {
++                TextButton(onClick = checkoutModel::leaveInvoice, enabled = !checkoutBusy) { Text("بازگشت به محصولات") }
++            }
+ 
+-            item {
+-                OutlinedButton(
+-                    onClick = {
+-                        scope.launch {
+-                            busy = true
+-                            runCatching { api.trialOptions() }
+-                                .onSuccess { trialOptions = it }
+-                                .onFailure { error = it.message }
+-                            busy = false
+-                        }
+-                    },
+-                    modifier = Modifier.fillMaxWidth()
+-                ) {
+-                    Icon(Icons.Filled.CardGiftcard, null)
+-                    Spacer(Modifier.width(8.dp))
+-                    Text("دریافت سرویس تست")
+-                }
+             }
+-            trialOptions?.let { options ->
+-                if (!options.canRequest) item { Text("سهمیهٔ سرویس تست در دسترس نیست", color = MaterialTheme.colorScheme.error) }
+-                items(options.panels, key = { "trial:${it.code}" }) { panel ->
+-                    OutlinedButton(
+-                        onClick = {
+-                            scope.launch {
+-                                busy = true
+-                                runCatching { api.createTrial(panel.code, customUsername) }
+-                                    .onSuccess { service ->
+-                                        val count = api.importServiceOnce(store, service)
+-                                        refreshOwnedAndNotices()
+-                                        trialOptions = null
+-                                        message = if (count > 0) "سرویس تست ساخته و خودکار اضافه شد" else "سرویس تست ساخته شد"
+-                                    }
+-                                    .onFailure { error = it.message }
+-                                busy = false
+-                            }
+-                        },
+-                        modifier = Modifier.fillMaxWidth()
+-                    ) { Text("تست ${panel.name}") }
+-                }
+-            }
+-            }
+         }
+ 
+         item { Spacer(Modifier.height(28.dp)) }
+     }
++    delivery?.let { result ->
++        GhajarDeliveryDialog(result, onDismiss = { checkoutModel.delivery.value = null },
++            onRetry = { checkoutModel.importOwned(result.service.username) }, busy = checkoutBusy)
++    }
+     confirmation?.let { request ->
+         AlertDialog(
+             onDismissRequest = { confirmation = null },
+@@ -622,11 +611,11 @@
+                 }
+             },
+             confirmButton = {
++                Button(enabled = !busy && !checkoutBusy && confirmationPrice != null &&
+-                Button(enabled = !busy && confirmationPrice != null &&
+                     (selectedPanel?.usernameRequired != true || customUsername.isNotBlank()),
+                     onClick = {
+                         confirmation = null
++                        checkoutModel.buy(request.copy(customUsername = customUsername, note = customNote, discountCode = discountCode))
+-                        scope.launch { beginPurchase(request.copy(customUsername = customUsername, note = customNote, discountCode = discountCode)) }
+                     }) { Text("تأیید و ادامه") }
+             },
+             dismissButton = { TextButton(onClick = { confirmation = null }) { Text("بازگشت") } }
+@@ -774,27 +763,32 @@
+ 
+ @Composable
+ private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
++    var details by remember(product.id) { mutableStateOf(false) }
++    Card(onClick = { details = true }, enabled = enabled,
++        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
++        shape = RoundedCornerShape(22.dp), elevation = CardDefaults.cardElevation(1.dp),
++        modifier = Modifier.fillMaxWidth()) {
++        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++            Icon(Icons.Filled.Shield, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
++            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
++                Text(product.name, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
++                Text(listOfNotNull(product.trafficGb?.let { "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ" },
++                    product.days?.let { "$it روز" }).joinToString("  •  "),
++                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
++                Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
++                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+-    var expanded by remember(product.id) { mutableStateOf(false) }
+-    Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
+-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+-            Row(verticalAlignment = Alignment.CenterVertically) {
+-                Icon(Icons.Filled.ShoppingCart, null, tint = Color(0xFFD6B45F))
+-                Spacer(Modifier.width(8.dp))
+-                Text(product.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+             }
++            Icon(Icons.Filled.OpenInNew, "مشاهدهٔ محصول", modifier = Modifier.size(20.dp))
+-            Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
+-                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+-            Text(listOfNotNull(product.trafficGb?.let { "$it گیگ" }, product.days?.let { "$it روز" }).joinToString(" · "))
+-            if (product.description.isNotBlank()) {
+-                Text(product.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
+-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "بستن توضیحات" else "جزئیات سرویس") }
+-            }
+-            Button(onClick = onBuy, enabled = enabled && product.price != null,
+-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("انتخاب سرویس") }
+         }
+     }
++    if (details) AlertDialog(onDismissRequest = { details = false },
++        title = { Text(product.name) },
++        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
++            Text(product.price?.let { "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست", fontWeight = FontWeight.Bold)
++            Text(product.description.ifBlank { "توضیح بیشتری از پنل ارسال نشده است." })
++        } },
++        confirmButton = { Button(onClick = { details = false; onBuy() }, enabled = enabled && product.price != null) { Text("انتخاب و ادامه") } },
++        dismissButton = { TextButton(onClick = { details = false }) { Text("بازگشت") } })
+ }
+ 
+ @Composable
+@@ -847,21 +841,21 @@
+ }
+ 
+ @Composable
++private fun PaymentSummary(purchase: GhajarPurchaseResult, walletTopUp: Boolean) {
+-private fun PaymentSummary(purchase: GhajarPurchaseResult) {
+     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF143A32))) {
+         Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
++            Text(if (walletTopUp) "شارژ کیف پول" else "پرداخت مبلغ کسری", color = Color(0xFFD6B45F), fontWeight = FontWeight.ExtraBold)
+-            Text("پرداخت مبلغ کسری", color = Color(0xFFD6B45F), fontWeight = FontWeight.ExtraBold)
+             Text("موجودی: ${formatPrice(purchase.balance)} تومان", color = Color.White)
++            if (!walletTopUp) Text("قیمت سرویس: ${formatPrice(purchase.price)} تومان", color = Color.White)
+-            Text("قیمت سرویس: ${formatPrice(purchase.price)} تومان", color = Color.White)
+             Text("قابل پرداخت: ${formatPrice(purchase.amountDue)} تومان", color = Color.White, fontWeight = FontWeight.Bold)
+         }
+     }
+ }
+ 
+ @Composable
++private fun PaymentMethodCard(method: GhajarPaymentMethod, amount: Long, enabled: Boolean, onClick: () -> Unit) {
+-private fun PaymentMethodCard(method: GhajarPaymentMethod, amount: Long, onClick: () -> Unit) {
+     val allowed = amount >= method.minimum && (method.maximum <= 0 || amount <= method.maximum)
++    Card(onClick = onClick, enabled = allowed && enabled, modifier = Modifier.fillMaxWidth()) {
+-    Card(onClick = onClick, enabled = allowed, modifier = Modifier.fillMaxWidth()) {
+         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+             Icon(Icons.Filled.CreditCard, null, tint = Color(0xFFD6B45F))
+             Spacer(Modifier.width(10.dp))
+@@ -875,33 +869,10 @@
+ }
+ 
+ @Composable
+-private fun CardToCardCard(
+-    payment: GhajarPaymentInit,
+-    receiptSelected: Boolean,
+-    onCopyCard: () -> Unit,
+-    onPickReceipt: () -> Unit,
+-    onUpload: () -> Unit
+-) {
+-    Card(border = BorderStroke(1.dp, Color(0xFFD6B45F)), shape = RoundedCornerShape(22.dp)) {
+-        Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
+-            Icon(Icons.Filled.ReceiptLong, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(38.dp))
+-            Text("کارت‌به‌کارت", fontWeight = FontWeight.ExtraBold)
+-            Text(payment.cardNumber.orEmpty(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
+-            Text(payment.cardHolder.orEmpty())
+-            Text("مبلغ دقیق: ${formatPrice(payment.amount)} تومان", color = Color(0xFF0E8067), fontWeight = FontWeight.Bold)
+-            TextButton(onClick = onCopyCard) { Icon(Icons.Filled.ContentCopy, null); Spacer(Modifier.width(6.dp)); Text("کپی شماره کارت") }
+-            OutlinedButton(onClick = onPickReceipt, modifier = Modifier.fillMaxWidth()) { Text(if (receiptSelected) "تغییر عکس رسید" else "انتخاب عکس رسید") }
+-            Button(onClick = onUpload, enabled = receiptSelected && payment.orderId.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("ارسال رسید برای ادمین") }
+-            Text("حداکثر حجم عکس ۸ مگابایت است.", style = MaterialTheme.typography.bodySmall)
+-        }
+-    }
+-}
+-
+-@Composable
+ private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
+     Card(colors = CardDefaults.cardColors(containerColor = if (error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer)) {
+         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
++            Text(if (error) GhajarCommerceRules.publicMessage(text) else text, modifier = Modifier.weight(1f), color = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
+-            Text(text, modifier = Modifier.weight(1f), color = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
+             TextButton(onClick = onDismiss) { Text("بستن") }
+         }
+     }
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -7,6 +7,8 @@
+ import kotlinx.coroutines.currentCoroutineContext
+ import kotlinx.coroutines.ensureActive
+ import kotlinx.coroutines.withContext
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
+ import org.json.JSONArray
+ import org.json.JSONObject
+ import java.io.DataOutputStream
+@@ -398,7 +400,8 @@
+         val fileName = resolver.query(photo, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+             if (cursor.moveToFirst()) cursor.getString(0) else null
+         }?.replace(Regex("[^A-Za-z0-9._-]"), "_") ?: "receipt.jpg"
++        val mime = resolver.getType(photo)?.takeIf { it in setOf("image/jpeg", "image/png", "image/webp") }
++            ?: throw GhajarApiException("رسید باید تصویر JPEG، PNG یا WebP باشد")
+-        val mime = resolver.getType(photo)?.takeIf { it.startsWith("image/") } ?: "image/jpeg"
+         val boundary = "Ghajarvpn-${UUID.randomUUID()}"
+         val connection = (URL("${BrandConfig.MINIAPP_API_URL}?actions=payment_receipt").openConnection() as HttpURLConnection).apply {
+             requestMethod = "POST"
+@@ -419,7 +422,18 @@
+                 output.writeUtf8("\r\n--$boundary\r\n")
+                 output.writeUtf8("Content-Disposition: form-data; name=\"photo\"; filename=\"$fileName\"\r\n")
+                 output.writeUtf8("Content-Type: $mime\r\n\r\n")
++                resolver.openInputStream(photo)?.use { input ->
++                    val buffer = ByteArray(64 * 1024)
++                    var total = 0L
++                    while (true) {
++                        currentCoroutineContext().ensureActive()
++                        val read = input.read(buffer)
++                        if (read < 0) break
++                        total += read
++                        if (total > MAX_RECEIPT_BYTES) throw GhajarApiException("حجم رسید نباید بیشتر از ۸ مگابایت باشد")
++                        output.write(buffer, 0, read)
++                    }
++                }
+-                resolver.openInputStream(photo)?.use { input -> input.copyTo(output, 64 * 1024) }
+                     ?: throw GhajarApiException("فایل رسید قابل خواندن نیست")
+                 output.writeUtf8("\r\n--$boundary--\r\n")
+             }
+@@ -450,30 +464,42 @@
+         return serviceFrom(payload, issuedUsername)
+     }
+ 
++    suspend fun importServiceOnce(store: ConfigStore, service: GhajarServiceDetails): Int = deliveryMutex.withLock {
++        importServiceLocked(store, service)
++    }
++
++    private suspend fun importServiceLocked(store: ConfigStore, service: GhajarServiceDetails): Int {
+-    fun importServiceOnce(store: ConfigStore, service: GhajarServiceDetails): Int {
+         val joined = service.outputs.filter { it.isNotBlank() }.joinToString("\n")
+         val payload = service.subscriptionUrl?.takeIf { it.isNotBlank() } ?: joined
+         if (payload.isBlank()) return 0
+         val fingerprint = sha256("${service.username}:$payload")
+         val prefs = appContext.getSharedPreferences("ghajarvpn_deliveries_v2", Context.MODE_PRIVATE)
+         val installed = prefs.getStringSet("installed", emptySet()).orEmpty().toMutableSet()
++        // A known URL still needs an immediate refresh; a previous import may
++        // have registered the subscription without any usable configurations.
++        if (fingerprint in installed && service.subscriptionUrl == null) return 0
+-        if (fingerprint in installed) return 0
+ 
+         val imported = if (service.subscriptionUrl?.startsWith("https://") == true) {
++            val url = service.subscriptionUrl
++            val fetched = SubscriptionFetcher.fetchFull(url)
++            if (fetched.configs.isEmpty()) throw GhajarApiException("سرویس صادر شد، اما ساب هنوز کانفیگ ندارد؛ از «سرویس‌های من» دوباره دریافت کن.")
++            withContext(Dispatchers.Main) {
++                val existing = store.subscriptions.value.firstOrNull { it.url == url }
++                val subscription = existing ?: Subscription(name = service.productName.ifBlank { "سرویس قاجار" }, url = url)
++                val info = fetched.userInfo
++                store.upsertSubscription(subscription.copy(
++                    used = info?.used ?: subscription.used,
++                    total = info?.total ?: subscription.total,
++                    expire = info?.expire ?: subscription.expire,
+-            store.upsertSubscription(
+-                Subscription(
+-                    name = service.productName.ifBlank { "سرویس قاجار" },
+-                    url = service.subscriptionUrl,
+-                    used = ((service.usedGb ?: 0.0) * BYTES_PER_GB).toLong(),
+-                    total = ((service.totalGb ?: 0.0) * BYTES_PER_GB).toLong(),
+                     lastUpdated = System.currentTimeMillis()
++                ), fetched.configs)
++                fetched.configs.size
++            }
+-                ),
+-                emptyList()
+-            )
+-            1
+         } else {
+             val configs = ConfigParser.parseBundle(joined)
++            withContext(Dispatchers.Main) {
++                if (configs.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, configs)
++            }
+-            if (configs.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, configs)
+             configs.size
+         }
+         if (imported > 0) {
+@@ -557,7 +583,7 @@
+     private fun requireToken(): String = account.token().takeIf { it.isNotBlank() }
+         ?: throw GhajarApiException("حساب قاجار وی پی ان هنوز متصل نشده است", 401)
+ 
++    internal fun serviceFrom(row: JSONObject, fallbackUsername: String): GhajarServiceDetails {
+-    private fun serviceFrom(row: JSONObject, fallbackUsername: String): GhajarServiceDetails {
+         val outputs = row.optJSONArray("service_output").orEmpty().values().flatMap { value ->
+             when (value) {
+                 is JSONObject -> when (val entry = value.opt("value")) {
+@@ -657,6 +683,7 @@
+     private fun DataOutputStream.writeUtf8(value: String) = write(value.toByteArray(Charsets.UTF_8))
+ 
+     companion object {
++        private val deliveryMutex = Mutex()
+         private const val CONNECT_TIMEOUT = 12_000
+         private const val READ_TIMEOUT = 20_000
+         private const val UPLOAD_TIMEOUT = 60_000
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -4,6 +4,7 @@
+ import androidx.compose.animation.core.animateFloatAsState
+ import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.Image
++import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.*
+ import androidx.compose.foundation.pager.HorizontalPager
+@@ -67,7 +68,8 @@
+         if (dark) listOf(R.drawable.ghajar_welcome_royal) + light
+         else light + R.drawable.ghajar_welcome_royal
+     }
++    val selectedPoster = remember { GhajarCommerceRules.nextPoster(prefs.getInt("last_poster", -1), posters.size) }
++    val pager = rememberPagerState(initialPage = if (returning) selectedPoster else 0, pageCount = { posters.size })
+-    val pager = rememberPagerState(pageCount = { posters.size })
+     val finish by rememberUpdatedState(onDone)
+     var entered by remember { mutableStateOf(false) }
+     val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(450), label = "welcome-reveal")
+@@ -77,7 +79,11 @@
+     }
+     LaunchedEffect(Unit) {
+         entered = true
++        if (returning) {
++            prefs.edit().putInt("last_poster", selectedPoster).apply()
++            delay(1500)
++            close()
++        }
+-        if (returning) { delay(1800); close() }
+     }
+     val posterDark = posters[pager.currentPage] == R.drawable.ghajar_welcome_royal
+     val backdrop = if (posterDark) Color(0xFF061226) else Color(0xFFEAF1FB)
+@@ -85,7 +91,11 @@
+         Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
+         horizontalAlignment = Alignment.CenterHorizontally
+     ) {
++        if (returning) {
++            Image(painterResource(posters[selectedPoster]), contentDescription = "خوش آمدی به قاجار VPN",
++                contentScale = ContentScale.Fit,
++                modifier = Modifier.weight(1f).fillMaxWidth().clickable(onClick = ::close).graphicsLayer { alpha = reveal })
++        } else HorizontalPager(
+-        HorizontalPager(
+             state = pager,
+             modifier = Modifier.weight(1f).fillMaxWidth(),
+             beyondViewportPageCount = 0
+@@ -102,7 +112,7 @@
+                 }
+             )
+         }
++        if (!returning) Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
+-        Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
+             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.semantics { contentDescription = "صفحه ${pager.currentPage + 1} از ${posters.size}" }) {
+                     posters.indices.forEach { index ->
+diff --git a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+--- a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
++++ b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+@@ -14,6 +14,8 @@
+ import android.webkit.WebResourceRequest
+ import android.webkit.WebView
+ import android.webkit.WebViewClient
++import android.webkit.WebChromeClient
++import android.os.Message
+ import android.widget.FrameLayout
+ import android.widget.ImageButton
+ import android.widget.ImageView
+@@ -56,12 +58,13 @@
+             settings.allowFileAccess = false
+             settings.allowContentAccess = false
+             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
++            settings.setSupportMultipleWindows(true)
+-            settings.setSupportMultipleWindows(false)
+             settings.javaScriptCanOpenWindowsAutomatically = false
+             settings.userAgentString = settings.userAgentString + " Ghajarvpn/${BuildConfig.VERSION_NAME}"
+             isLongClickable = false
+             setOnLongClickListener { true }
+             webViewClient = CheckoutClient()
++            webChromeClient = CheckoutChrome()
+         }
+         progress = ProgressBar(this)
+         val header = LinearLayout(this).apply {
+@@ -84,7 +87,7 @@
+                 setImageResource(android.R.drawable.ic_menu_close_clear_cancel)
+                 setColorFilter(Color.WHITE)
+                 setBackgroundColor(Color.TRANSPARENT)
++                contentDescription = "بازگشت به برنامه و بررسی پرداخت"
+-                contentDescription = "بستن پرداخت"
+                 setOnClickListener { finish() }
+             }, LinearLayout.LayoutParams(dp(44), dp(44)))
+         }
+@@ -98,7 +101,48 @@
+             addView(progress, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
+         }
+         setContentView(root)
++        if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) webView.loadUrl(checkoutUrl.toString())
++    }
++
++    override fun onSaveInstanceState(outState: Bundle) {
++        if (::webView.isInitialized) webView.saveState(outState)
++        super.onSaveInstanceState(outState)
++    }
++
++    private inner class CheckoutChrome : WebChromeClient() {
++        override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
++            if (!isUserGesture || resultMsg == null) return false
++            val popup = WebView(this@SecurePaymentActivity)
++            popup.settings.allowFileAccess = false
++            popup.settings.allowContentAccess = false
++            popup.webViewClient = object : WebViewClient() {
++                override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
++                    val uri = request?.url ?: return true
++                    if (!route(uri)) webView.loadUrl(uri.toString())
++                    popup.post { popup.destroy() }
++                    return true
++                }
++            }
++            (resultMsg.obj as? WebView.WebViewTransport)?.webView = popup
++            resultMsg.sendToTarget()
++            return true
++        }
++    }
++
++    private fun route(uri: Uri): Boolean {
++        // The bot-return button closes checkout; the native client will verify
++        // the invoice via its authenticated API, even if the user pressed Back.
++        val botReturn = (uri.scheme.equals("https", true) && uri.host.equals("t.me", true) &&
++            uri.path.orEmpty().trim('/').equals("Ghajar_vpnbot", true)) ||
++            (uri.scheme.equals("tg", true) && uri.getQueryParameter("domain").equals("Ghajar_vpnbot", true))
++        if (botReturn) { setResult(RESULT_OK); finish(); return true }
++        if (uri.scheme.equals("https", true)) {
++            if (BrandConfig.isTrustedPaymentUri(uri, initialHost) && uri.userInfo == null) return false
++            Toast.makeText(this, "این نشانی در فهرست دامنه‌های پرداخت نیست.", Toast.LENGTH_LONG).show()
++            return true
++        }
++        if (uri.scheme?.lowercase() in setOf("http", "file", "content", "javascript", "data", "about")) return true
++        return openInstalledBankApp(uri)
+-        webView.loadUrl(checkoutUrl.toString())
+     }
+ 
+     @Deprecated("Deprecated in Android")
+@@ -152,14 +196,8 @@
+         }
+ 
+         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
++            if (request?.isForMainFrame != true) return false
++            return request.url?.let(::route) ?: true
+-            val uri = request?.url ?: return true
+-            if (uri.scheme.equals("https", true)) {
+-                return !BrandConfig.isTrustedPaymentUri(uri, initialHost)
+-            }
+-            if (uri.scheme.equals("http", true) || uri.scheme.equals("file", true) || uri.scheme.equals("content", true)) {
+-                return true
+-            }
+-            return openInstalledBankApp(uri)
+         }
+ 
+         override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
+@@ -168,7 +206,10 @@
+         }
+ 
+         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
++            if (request?.isForMainFrame == true) {
++                progress.visibility = View.GONE
++                Toast.makeText(this@SecurePaymentActivity, "صفحهٔ درگاه بارگذاری نشد؛ برگرد و «ادامهٔ همین پرداخت» را بزن.", Toast.LENGTH_LONG).show()
++            }
+-            if (request?.isForMainFrame == true) progress.visibility = View.GONE
+         }
+     }
+ 
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+@@ -0,0 +1,217 @@
++package net.gozar.app
++
++import android.app.Application
++import android.net.Uri
++import androidx.compose.runtime.mutableStateOf
++import androidx.lifecycle.AndroidViewModel
++import androidx.lifecycle.viewModelScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++import org.json.JSONObject
++import java.security.MessageDigest
++
++internal data class GhajarDelivery(val service: GhajarServiceDetails, val imported: Int, val synced: Boolean)
++
++/** Checkout belongs to the Activity, not to a disposable pager composition. */
++class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(application) {
++    private val app = application
++    private val api = GhajarStoreApi(app)
++    private val store = ConfigStore.get(app)
++    private val prefs = app.getSharedPreferences("ghajar_checkout_v1", 0)
++    val busy = mutableStateOf(false)
++    val error = mutableStateOf<String?>(null)
++    val message = mutableStateOf<String?>(null)
++    val purchase = mutableStateOf<GhajarPurchaseResult?>(null)
++    val methods = mutableStateOf<GhajarPaymentOptions?>(null)
++    val payment = mutableStateOf<GhajarPaymentInit?>(null)
++    val receipt = mutableStateOf<Uri?>(null)
++    val receiptSent = mutableStateOf(false)
++    val walletTopUp = mutableStateOf(false)
++    internal val delivery = mutableStateOf<GhajarDelivery?>(null)
++    val openUrl = mutableStateOf<String?>(null)
++    private var owner = ""
++
++    init {
++        viewModelScope.launch {
++            owner = accountId()
++            restore()
++            if (purchase.value != null) runOperation { methods.value = api.paymentOptions() }
++        }
++    }
++
++    private fun accountId(): String = GhajarAccountStore(app).token().takeIf { it.isNotBlank() }?.let {
++        MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { byte -> "%02x".format(byte) }
++    }.orEmpty()
++
++    private fun runOperation(block: suspend () -> Unit) {
++        if (busy.value) return
++        busy.value = true
++        error.value = null
++        viewModelScope.launch {
++            try {
++                val current = accountId()
++                if (current.isBlank()) throw GhajarApiException("ابتدا حساب را به ربات متصل کن.")
++                if (owner.isNotBlank() && owner != current) {
++                    purchase.value = null; payment.value = null; methods.value = null
++                    receipt.value = null; delivery.value = null
++                    prefs.edit().clear().apply()
++                    throw GhajarApiException("حساب تغییر کرده است؛ سفارش مربوط به حساب قبلی بود.")
++                }
++                owner = current
++                block()
++            } catch (cancelled: CancellationException) {
++                throw cancelled
++            } catch (failure: Exception) {
++                error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
++            } finally {
++                busy.value = false
++            }
++        }
++    }
++
++    fun buy(request: GhajarPurchaseRequest) = runOperation {
++        walletTopUp.value = false
++        val result = api.purchase(request)
++        if (result.requiresPayment) {
++            purchase.value = result; payment.value = null; receiptSent.value = false
++            persist()
++            methods.value = api.paymentOptions()
++            message.value = "برای همین سفارش، روش پرداخت را انتخاب کن."
++        } else {
++            require(result.completed) { "خرید تأیید نشد؛ وضعیت سرویس را بررسی کن." }
++            val service = result.service ?: result.username?.let { api.service(it) }
++                ?: throw GhajarApiException("سفارش ثبت شد؛ خروجی سرویس هنوز آماده نیست.")
++            deliver(service)
++        }
++    }
++
++    fun topUp(amount: Long) = runOperation {
++        require(amount > 0) { "مبلغ شارژ را به تومان وارد کن." }
++        if (payment.value != null) throw GhajarApiException("ابتدا وضعیت فاکتور فعلی را بررسی کن.")
++        val options = api.paymentOptions()
++        methods.value = options
++        walletTopUp.value = true
++        purchase.value = GhajarPurchaseResult(false, true, null, amount, options.balance, amount, null)
++        persist()
++        message.value = "روش پرداخت شارژ کیف پول را انتخاب کن."
++    }
++
++    fun refreshMethods() = runOperation { methods.value = api.paymentOptions() }
++
++    fun beginPayment(method: GhajarPaymentMethod) = runOperation {
++        val target = purchase.value ?: return@runOperation
++        if (payment.value != null) {
++            message.value = "فاکتور فعلی را تکمیل یا وضعیتش را بررسی کن؛ پرداخت دوباره لازم نیست."
++            return@runOperation
++        }
++        require(target.amountDue >= method.minimum && (method.maximum <= 0 || target.amountDue <= method.maximum)) {
++            "مبلغ سفارش خارج از محدودهٔ این روش است."
++        }
++        val result = api.beginPayment(method.id, target.amountDue, target.username)
++        require(result.orderId.isNotBlank()) { "شناسهٔ فاکتور از سرور دریافت نشد." }
++        payment.value = result
++        receipt.value = null
++        receiptSent.value = false
++        persist() // Save the exact card and amount before leaving for payment.
++        message.value = result.message.ifBlank { "فاکتور آماده است." }
++        openUrl.value = result.url
++    }
++
++    fun uploadReceipt() = runOperation {
++        val invoice = payment.value ?: return@runOperation
++        val photo = receipt.value ?: return@runOperation
++        message.value = api.uploadReceipt(invoice.orderId, photo)
++        receiptSent.value = true
++        persist()
++    }
++
++    fun trial(code: String, username: String?) = runOperation {
++        val service = api.createTrial(code, username)
++        deliver(service)
++    }
++
++    fun importOwned(username: String) = runOperation { deliver(api.service(username)) }
++
++    private suspend fun deliver(service: GhajarServiceDetails) {
++        delivery.value = GhajarDelivery(service, 0, false)
++        val count = api.importServiceOnce(store, service)
++        // A previous local (non-subscription) delivery is already installed.
++        val installed = count > 0 || (service.subscriptionUrl == null && service.outputs.isNotEmpty())
++        delivery.value = GhajarDelivery(service, count, installed)
++        message.value = if (installed) "سرویس به قاجار VPN اضافه شد؛ QR و اطلاعات اتصال آماده است."
++            else "سرویس صادر شد؛ خروجی اتصال هنوز در دسترس نیست."
++        if (installed) {
++            purchase.value = null; payment.value = null; receipt.value = null
++            receiptSent.value = false
++            prefs.edit().clear().apply()
++        }
++    }
++
++    /** Only authenticated server state can confirm payment, never a redirect URL. */
++    fun checkPayment() = runOperation {
++        val invoice = payment.value ?: return@runOperation
++        val status = api.paymentStatus(invoice.orderId)
++        val value = status.optString("payment_status")
++        val service = status.optJSONObject("service")
++        when {
++            GhajarCommerceRules.paid(value) && (walletTopUp.value || status.optBoolean("wallet_credited_only")) -> {
++                methods.value = api.paymentOptions()
++                message.value = if (walletTopUp.value) "شارژ کیف پول تأیید شد و موجودی بروزرسانی شد."
++                    else "پرداخت تأیید و کیف پول شارژ شد؛ طبق تنظیم ادمین، خرید خودکار فعال نیست. خرید را از محصولات ادامه بده."
++                purchase.value = null; payment.value = null; receipt.value = null
++                receiptSent.value = false; walletTopUp.value = false
++                prefs.edit().clear().apply()
++            }
++            GhajarCommerceRules.paid(value) && status.optBoolean("is_service_ready") && service != null ->
++                deliver(api.serviceFrom(service, purchase.value?.username.orEmpty()))
++            GhajarCommerceRules.paid(value) ->
++                message.value = "پرداخت تأیید شد؛ سرویس در حال آماده‌سازی است. دوباره پرداخت نکن."
++            GhajarCommerceRules.terminal(value) ->
++                message.value = status.optString("reason").takeUnless { it.isBlank() || it == "null" }
++                    ?: "این فاکتور تأیید نشده یا منقضی است."
++            else -> message.value = if (receiptSent.value) "رسید ارسال شده و در انتظار بررسی ادمین است."
++                else "فاکتور در انتظار پرداخت یا تأیید سرور است؛ پس از پرداخت، بررسی وضعیت را بزن."
++        }
++    }
++
++    fun leaveInvoice() {
++        if (busy.value) return
++        // Local navigation only: this does not cancel a real payment on the server.
++        purchase.value = null; payment.value = null; methods.value = null
++        receipt.value = null; receiptSent.value = false
++        prefs.edit().clear().apply()
++        message.value = "به محصولات برگشتی. اگر پرداخت کرده‌ای، قبل از خرید دوباره «سرویس‌های من» را بررسی کن."
++    }
++
++    private suspend fun persist() = withContext(Dispatchers.IO) {
++        val p = purchase.value ?: return@withContext
++        val root = JSONObject().put("owner", owner).put("username", p.username)
++            .put("due", p.amountDue).put("balance", p.balance).put("price", p.price)
++            .put("receipt_sent", receiptSent.value).put("wallet_top_up", walletTopUp.value)
++        payment.value?.let { v ->
++            root.put("payment", JSONObject().put("kind", v.kind).put("order", v.orderId)
++                .put("url", v.url).put("card", v.cardNumber).put("holder", v.cardHolder)
++                .put("amount", v.amount).put("rial", v.amountRial).put("message", v.message))
++        }
++        val encrypted = Crypto.encrypt(root.toString()) ?: throw GhajarApiException("ذخیرهٔ امن فاکتور انجام نشد؛ از پرداخت خارج نشو.")
++        if (!prefs.edit().putString("invoice", encrypted).commit()) throw GhajarApiException("ذخیرهٔ فاکتور روی گوشی ناموفق بود.")
++    }
++
++    private suspend fun restore() {
++        val root = withContext(Dispatchers.IO) {
++            runCatching { prefs.getString("invoice", null)?.let(Crypto::decrypt)?.let(::JSONObject) }.getOrNull()
++        } ?: return
++        if (owner.isBlank() || root.optString("owner") != owner) return
++        purchase.value = GhajarPurchaseResult(false, true, root.optString("username").takeUnless { it == "null" || it.isBlank() },
++            root.optLong("due"), root.optLong("balance"), root.optLong("price"), null)
++        receiptSent.value = root.optBoolean("receipt_sent")
++        walletTopUp.value = root.optBoolean("wallet_top_up")
++        root.optJSONObject("payment")?.let { p ->
++            fun optional(key: String) = p.optString(key).takeUnless { it.isBlank() || it == "null" }
++            payment.value = GhajarPaymentInit(p.optString("kind"), p.optString("order"), optional("url"),
++                optional("card"), optional("holder"), p.optLong("amount"), p.optLong("rial"), p.optString("message"))
++        }
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+@@ -0,0 +1,150 @@
++package net.gozar.app
++
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import android.net.Uri
++import androidx.compose.foundation.Image
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.ContentCopy
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.asImageBitmap
++import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.platform.LocalClipboardManager
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.res.painterResource
++import androidx.compose.ui.text.AnnotatedString
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import com.google.zxing.BarcodeFormat
++import com.google.zxing.EncodeHintType
++import com.google.zxing.qrcode.QRCodeWriter
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import java.text.NumberFormat
++import java.util.Locale
++
++@Composable
++internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boolean, sent: Boolean,
++    onPickReceipt: () -> Unit, onUpload: () -> Unit) {
++    val context = LocalContext.current
++    val clipboard = LocalClipboardManager.current
++    val preview by produceState<Bitmap?>(null, receipt) {
++        value = withContext(Dispatchers.IO) {
++            receipt?.let { uri -> runCatching {
++                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
++                context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
++                var sample = 1
++                while (bounds.outWidth / sample > 800 || bounds.outHeight / sample > 800) sample *= 2
++                context.contentResolver.openInputStream(uri)?.use {
++                    BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
++                }
++            }.getOrNull() }
++        }
++    }
++    var copied by remember { mutableStateOf<String?>(null) }
++    fun copy(value: String, label: String) { clipboard.setText(AnnotatedString(value)); copied = "$label کپی شد" }
++    val money = remember { NumberFormat.getIntegerInstance(Locale("fa", "IR")) }
++    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
++        Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp, color = Color(0xFF082F2B)) {
++            Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF17483D), Color(0xFF081F2B))))
++                .padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
++                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
++                    GhajarWordmark(Modifier.weight(1f).height(38.dp))
++                    Image(painterResource(R.drawable.ghajar_treasury), "خزانهٔ قاجار",
++                        modifier = Modifier.size(54.dp), contentScale = ContentScale.Fit)
++                }
++                Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
++                Row(verticalAlignment = Alignment.CenterVertically) {
++                    Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
++                        Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
++                    IconButton(onClick = { copy(payment.cardNumber.orEmpty(), "شماره کارت") }, enabled = !payment.cardNumber.isNullOrBlank()) {
++                        Icon(Icons.Filled.ContentCopy, "کپی شماره کارت", tint = Color(0xFFE8C975))
++                    }
++                }
++                Row(verticalAlignment = Alignment.CenterVertically) {
++                    Text(payment.cardHolder.orEmpty(), Modifier.weight(1f), color = Color.White)
++                    IconButton(onClick = { copy(payment.cardHolder.orEmpty(), "نام صاحب کارت") }) {
++                        Icon(Icons.Filled.ContentCopy, "کپی نام صاحب کارت", tint = Color(0xFFE8C975))
++                    }
++                }
++                HorizontalDivider(color = Color.White.copy(alpha = .16f))
++                Row(verticalAlignment = Alignment.CenterVertically) {
++                    Text("مبلغ دقیق: ${money.format(payment.amount)} تومان", Modifier.weight(1f), color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold)
++                    IconButton(onClick = { copy(payment.amount.toString(), "مبلغ تومان") }) {
++                        Icon(Icons.Filled.ContentCopy, "کپی مبلغ تومان", tint = Color(0xFFE8C975))
++                    }
++                }
++                TextButton(onClick = { copy(payment.amountRial.toString(), "مبلغ ریال") }) {
++                    Text("${money.format(payment.amountRial)} ریال • کپی", color = Color.White)
++                }
++            }
++        }
++        copied?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
++        Text("همین مبلغ دقیق را واریز کن؛ ممکن است برای تطبیق خودکار با قیمت پایه تفاوت داشته باشد.",
++            style = MaterialTheme.typography.bodySmall)
++        preview?.let { Image(it.asImageBitmap(), "پیش‌نمایش رسید انتخاب‌شده",
++            modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit) }
++        OutlinedButton(onClick = onPickReceipt, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
++            Text(if (receipt == null) "انتخاب عکس رسید از گوشی" else "تغییر عکس رسید")
++        }
++        Button(onClick = onUpload, enabled = receipt != null && !busy && !sent && payment.orderId.isNotBlank(),
++            modifier = Modifier.fillMaxWidth()) { Text(if (sent) "رسید ارسال شد؛ منتظر تأیید" else "ارسال رسید برای بررسی") }
++        Text("JPEG، PNG یا WebP • حداکثر ۸ مگابایت. ارسال رسید به معنی تأیید پرداخت نیست.",
++            style = MaterialTheme.typography.bodySmall)
++    }
++}
++
++@Composable
++internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Unit, onRetry: () -> Unit, busy: Boolean) {
++    val service = delivery.service
++    val payloads = remember(service) { (listOfNotNull(service.subscriptionUrl) + service.outputs).filter { it.isNotBlank() }.distinct() }
++    var index by remember(service.username) { mutableIntStateOf(0) }
++    val payload = payloads.getOrNull(index)
++    val bitmap by produceState<Bitmap?>(null, payload) {
++        value = withContext(Dispatchers.Default) { payload?.let { text ->
++            runCatching {
++                val matrix = QRCodeWriter().encode(text, BarcodeFormat.QR_CODE, 768, 768,
++                    mapOf(EncodeHintType.CHARACTER_SET to "UTF-8", EncodeHintType.MARGIN to 4))
++                val pixels = IntArray(768 * 768) { i -> if (matrix[i % 768, i / 768]) android.graphics.Color.BLACK else android.graphics.Color.WHITE }
++                Bitmap.createBitmap(pixels, 768, 768, Bitmap.Config.ARGB_8888)
++            }.getOrNull()
++        } }
++    }
++    val clipboard = LocalClipboardManager.current
++    AlertDialog(onDismissRequest = onDismiss,
++        title = { Text(if (delivery.synced) "سرویس به قاجار VPN اضافه شد" else "سرویس صادر شد؛ در حال همگام‌سازی") },
++        text = {
++            Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally,
++                verticalArrangement = Arrangement.spacedBy(10.dp)) {
++                Text(service.productName, fontWeight = FontWeight.Bold)
++                Text("\u2066${service.username}\u2069", style = MaterialTheme.typography.bodySmall)
++                if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
++                bitmap?.let { Image(it.asImageBitmap(), "QR اتصال همین سرویس",
++                    Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White), contentScale = ContentScale.Fit) }
++                if (payload != null && bitmap == null && !busy) Text("QR در حال آماده‌سازی است؛ لینک قابل کپی است.")
++                if (payloads.size > 1) Row(verticalAlignment = Alignment.CenterVertically) {
++                    TextButton(onClick = { index-- }, enabled = index > 0) { Text("قبلی") }
++                    Text("${index + 1} / ${payloads.size}")
++                    TextButton(onClick = { index++ }, enabled = index < payloads.lastIndex) { Text("بعدی") }
++                }
++                Text(if (delivery.synced) "کانفیگ‌ها همگام شدند و در فهرست اتصال قرار دارند." else
++                    "اگر همگام‌سازی کامل نشد، دریافت دوباره را بزن؛ خرید دوباره لازم نیست.", style = MaterialTheme.typography.bodySmall)
++                Text("QR و لینک خصوصی‌اند؛ فقط با فرد مورد اعتماد به اشتراک بگذار.", style = MaterialTheme.typography.labelSmall)
++            }
++        },
++        confirmButton = { TextButton(onClick = onDismiss) { Text("متوجه شدم") } },
++        dismissButton = { Row {
++            if (!delivery.synced) TextButton(onClick = onRetry, enabled = !busy) { Text("دریافت دوباره") }
++            if (payload != null) TextButton(onClick = { clipboard.setText(AnnotatedString(payload)) }) { Text("کپی لینک") }
++        } })
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarOperation.kt b/app/src/main/java/net/gozar/app/GhajarOperation.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarOperation.kt
+@@ -0,0 +1,24 @@
++package net.gozar.app
++
++import kotlinx.coroutines.CancellationException
++
++/** Navigation cancellation must never become a red purchase error. */
++internal inline fun <T> storeResult(block: () -> T): Result<T> = try {
++    Result.success(block())
++} catch (cancelled: CancellationException) {
++    throw cancelled
++} catch (error: Exception) {
++    Result.failure(error)
++}
++
++internal object GhajarCommerceRules {
++    fun paid(value: String) = value.trim().equals("paid", ignoreCase = true)
++    fun terminal(value: String) = value.trim().lowercase(java.util.Locale.ROOT) in
++        setOf("reject", "rejected", "expire", "expired", "canceled", "cancelled")
++    fun cardPayment(kind: String, card: String?) =
++        kind.lowercase(java.util.Locale.ROOT) in setOf("carttocart", "carttocart_pv", "card", "card_to_card") || !card.isNullOrBlank()
++    fun nextPoster(last: Int, count: Int): Int = if (count <= 1) 0 else (last + 1).mod(count)
++    fun publicMessage(message: String): String =
++        if (message.any { it in '\u0600'..'\u06ff' }) BrandConfig.sanitizePublicText(message).take(500)
++        else "عملیات کامل نشد؛ اتصال اینترنت و وضعیت سفارش را بررسی کن."
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarPaymentPolicy.kt b/app/src/main/java/net/gozar/app/GhajarPaymentPolicy.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarPaymentPolicy.kt
+@@ -0,0 +1,16 @@
++package net.gozar.app
++
++import java.net.URI
++import java.util.Locale
++
++/** Pure URL policy, also used by tests; never accepts credentials in URLs. */
++internal object GhajarPaymentPolicy {
++    fun allows(value: String, issuedHost: String?, trusted: Set<String>): Boolean {
++        val uri = try { URI(value) } catch (_: Exception) { return false }
++        if (!uri.scheme.equals("https", true) || uri.rawUserInfo != null || uri.port !in setOf(-1, 443)) return false
++        val host = uri.host?.lowercase(Locale.ROOT)?.trimEnd('.') ?: return false
++        val issued = issuedHost?.lowercase(Locale.ROOT)?.trimEnd('.')
++        if (host == issued) return true
++        return trusted.any { host == it || host.endsWith(".$it") }
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt
+@@ -0,0 +1,55 @@
++package net.gozar.app
++
++import kotlinx.coroutines.CancellationException
++import org.junit.Assert.*
++import org.junit.Test
++
++class GhajarCommerceRulesTest {
++    @Test fun cancellationEscapesResultWrapper() {
++        val cancellation = CancellationException("The coroutine scope left the composition")
++        try {
++            storeResult<Unit> { throw cancellation }
++            fail("Cancellation must propagate")
++        } catch (actual: CancellationException) { assertSame(cancellation, actual) }
++    }
++    @Test fun operationalErrorsRemainFailures() {
++        assertTrue(storeResult<Unit> { throw IllegalStateException("network") }.isFailure)
++    }
++    @Test fun onlyPaidConfirmsPayment() {
++        assertTrue(GhajarCommerceRules.paid(" PAID "))
++        listOf("unpaid", "waiting", "pending", "success", "1", "").forEach { assertFalse(GhajarCommerceRules.paid(it)) }
++    }
++    @Test fun terminalStatusesDoNotIncludePending() {
++        listOf("expire", "EXPIRED", "reject", "cancelled", "CANCELED").forEach { assertTrue(GhajarCommerceRules.terminal(it)) }
++        assertFalse(GhajarCommerceRules.terminal("waiting"))
++    }
++    @Test fun cardVariantsExposeReceiptControls() {
++        listOf("carttocart", "carttocart_pv", "card_to_card").forEach { assertTrue(GhajarCommerceRules.cardPayment(it, null)) }
++        assertTrue(GhajarCommerceRules.cardPayment("manual", "1234"))
++        assertFalse(GhajarCommerceRules.cardPayment("url", null))
++    }
++    @Test fun returningPosterCyclesWithoutImmediateRepetition() {
++        assertEquals(0, GhajarCommerceRules.nextPoster(-1, 4))
++        for (last in 0..3) assertNotEquals(last, GhajarCommerceRules.nextPoster(last, 4))
++        assertEquals(0, GhajarCommerceRules.nextPoster(3, 4))
++        assertEquals(0, GhajarCommerceRules.nextPoster(0, 1))
++    }
++    @Test fun internalEnglishErrorIsNotDisplayed() {
++        assertFalse(GhajarCommerceRules.publicMessage("The coroutine scope left the composition").contains("coroutine"))
++    }
++    private val trusted = setOf("blupal.net", "shaparak.ir")
++    @Test fun realBluPalLiveAndSandboxLinksAreAllowed() {
++        assertTrue(GhajarPaymentPolicy.allows("https://blupal.net/payment/opaque-token", "httpuser87890.ir", trusted))
++        assertTrue(GhajarPaymentPolicy.allows("https://blupal.net/sandbox/payment/token", null, trusted))
++    }
++    @Test fun lookalikeAndCredentialHostsAreRejected() {
++        listOf("https://blupal.net.evil.example/p", "https://blupal.net@evil.example/p",
++            "http://blupal.net/p", "https://blupal.net:444/p", "file:///tmp/receipt").forEach {
++            assertFalse(it, GhajarPaymentPolicy.allows(it, null, trusted))
++        }
++    }
++    @Test fun onlyExactApiIssuedHostGetsTemporaryTrust() {
++        assertTrue(GhajarPaymentPolicy.allows("https://checkout.example/p", "checkout.example", trusted))
++        assertFalse(GhajarPaymentPolicy.allows("https://other.checkout.example/p", "checkout.example", trusted))
++    }
++}
+-- 
+2.43.0

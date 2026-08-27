@@ -80,6 +80,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.ViewModelProvider
+import androidx.activity.ComponentActivity
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -101,6 +103,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val api = remember { GhajarStoreApi(context) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val checkoutModel = remember(context) { ViewModelProvider(context as ComponentActivity)[GhajarCheckoutViewModel::class.java] }
+    val checkoutBusy by checkoutModel.busy
+    val delivery by checkoutModel.delivery
+    val receiptSent by checkoutModel.receiptSent
+    val walletTopUp by checkoutModel.walletTopUp
+    var walletAmount by remember { mutableStateOf("") }
+    val requestedUrl by checkoutModel.openUrl
 
     var linked by remember { mutableStateOf(api.isLinked) }
     var linkSession by remember { mutableStateOf(api.pendingLink()) }
@@ -110,8 +119,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var linkCheckKey by remember { mutableIntStateOf(0) }
     var linkRemaining by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var message by remember { mutableStateOf<String?>(null) }
+    var error by checkoutModel.error
+    var message by checkoutModel.message
     var refreshKey by remember { mutableIntStateOf(0) }
     var section by remember { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
@@ -138,10 +147,10 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var customNote by remember { mutableStateOf("") }
     var discountCode by remember { mutableStateOf("") }
 
-    var pendingPurchase by remember { mutableStateOf<GhajarPurchaseResult?>(null) }
-    var paymentOptions by remember { mutableStateOf<GhajarPaymentOptions?>(null) }
-    var paymentInit by remember { mutableStateOf<GhajarPaymentInit?>(null) }
-    var receiptUri by remember { mutableStateOf<Uri?>(null) }
+    val pendingPurchase by checkoutModel.purchase
+    val paymentOptions by checkoutModel.methods
+    val paymentInit by checkoutModel.payment
+    var receiptUri by checkoutModel.receipt
     var trialOptions by remember { mutableStateOf<GhajarTrialOptions?>(null) }
 
     suspend fun refreshOwnedAndNotices() {
@@ -149,27 +158,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         notices = api.notices()
     }
 
-    suspend fun importIssuedService(username: String?): Int {
-        if (username.isNullOrBlank()) return 0
-        val service = api.service(username)
-        return api.importServiceOnce(store, service)
+    val checkout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
+        checkoutModel.checkPayment()
+        refreshKey++
     }
 
-    val checkout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            scope.launch {
-                busy = true
-                delay(700)
-                val count = runCatching { importIssuedService(pendingPurchase?.username) }.getOrDefault(0)
-                runCatching { refreshOwnedAndNotices() }
-                message = if (count > 0) "$count پیکربندی خریداری‌شده خودکار اضافه شد" else "پرداخت ثبت شد؛ وضعیت سرویس بروزرسانی شد"
-                busy = false
-            }
-        }
-    }
-
-    val receiptPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+    val receiptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         receiptUri = uri
+        if (uri != null) storeResult { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
     }
 
     fun openCheckout(url: String) {
@@ -189,7 +185,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         }
         val verification = linkGate != null
         val launch: (String) -> Boolean = { url ->
-            runCatching {
+            storeResult {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     .addCategory(Intent.CATEGORY_BROWSABLE))
             }.isSuccess
@@ -205,36 +201,32 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         }
     }
 
-    suspend fun beginPurchase(request: GhajarPurchaseRequest) {
-        if (busy) return
-        busy = true
-        error = null
-        message = null
-        runCatching { api.purchase(request) }
-            .onSuccess { result ->
-                if (result.requiresPayment) {
-                    pendingPurchase = result
-                    paymentOptions = api.paymentOptions()
-                    message = "موجودی کیف پول کافی نیست؛ روش پرداخت را انتخاب کن"
-                } else {
-                    pendingPurchase = null
-                    paymentInit = null
-                    val count = importIssuedService(result.username)
-                    refreshOwnedAndNotices()
-                    message = if (count > 0) "$count پیکربندی سرویس خودکار اضافه شد" else "سرویس با موفقیت ساخته شد"
-                }
+    LaunchedEffect(requestedUrl, active) {
+        if (active && requestedUrl != null) {
+            checkoutModel.openUrl.value = null
+            openCheckout(requestedUrl!!)
+        }
+    }
+    LaunchedEffect(active, paymentInit?.orderId, lifecycle) {
+        if (!active || paymentInit == null) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                checkoutModel.checkPayment()
+                delay(15_000)
             }
-            .onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در خرید") }
-        busy = false
+        }
     }
 
-    LaunchedEffect(section, pendingPurchase) { listState.scrollToItem(0) }
+    LaunchedEffect(section, pendingPurchase) {
+        listState.scrollToItem(0)
+        if (section == 3 && linked) checkoutModel.refreshMethods()
+    }
 
     LaunchedEffect(linked, refreshKey) {
         if (!linked) return@LaunchedEffect
         busy = true
         error = null
-        runCatching {
+        storeResult {
             panels = api.countries()
             if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull()
             refreshOwnedAndNotices()
@@ -242,22 +234,29 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         busy = false
     }
 
-    LaunchedEffect(selectedPanel?.id, selectedCategory?.id, selectedTime?.days, customMode) {
+    LaunchedEffect(selectedPanel?.id) {
         val panel = selectedPanel ?: return@LaunchedEffect
+        loadedPanelId = null
+        selectedCategory = null
+        selectedTime = null
+        customMode = false
+        customQuote = null
+        products = emptyList()
+        storeResult {
+            categories = api.categories(panel.id)
+            timeRanges = api.timeRanges(panel.id)
+            loadedPanelId = panel.id
+        }.onFailure { error = GhajarCommerceRules.publicMessage(it.message.orEmpty()) }
+    }
+    LaunchedEffect(loadedPanelId, selectedCategory?.id, selectedTime?.days, customMode) {
+        val panel = selectedPanel ?: return@LaunchedEffect
+        if (loadedPanelId != panel.id) return@LaunchedEffect
         busy = true
-        runCatching {
-            if (loadedPanelId != panel.id) {
-                categories = api.categories(panel.id)
-                timeRanges = api.timeRanges(panel.id)
-                selectedCategory = null
-                selectedTime = null
-                customMode = false
-                customQuote = null
-                loadedPanelId = panel.id
-            }
-            products = if (customMode) emptyList() else api.products(panel.id, selectedCategory?.id, selectedTime?.days)
-        }.onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در دریافت پلن‌ها") }
-        busy = false
+        try {
+            storeResult {
+                products = if (customMode) emptyList() else api.products(panel.id, selectedCategory?.id, selectedTime?.days)
+            }.onFailure { error = GhajarCommerceRules.publicMessage(it.message.orEmpty()) }
+        } finally { busy = false }
     }
 
     LaunchedEffect(linkSession?.sessionToken, active, lifecycle) {
@@ -332,7 +331,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         item {
             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
         }
-        if (busy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        if (busy || checkoutBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
         error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
 
@@ -380,9 +379,31 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         } else {
             item {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("خرید", "سرویس‌های من", "پیام‌ها").forEachIndexed { index, label ->
+                    listOf("خرید", "سرویس‌ها", "پیام‌ها", "کیف پول").forEachIndexed { index, label ->
                         FilterChip(selected = section == index, onClick = { section = index },
                             label = { Text(label, maxLines = 1) }, modifier = Modifier.weight(1f))
+                    }
+                }
+            }
+            if (section == 3) {
+                item {
+                    Card(shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("کیف پول قاجار", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                            Text(paymentOptions?.let { "${formatPrice(it.balance)} ${it.currency}" } ?: "در حال دریافت موجودی…",
+                                style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
+                            OutlinedTextField(walletAmount, { walletAmount = asciiDigits(it).filter(Char::isDigit).take(12) },
+                                label = { Text("مبلغ شارژ به تومان") },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true, modifier = Modifier.fillMaxWidth())
+                            Button(onClick = { checkoutModel.topUp(walletAmount.toLongOrNull() ?: 0); section = 0 },
+                                enabled = !checkoutBusy && (walletAmount.toLongOrNull() ?: 0) > 0,
+                                modifier = Modifier.fillMaxWidth()) { Text("شارژ کیف پول") }
+                            OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
+                                modifier = Modifier.fillMaxWidth()) { Text("بروزرسانی موجودی") }
+                            Text("شارژ پس از تأیید پنل به موجودی اضافه می‌شود. برای شارژ، سرویس جدید ساخته نمی‌شود.",
+                                style = MaterialTheme.typography.bodySmall)
+                        }
                     }
                 }
             }
@@ -395,22 +416,44 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 item { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
                 if (owned.isEmpty() && !busy) item { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
                 items(owned, key = { "owned:${it.username}" }) { service ->
-                    OwnedServiceCard(service) {
-                        scope.launch {
-                            busy = true
-                            runCatching { importIssuedService(service.username) }
-                                .onSuccess { count ->
-                                    message = if (count > 0) "$count پیکربندی اضافه شد" else "این سرویس قبلاً اضافه شده یا هنوز خروجی ندارد"
-                                }
-                                .onFailure { error = it.message }
-                            busy = false
-                        }
-                    }
+                    OwnedServiceCard(service) { checkoutModel.importOwned(service.username) }
                 }
             }
 
             if (section == 0) {
             if (pendingPurchase == null) {
+            item {
+                OutlinedButton(
+                    onClick = {
+                        scope.launch {
+                            busy = true
+                            storeResult { api.trialOptions() }
+                                .onSuccess { trialOptions = it }
+                                .onFailure { error = it.message }
+                            busy = false
+                        }
+                    },
+                    enabled = !busy && !checkoutBusy,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Filled.CardGiftcard, null)
+                    Spacer(Modifier.width(8.dp))
+                    Text("دریافت سرویس تست")
+                }
+            }
+            trialOptions?.let { options ->
+                if (!options.canRequest) item { Text("سهمیهٔ سرویس تست در دسترس نیست", color = MaterialTheme.colorScheme.error) }
+                items(options.panels, key = { "trial:${it.code}" }) { panel ->
+                    OutlinedButton(
+                        onClick = {
+                            checkoutModel.trial(panel.code, customUsername)
+                            trialOptions = null
+                        },
+                        enabled = options.canRequest && !checkoutBusy,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("تست ${panel.name}") }
+                }
+            }
             item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
             if (panels.isNotEmpty()) {
                 item {
@@ -469,7 +512,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                             val requestedDays = customDays
                             scope.launch {
                                 busy = true
-                                runCatching {
+                                storeResult {
                                     api.customQuote(panel.id, requestedTraffic.toIntOrNull() ?: 0, requestedDays.toIntOrNull() ?: 0)
                                 }.onSuccess {
                                     if (customTraffic == requestedTraffic && customDays == requestedDays && selectedPanel?.id == panel.id) customQuote = it
@@ -481,7 +524,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
             } else {
                 items(products, key = { "product:${it.id}" }) { product ->
-                    ProductCard(product, enabled = !busy) {
+                    ProductCard(product, enabled = !busy && !checkoutBusy) {
                         confirmationTitle = product.name
                         confirmationPrice = product.price
                         confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
@@ -508,104 +551,50 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
 
             pendingPurchase?.takeIf { it.requiresPayment }?.let { purchase ->
-                item { SectionTitle("۳. پرداخت", "برای همین سفارش یک روش پرداخت انتخاب کن") }
-                item { PaymentSummary(purchase) }
-                paymentOptions?.methods?.let { methods ->
-                    items(methods, key = { "pay:${it.id}" }) { method ->
-                        PaymentMethodCard(method, purchase.amountDue) {
-                            scope.launch {
-                                if (method.directUrl?.contains("t.me/") == true) {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(method.directUrl)))
-                                    return@launch
-                                }
-                                if (purchase.amountDue < method.minimum || (method.maximum > 0 && purchase.amountDue > method.maximum)) {
-                                    error = "مبلغ این خرید خارج از محدودهٔ روش ${method.label} است"
-                                    return@launch
-                                }
-                                busy = true
-                                runCatching { api.beginPayment(method.id, purchase.amountDue, purchase.username) }
-                                    .onSuccess { result ->
-                                        paymentInit = result
-                                        receiptUri = null
-                                        if (result.url != null) openCheckout(result.url)
-                                        else message = result.message.ifBlank { "درخواست پرداخت ثبت شد" }
-                                    }
-                                    .onFailure { error = it.message }
-                                busy = false
-                            }
-                        }
+                item { SectionTitle("۳. پرداخت", "فاکتور روی گوشی حفظ می‌شود؛ وضعیت را از سرور بررسی کن") }
+                item { PaymentSummary(purchase, walletTopUp) }
+                if (paymentInit == null) {
+                    if (paymentOptions == null) item {
+                        OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
+                            modifier = Modifier.fillMaxWidth()) { Text("دریافت روش‌های پرداخت") }
+                    }
+                    items(paymentOptions?.methods.orEmpty(), key = { "pay:${it.id}" }) { method ->
+                        PaymentMethodCard(method, purchase.amountDue, !checkoutBusy) { checkoutModel.beginPayment(method) }
                     }
                 }
             }
-
-            paymentInit?.takeIf { it.kind == "carttocart" }?.let { payment ->
+            paymentInit?.let { payment ->
+                if (GhajarCommerceRules.cardPayment(payment.kind, payment.cardNumber)) item {
+                    CardToCardCard(payment, receiptUri, checkoutBusy, receiptSent,
+                        onPickReceipt = { receiptPicker.launch(arrayOf("image/jpeg", "image/png", "image/webp")) },
+                        onUpload = checkoutModel::uploadReceipt)
+                }
                 item {
-                    CardToCardCard(
-                        payment = payment,
-                        receiptSelected = receiptUri != null,
-                        onCopyCard = {
-                            clipboard.setText(AnnotatedString(payment.cardNumber.orEmpty()))
-                            message = "شماره کارت کپی شد"
-                        },
-                        onPickReceipt = { receiptPicker.launch("image/*") },
-                        onUpload = {
-                            val uri = receiptUri ?: return@CardToCardCard
-                            scope.launch {
-                                busy = true
-                                runCatching { api.uploadReceipt(payment.orderId, uri) }
-                                    .onSuccess { message = it; receiptUri = null }
-                                    .onFailure { error = it.message }
-                                busy = false
-                            }
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("کد پیگیری: ${payment.orderId}", style = MaterialTheme.typography.labelMedium)
+                        payment.url?.let { url ->
+                            Button(onClick = { openCheckout(url) }, enabled = !checkoutBusy,
+                                modifier = Modifier.fillMaxWidth()) { Text("ادامهٔ همین پرداخت") }
                         }
-                    )
+                        OutlinedButton(onClick = checkoutModel::checkPayment, enabled = !checkoutBusy,
+                            modifier = Modifier.fillMaxWidth()) { Text("پرداخت کردم؛ بررسی و دریافت سرویس") }
+                        Text("بستن صفحه به معنی لغو تراکنش نیست. در صورت پرداخت، دوباره واریز نکن.",
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                 }
+            }
+            if (pendingPurchase != null) item {
+                TextButton(onClick = checkoutModel::leaveInvoice, enabled = !checkoutBusy) { Text("بازگشت به محصولات") }
             }
 
-            item {
-                OutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            busy = true
-                            runCatching { api.trialOptions() }
-                                .onSuccess { trialOptions = it }
-                                .onFailure { error = it.message }
-                            busy = false
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(Icons.Filled.CardGiftcard, null)
-                    Spacer(Modifier.width(8.dp))
-                    Text("دریافت سرویس تست")
-                }
-            }
-            trialOptions?.let { options ->
-                if (!options.canRequest) item { Text("سهمیهٔ سرویس تست در دسترس نیست", color = MaterialTheme.colorScheme.error) }
-                items(options.panels, key = { "trial:${it.code}" }) { panel ->
-                    OutlinedButton(
-                        onClick = {
-                            scope.launch {
-                                busy = true
-                                runCatching { api.createTrial(panel.code, customUsername) }
-                                    .onSuccess { service ->
-                                        val count = api.importServiceOnce(store, service)
-                                        refreshOwnedAndNotices()
-                                        trialOptions = null
-                                        message = if (count > 0) "سرویس تست ساخته و خودکار اضافه شد" else "سرویس تست ساخته شد"
-                                    }
-                                    .onFailure { error = it.message }
-                                busy = false
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth()
-                    ) { Text("تست ${panel.name}") }
-                }
-            }
             }
         }
 
         item { Spacer(Modifier.height(28.dp)) }
+    }
+    delivery?.let { result ->
+        GhajarDeliveryDialog(result, onDismiss = { checkoutModel.delivery.value = null },
+            onRetry = { checkoutModel.importOwned(result.service.username) }, busy = checkoutBusy)
     }
     confirmation?.let { request ->
         AlertDialog(
@@ -622,11 +611,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
             },
             confirmButton = {
-                Button(enabled = !busy && confirmationPrice != null &&
+                Button(enabled = !busy && !checkoutBusy && confirmationPrice != null &&
                     (selectedPanel?.usernameRequired != true || customUsername.isNotBlank()),
                     onClick = {
                         confirmation = null
-                        scope.launch { beginPurchase(request.copy(customUsername = customUsername, note = customNote, discountCode = discountCode)) }
+                        checkoutModel.buy(request.copy(customUsername = customUsername, note = customNote, discountCode = discountCode))
                     }) { Text("تأیید و ادامه") }
             },
             dismissButton = { TextButton(onClick = { confirmation = null }) { Text("بازگشت") } }
@@ -774,27 +763,32 @@ private fun <T> NullableFilterRow(allLabel: String, items: List<T>, selected: T?
 
 @Composable
 private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
-    var expanded by remember(product.id) { mutableStateOf(false) }
-    Card(elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), shape = RoundedCornerShape(24.dp)) {
-        Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.ShoppingCart, null, tint = Color(0xFFD6B45F))
-                Spacer(Modifier.width(8.dp))
-                Text(product.name, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis)
+    var details by remember(product.id) { mutableStateOf(false) }
+    Card(onClick = { details = true }, enabled = enabled,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(22.dp), elevation = CardDefaults.cardElevation(1.dp),
+        modifier = Modifier.fillMaxWidth()) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Icon(Icons.Filled.Shield, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(product.name, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(listOfNotNull(product.trafficGb?.let { "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ" },
+                    product.days?.let { "$it روز" }).joinToString("  •  "),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
+                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
             }
-            Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
-                color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(listOfNotNull(product.trafficGb?.let { "$it گیگ" }, product.days?.let { "$it روز" }).joinToString(" · "))
-            if (product.description.isNotBlank()) {
-                Text(product.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (expanded) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis)
-                TextButton(onClick = { expanded = !expanded }) { Text(if (expanded) "بستن توضیحات" else "جزئیات سرویس") }
-            }
-            Button(onClick = onBuy, enabled = enabled && product.price != null,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("انتخاب سرویس") }
+            Icon(Icons.Filled.OpenInNew, "مشاهدهٔ محصول", modifier = Modifier.size(20.dp))
         }
     }
+    if (details) AlertDialog(onDismissRequest = { details = false },
+        title = { Text(product.name) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(product.price?.let { "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست", fontWeight = FontWeight.Bold)
+            Text(product.description.ifBlank { "توضیح بیشتری از پنل ارسال نشده است." })
+        } },
+        confirmButton = { Button(onClick = { details = false; onBuy() }, enabled = enabled && product.price != null) { Text("انتخاب و ادامه") } },
+        dismissButton = { TextButton(onClick = { details = false }) { Text("بازگشت") } })
 }
 
 @Composable
@@ -847,21 +841,21 @@ private fun PurchaseExtras(
 }
 
 @Composable
-private fun PaymentSummary(purchase: GhajarPurchaseResult) {
+private fun PaymentSummary(purchase: GhajarPurchaseResult, walletTopUp: Boolean) {
     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF143A32))) {
         Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text("پرداخت مبلغ کسری", color = Color(0xFFD6B45F), fontWeight = FontWeight.ExtraBold)
+            Text(if (walletTopUp) "شارژ کیف پول" else "پرداخت مبلغ کسری", color = Color(0xFFD6B45F), fontWeight = FontWeight.ExtraBold)
             Text("موجودی: ${formatPrice(purchase.balance)} تومان", color = Color.White)
-            Text("قیمت سرویس: ${formatPrice(purchase.price)} تومان", color = Color.White)
+            if (!walletTopUp) Text("قیمت سرویس: ${formatPrice(purchase.price)} تومان", color = Color.White)
             Text("قابل پرداخت: ${formatPrice(purchase.amountDue)} تومان", color = Color.White, fontWeight = FontWeight.Bold)
         }
     }
 }
 
 @Composable
-private fun PaymentMethodCard(method: GhajarPaymentMethod, amount: Long, onClick: () -> Unit) {
+private fun PaymentMethodCard(method: GhajarPaymentMethod, amount: Long, enabled: Boolean, onClick: () -> Unit) {
     val allowed = amount >= method.minimum && (method.maximum <= 0 || amount <= method.maximum)
-    Card(onClick = onClick, enabled = allowed, modifier = Modifier.fillMaxWidth()) {
+    Card(onClick = onClick, enabled = allowed && enabled, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Filled.CreditCard, null, tint = Color(0xFFD6B45F))
             Spacer(Modifier.width(10.dp))
@@ -875,33 +869,10 @@ private fun PaymentMethodCard(method: GhajarPaymentMethod, amount: Long, onClick
 }
 
 @Composable
-private fun CardToCardCard(
-    payment: GhajarPaymentInit,
-    receiptSelected: Boolean,
-    onCopyCard: () -> Unit,
-    onPickReceipt: () -> Unit,
-    onUpload: () -> Unit
-) {
-    Card(border = BorderStroke(1.dp, Color(0xFFD6B45F)), shape = RoundedCornerShape(22.dp)) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            Icon(Icons.Filled.ReceiptLong, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(38.dp))
-            Text("کارت‌به‌کارت", fontWeight = FontWeight.ExtraBold)
-            Text(payment.cardNumber.orEmpty(), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Black)
-            Text(payment.cardHolder.orEmpty())
-            Text("مبلغ دقیق: ${formatPrice(payment.amount)} تومان", color = Color(0xFF0E8067), fontWeight = FontWeight.Bold)
-            TextButton(onClick = onCopyCard) { Icon(Icons.Filled.ContentCopy, null); Spacer(Modifier.width(6.dp)); Text("کپی شماره کارت") }
-            OutlinedButton(onClick = onPickReceipt, modifier = Modifier.fillMaxWidth()) { Text(if (receiptSelected) "تغییر عکس رسید" else "انتخاب عکس رسید") }
-            Button(onClick = onUpload, enabled = receiptSelected && payment.orderId.isNotBlank(), modifier = Modifier.fillMaxWidth()) { Text("ارسال رسید برای ادمین") }
-            Text("حداکثر حجم عکس ۸ مگابایت است.", style = MaterialTheme.typography.bodySmall)
-        }
-    }
-}
-
-@Composable
 private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
     Card(colors = CardDefaults.cardColors(containerColor = if (error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer)) {
         Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, modifier = Modifier.weight(1f), color = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
+            Text(if (error) GhajarCommerceRules.publicMessage(text) else text, modifier = Modifier.weight(1f), color = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
             TextButton(onClick = onDismiss) { Text("بستن") }
         }
     }
