@@ -24,9 +24,9 @@ android {
 
     defaultConfig {
         minSdk = 24
-        targetSdk = 36
         externalNativeBuild { cmake { } }
         buildConfigField("boolean", "openvpn3", "true")
+        buildConfigField("String", "FLAVOR", "\"normal\"")
     }
 
     compileOptions {
@@ -38,10 +38,13 @@ android {
         cmake { path = file("src/main/cpp/CMakeLists.txt") }
     }
 
-    sourceSets.getByName("main") {
-        java.setSrcDirs(listOf("src/main/java", "src/skeleton/java"))
-        res.setSrcDirs(listOf("src/main/res", "src/skeleton/res"))
-        manifest.srcFile("src/main/AndroidManifest.xml")
+    sourceSets {
+        getByName("main") {
+            // Container-block form matches the working strongswan module.
+            java.srcDirs("src/main/java", "src/skeleton/java")
+            res.srcDirs("src/main/res", "src/skeleton/res")
+            manifest.srcFile("src/main/AndroidManifest.xml")
+        }
     }
 
     packaging { jniLibs { useLegacyPackaging = true } }

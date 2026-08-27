@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+package_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source_root="$(cd "${1:?Usage: verify-source-snapshots.sh SOURCE_ROOT}" && pwd)"
+
+# The readable GitHub files must be the same files that the patch series builds.
+snapshots=(
+  "app/build.gradle.kts"
+  "openvpn/build.gradle.kts"
+  "strongswan/build.gradle.kts"
+  "settings.gradle.kts"
+  "app/src/main/java/net/gozar/app/BrandConfig.kt"
+  "app/src/main/java/net/gozar/app/GhajarAccountStore.kt"
+  "app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt"
+  "app/src/main/java/net/gozar/app/GhajarShopScreen.kt"
+  "app/src/main/java/net/gozar/app/GhajarSplashRepository.kt"
+  "app/src/main/java/net/gozar/app/GhajarStoreApi.kt"
+  "app/src/main/java/net/gozar/app/SecurePaymentActivity.kt"
+)
+for path in "${snapshots[@]}"; do
+  if ! cmp -s -- "${package_root}/${path}" "${source_root}/${path}"; then
+    echo "Snapshot differs from materialized source: ${path}" >&2
+    exit 1
+  fi
+done
+echo "Verified ${#snapshots[@]} reviewed source snapshots."

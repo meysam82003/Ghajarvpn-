@@ -20,11 +20,11 @@ object GhajarSplashRepository {
     }
 
     private fun fetchLivePoster(cache: File): Bitmap? {
-        val html = readBytes(BrandConfig.STORE_BASE_URL, 1_500_000).toString(Charsets.UTF_8)
+        val html = readBytes(BrandConfig.STORE_URL, 1_500_000).toString(Charsets.UTF_8)
         val match = Regex(
             "(?i)(https://[^\\\"' ]+/assets/boot-media/[^\\\"'<> ]+|/[^\\\"' ]*assets/boot-media/[^\\\"'<> ]+)"
         ).find(html)?.value ?: return null
-        val absolute = URL(URL(BrandConfig.STORE_BASE_URL), match).toString()
+        val absolute = URL(URL(BrandConfig.STORE_URL), match).toString()
         val uri = URI(absolute)
         if (uri.scheme != "https" || uri.host != BrandConfig.STORE_HOST) return null
         if (!uri.path.contains("/assets/boot-media/")) return null

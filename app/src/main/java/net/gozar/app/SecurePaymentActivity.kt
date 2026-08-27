@@ -22,14 +22,17 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.net.toUri
+import org.json.JSONObject
 
 /**
- * Embedded checkout. HTTPS pages stay inside Ghajarvpn and no address bar is shown.
- * Bank-app deep links are opened only when an installed non-browser application handles them.
+ * Checkout WebView with a strict host policy. Card-to-card never enters this
+ * activity; it is handled by the native shop screen and Android photo picker.
  */
 class SecurePaymentActivity : Activity() {
     private lateinit var webView: WebView
     private lateinit var progress: ProgressBar
+    private var initialHost: String? = null
+    private var accountToken: String = ""
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -39,10 +42,12 @@ class SecurePaymentActivity : Activity() {
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
 
         val checkoutUrl = intent.getStringExtra(EXTRA_URL)?.toUri()
-        if (checkoutUrl?.scheme != "https") {
-            finishWithError("آدرس پرداخت امن نیست")
+        initialHost = checkoutUrl?.host
+        if (checkoutUrl == null || !BrandConfig.isTrustedPaymentUri(checkoutUrl, initialHost)) {
+            finishWithError("آدرس پرداخت امن یا معتبر نیست")
             return
         }
+        accountToken = GhajarAccountStore(this).token()
 
         webView = WebView(this).apply {
             setBackgroundColor(Color.rgb(7, 27, 46))
@@ -50,8 +55,12 @@ class SecurePaymentActivity : Activity() {
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
             settings.allowContentAccess = false
+            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.setSupportMultipleWindows(false)
-            settings.userAgentString = settings.userAgentString + " Ghajarvpn/3.0"
+            settings.javaScriptCanOpenWindowsAutomatically = false
+            settings.userAgentString = settings.userAgentString + " Ghajarvpn/${BuildConfig.VERSION_NAME}"
+            isLongClickable = false
+            setOnLongClickListener { true }
             webViewClient = CheckoutClient()
         }
         progress = ProgressBar(this)
@@ -86,24 +95,22 @@ class SecurePaymentActivity : Activity() {
         }
         val root = FrameLayout(this).apply {
             addView(column, FrameLayout.LayoutParams(-1, -1))
-            addView(
-                progress,
-                FrameLayout.LayoutParams(56, 56, Gravity.CENTER)
-            )
+            addView(progress, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
         }
         setContentView(root)
         webView.loadUrl(checkoutUrl.toString())
     }
 
+    @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
-        if (::webView.isInitialized && webView.canGoBack()) webView.goBack()
-        else super.onBackPressed()
+        if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
 
     override fun onDestroy() {
         if (::webView.isInitialized) {
             webView.stopLoading()
             webView.loadUrl("about:blank")
+            webView.clearHistory()
             (webView.parent as? ViewGroup)?.removeView(webView)
             webView.destroy()
         }
@@ -111,32 +118,47 @@ class SecurePaymentActivity : Activity() {
     }
 
     private inner class CheckoutClient : WebViewClient() {
+        override fun onPageStarted(view: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
+            progress.visibility = View.VISIBLE
+        }
+
         override fun onPageFinished(view: WebView?, url: String?) {
-            progress.visibility = android.view.View.GONE
+            progress.visibility = View.GONE
             val uri = url?.toUri() ?: return
-            if (uri.host.equals(BrandConfig.STORE_HOST, ignoreCase = true)) {
-                view?.evaluateJavascript(BRAND_STORE_SCRIPT, null)
+            val onStore = BrandConfig.isTrustedStoreUri(uri)
+            if (onStore) {
+                val tokenLiteral = JSONObject.quote(accountToken)
+                view?.evaluateJavascript(
+                    "try{if($tokenLiteral)localStorage.setItem('faoxima.token',$tokenLiteral);}catch(e){};$BRAND_STORE_SCRIPT",
+                    null
+                )
             }
+
+            // Only the controlled store callback may complete the native flow.
+            if (!onStore) return
             val path = uri.path.orEmpty().lowercase()
-            val state = listOf("status", "payment", "result")
-                .firstNotNullOfOrNull { uri.getQueryParameter(it) }
-                ?.lowercase()
+            val state = sequenceOf("status", "payment", "result")
+                .mapNotNull(uri::getQueryParameter)
+                .firstOrNull()?.lowercase()
             when {
-                path.contains("payment/success") || path.contains("payment/succeeded") ||
+                path.contains("payment/success") || path.contains("successful") ||
                     state in setOf("success", "successful", "paid", "ok", "1") -> {
                     setResult(RESULT_OK, Intent().putExtra(EXTRA_RESULT_URL, url))
                     finish()
                 }
-                path.contains("payment/cancel") || path.contains("payment/failed") -> {
-                    setResult(RESULT_CANCELED)
-                }
+                path.contains("payment/cancel") || path.contains("payment/failed") ||
+                    state in setOf("failed", "cancel", "canceled") -> setResult(RESULT_CANCELED)
             }
         }
 
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
             val uri = request?.url ?: return true
-            if (uri.scheme == "https") return false
-            if (uri.scheme == "http" || uri.scheme == "file" || uri.scheme == "content") return true
+            if (uri.scheme.equals("https", true)) {
+                return !BrandConfig.isTrustedPaymentUri(uri, initialHost)
+            }
+            if (uri.scheme.equals("http", true) || uri.scheme.equals("file", true) || uri.scheme.equals("content", true)) {
+                return true
+            }
             return openInstalledBankApp(uri)
         }
 
@@ -146,7 +168,7 @@ class SecurePaymentActivity : Activity() {
         }
 
         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-            if (request?.isForMainFrame == true) progress.visibility = android.view.View.GONE
+            if (request?.isForMainFrame == true) progress.visibility = View.GONE
         }
     }
 
@@ -185,6 +207,7 @@ class SecurePaymentActivity : Activity() {
               ];
               const brand = 'قاجار وی پی ان';
               const clean = root => {
+                if (!root) return;
                 const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
                 let node;
                 while ((node = walker.nextNode())) {
@@ -192,10 +215,11 @@ class SecurePaymentActivity : Activity() {
                   replacements.forEach(pattern => value = value.replace(pattern, brand));
                   node.nodeValue = value;
                 }
+                root.querySelectorAll && root.querySelectorAll('.window-url').forEach(item => item.style.display = 'none');
               };
               document.title = brand;
               clean(document.body);
-              if (!window.__ghajarBrandObserver) {
+              if (!window.__ghajarBrandObserver && document.body) {
                 window.__ghajarBrandObserver = new MutationObserver(records =>
                   records.forEach(record => record.addedNodes.forEach(node => {
                     if (node.nodeType === Node.ELEMENT_NODE) clean(node);
