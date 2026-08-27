@@ -11,7 +11,7 @@ class GhajarAccountStore(context: Context) {
     private val appContext = context.applicationContext
     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
-    fun pendingLink(): GhajarLinkSession? {
+    fun pendingLink(): GhajarLinkSession? = synchronized(LOCK) {
         val encrypted = prefs.getString(KEY_PENDING_LINK, null) ?: return null
         val link = runCatching {
             val plain = Crypto.decrypt(encrypted) ?: return@runCatching null
@@ -27,7 +27,7 @@ class GhajarAccountStore(context: Context) {
     }
 
     /** Called on the API's IO dispatcher before the external bot is opened. */
-    fun savePendingLink(link: GhajarLinkSession): Boolean {
+    fun savePendingLink(link: GhajarLinkSession): Boolean = synchronized(LOCK) {
         if (!GhajarUiRules.validPendingLink(link.code, link.sessionToken,
                 link.expiresAtMillis, System.currentTimeMillis())) return false
         val plain = JSONObject().put("version", 1).put("code", link.code)
@@ -37,12 +37,12 @@ class GhajarAccountStore(context: Context) {
         return prefs.edit().putString(KEY_PENDING_LINK, encrypted).commit()
     }
 
-    fun clearPendingLink() { prefs.edit().remove(KEY_PENDING_LINK).apply() }
+    fun clearPendingLink() = synchronized(LOCK) { prefs.edit().remove(KEY_PENDING_LINK).apply() }
 
-    fun token(): String {
+    fun token(): String = synchronized(LOCK) {
         prefs.getString(KEY_TOKEN_ENCRYPTED, null)
             ?.let(Crypto::decrypt)
-            ?.takeIf { it.isNotBlank() }
+            ?.let(GhajarLinkFlow::bearer)
             ?.let { return it }
 
         val legacy = sequenceOf(
@@ -57,20 +57,34 @@ class GhajarAccountStore(context: Context) {
         return ""
     }
 
-    fun saveToken(token: String): Boolean {
-        val clean = token.trim()
-        if (clean.isEmpty()) return false
+    internal fun completePendingLink(sessionToken: String, token: String): GhajarLinkState = synchronized(LOCK) {
+        if (pendingLink()?.sessionToken != sessionToken) GhajarLinkState.SUPERSEDED
+        else if (saveToken(token)) GhajarLinkState.LINKED else GhajarLinkState.STORAGE_ERROR
+    }
+
+    fun saveToken(token: String): Boolean = synchronized(LOCK) {
+        val clean = GhajarLinkFlow.bearer(token) ?: return false
         val encrypted = Crypto.encrypt(clean) ?: return false
-        prefs.edit()
+        val previous = listOf(KEY_TOKEN_ENCRYPTED, KEY_TOKEN_PLAINTEXT, KEY_PENDING_LINK)
+            .associateWith { prefs.getString(it, null) }
+        val saved = prefs.edit()
             .putString(KEY_TOKEN_ENCRYPTED, encrypted)
             .remove(KEY_TOKEN_PLAINTEXT)
             .remove(KEY_PENDING_LINK)
-            .apply()
+            .commit()
+        if (!saved) {
+            // commit() can change the in-memory map even when the disk write fails.
+            // Do not report that unpersisted token as a linked account on resume.
+            prefs.edit().apply {
+                previous.forEach { (key, value) -> if (value == null) remove(key) else putString(key, value) }
+            }.apply()
+            return false
+        }
         clearLegacyPlaintext()
         return true
     }
 
-    fun clear() {
+    fun clear() = synchronized(LOCK) {
         prefs.edit().remove(KEY_TOKEN_ENCRYPTED).remove(KEY_TOKEN_PLAINTEXT).remove(KEY_PENDING_LINK).apply()
         clearLegacyPlaintext()
     }
@@ -83,6 +97,7 @@ class GhajarAccountStore(context: Context) {
     }
 
     companion object {
+        private val LOCK = Any()
         const val PREFS = "ghajarvpn_account_v2"
         private const val KEY_TOKEN_ENCRYPTED = "account_token_aes_gcm"
         private const val KEY_TOKEN_PLAINTEXT = "account_token"

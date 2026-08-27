@@ -4,6 +4,8 @@ import android.content.Context
 import android.net.Uri
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -172,22 +174,24 @@ class GhajarStoreApi(context: Context) {
         link
     }
 
-    suspend fun pollLink(sessionToken: String): Boolean = withContext(Dispatchers.IO) {
-        if (account.pendingLink()?.sessionToken != sessionToken) return@withContext false
+    internal suspend fun pollLink(sessionToken: String): GhajarLinkState = withContext(Dispatchers.IO) {
+        if (account.pendingLink()?.sessionToken != sessionToken) return@withContext GhajarLinkState.SUPERSEDED
         val encoded = URLEncoder.encode(sessionToken, Charsets.UTF_8.name())
         val root = requestJson(
             URL("${BrandConfig.WEBLINK_API_URL}?action=status&session_token=$encoded"),
             method = "GET",
             bearer = null,
-            body = null
+            body = null,
+            allowLinkGate = true
         )
-        if (!root.optString("link_status").equals("linked", true)) return@withContext false
-        val issued = root.optString("token")
-        if (issued.isBlank()) return@withContext false
+        currentCoroutineContext().ensureActive()
+        // JSONObject.NULL must never become the literal bearer token "null".
+        val issued = GhajarLinkFlow.bearer(root.opt("token") as? String)
+        val state = GhajarLinkFlow.responseState(root.optString("link_status"),
+            root.opt("gate") as? String, issued)
+        if (state != GhajarLinkState.LINKED) return@withContext state
         // A response to a cancelled/older session must not replace a newer one.
-        if (account.pendingLink()?.sessionToken != sessionToken) return@withContext false
-        if (!account.saveToken(issued)) throw GhajarApiException("ذخیرهٔ امن حساب در گوشی ناموفق بود")
-        true
+        account.completePendingLink(sessionToken, requireNotNull(issued))
     }
 
     fun unlink() = account.clear()
@@ -419,7 +423,7 @@ class GhajarStoreApi(context: Context) {
                     ?: throw GhajarApiException("فایل رسید قابل خواندن نیست")
                 output.writeUtf8("\r\n--$boundary--\r\n")
             }
-            val envelope = readResponse(connection)
+            val envelope = readResponse(connection, authenticated = true)
             visible(envelope.payloadObject().optString("message", "رسید ارسال شد"))
         } finally {
             connection.disconnect()
@@ -506,7 +510,8 @@ class GhajarStoreApi(context: Context) {
         method: String,
         bearer: String?,
         body: JSONObject?,
-        allowPaymentRequired: Boolean = false
+        allowPaymentRequired: Boolean = false,
+        allowLinkGate: Boolean = false
     ): JSONObject {
         val connection = (url.openConnection() as HttpURLConnection).apply {
             requestMethod = method
@@ -522,13 +527,14 @@ class GhajarStoreApi(context: Context) {
             }
         }
         return try {
-            readResponse(connection, allowPaymentRequired)
+            readResponse(connection, allowPaymentRequired, allowLinkGate, bearer != null)
         } finally {
             connection.disconnect()
         }
     }
 
-    private fun readResponse(connection: HttpURLConnection, allowPaymentRequired: Boolean = false): JSONObject {
+    private fun readResponse(connection: HttpURLConnection, allowPaymentRequired: Boolean = false,
+        allowLinkGate: Boolean = false, authenticated: Boolean = false): JSONObject {
         val code = connection.responseCode
         val raw = (if (code in 200..299) connection.inputStream else connection.errorStream)
             ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
@@ -538,7 +544,10 @@ class GhajarStoreApi(context: Context) {
         val paymentRequired = envelope.optBoolean("requires_payment") ||
             envelope.optJSONObject("obj")?.optBoolean("requires_payment") == true
         if (allowPaymentRequired && paymentRequired) return envelope
-        if (code == 401 || code == 403) account.clear()
+        // An unauthenticated login request must not erase an existing account/session.
+        if (GhajarLinkFlow.invalidatesAccount(authenticated, code)) account.clear()
+        if (allowLinkGate && code in 200..299 && envelope.optString("link_status") == "linked" &&
+            envelope.optString("gate") in setOf("force_join", "phone_required")) return envelope
         if (code !in 200..299 || !envelope.optBoolean("status", true)) {
             throw GhajarApiException(visible(envelope.optString("msg", "خطای فروشگاه ($code)")), code)
         }

@@ -80,23 +80,35 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.text.NumberFormat
 import java.util.Locale
 
 /** Fully native storefront backed by the API in Ghajar_vpnbot_-3-1.zip. */
 @Composable
-fun GhajarShopScreen(modifier: Modifier = Modifier) {
+fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val store = remember { ConfigStore.get(context.applicationContext) }
     val api = remember { GhajarStoreApi(context) }
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
 
     var linked by remember { mutableStateOf(api.isLinked) }
     var linkSession by remember { mutableStateOf(api.pendingLink()) }
+    var linkGate by remember(linkSession?.sessionToken) { mutableStateOf<GhajarLinkState?>(null) }
+    var linkState by remember { mutableStateOf(GhajarLinkState.PENDING) }
+    var linkChecking by remember { mutableStateOf(false) }
+    var linkCheckKey by remember { mutableIntStateOf(0) }
+    var linkRemaining by remember { mutableIntStateOf(0) }
     var busy by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
@@ -175,16 +187,21 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
             error = "کد اتصال معتبر نیست یا منقضی شده؛ دوباره «اتصال با تلگرام» را بزن."
             return
         }
-        val opened = GhajarUiRules.launchBotLogin(session.botUsername, session.code) { url ->
+        val verification = linkGate != null
+        val launch: (String) -> Boolean = { url ->
             runCatching {
                 context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
                     .addCategory(Intent.CATEGORY_BROWSABLE))
             }.isSuccess
         }
+        val opened = if (verification) GhajarUiRules.botVerificationUrls(session.botUsername).any(launch)
+            else GhajarUiRules.launchBotLogin(session.botUsername, session.code, launch)
         if (opened) {
-            message = "لینک تلگرام با کد اتصال آماده باز شد؛ «Start / شروع» را بزن و برگرد. نیازی به تایپ کد نیست."
+            message = if (verification) "ربات باز شد؛ «Start / شروع» را بزن و مراحل تأیید حساب را کامل کن."
+                else "لینک تلگرام با کد اتصال آماده باز شد؛ «Start / شروع» را بزن و برگرد. نیازی به تایپ کد نیست."
         } else {
-            error = "تلگرام یا مرورگر در دسترس نیست؛ فرمان کامل اتصال را کپی کن."
+            error = if (verification) "تلگرام یا مرورگر در دسترس نیست؛ ربات قاجار را باز کن و /start بفرست."
+                else "تلگرام یا مرورگر در دسترس نیست؛ فرمان کامل اتصال را کپی کن."
         }
     }
 
@@ -243,24 +260,68 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
         busy = false
     }
 
-    LaunchedEffect(linkSession?.sessionToken) {
+    LaunchedEffect(linkSession?.sessionToken, active, lifecycle) {
         val session = linkSession ?: return@LaunchedEffect
-        while (System.currentTimeMillis() < session.expiresAtMillis) {
-            val linkedNow = try { api.pollLink(session.sessionToken) }
-                catch (cancelled: CancellationException) { throw cancelled }
-                catch (_: Exception) { false }
-            if (linkedNow) {
-                linked = true
-                linkSession = null
-                message = "حساب با موفقیت و به‌صورت امن متصل شد"
-                GhajarNotificationMonitor.refresh(context.applicationContext)
-                return@LaunchedEffect
-            }
-            delay(2_000)
+        if (!active) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            do {
+                linkRemaining = GhajarLinkFlow.remainingSeconds(session.expiresAtMillis, System.currentTimeMillis())
+                if (linkRemaining > 0) delay(1_000)
+            } while (linkRemaining > 0)
         }
-        api.clearPendingLink()
-        error = "زمان کد اتصال تمام شد؛ دوباره کد بساز"
-        linkSession = null
+    }
+
+    LaunchedEffect(linkSession?.sessionToken, linkCheckKey, active, lifecycle) {
+        val session = linkSession ?: return@LaunchedEffect
+        if (!active) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            // A durable save may have finished just as Android stopped the Activity.
+            if (api.isLinked) {
+                linked = true; linkSession = null
+                message = GhajarLinkFlow.message(GhajarLinkState.LINKED)
+                GhajarNotificationMonitor.refresh(context.applicationContext)
+                return@repeatOnLifecycle
+            }
+            var failures = 0
+            while (true) {
+                val result = if (System.currentTimeMillis() >= session.expiresAtMillis) GhajarLinkState.EXPIRED else {
+                    linkChecking = true
+                    try {
+                        api.pollLink(session.sessionToken)
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: IOException) {
+                        GhajarLinkState.NETWORK_ERROR
+                    } catch (_: Exception) {
+                        GhajarLinkState.SERVER_ERROR
+                    } finally {
+                        linkChecking = false
+                    }
+                }
+                currentCoroutineContext().ensureActive()
+                linkState = result
+                linkGate = GhajarLinkFlow.verificationGate(linkGate, result)
+                when (result) {
+                    GhajarLinkState.LINKED -> {
+                        linked = true; linkSession = null; error = null
+                        message = GhajarLinkFlow.message(result)
+                        GhajarNotificationMonitor.refresh(context.applicationContext)
+                        return@repeatOnLifecycle
+                    }
+                    GhajarLinkState.EXPIRED, GhajarLinkState.NOT_FOUND, GhajarLinkState.SUPERSEDED -> {
+                        if (result != GhajarLinkState.SUPERSEDED) api.clearPendingLink()
+                        linkSession = null; message = null
+                        error = GhajarLinkFlow.message(result)
+                        return@repeatOnLifecycle
+                    }
+                    else -> Unit
+                }
+                failures = if (result in setOf(GhajarLinkState.NETWORK_ERROR, GhajarLinkState.SERVER_ERROR,
+                        GhajarLinkState.STORAGE_ERROR)) (failures + 1).coerceAtMost(4) else 0
+                val remainingMs = (session.expiresAtMillis - System.currentTimeMillis()).coerceAtLeast(1)
+                delay(minOf(GhajarLinkFlow.retryDelayMillis(failures), remainingMs))
+            }
+        }
     }
 
     LazyColumn(
@@ -280,17 +341,36 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
                 LinkAccountCard(
                     session = linkSession,
                     busy = busy,
+                    state = linkState,
+                    verification = linkGate != null,
+                    checking = linkChecking,
+                    remainingSeconds = linkRemaining,
                     onBegin = {
                         scope.launch {
                             busy = true
                             error = null
-                            runCatching { api.beginLink() }
-                                .onSuccess { linkSession = it; openBot(it) }
-                                .onFailure { error = it.message }
-                            busy = false
+                            message = null
+                            try {
+                                linkSession = api.beginLink()
+                                linkState = GhajarLinkState.PENDING
+                                linkRemaining = GhajarLinkFlow.remainingSeconds(linkSession!!.expiresAtMillis, System.currentTimeMillis())
+                                openBot(linkSession)
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (_: IOException) {
+                                error = "کد اتصال دریافت نشد؛ اینترنت را بررسی کن و دوباره تلاش کن."
+                            } catch (_: Exception) {
+                                error = "ساخت کد اتصال انجام نشد؛ چند لحظه بعد دوباره تلاش کن."
+                            } finally { busy = false }
                         }
                     },
                     onOpenBot = { openBot() },
+                    onCheck = { if (!linkChecking) linkCheckKey++ },
+                    onCancel = {
+                        api.clearPendingLink(); linkSession = null
+                        message = "درخواست ورود در این گوشی لغو شد؛ برای ادامه کد تازه بگیر."
+                        error = null
+                    },
                     onCopyCommand = {
                         linkSession?.let { clipboard.setText(AnnotatedString("/link ${it.code}")) }
                         message = "فرمان اتصال کپی شد؛ آن را بدون ویرایش در ربات بفرست."
@@ -571,7 +651,9 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
 }
 
 @Composable
-private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin: () -> Unit, onOpenBot: () -> Unit, onCopyCommand: () -> Unit) {
+private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, state: GhajarLinkState, verification: Boolean,
+    checking: Boolean, remainingSeconds: Int, onBegin: () -> Unit, onOpenBot: () -> Unit,
+    onCheck: () -> Unit, onCancel: () -> Unit, onCopyCommand: () -> Unit) {
     Card(
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(containerColor = Color(0xFF0B211C)),
@@ -580,20 +662,33 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin:
         Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(Icons.Filled.Security, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(40.dp))
             Text("اتصال امن حساب", color = Color(0xFFF7F2E8), fontWeight = FontWeight.Bold)
-            Text("توکن فقط به‌صورت AES-GCM داخل Android Keystore ذخیره می‌شود.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
+            Text("ورود با ربات؛ اطلاعات اتصال در گوشی رمزگذاری می‌شود.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
             Spacer(Modifier.height(14.dp))
             if (session == null) {
                 Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("اتصال با تلگرام") }
             } else {
-                TextButton(onClick = onOpenBot) {
-                    Text(session.code, style = MaterialTheme.typography.headlineMedium,
-                        color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
+                if (!verification) {
+                    TextButton(onClick = onOpenBot, enabled = remainingSeconds > 0) {
+                        Text(session.code, style = MaterialTheme.typography.headlineMedium,
+                            color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
+                    }
+                    Text("۱. «تأیید اتصال در تلگرام» را بزن.\n۲. پایین چت ربات، «شروع / Start» را بزن.\n۳. به قاجار برگرد؛ حساب خودکار متصل می‌شود.",
+                        color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
+                    Text("کد از قبل داخل لینک است؛ آن را تایپ یا اصلاح نکن.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
                 }
-                Text("۱. «تأیید اتصال در تلگرام» را بزن.\n۲. پایین چت ربات، «شروع / Start» را بزن.\n۳. به قاجار برگرد؛ حساب خودکار متصل می‌شود.",
-                    color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
-                Text("کد از قبل داخل لینک است؛ آن را تایپ یا اصلاح نکن.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
-                Button(onClick = onOpenBot) { Icon(Icons.Filled.OpenInNew, null); Spacer(Modifier.width(7.dp)); Text("تأیید اتصال در تلگرام") }
-                TextButton(onClick = onCopyCommand) { Text("کپی فرمان کامل اتصال") }
+                Text("زمان باقی‌مانده: ${remainingSeconds / 60}:${(remainingSeconds % 60).toString().padStart(2, '0')}",
+                    color = Color(0xFFD6B45F), modifier = Modifier.padding(vertical = 8.dp))
+                Text(GhajarLinkFlow.message(state), color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
+                if (checking) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
+                Button(onClick = onOpenBot, enabled = remainingSeconds > 0,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                    Icon(Icons.Filled.OpenInNew, null); Spacer(Modifier.width(7.dp))
+                    Text(if (verification) "تکمیل تأیید در ربات" else "تأیید اتصال در تلگرام")
+                }
+                OutlinedButton(onClick = onCheck, enabled = !checking && remainingSeconds > 0,
+                    modifier = Modifier.fillMaxWidth()) { Text("تأیید کردم؛ بررسی دوباره") }
+                if (!verification) TextButton(onClick = onCopyCommand, enabled = remainingSeconds > 0) { Text("کپی فرمان کامل اتصال") }
+                TextButton(onClick = onCancel) { Text("لغو درخواست ورود") }
             }
         }
     }

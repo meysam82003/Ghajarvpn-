@@ -37,6 +37,10 @@ jobs:
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y swig ninja-build
       - uses: android-actions/setup-android@v3
+        with:
+          # The action's default also installs the obsolete sdk-tools archive.
+          # Modern SDK/NDK packages are installed explicitly in the next step.
+          packages: platform-tools
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
       - name: Materialize full source when using the GitHub patch distribution
@@ -107,14 +111,14 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-3.0.2-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
+          name: Ghajarvpn-3.0.3-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
           path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-3.0.2-test-reports
+          name: Ghajarvpn-3.0.3-test-reports
           path: |
             ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/test-results/testDebugUnitTest/*.xml
             ${{ runner.temp }}/ghajar-native-arch-tests/Testing/Temporary/LastTest.log
