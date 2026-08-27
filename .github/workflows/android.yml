@@ -37,6 +37,12 @@ jobs:
             scripts/bootstrap-from-upstream.sh
             echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
           fi
+      - name: Fetch pinned native OpenVPN engine sources
+        if: env.GHAJAR_SOURCE_ROOT != '.'
+        run: |
+          test -f .ghajarvpn-src/scripts/fetch-openvpn-native.sh
+          chmod +x .ghajarvpn-src/scripts/fetch-openvpn-native.sh
+          .ghajarvpn-src/scripts/fetch-openvpn-native.sh .ghajarvpn-src
       - name: Build debug APK
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: ./gradlew --no-daemon :app:assembleDebug
