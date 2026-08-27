@@ -40,7 +40,11 @@ rm -f "${patch_file}"
 # applied in lexical order so GitHub reviews show only the current changes.
 if [[ -d "${incremental_patch_dir}" ]]; then
   while IFS= read -r incremental_patch; do
-    git -C "${destination}" am --3way "${incremental_patch}"
+    if ! git -C "${destination}" am --3way "${incremental_patch}"; then
+      # Diagnose exact context drift; never force a partially applied patch.
+      git -C "${destination}" apply --check --verbose "${incremental_patch}" || true
+      exit 1
+    fi
   done < <(find "${incremental_patch_dir}" -maxdepth 1 -type f -name '*.patch' -print | sort)
 fi
 

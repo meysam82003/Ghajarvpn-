@@ -8,7 +8,7 @@ Defensive lifecycle changes. Device crash reproduction remains required.
 diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
 --- a/app/src/main/java/net/gozar/app/MainActivity.kt
 +++ b/app/src/main/java/net/gozar/app/MainActivity.kt
-@@ -574,5 +574,7 @@
+@@ -719,5 +719,7 @@
      private val vpnPermission =
          registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
 +            val continuation = afterPermission
@@ -17,7 +17,10 @@ diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java
 -            if (result.resultCode == Activity.RESULT_OK) afterPermission?.invoke()
              else VpnState.setDisconnected()
          }
-@@ -938,2 +940,16 @@
+@@ -989,5 +991,19 @@
+         }
+     }
+ 
 +    private fun guardedConnect(block: () -> Unit) {
 +        try { block() }
 +        catch (error: LinkageError) {
@@ -34,7 +37,7 @@ diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java
 +
 +    private fun proceedConnectChecked(config: ProxyConfig) {
          if (VpnState.state.value == Connection.CONNECTED) return
-@@ -981,10 +997,10 @@
+@@ -1035,10 +1051,10 @@
      private fun startTunnel(configJson: String, name: String, aether: String, tor: String?) {
 +        guardedConnect { androidx.core.content.ContextCompat.startForegroundService(this,
 -        startService(
@@ -50,7 +53,10 @@ diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java
 diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/java/net/gozar/app/GozarVpnService.kt
 --- a/app/src/main/java/net/gozar/app/GozarVpnService.kt
 +++ b/app/src/main/java/net/gozar/app/GozarVpnService.kt
-@@ -23,2 +23,8 @@
+@@ -25,5 +25,11 @@
+     private var aetherSpec: AetherSpec? = null
+     private var torSpec: String? = null
+     private var blockFd: ParcelFileDescriptor? = null
 +    private val scope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO +
 +        kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
 +            // No raw exception text: it may contain a subscription credential.
@@ -60,7 +66,10 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 +    private var startJob: Job? = null
 -    private val scope = CoroutineScope(Dispatchers.IO)
      private var pollJob: Job? = null
-@@ -36,9 +42,17 @@
+@@ -33,12 +39,20 @@
+     private var autoSelector: AutoSelector? = null
+     private var autoJob: Job? = null
+ 
 +    private var nativeInitializationFailed = false
 +
      override fun onCreate() {
@@ -84,7 +93,10 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 -        })
 -        TorLog.sink = { line -> Log.i("XrayCore", line) }
      }
-@@ -81,5 +95,14 @@
+@@ -74,11 +88,20 @@
+     }
+ 
+     private fun startTunnel(configJson: String) {
 +        if (tunFd != null || startJob?.isActive == true) return
 -        if (tunFd != null) return
          tearingDown = false
@@ -102,7 +114,13 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 +                return@launch
 +            }
 -        scope.launch {
-@@ -141,4 +164,6 @@
+             val builder = Builder()
+                 .setSession("GozarNet")
+                 .setMtu(1500)
+@@ -138,7 +161,9 @@
+                 }
+                 VpnBridge.sendConnected(applicationContext)
+                 startPolling()
 +            } catch (cancelled: kotlinx.coroutines.CancellationException) {
 +                throw cancelled
              } catch (e: Exception) {
@@ -111,11 +129,14 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 -                Log.e(TAG, "Xray core failed to start", e)
 -                die(e.message ?: "Engine failed to start")
              }
-@@ -264,2 +289,3 @@
+@@ -257,5 +282,6 @@
      private fun die(error: String?) {
          if (tearingDown) return
 +        startJob?.cancel(); startJob = null
-@@ -285,6 +311,3 @@
+         val killOn = runCatching { ConfigStore.get(applicationContext).killSwitch.value }.getOrDefault(false)
+         if (error != null && killOn) {
+             AetherController.stop()
+@@ -277,6 +303,3 @@
          stopSelf()
 +        // Lifecycle owns cleanup. A delayed process kill can kill a subsequent reconnect.
 -        scope.launch {
@@ -123,7 +144,7 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 -            android.os.Process.killProcess(android.os.Process.myPid())
 -        }
      }
-@@ -313,7 +336,11 @@
+@@ -303,7 +326,11 @@
      override fun onDestroy() {
 +        tearingDown = true
 +        scope.coroutineContext[Job]?.cancel()
@@ -140,23 +161,32 @@ diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/j
 diff --git a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
 --- a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
 +++ b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
-@@ -5,3 +5,3 @@
+@@ -2,9 +2,9 @@
+ 
+ object SubscriptionRefresher {
+ 
 +    suspend fun refreshStale(store: ConfigStore, force: Boolean = false) {
 -    suspend fun refreshStale(store: ConfigStore) {
          val hours = store.autoRefreshHours.value
 +        if (hours <= 0 && !force) return
 -        if (hours <= 0) return
-@@ -10,4 +10,4 @@
+         val cutoff = System.currentTimeMillis() - hours * 3_600_000L
+ 
+         store.subscriptions.value
+@@ -10,7 +10,7 @@
          store.subscriptions.value
 +            .filter { (force || it.lastUpdated <= cutoff) && (it.url.startsWith("https://") || it.url.startsWith("http://")) }
 -            .filter { it.lastUpdated <= cutoff }
              .forEach { sub ->
 +                storeResult {
 -                runCatching {
+                     val result = SubscriptionFetcher.fetchFull(sub.url)
+                     if (result.configs.isNotEmpty()) {
+                         val info = result.userInfo
 diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
 --- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
 +++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
-@@ -25,4 +25,8 @@
+@@ -21,4 +21,8 @@
              override fun onActivityStarted(activity: Activity) {
 +                val enteringApp = startedActivities == 0
                  startedActivities++
