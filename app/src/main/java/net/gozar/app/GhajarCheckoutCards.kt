@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -56,13 +57,14 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
     val money = remember { NumberFormat.getIntegerInstance(Locale("fa", "IR")) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp, color = Color(0xFF082F2B)) {
-            Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF17483D), Color(0xFF081F2B))))
-                .padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    GhajarWordmark(Modifier.weight(1f).height(38.dp))
-                    Image(painterResource(R.drawable.ghajar_treasury), "خزانهٔ قاجار",
-                        modifier = Modifier.size(54.dp), contentScale = ContentScale.Fit)
-                }
+            Box {
+                Image(painterResource(R.drawable.ghajar_payment_frame), contentDescription = null,
+                    modifier = Modifier.matchParentSize(), contentScale = ContentScale.FillWidth,
+                    alignment = Alignment.TopCenter)
+                Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("خزانهٔ قاجار", color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold,
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 36.dp))
                 Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
@@ -88,17 +90,18 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
                     Text("${money.format(payment.amountRial)} ریال • کپی", color = Color.White)
                 }
             }
+            }
         }
         copied?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
         Text("همین مبلغ دقیق را واریز کن؛ ممکن است برای تطبیق خودکار با قیمت پایه تفاوت داشته باشد.",
             style = MaterialTheme.typography.bodySmall)
         preview?.let { Image(it.asImageBitmap(), "پیش‌نمایش رسید انتخاب‌شده",
             modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit) }
-        OutlinedButton(onClick = onPickReceipt, enabled = !busy, modifier = Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = onPickReceipt, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("ghajar_pick_receipt")) {
             Text(if (receipt == null) "انتخاب عکس رسید از گوشی" else "تغییر عکس رسید")
         }
         Button(onClick = onUpload, enabled = receipt != null && !busy && !sent && payment.orderId.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()) { Text(if (sent) "رسید ارسال شد؛ منتظر تأیید" else "ارسال رسید برای بررسی") }
+            modifier = Modifier.fillMaxWidth().testTag("ghajar_upload_receipt")) { Text(if (sent) "رسید ارسال شد؛ منتظر تأیید" else "ارسال رسید برای بررسی") }
         Text("JPEG، PNG یا WebP • حداکثر ۸ مگابایت. ارسال رسید به معنی تأیید پرداخت نیست.",
             style = MaterialTheme.typography.bodySmall)
     }

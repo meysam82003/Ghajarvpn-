@@ -24,7 +24,9 @@ android {
 		}
 
 		ndk {
-			abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+			val testAbi = providers.gradleProperty("ghajar.testAbi").orNull
+			check(testAbi == null || (testAbi == "x86_64" && providers.gradleProperty("ghajar.demo").orNull == "true"))
+			abiFilters += if (testAbi == null) listOf("arm64-v8a", "armeabi-v7a") else listOf(testAbi)
 		}
 
 		consumerProguardFiles("consumer-rules.pro")

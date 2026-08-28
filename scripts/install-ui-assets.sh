@@ -9,6 +9,17 @@ for asset in ghajar_wordmark ghajar_treasury; do
   cp "${package_root}/branding/soft-ui/${asset}.png" "${asset_target}/${asset}.png"
 done
 
+for asset in ghajar_launcher.jpg ghajar_payment_frame.jpg ghajar_royal_characters.webp; do
+  test -s "${package_root}/branding/native/${asset}"
+  cp "${package_root}/branding/native/${asset}" "${asset_target}/${asset}"
+done
+for density in mdpi hdpi xhdpi xxhdpi xxxhdpi; do
+  target="${source_root}/app/src/main/res/mipmap-${density}"
+  mkdir -p "${target}"
+  cp "${package_root}/branding/native/mipmap-${density}/ic_launcher.webp" "${target}/ic_launcher.webp"
+  cp "${package_root}/branding/native/mipmap-${density}/ic_launcher.webp" "${target}/ic_launcher_round.webp"
+done
+
 # Welcome originals are archived outside the runtime resources. Install one
 # optimized JPEG per name; Android must not package both PNG and JPEG copies.
 for poster in "${package_root}/branding/welcome/"*.jpg; do

@@ -6,6 +6,10 @@ plugins {
 }
 
 val ghajarDemoBuild = providers.gradleProperty("ghajar.demo").orNull == "true"
+val ghajarTestAbi = providers.gradleProperty("ghajar.testAbi").orNull
+check(ghajarTestAbi == null || (ghajarDemoBuild && ghajarTestAbi == "x86_64")) {
+    "The emulator ABI is permitted only for a demo test build."
+}
 val ghajarSignedDemo = providers.gradleProperty("ghajar.demo.signed").orNull == "true"
 check(!ghajarSignedDemo || ghajarDemoBuild) { "Signed demo requires -Pghajar.demo=true" }
 
@@ -101,7 +105,7 @@ android {
         abi {
             isEnable = true
             reset()
-            include("arm64-v8a", "armeabi-v7a")
+            if (ghajarTestAbi != null) include(ghajarTestAbi) else include("arm64-v8a", "armeabi-v7a")
             isUniversalApk = false
         }
     }

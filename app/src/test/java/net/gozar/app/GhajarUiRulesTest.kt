@@ -6,6 +6,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class GhajarUiRulesTest {
+    @Test fun customColorRequiresExactlySixHexDigits() {
+        assertEquals("#359F78", GhajarColorRules.normalize(" 359f78 "))
+        assertEquals("#C79E48", GhajarColorRules.normalize("#c79e48"))
+        listOf("#123", "#00112233", "red", "#xyzxyz", "##123456").forEach {
+            assertEquals(null, GhajarColorRules.normalize(it))
+        }
+    }
+
     private val linkToken = "a".repeat(48)
 
     @Test fun welcomeShowsEveryImageExactlyOnceBeforeRepeating() {
