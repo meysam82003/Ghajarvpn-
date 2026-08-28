@@ -28,7 +28,8 @@ This branch collects all changes before delivering one demo; a green compile alo
 - Welcome-only Android CI run [33145440173](https://github.com/meysam82003/Ghajarvpn-/actions/runs/33145440173): success.
 - Appearance/location Android CI run [33146250906](https://github.com/meysam82003/Ghajarvpn-/actions/runs/33146250906): success, ARM32/ARM64 builds and automated checks.
 - Android 14 emulator run [33146250926](https://github.com/meysam82003/Ghajarvpn-/actions/runs/33146250926): 2 instrumentation tests, 0 failures/errors/skips. Connect, disconnect, reconnect, Activity recreation and real bundled-core SOCKS traffic to a local fixture passed.
-- Added instrumentation checks for the exact card copy/receipt controls with large Persian text, decoding the rendered delivery QR, one-poster welcome, story reaction/gift navigation and custom color controls/contrast. Integrated result pending.
+- The story checkpoint ARM build [33168409525](https://github.com/meysam82003/Ghajarvpn-/actions/runs/33168409525) passed. Its Android 14 UI run is being inspected separately.
+- Follow-up native tests cover actual server-final amount parsing, globe projection/flag changes and clearing the prior country during reconnect. Receipt controls preserve a selection on picker cancellation and prevent resubmission while approval is pending.
 - Source snapshots must match the complete reconstructed build. Binary brand assets are installed from `branding/`, not embedded in incremental patches.
 
 ## Limits and remaining release checks
@@ -38,3 +39,9 @@ This branch collects all changes before delivering one demo; a green compile alo
 - Native IKE uses its VPN route for IP probes; imported OpenVPN lifecycle integration has not been verified by the core fixture test.
 - CI demo keys are ephemeral until a private stable key is configured. Do not promise an in-place upgrade over previous demo APKs.
 - No production credentials, actual payment or bot source ZIP are published. Keep this PR in review until the integrated checks finish.
+
+## APK inspection
+
+The appearance checkpoint ARM64 APK is 84,357,573 bytes; all 33 welcome JPEGs total 8,963,166 bytes and match the reviewed source bytes. Native engines account for 33,399,951 compressed bytes; DEX accounts for 24,068,280. Image compression alone cannot remove that engine/code payload.
+
+Direct ELF inspection found an inherited ARM64 Aether executable under `armeabi-v7a`. It cannot execute on a 32-bit ARM device. The follow-up excludes that misplaced executable from ARM32 and avoids automatically selecting an unavailable engine; ARM64 Aether is retained unchanged. The shipped-APK verifier now rejects an ABI mismatch and verifies every welcome image hash/count. Core/OpenVPN/IKE native libraries are not removed. The verifier passed the existing ARM64 APK (20 native libraries), and caught the known mismatch in the existing ARM32 APK before this correction.

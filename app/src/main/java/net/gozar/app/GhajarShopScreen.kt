@@ -180,9 +180,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     }
 
     val receiptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        receiptUri = uri
-        if (uri != null) checkoutModel.receiptSent.value = false
-        if (uri != null) storeResult { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        // Cancelling the picker must not discard the previously selected receipt.
+        if (uri != null) {
+            receiptUri = uri
+            storeResult { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        }
     }
 
     fun openCheckout(url: String) {

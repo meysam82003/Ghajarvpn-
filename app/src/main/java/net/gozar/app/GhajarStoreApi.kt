@@ -398,14 +398,23 @@ class GhajarStoreApi(context: Context) {
         val body = JSONObject().put("method", method).put("amount", amount)
         purchaseUsername?.takeIf { it.isNotBlank() }?.let { body.put("purchase_username", it) }
         val payload = action("payment_init", method = "POST", body = body).payloadObject()
+        return paymentFrom(payload, amount)
+    }
+
+    internal fun paymentFrom(payload: JSONObject, requestedAmount: Long): GhajarPaymentInit {
+        val exact = if (payload.has("amount")) payload.optDouble("amount", Double.NaN) else requestedAmount.toDouble()
+        require(exact.isFinite() && exact > 0 && exact <= Long.MAX_VALUE / 10.0) { "مبلغ فاکتور معتبر نیست؛ وضعیت سفارش را بررسی کن." }
+        val rial = if (payload.has("amount_rial")) payload.optDouble("amount_rial", Double.NaN) else exact * 10.0
+        require(rial.isFinite() && rial > 0 && rial <= Long.MAX_VALUE.toDouble()) { "مبلغ ریالی فاکتور معتبر نیست." }
+        fun optionalText(key: String): String? = payload.optString(key).takeUnless { it.isBlank() || it == "null" }
         return GhajarPaymentInit(
             kind = payload.optString("kind", "manual"),
-            orderId = payload.optString("order_id"),
+            orderId = optionalText("order_id").orEmpty(),
             url = payload.optString("url").takeIf(::isHttps),
-            cardNumber = payload.optString("card_number").takeIf { it.isNotBlank() },
-            cardHolder = payload.optString("name_card").takeIf { it.isNotBlank() },
-            amount = payload.optDouble("amount", amount.toDouble()).toLong(),
-            amountRial = payload.optDouble("amount_rial", amount * 10.0).toLong(),
+            cardNumber = optionalText("card_number"),
+            cardHolder = optionalText("name_card"),
+            amount = exact.toLong(),
+            amountRial = rial.toLong(),
             message = visible(payload.optString("message"))
         )
     }

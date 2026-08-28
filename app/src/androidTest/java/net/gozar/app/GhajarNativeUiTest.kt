@@ -33,9 +33,11 @@ import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import kotlinx.coroutines.runBlocking
 import java.io.File
 
 @RunWith(AndroidJUnit4::class)
+@OptIn(ExperimentalTestApi::class)
 class GhajarNativeUiTest {
     @get:Rule val compose = createComposeRule()
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
@@ -67,6 +69,7 @@ class GhajarNativeUiTest {
         compose.onNodeWithTag("ghajar_upload_receipt").performScrollTo().assertIsEnabled().performClick()
         compose.onNodeWithText("رسید ارسال شد؛ منتظر تأیید").assertExists()
         compose.onNodeWithTag("ghajar_upload_receipt").assertIsNotEnabled()
+        compose.onNodeWithTag("ghajar_pick_receipt").assertIsNotEnabled()
         screenshot(context, "receipt-pending-fa")
     }
 
@@ -86,6 +89,18 @@ class GhajarNativeUiTest {
         val decoded = QRCodeReader().decode(BinaryBitmap(HybridBinarizer(RGBLuminanceSource(bitmap.width, bitmap.height, pixels))))
         assertEquals(url, decoded.text)
         screenshot(context, "delivered-qr-fa")
+    }
+
+    @Test fun invoiceUsesServerFinalAmountAndNeverTreatsNullAsACard() {
+        val api = GhajarStoreApi(context)
+        val payload = JSONObject("""{"kind":"url","order_id":"fixture","amount":123468,"card_number":null,"name_card":null}""")
+        val invoice = api.paymentFrom(payload, 123450)
+        assertEquals(123468L, invoice.amount)
+        assertEquals(1234680L, invoice.amountRial)
+        assertNull(invoice.cardNumber)
+        assertNull(invoice.cardHolder)
+        assertFalse(GhajarCommerceRules.cardPayment(invoice.kind, invoice.cardNumber))
+        assertTrue(runCatching { api.paymentFrom(payload.put("amount", "invalid"), 123450) }.isFailure)
     }
 
     @Test fun presetsAndExtremeCustomColorsRemainReadableInBothModes() {
@@ -176,5 +191,40 @@ class GhajarNativeUiTest {
         val body = """{"success":true,"ip":"8.8.8.8","country":"United States","country_code":"US","latitude":37.4,"longitude":-122.1}"""
         assertNotNull(LocationFetcher.parse(body, false, "8.8.8.8"))
         assertNull(LocationFetcher.parse(body, false, "1.1.1.1"))
+    }
+
+    @Test fun globeCentersOnExitCoordinatesAndNeverKeepsThePreviousFlag() {
+        val store = ConfigStore.get(context)
+        runBlocking { store.awaitReady() }
+        store.setKillSwitch(false)
+        VpnState.setConnecting("ui-geo-fixture"); VpnState.setConnected()
+        val session = GhajarLocationSession(Connection.CONNECTED, VpnState.activeId.value, VpnState.connectedAt.value, false, false)
+        val first = IpLocation("8.8.8.8", "Fixture West", "United States", "US", 37.4, -122.1)
+        val next = IpLocation("1.1.1.1", "Fixture East", "Germany", "DE", 52.52, 13.40)
+        try {
+            GhajarLocationMonitor.publish(GhajarLocationSnapshot(session, first.ip, first))
+            compose.setContent { MaterialTheme(colorScheme = darkColorScheme()) {
+                CompositionLocalProvider(LocalLang provides Lang.FA, LocalLayoutDirection provides LayoutDirection.Rtl) {
+                    Surface { EarthSection(Modifier.fillMaxWidth().height(440.dp)) }
+                }
+            } }
+            compose.onNodeWithText("United States", substring = true).assertExists()
+            compose.runOnIdle { GhajarLocationMonitor.publish(GhajarLocationSnapshot(session, next.ip, next)) }
+            compose.onNodeWithText("🇩🇪", substring = true).assertExists()
+            compose.onNodeWithText("United States", substring = true).assertDoesNotExist()
+            for (location in listOf(first, next)) {
+                val spin = nearestAngle(-Math.toRadians(location.lon).toFloat(), 0f)
+                val point = project(location.lat, location.lon, spin, Math.toRadians(location.lat).toFloat(), 200f, 200f, 150f)
+                assertEquals(200f, point[0], .01f)
+                assertEquals(200f, point[1], .01f)
+                assertTrue(point[2] > .99f)
+            }
+            screenshot(context, "globe-country-fixture-fa")
+            compose.runOnIdle { VpnState.setConnecting("ui-geo-next") }
+            compose.onNodeWithText("Germany", substring = true).assertDoesNotExist()
+        } finally {
+            VpnState.setDisconnected()
+            GhajarLocationMonitor.publish(GhajarLocationSnapshot())
+        }
     }
 }

@@ -193,8 +193,10 @@ internal fun GhajarStoryViewer(story: GhajarStory, onDismiss: () -> Unit, onFini
                 }
                 Column(Modifier.fillMaxWidth().heightIn(max = 210.dp).verticalScroll(rememberScrollState()).padding(top = 10.dp),
                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    if (slide.title.isNotBlank()) Text(slide.title, color = Color.White, fontWeight = FontWeight.Bold)
-                    if (slide.body.isNotBlank()) Text(slide.body, color = Color(0xFFD6E5E1), style = MaterialTheme.typography.bodySmall)
+                    if (slide.media != null) {
+                        if (slide.title.isNotBlank()) Text(slide.title, color = Color.White, fontWeight = FontWeight.Bold)
+                        if (slide.body.isNotBlank()) Text(slide.body, color = Color(0xFFD6E5E1), style = MaterialTheme.typography.bodySmall)
+                    }
                     if (slide.code.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { clipboard.setText(AnnotatedString(slide.code)); notice = "کد کپی شد" }) { Text("${slide.code} · کپی", color = Color(0xFFFFDE91)) }
                         if (slide.codeKind.isNotBlank()) TextButton(onClick = {
@@ -260,7 +262,18 @@ private fun GhajarStoryMedia(slide: GhajarStorySlide, playing: Boolean, muted: B
         }
     }
     DisposableEffect(Unit) { onDispose { runCatching { view?.stopPlayback() }; player = null; view = null } }
-    Box(modifier.background(Color(android.graphics.Color.parseColor(slide.background))), contentAlignment = Alignment.Center) {
+    val background = Color(android.graphics.Color.parseColor(slide.background))
+    Box(modifier.background(background), contentAlignment = Alignment.Center) {
+        if (slide.media == null) {
+            val foreground = if (ghajarContrast(background, Color.White) >= ghajarContrast(background, Color.Black)) Color.White else Color.Black
+            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(26.dp),
+                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                if (slide.title.isNotBlank()) Text(slide.title, color = foreground, textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                if (slide.body.isNotBlank()) Text(slide.body, color = foreground, textAlign = TextAlign.Center,
+                    style = MaterialTheme.typography.bodyLarge)
+            }
+        }
         val mediaModifier = Modifier.fillMaxSize().graphicsLayer {
             scaleX = slide.scale; scaleY = slide.scale; rotationZ = slide.rotation
             translationX = size.width * slide.x / 100; translationY = size.height * slide.y / 100

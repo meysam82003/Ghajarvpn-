@@ -1,0 +1,255 @@
+From 22781e67b4820a80c57cfd4cef9bba1e5402733d Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Fri, 28 Aug 2026 13:55:51 +0200
+Subject: [PATCH] fix: exact invoice amounts, receipt safety and native ABI
+ validation
+
+---
+ app/build.gradle.kts                          |  3 ++
+ .../java/net/gozar/app/GhajarNativeUiTest.kt  | 50 +++++++++++++++++++
+ .../java/net/gozar/app/GhajarCheckoutCards.kt |  3 +-
+ .../java/net/gozar/app/GhajarShopScreen.kt    |  8 +--
+ .../main/java/net/gozar/app/GhajarStoreApi.kt | 19 +++++--
+ .../main/java/net/gozar/app/GhajarStories.kt  | 19 +++++--
+ .../java/net/gozar/app/GozarVpnService.kt     |  4 +-
+ .../main/java/net/gozar/app/MainActivity.kt   |  2 +-
+ 8 files changed, 94 insertions(+), 14 deletions(-)
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 3ce3efd..08b751f 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -79,6 +79,9 @@ android {
+     packaging {
+         jniLibs {
+             useLegacyPackaging = true
++            // Upstream placed the ARM64-only Aether executable under ARM32 too.
++            // Never ship an executable that cannot run on that APK's ABI.
++            excludes += "**/armeabi-v7a/libaether.so"
+         }
+     }
+ 
+diff --git a/app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt b/app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt
+index a7972e8..8bf0545 100644
+--- a/app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt
++++ b/app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt
+@@ -33,9 +33,11 @@ import org.junit.Assert.*
+ import org.junit.Rule
+ import org.junit.Test
+ import org.junit.runner.RunWith
++import kotlinx.coroutines.runBlocking
+ import java.io.File
+ 
+ @RunWith(AndroidJUnit4::class)
++@OptIn(ExperimentalTestApi::class)
+ class GhajarNativeUiTest {
+     @get:Rule val compose = createComposeRule()
+     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
+@@ -67,6 +69,7 @@ class GhajarNativeUiTest {
+         compose.onNodeWithTag("ghajar_upload_receipt").performScrollTo().assertIsEnabled().performClick()
+         compose.onNodeWithText("رسید ارسال شد؛ منتظر تأیید").assertExists()
+         compose.onNodeWithTag("ghajar_upload_receipt").assertIsNotEnabled()
++        compose.onNodeWithTag("ghajar_pick_receipt").assertIsNotEnabled()
+         screenshot(context, "receipt-pending-fa")
+     }
+ 
+@@ -88,6 +91,18 @@ class GhajarNativeUiTest {
+         screenshot(context, "delivered-qr-fa")
+     }
+ 
++    @Test fun invoiceUsesServerFinalAmountAndNeverTreatsNullAsACard() {
++        val api = GhajarStoreApi(context)
++        val payload = JSONObject("""{"kind":"url","order_id":"fixture","amount":123468,"card_number":null,"name_card":null}""")
++        val invoice = api.paymentFrom(payload, 123450)
++        assertEquals(123468L, invoice.amount)
++        assertEquals(1234680L, invoice.amountRial)
++        assertNull(invoice.cardNumber)
++        assertNull(invoice.cardHolder)
++        assertFalse(GhajarCommerceRules.cardPayment(invoice.kind, invoice.cardNumber))
++        assertTrue(runCatching { api.paymentFrom(payload.put("amount", "invalid"), 123450) }.isFailure)
++    }
++
+     @Test fun presetsAndExtremeCustomColorsRemainReadableInBothModes() {
+         val palettes = listOf(darkColorScheme(background = Color(0xFF071B2E)), lightColorScheme(background = Color(0xFFEEF3FA)), darkColorScheme(background = Color.Black))
+         for (base in palettes) for (hex in listOf("#C79E48", "#398BCB", "#D95864", "#FFFFFF", "#000000", "#F2CA4C", "#359F78")) {
+@@ -177,4 +192,39 @@ class GhajarNativeUiTest {
+         assertNotNull(LocationFetcher.parse(body, false, "8.8.8.8"))
+         assertNull(LocationFetcher.parse(body, false, "1.1.1.1"))
+     }
++
++    @Test fun globeCentersOnExitCoordinatesAndNeverKeepsThePreviousFlag() {
++        val store = ConfigStore.get(context)
++        runBlocking { store.awaitReady() }
++        store.setKillSwitch(false)
++        VpnState.setConnecting("ui-geo-fixture"); VpnState.setConnected()
++        val session = GhajarLocationSession(Connection.CONNECTED, VpnState.activeId.value, VpnState.connectedAt.value, false, false)
++        val first = IpLocation("8.8.8.8", "Fixture West", "United States", "US", 37.4, -122.1)
++        val next = IpLocation("1.1.1.1", "Fixture East", "Germany", "DE", 52.52, 13.40)
++        try {
++            GhajarLocationMonitor.publish(GhajarLocationSnapshot(session, first.ip, first))
++            compose.setContent { MaterialTheme(colorScheme = darkColorScheme()) {
++                CompositionLocalProvider(LocalLang provides Lang.FA, LocalLayoutDirection provides LayoutDirection.Rtl) {
++                    Surface { EarthSection(Modifier.fillMaxWidth().height(440.dp)) }
++                }
++            } }
++            compose.onNodeWithText("United States", substring = true).assertExists()
++            compose.runOnIdle { GhajarLocationMonitor.publish(GhajarLocationSnapshot(session, next.ip, next)) }
++            compose.onNodeWithText("🇩🇪", substring = true).assertExists()
++            compose.onNodeWithText("United States", substring = true).assertDoesNotExist()
++            for (location in listOf(first, next)) {
++                val spin = nearestAngle(-Math.toRadians(location.lon).toFloat(), 0f)
++                val point = project(location.lat, location.lon, spin, Math.toRadians(location.lat).toFloat(), 200f, 200f, 150f)
++                assertEquals(200f, point[0], .01f)
++                assertEquals(200f, point[1], .01f)
++                assertTrue(point[2] > .99f)
++            }
++            screenshot(context, "globe-country-fixture-fa")
++            compose.runOnIdle { VpnState.setConnecting("ui-geo-next") }
++            compose.onNodeWithText("Germany", substring = true).assertDoesNotExist()
++        } finally {
++            VpnState.setDisconnected()
++            GhajarLocationMonitor.publish(GhajarLocationSnapshot())
++        }
++    }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+index e2dcbe5..5153bbb 100644
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+@@ -40,6 +40,7 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
+     val context = LocalContext.current
+     val clipboard = LocalClipboardManager.current
+     val preview by produceState<Bitmap?>(null, receipt) {
++        value = null
+         value = withContext(Dispatchers.IO) {
+             receipt?.let { uri -> runCatching {
+                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+@@ -97,7 +98,7 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
+             style = MaterialTheme.typography.bodySmall)
+         preview?.let { Image(it.asImageBitmap(), "پیش‌نمایش رسید انتخاب‌شده",
+             modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit) }
+-        OutlinedButton(onClick = onPickReceipt, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("ghajar_pick_receipt")) {
++        OutlinedButton(onClick = onPickReceipt, enabled = !busy && !sent, modifier = Modifier.fillMaxWidth().testTag("ghajar_pick_receipt")) {
+             Text(if (receipt == null) "انتخاب عکس رسید از گوشی" else "تغییر عکس رسید")
+         }
+         Button(onClick = onUpload, enabled = receipt != null && !busy && !sent && payment.orderId.isNotBlank(),
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index b8feedd..b6789a0 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -180,9 +180,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+     }
+ 
+     val receiptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+-        receiptUri = uri
+-        if (uri != null) checkoutModel.receiptSent.value = false
+-        if (uri != null) storeResult { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
++        // Cancelling the picker must not discard the previously selected receipt.
++        if (uri != null) {
++            receiptUri = uri
++            storeResult { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
++        }
+     }
+ 
+     fun openCheckout(url: String) {
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+index a73b244..125eefe 100644
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -398,14 +398,23 @@ class GhajarStoreApi(context: Context) {
+         val body = JSONObject().put("method", method).put("amount", amount)
+         purchaseUsername?.takeIf { it.isNotBlank() }?.let { body.put("purchase_username", it) }
+         val payload = action("payment_init", method = "POST", body = body).payloadObject()
++        return paymentFrom(payload, amount)
++    }
++
++    internal fun paymentFrom(payload: JSONObject, requestedAmount: Long): GhajarPaymentInit {
++        val exact = if (payload.has("amount")) payload.optDouble("amount", Double.NaN) else requestedAmount.toDouble()
++        require(exact.isFinite() && exact > 0 && exact <= Long.MAX_VALUE / 10.0) { "مبلغ فاکتور معتبر نیست؛ وضعیت سفارش را بررسی کن." }
++        val rial = if (payload.has("amount_rial")) payload.optDouble("amount_rial", Double.NaN) else exact * 10.0
++        require(rial.isFinite() && rial > 0 && rial <= Long.MAX_VALUE.toDouble()) { "مبلغ ریالی فاکتور معتبر نیست." }
++        fun optionalText(key: String): String? = payload.optString(key).takeUnless { it.isBlank() || it == "null" }
+         return GhajarPaymentInit(
+             kind = payload.optString("kind", "manual"),
+-            orderId = payload.optString("order_id"),
++            orderId = optionalText("order_id").orEmpty(),
+             url = payload.optString("url").takeIf(::isHttps),
+-            cardNumber = payload.optString("card_number").takeIf { it.isNotBlank() },
+-            cardHolder = payload.optString("name_card").takeIf { it.isNotBlank() },
+-            amount = payload.optDouble("amount", amount.toDouble()).toLong(),
+-            amountRial = payload.optDouble("amount_rial", amount * 10.0).toLong(),
++            cardNumber = optionalText("card_number"),
++            cardHolder = optionalText("name_card"),
++            amount = exact.toLong(),
++            amountRial = rial.toLong(),
+             message = visible(payload.optString("message"))
+         )
+     }
+diff --git a/app/src/main/java/net/gozar/app/GhajarStories.kt b/app/src/main/java/net/gozar/app/GhajarStories.kt
+index 328f22e..c7c5ab1 100644
+--- a/app/src/main/java/net/gozar/app/GhajarStories.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStories.kt
+@@ -193,8 +193,10 @@ internal fun GhajarStoryViewer(story: GhajarStory, onDismiss: () -> Unit, onFini
+                 }
+                 Column(Modifier.fillMaxWidth().heightIn(max = 210.dp).verticalScroll(rememberScrollState()).padding(top = 10.dp),
+                     verticalArrangement = Arrangement.spacedBy(6.dp)) {
+-                    if (slide.title.isNotBlank()) Text(slide.title, color = Color.White, fontWeight = FontWeight.Bold)
+-                    if (slide.body.isNotBlank()) Text(slide.body, color = Color(0xFFD6E5E1), style = MaterialTheme.typography.bodySmall)
++                    if (slide.media != null) {
++                        if (slide.title.isNotBlank()) Text(slide.title, color = Color.White, fontWeight = FontWeight.Bold)
++                        if (slide.body.isNotBlank()) Text(slide.body, color = Color(0xFFD6E5E1), style = MaterialTheme.typography.bodySmall)
++                    }
+                     if (slide.code.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
+                         TextButton(onClick = { clipboard.setText(AnnotatedString(slide.code)); notice = "کد کپی شد" }) { Text("${slide.code} · کپی", color = Color(0xFFFFDE91)) }
+                         if (slide.codeKind.isNotBlank()) TextButton(onClick = {
+@@ -260,7 +262,18 @@ private fun GhajarStoryMedia(slide: GhajarStorySlide, playing: Boolean, muted: B
+         }
+     }
+     DisposableEffect(Unit) { onDispose { runCatching { view?.stopPlayback() }; player = null; view = null } }
+-    Box(modifier.background(Color(android.graphics.Color.parseColor(slide.background))), contentAlignment = Alignment.Center) {
++    val background = Color(android.graphics.Color.parseColor(slide.background))
++    Box(modifier.background(background), contentAlignment = Alignment.Center) {
++        if (slide.media == null) {
++            val foreground = if (ghajarContrast(background, Color.White) >= ghajarContrast(background, Color.Black)) Color.White else Color.Black
++            Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(26.dp),
++                horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
++                if (slide.title.isNotBlank()) Text(slide.title, color = foreground, textAlign = TextAlign.Center,
++                    style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
++                if (slide.body.isNotBlank()) Text(slide.body, color = foreground, textAlign = TextAlign.Center,
++                    style = MaterialTheme.typography.bodyLarge)
++            }
++        }
+         val mediaModifier = Modifier.fillMaxSize().graphicsLayer {
+             scaleX = slide.scale; scaleY = slide.scale; rotationZ = slide.rotation
+             translationX = size.width * slide.x / 100; translationY = size.height * slide.y / 100
+diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/java/net/gozar/app/GozarVpnService.kt
+index 85e3bb3..12c3a1b 100644
+--- a/app/src/main/java/net/gozar/app/GozarVpnService.kt
++++ b/app/src/main/java/net/gozar/app/GozarVpnService.kt
+@@ -128,7 +128,9 @@ class GozarVpnService : VpnService() {
+                 val spec = aetherSpec
+                 if (spec != null) {
+                     if (!AetherController.available(applicationContext)) {
+-                        die("Aether engine is not bundled in this build")
++                        die(if (ConfigStore.get(applicationContext).lang.value == Lang.FA)
++                            "هستهٔ Aether برای معماری این نسخه موجود نیست؛ سرویس دیگری انتخاب کن."
++                            else "Aether is unavailable for this build's architecture; select another service.")
+                         return@launch
+                     }
+                     val up = withContext(Dispatchers.IO) {
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 564cb2c..5498f7f 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -1139,7 +1139,7 @@ private fun GozarApp(
+ 
+     LaunchedEffect(Unit) {
+         store.awaitReady()
+-        store.seedDefaultAetherIfNeeded()
++        if (AetherController.available(updateCtx)) store.seedDefaultAetherIfNeeded()
+         while (true) {
+             SubscriptionRefresher.refreshStale(store)
+             delay(30 * 60 * 1000L)
+-- 
+2.51.1
+

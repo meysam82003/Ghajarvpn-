@@ -6,6 +6,7 @@ source_root="$(cd "${1:?Usage: verify-source-snapshots.sh SOURCE_ROOT}" && pwd)"
 
 # The readable GitHub files must be the same files that the patch series builds.
 snapshots=(
+  "app/src/main/java/net/gozar/app/GozarVpnService.kt"
   "app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt"
   "app/src/main/java/net/gozar/app/GhajarPublicMedia.kt"
   "app/src/main/java/net/gozar/app/GhajarStories.kt"
