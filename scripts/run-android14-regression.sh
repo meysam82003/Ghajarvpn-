@@ -5,7 +5,7 @@ mkdir -p "${project_root}/runtime-evidence"
 collect_evidence() {
   adb logcat -d -v threadtime > "${project_root}/runtime-evidence/logcat.txt" || true
   adb shell dumpsys activity exit-info com.ghajarvpn.app > "${project_root}/runtime-evidence/process-exits.txt" || true
-  adb pull /sdcard/Android/data/com.ghajarvpn.app/files/ghajar-ci "${project_root}/runtime-evidence/screenshots" || true
+  adb pull /sdcard/Download/ghajar-ci "${project_root}/runtime-evidence/screenshots" || true
 }
 trap collect_evidence EXIT
 adb logcat -c

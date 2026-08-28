@@ -293,6 +293,26 @@ class GhajarStoreApi(context: Context) {
         return serviceFrom(payload, username)
     }
 
+    internal suspend fun stories(): List<GhajarStory> =
+        GhajarStoryRules.parse(action("promo_stories_list").payloadObject())
+
+    internal suspend fun viewStory(id: String) {
+        action("promo_stories_view", method = "POST", body = JSONObject().put("story_id", id))
+    }
+
+    internal suspend fun reactStory(id: String, reaction: String) {
+        require(reaction in listOf("heart", "fire", "party", "gift"))
+        action("promo_stories_react", method = "POST", body = JSONObject().put("story_id", id).put("reaction", reaction))
+    }
+
+    internal suspend fun redeemGift(code: String): Pair<Long, String> {
+        require(code.isNotBlank() && code.length <= 200)
+        val payload = action("redeem_giftcode", method = "POST", body = JSONObject().put("code", code)).payloadObject()
+        val balance = payload.optDouble("new_balance", Double.NaN)
+        require(balance.isFinite() && balance >= 0) { "پاسخ موجودی هدیه معتبر نیست؛ موجودی را دوباره بررسی کن." }
+        return balance.toLong() to visible(payload.optString("message", "کد هدیه به کیف پول اضافه شد."))
+    }
+
     suspend fun notices(): List<GhajarNotice> {
         val general = runCatching { action("announcements_list").payloadArray().objects() }.getOrDefault(emptyList())
         val personalPayload = runCatching { action("user_notifications_list").payloadObject() }.getOrNull()
@@ -378,14 +398,23 @@ class GhajarStoreApi(context: Context) {
         val body = JSONObject().put("method", method).put("amount", amount)
         purchaseUsername?.takeIf { it.isNotBlank() }?.let { body.put("purchase_username", it) }
         val payload = action("payment_init", method = "POST", body = body).payloadObject()
+        return paymentFrom(payload, amount)
+    }
+
+    internal fun paymentFrom(payload: JSONObject, requestedAmount: Long): GhajarPaymentInit {
+        val exact = if (payload.has("amount")) payload.optDouble("amount", Double.NaN) else requestedAmount.toDouble()
+        require(exact.isFinite() && exact > 0 && exact <= Long.MAX_VALUE / 10.0) { "مبلغ فاکتور معتبر نیست؛ وضعیت سفارش را بررسی کن." }
+        val rial = if (payload.has("amount_rial")) payload.optDouble("amount_rial", Double.NaN) else exact * 10.0
+        require(rial.isFinite() && rial > 0 && rial <= Long.MAX_VALUE.toDouble()) { "مبلغ ریالی فاکتور معتبر نیست." }
+        fun optionalText(key: String): String? = payload.optString(key).takeUnless { it.isBlank() || it == "null" }
         return GhajarPaymentInit(
             kind = payload.optString("kind", "manual"),
-            orderId = payload.optString("order_id"),
+            orderId = optionalText("order_id").orEmpty(),
             url = payload.optString("url").takeIf(::isHttps),
-            cardNumber = payload.optString("card_number").takeIf { it.isNotBlank() },
-            cardHolder = payload.optString("name_card").takeIf { it.isNotBlank() },
-            amount = payload.optDouble("amount", amount.toDouble()).toLong(),
-            amountRial = payload.optDouble("amount_rial", amount * 10.0).toLong(),
+            cardNumber = optionalText("card_number"),
+            cardHolder = optionalText("name_card"),
+            amount = exact.toLong(),
+            amountRial = rial.toLong(),
             message = visible(payload.optString("message"))
         )
     }
@@ -469,6 +498,7 @@ class GhajarStoreApi(context: Context) {
     }
 
     private suspend fun importServiceLocked(store: ConfigStore, service: GhajarServiceDetails): Int {
+        store.awaitReady()
         val joined = service.outputs.filter { it.isNotBlank() }.joinToString("\n")
         val payload = service.subscriptionUrl?.takeIf { it.isNotBlank() } ?: joined
         if (payload.isBlank()) return 0

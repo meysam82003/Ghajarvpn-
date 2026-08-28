@@ -79,6 +79,9 @@ android {
     packaging {
         jniLibs {
             useLegacyPackaging = true
+            // Upstream placed the ARM64-only Aether executable under ARM32 too.
+            // Never ship an executable that cannot run on that APK's ABI.
+            excludes += "**/armeabi-v7a/libaether.so"
         }
     }
 

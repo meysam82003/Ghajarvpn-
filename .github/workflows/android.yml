@@ -108,6 +108,7 @@ jobs:
           for apk in app/build/outputs/apk/debug/*.apk; do
             "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
             sha256sum "$apk"
+            python3 "$GITHUB_WORKSPACE/scripts/verify-apk-layout.py" "$apk"
           done
       - uses: actions/upload-artifact@v4
         with:

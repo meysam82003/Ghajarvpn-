@@ -40,6 +40,7 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val preview by produceState<Bitmap?>(null, receipt) {
+        value = null
         value = withContext(Dispatchers.IO) {
             receipt?.let { uri -> runCatching {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -97,7 +98,7 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
             style = MaterialTheme.typography.bodySmall)
         preview?.let { Image(it.asImageBitmap(), "پیش‌نمایش رسید انتخاب‌شده",
             modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit) }
-        OutlinedButton(onClick = onPickReceipt, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("ghajar_pick_receipt")) {
+        OutlinedButton(onClick = onPickReceipt, enabled = !busy && !sent, modifier = Modifier.fillMaxWidth().testTag("ghajar_pick_receipt")) {
             Text(if (receipt == null) "انتخاب عکس رسید از گوشی" else "تغییر عکس رسید")
         }
         Button(onClick = onUpload, enabled = receipt != null && !busy && !sent && payment.orderId.isNotBlank(),
