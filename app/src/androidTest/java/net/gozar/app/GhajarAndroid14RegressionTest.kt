@@ -6,6 +6,9 @@ import android.graphics.Bitmap
 import android.os.Build
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performClick
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
@@ -36,7 +39,7 @@ class GhajarAndroid14RegressionTest {
         val context = instrumentation.targetContext
         instrumentation.uiAutomation.executeShellCommand("cmd appops set ${context.packageName} ACTIVATE_VPN allow").close()
         instrumentation.uiAutomation.grantRuntimePermission(context.packageName, android.Manifest.permission.POST_NOTIFICATIONS)
-        context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE).edit().putBoolean("soft_intro_seen", true).commit()
+        context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE).edit().putBoolean("soft_intro_seen", false).commit()
         val store = ConfigStore.get(context)
         runBlocking { store.awaitReady() }
         store.setAutoSelect(false); store.setKillSwitch(false); store.setFragment(false)
@@ -48,6 +51,10 @@ class GhajarAndroid14RegressionTest {
             store.add(config); store.setSelectedId(config.id)
             val scenario = ActivityScenario.launch(MainActivity::class.java)
             try {
+                compose.waitUntil(20000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster")).fetchSemanticsNodes().isNotEmpty() }
+                compose.waitForIdle()
+                screenshot(context, "welcome-native-fa")
+                compose.onNodeWithText("ورود به قاجار VPN").performClick()
                 compose.waitUntil(20000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster")).fetchSemanticsNodes().isEmpty() &&
                     compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect")).fetchSemanticsNodes().isNotEmpty() }
                 repeat(2) { cycle ->
@@ -63,6 +70,10 @@ class GhajarAndroid14RegressionTest {
                         socket.getInputStream().bufferedReader().readText()
                     }
                     assertTrue(response.contains("ghajar-ci-ping"))
+                    compose.waitForIdle()
+                    compose.mainClock.advanceTimeBy(1200)
+                    compose.waitForIdle()
+                    compose.onNodeWithTag("ghajar_connect").assertTextEquals(Strings.get(Lang.FA, "disconnect")).assertIsDisplayed()
                     screenshot(context, "connected-$cycle")
                     compose.onNodeWithTag("ghajar_connect").performClick()
                     compose.waitUntil(15000) { VpnState.state.value == Connection.DISCONNECTED }
@@ -70,7 +81,13 @@ class GhajarAndroid14RegressionTest {
                     scenario.onActivity { store.setGlobeStyle("royal") }
                 }
                 scenario.recreate()
-                compose.waitUntil(20000) { scenario.state == Lifecycle.State.RESUMED }
+                compose.waitUntil(20000) { scenario.state == Lifecycle.State.RESUMED &&
+                    compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster")).fetchSemanticsNodes().isEmpty() &&
+                    compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect")).fetchSemanticsNodes().isNotEmpty() }
+                compose.waitForIdle()
+                compose.mainClock.advanceTimeBy(1200)
+                compose.waitForIdle()
+                compose.onNodeWithTag("ghajar_connect").assertTextEquals(Strings.get(Lang.FA, "connect")).assertIsDisplayed()
                 screenshot(context, "royal-recreated")
             } finally {
                 context.startService(Intent(context, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
@@ -84,7 +101,9 @@ internal fun screenshot(context: Context, name: String) {
     // Gradle uninstalls the test app, deleting its app-specific external files.
     // Keep non-sensitive fixture screenshots in the disposable emulator's Download directory.
     require(name.matches(Regex("[A-Za-z0-9_-]+")))
-    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+    val instrumentation = InstrumentationRegistry.getInstrumentation()
+    instrumentation.waitForIdleSync()
+    val automation = instrumentation.uiAutomation
     fun shell(command: String) {
         android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes() }
     }

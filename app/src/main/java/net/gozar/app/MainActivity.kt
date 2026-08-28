@@ -606,12 +606,22 @@ class MainActivity : ComponentActivity() {
             }
         }
         lifecycleScope.launch(Dispatchers.Default) {
-            Gozarcore.setLogger(object : gozarcore.Logger {
-                override fun log(line: String?) {
-                    android.util.Log.i("XrayCore", line ?: "")
-                }
-            })
-            withContext(Dispatchers.Main) { warm() }
+            try {
+                Gozarcore.setLogger(object : gozarcore.Logger {
+                    override fun log(line: String?) {
+                        android.util.Log.i("XrayCore", line ?: "")
+                    }
+                })
+                withContext(Dispatchers.Main) { warm() }
+            } catch (cancel: CancellationException) {
+                throw cancel
+            } catch (_: LinkageError) {
+                if (VpnState.state.value == Connection.DISCONNECTED)
+                    VpnState.setError("هستهٔ اتصال بارگذاری نشد؛ نسخهٔ سازگار با گوشی را نصب کن.")
+            } catch (_: Exception) {
+                if (VpnState.state.value == Connection.DISCONNECTED)
+                    VpnState.setError("آماده‌سازی اتصال ناموفق بود؛ دوباره برنامه را باز کن.")
+            }
         }
         startAutoSwitch()
         lifecycleScope.launch {
@@ -637,9 +647,20 @@ class MainActivity : ComponentActivity() {
             androidx.compose.runtime.SideEffect {
                 controller.isAppearanceLightStatusBars = !dark
                 controller.isAppearanceLightNavigationBars = !dark
+                val systemColor = when {
+                    themeMode == ThemeMode.AMOLED -> 0xFF000000.toInt()
+                    dark -> 0xFF071B2E.toInt()
+                    else -> 0xFFEEF3FA.toInt()
+                }
                 @Suppress("DEPRECATION")
-                window.navigationBarColor = if (dark) 0xFF071B2E.toInt() else 0xFFEEF3FA.toInt()
-                if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
+                window.navigationBarColor = systemColor
+                @Suppress("DEPRECATION")
+                window.statusBarColor = systemColor
+                window.decorView.setBackgroundColor(systemColor)
+                if (android.os.Build.VERSION.SDK_INT >= 29) {
+                    window.isNavigationBarContrastEnforced = false
+                    window.isStatusBarContrastEnforced = false
+                }
             }
             val lang by store.lang.collectAsState()
             val direction = if (lang == Lang.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
@@ -1789,7 +1810,7 @@ private fun ConnectionScreen(
                             )
                             .border(1.6.dp, stateTint.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
                             .testTag("ghajar_connect")
-                            .clickable(enabled = enabled || picking) {
+                            .clickable(enabled = enabled || picking, role = androidx.compose.ui.semantics.Role.Button) {
                                 when {
                                     picking -> onCancelPick()
                                     connected -> onDisconnect()
@@ -1806,10 +1827,7 @@ private fun ConnectionScreen(
                         AnimatedContent(
                             targetState = if (picking) PICKING_LABEL else conn.name,
                             transitionSpec = {
-                                (slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it / 2 } +
-                                        fadeIn(tween(340))) togetherWith
-                                        (slideOutVertically(tween(340, easing = FastOutSlowInEasing)) { -it / 2 } +
-                                                fadeOut(tween(200)))
+                                fadeIn(tween(220)) togetherWith fadeOut(tween(150))
                             },
                             label = "connLabel",
                             modifier = Modifier.fillMaxSize()
@@ -1827,7 +1845,7 @@ private fun ConnectionScreen(
                                     label = "connSpinAngle"
                                 )
                             Row(
-                                Modifier.fillMaxSize(),
+                                Modifier.fillMaxSize().padding(horizontal = 16.dp),
                                 horizontalArrangement = Arrangement.Center,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
@@ -1853,10 +1871,12 @@ private fun ConnectionScreen(
                                         else -> t("connect")
                                     },
                                     style = MaterialTheme.typography.titleMedium,
+                                    modifier = Modifier.weight(1f, fill = false),
                                     fontWeight = FontWeight.Bold,
                                     color = stateTint,
-                                    maxLines = 1,
-                                    softWrap = false
+                                    maxLines = 2,
+                                    textAlign = TextAlign.Center,
+                                    overflow = TextOverflow.Ellipsis
                                 )
                             }
                         }

@@ -139,7 +139,11 @@ class GhajarNativeUiTest {
     @Test fun firstWelcomeShowsOnlyOnePosterWithoutASlider() {
         context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE).edit().putBoolean("soft_intro_seen", false).commit()
         var closed = false
-        compose.setContent { MaterialTheme { GhajarWelcomeScreen { closed = true } } }
+        compose.setContent { MaterialTheme {
+            CompositionLocalProvider(LocalLang provides Lang.FA, LocalLayoutDirection provides LayoutDirection.Rtl) {
+                GhajarWelcomeScreen { closed = true }
+            }
+        } }
         compose.waitUntil(10000) { compose.onAllNodesWithTag("ghajar_welcome_poster").fetchSemanticsNodes().size == 1 }
         compose.onAllNodesWithTag("ghajar_welcome_poster").assertCountEquals(1)
         compose.onNodeWithText("بعدی").assertDoesNotExist()
@@ -212,6 +216,8 @@ class GhajarNativeUiTest {
             compose.runOnIdle { GhajarLocationMonitor.publish(GhajarLocationSnapshot(session, next.ip, next)) }
             compose.onNodeWithText("🇩🇪", substring = true).assertExists()
             compose.onNodeWithText("United States", substring = true).assertDoesNotExist()
+            compose.mainClock.advanceTimeBy(1400)
+            compose.waitForIdle()
             for (location in listOf(first, next)) {
                 val spin = nearestAngle(-Math.toRadians(location.lon).toFloat(), 0f)
                 val point = project(location.lat, location.lon, spin, Math.toRadians(location.lat).toFloat(), 200f, 200f, 150f)
