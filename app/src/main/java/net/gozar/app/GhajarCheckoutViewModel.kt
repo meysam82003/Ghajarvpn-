@@ -110,6 +110,17 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
 
     fun refreshMethods() = runOperation { methods.value = api.paymentOptions() }
 
+    fun redeemGift(code: String) = runOperation {
+        val (balance, confirmation) = api.redeemGift(code)
+        methods.value = methods.value?.copy(balance = balance)
+        message.value = confirmation
+        revision.intValue++
+        // The credit was already confirmed; a failed refresh must not invite another redemption.
+        storeResult { methods.value = api.paymentOptions() }.onFailure {
+            error.value = "کد هدیه ثبت شد؛ برای نمایش موجودی تازه «بروزرسانی موجودی» را بزن."
+        }
+    }
+
     fun beginPayment(method: GhajarPaymentMethod) = runOperation {
         val target = purchase.value ?: return@runOperation
         if (payment.value != null) {

@@ -81,11 +81,15 @@ class GhajarAndroid14RegressionTest {
 }
 
 internal fun screenshot(context: Context, name: String) {
-    val directory = File(context.getExternalFilesDir(null), "ghajar-ci").apply { mkdirs() }
-    InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
-        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        bitmap.recycle()
+    // Gradle uninstalls the test app, deleting its app-specific external files.
+    // Keep non-sensitive fixture screenshots in the disposable emulator's Download directory.
+    require(name.matches(Regex("[A-Za-z0-9_-]+")))
+    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+    fun shell(command: String) {
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes() }
     }
+    shell("mkdir -p /sdcard/Download/ghajar-ci")
+    shell("screencap -p /sdcard/Download/ghajar-ci/$name.png")
 }
 
 /** Local SOCKS5 fixture. Responds only with test content; never forwards any traffic. */

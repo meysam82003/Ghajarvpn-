@@ -1082,6 +1082,8 @@ private fun GozarApp(
         else -> isSystemInDarkTheme()
     }
     val pagerState = rememberPagerState(initialPage = PAGE_HOME, pageCount = { PAGE_COUNT })
+    val storyRoute by GhajarStoryNavigation.pending.collectAsState()
+    LaunchedEffect(storyRoute) { if (storyRoute != null) pagerState.animateScrollToPage(PAGE_SHOP) }
     val settingsScroll = rememberScrollState()
 
     var showPicker by remember { mutableStateOf(false) }

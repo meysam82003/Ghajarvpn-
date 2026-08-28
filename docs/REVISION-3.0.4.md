@@ -1,54 +1,40 @@
-# Ghajarvpn 3.0.4 — review checkpoint
+# Ghajarvpn 3.0.4 — integrated review
 
-## Source of truth
+## Scope and source
 
-The bot/API contract is the user-provided Ghajar_vpnbot_-3-1.zip.
-The inherited net.gozar namespace is Android engine code, not an alternate bot.
-Never publish that ZIP or private bot configuration in this repository.
+The API contract is the user-provided `Ghajar_vpnbot_-3-1.zip`. Its private files are never included in this repository.
+The inherited `net.gozar` namespace is Android engine code, not another bot.
+This branch collects all changes before delivering one demo; a green compile alone is not phone/payment verification.
 
-## Implemented in this checkpoint
+## Implemented
 
-- Activity-owned checkout; encrypted invoice recovery across process recreation.
-- Do not catch coroutine cancellation as a purchase failure.
-- Separate catalog metadata/effect keys so loading no longer cancels itself.
-- Compact product cards; all description appears only after opening a product.
-- Free trial before products.
-- Native receipt picker/preview/upload; exact copyable cardholder, card, toman and rial amounts.
-- Wallet balance and independent wallet top-up using payment_methods/payment_init.
-- Follow the exact public-token BluPal URL; allow blupal.net; safe user-initiated popup navigation.
-- Return from payment always triggers authenticated payment_status. A redirect is never payment proof.
-- Respect wallet_credited_only rather than pretending the service was delivered.
-- Native delivery QR and immediate subscription fetch, reusing an existing subscription by URL.
-- First-run onboarding retained. Returning launches show one full, nonrepeating poster with no onboarding footer.
-- 15 new commerce/cancellation/URL and wallet-versus-service fulfillment regression tests.
-- Subscription refresh whenever the app enters the foreground, including entry after payment.
-- Glass-like notices with a single highlight pass and physical left-to-right swipe dismissal.
-- Native, compact server selection card with static complete names and true connection state.
 - Guard foreground VPN startup, native initialization and duplicate starts; remove the delayed process kill that could terminate a reconnect.
-- Keep unrelated pending invoices while importing a trial/owned service.
-- Exact invoice amount in the summary; no success state for unparseable configurations.
-- Theme-matched three-button navigation and safe insets for native checkout controls.
-- Stable poster ordering across theme changes; clear old QR while generating a different profile.
+- Verified exit-IP lookup per connection session, no stale country or invented Tehran fallback. Globe/dots rotate to validated coordinates; the IP card shows that country flag. IP location is approximate, not GPS or a leak audit.
+- 33 bundled JPEG welcome posters, one on every launch including first launch; no carousel or remote gallery. Persistent shuffle cycles avoid repeats until all posters have been shown, including the cycle boundary. Palette reference is excluded. Existing-image optimization saved about 5.7 MB before adding the new JPEGs.
+- Qajar gold launcher, card frame with small characters, and transparent royal character home option. Native color presets, HEX, color wheel, reset, and globe/dots/royal/shield home styles.
+- Compact catalog cards, product details on tap and trial before products.
+- Activity-owned checkout with encrypted invoice recovery. Coroutine cancellation is not a red purchase error.
+- Exact copyable card, cardholder, toman and rial amounts; receipt picker/preview/upload and pending-approval feedback.
+- Wallet balance and independent top-up, plus explicit confirmation before redeeming a story/manual gift code.
+- BluPal `blupal.net` public-token link handling; authenticated payment status on return. Neither a redirect nor a submitted receipt proves payment.
+- Separate wallet-only credit, service preparation and confirmed service delivery. Native QR contains the actual selected subscription/configuration.
+- Immediate subscription fetch when importing a trial or purchased service. Wait for persisted configurations before import/foreground refresh; keep a newer delivery refresh and user edits intact.
+- Preserve unrelated pending invoices when importing trial/owned services.
+- Glass notices, compact server card, theme-aware system bars and safe checkout insets.
+- Native stories using the exact bot list/view/reaction APIs: image/video, pause/sound, progress, gift/discount codes, native shop/wallet routes, explicit external links and attachments. Media is HTTPS, bounded, cached and isolated from account credentials.
 
-## Still open — do not label complete
+## Verification recorded
 
-- Device-reproduced Connect crash and native crash log: the defensive startup changes are not proof that the user's specific native crash is resolved.
-- New generated launcher/card artwork, with small Qajar characters at the frame, not yet integrated.
-- Wider theme/color polish and full RTL/large-font rendering review.
-- Mini-app stories: exact ZIP contract still needs inspection after file access is restored.
-- Real-device payment, receipt approval, VPN and RTL/large-font visual tests.
-- Stable signing key is not configured; CI demo keys can differ between runs.
+- Welcome-only Android CI run [33145440173](https://github.com/meysam82003/Ghajarvpn-/actions/runs/33145440173): success.
+- Appearance/location Android CI run [33146250906](https://github.com/meysam82003/Ghajarvpn-/actions/runs/33146250906): success, ARM32/ARM64 builds and automated checks.
+- Android 14 emulator run [33146250926](https://github.com/meysam82003/Ghajarvpn-/actions/runs/33146250926): 2 instrumentation tests, 0 failures/errors/skips. Connect, disconnect, reconnect, Activity recreation and real bundled-core SOCKS traffic to a local fixture passed.
+- Added instrumentation checks for the exact card copy/receipt controls with large Persian text, decoding the rendered delivery QR, one-poster welcome, story reaction/gift navigation and custom color controls/contrast. Integrated result pending.
+- Source snapshots must match the complete reconstructed build. Binary brand assets are installed from `branding/`, not embedded in incremental patches.
 
-## Verification
+## Limits and remaining release checks
 
-- Checkpoint bf528753: clean patch reconstruction, 23 snapshot matches, native architecture checks, unit-test task and APK build passed in Actions run 33101220298.
-- Lifecycle, notice, server-card and invoice patches reconstruct cleanly and pass 25 snapshot checks. Follow-up compile/test verification is still running; do not treat that as device verification.
-- No real payment was performed. No production credentials or bot ZIP were uploaded. This PR remains a draft, not a final release.
-
-## References
-
-BluPal API: https://blupal.net/documentation (payment_link and final_amount are server-owned).
-Android VPN lifecycle: https://developer.android.com/develop/connectivity/vpn
-WebView popup callback: https://developer.android.com/reference/android/webkit/WebChromeClient
-
-System bar reference: https://developer.android.com/develop/ui/compose/system/setup-e2e
+- Inspect the next integrated build, complete test XML and actual emulator screenshots before marking this checkpoint verified.
+- The emulator uses a disposable local fixture, not a paid account/public VPN, real receipt upload or gateway approval. The user's phone and live payment path still require a controlled user check.
+- Native IKE uses its VPN route for IP probes; imported OpenVPN lifecycle integration has not been verified by the core fixture test.
+- CI demo keys are ephemeral until a private stable key is configured. Do not promise an in-place upgrade over previous demo APKs.
+- No production credentials, actual payment or bot source ZIP are published. Keep this PR in review until the integrated checks finish.

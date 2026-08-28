@@ -1,0 +1,965 @@
+From 7ed7e897697e5d5e15a0a85a09260a45e223f538 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Fri, 28 Aug 2026 13:44:23 +0200
+Subject: [PATCH] feat: native Ghajar stories, gift redemption and integrated
+ UI regression
+
+---
+ .../app/GhajarAndroid14RegressionTest.kt      |  12 +-
+ .../java/net/gozar/app/GhajarNativeUiTest.kt  | 180 +++++++++++
+ .../net/gozar/app/GhajarCheckoutViewModel.kt  |  11 +
+ .../java/net/gozar/app/GhajarPublicMedia.kt   |  86 ++++++
+ .../java/net/gozar/app/GhajarShopScreen.kt    |  28 ++
+ .../main/java/net/gozar/app/GhajarStoreApi.kt |  21 ++
+ .../main/java/net/gozar/app/GhajarStories.kt  | 286 ++++++++++++++++++
+ .../java/net/gozar/app/GhajarStoryModels.kt   |  88 ++++++
+ .../main/java/net/gozar/app/MainActivity.kt   |   2 +
+ .../net/gozar/app/Subscriptionrefresher.kt    |  39 ++-
+ .../net/gozar/app/GhajarStoryRulesTest.kt     |  34 +++
+ 11 files changed, 771 insertions(+), 16 deletions(-)
+ create mode 100644 app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarPublicMedia.kt
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarStories.kt
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarStoryModels.kt
+ create mode 100644 app/src/test/java/net/gozar/app/GhajarStoryRulesTest.kt
+
+diff --git a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+index 455c6f7..6c14618 100644
+--- a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
++++ b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+@@ -81,11 +81,15 @@ class GhajarAndroid14RegressionTest {
+ }
+ 
+ internal fun screenshot(context: Context, name: String) {
+-    val directory = File(context.getExternalFilesDir(null), "ghajar-ci").apply { mkdirs() }
+-    InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()?.let { bitmap ->
+-        File(directory, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
+-        bitmap.recycle()
++    // Gradle uninstalls the test app, deleting its app-specific external files.
++    // Keep non-sensitive fixture screenshots in the disposable emulator's Download directory.
++    require(name.matches(Regex("[A-Za-z0-9_-]+")))
++    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
++    fun shell(command: String) {
++        android.os.ParcelFileDescriptor.AutoCloseInputStream(automation.executeShellCommand(command)).use { it.readBytes() }
+     }
++    shell("mkdir -p /sdcard/Download/ghajar-ci")
++    shell("screencap -p /sdcard/Download/ghajar-ci/$name.png")
+ }
+ 
+ /** Local SOCKS5 fixture. Responds only with test content; never forwards any traffic. */
+diff --git a/app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt b/app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt
+new file mode 100644
+index 0000000..a7972e8
+--- /dev/null
++++ b/app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt
+@@ -0,0 +1,180 @@
++package net.gozar.app
++
++import android.content.ClipboardManager
++import android.content.Context
++import android.graphics.Bitmap
++import android.net.Uri
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.Surface
++import androidx.compose.material3.darkColorScheme
++import androidx.compose.material3.lightColorScheme
++import androidx.compose.runtime.*
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.asAndroidBitmap
++import androidx.compose.ui.platform.LocalDensity
++import androidx.compose.ui.platform.LocalLayoutDirection
++import androidx.compose.ui.test.*
++import androidx.compose.ui.test.junit4.createComposeRule
++import androidx.compose.ui.unit.Density
++import androidx.compose.ui.unit.LayoutDirection
++import androidx.compose.ui.unit.dp
++import androidx.test.ext.junit.runners.AndroidJUnit4
++import androidx.test.platform.app.InstrumentationRegistry
++import com.google.zxing.BinaryBitmap
++import com.google.zxing.RGBLuminanceSource
++import com.google.zxing.common.HybridBinarizer
++import com.google.zxing.qrcode.QRCodeReader
++import org.json.JSONObject
++import org.junit.Assert.*
++import org.junit.Rule
++import org.junit.Test
++import org.junit.runner.RunWith
++import java.io.File
++
++@RunWith(AndroidJUnit4::class)
++class GhajarNativeUiTest {
++    @get:Rule val compose = createComposeRule()
++    private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
++
++    @Test fun exactCardAmountCopyAndReceiptControlsWorkWithLargePersianText() {
++        var receipt by mutableStateOf<Uri?>(null)
++        var sent by mutableStateOf(false)
++        val photo = File(context.cacheDir, "test-receipt.png")
++        Bitmap.createBitmap(16, 16, Bitmap.Config.ARGB_8888).also { bitmap ->
++            photo.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }; bitmap.recycle()
++        }
++        val invoice = GhajarPaymentInit("carttocart", "ci-fixture", null, "0000111122223333", "حساب آزمایشی", 123456, 1234560, "")
++        compose.setContent {
++            MaterialTheme(colorScheme = darkColorScheme()) {
++                val density = LocalDensity.current
++                CompositionLocalProvider(LocalLang provides Lang.FA, LocalLayoutDirection provides LayoutDirection.Rtl,
++                    LocalDensity provides Density(density.density, 1.3f)) {
++                    Surface { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(14.dp)) {
++                        CardToCardCard(invoice, receipt, false, sent, onPickReceipt = { receipt = Uri.fromFile(photo) }, onUpload = { sent = true })
++                    } }
++                }
++            }
++        }
++        compose.onNodeWithContentDescription("کپی شماره کارت").performScrollTo().performClick()
++        compose.runOnIdle { assertEquals(invoice.cardNumber, (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager).primaryClip?.getItemAt(0)?.text.toString()) }
++        screenshot(context, "payment-card-large-fa")
++        compose.onNodeWithTag("ghajar_upload_receipt").assertIsNotEnabled()
++        compose.onNodeWithTag("ghajar_pick_receipt").performScrollTo().performClick()
++        compose.onNodeWithTag("ghajar_upload_receipt").performScrollTo().assertIsEnabled().performClick()
++        compose.onNodeWithText("رسید ارسال شد؛ منتظر تأیید").assertExists()
++        compose.onNodeWithTag("ghajar_upload_receipt").assertIsNotEnabled()
++        screenshot(context, "receipt-pending-fa")
++    }
++
++    @Test fun deliveredQrContainsTheActualSelectedSubscription() {
++        val url = "https://example.invalid/sub/ci-public-fixture"
++        val service = GhajarServiceDetails("qa", "سرویس آزمایشی", "active", 0.0, 5.0, 5.0, "", url, emptyList())
++        compose.setContent { MaterialTheme {
++            CompositionLocalProvider(LocalLang provides Lang.FA, LocalLayoutDirection provides LayoutDirection.Rtl) {
++                GhajarDeliveryDialog(GhajarDelivery(service, 2, true), {}, {}, false)
++            }
++        } }
++        compose.waitUntil(10000) { compose.onAllNodesWithContentDescription("QR اتصال همین سرویس").fetchSemanticsNodes().isNotEmpty() }
++        compose.onNodeWithText("سرویس به قاجار VPN اضافه شد").assertExists()
++        val bitmap = compose.onNodeWithContentDescription("QR اتصال همین سرویس").captureToImage().asAndroidBitmap()
++        val pixels = IntArray(bitmap.width * bitmap.height)
++        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
++        val decoded = QRCodeReader().decode(BinaryBitmap(HybridBinarizer(RGBLuminanceSource(bitmap.width, bitmap.height, pixels))))
++        assertEquals(url, decoded.text)
++        screenshot(context, "delivered-qr-fa")
++    }
++
++    @Test fun presetsAndExtremeCustomColorsRemainReadableInBothModes() {
++        val palettes = listOf(darkColorScheme(background = Color(0xFF071B2E)), lightColorScheme(background = Color(0xFFEEF3FA)), darkColorScheme(background = Color.Black))
++        for (base in palettes) for (hex in listOf("#C79E48", "#398BCB", "#D95864", "#FFFFFF", "#000000", "#F2CA4C", "#359F78")) {
++            val colors = ghajarColorScheme(base, hex)
++            assertTrue("$hex background", ghajarContrast(colors.primary, colors.background) >= 4.5f)
++            assertTrue("$hex button", ghajarContrast(colors.primary, colors.onPrimary) >= 4.5f)
++            assertTrue("$hex container", ghajarContrast(colors.primaryContainer, colors.onPrimaryContainer) >= 4.5f)
++        }
++    }
++
++    @Test fun customColorCanBeAppliedAndResetFromNativeControls() {
++        val settings = GhajarAppearance.get(context)
++        settings.setAccent(null)
++        try {
++            compose.setContent {
++                val accent by settings.accent.collectAsState()
++                MaterialTheme(colorScheme = ghajarColorScheme(darkColorScheme(), accent)) {
++                    CompositionLocalProvider(LocalLang provides Lang.FA, LocalLayoutDirection provides LayoutDirection.Rtl) {
++                        Surface { Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
++                            GhajarAppearanceSettings()
++                        } }
++                    }
++                }
++            }
++            compose.onNodeWithTag("ghajar_accent_hex").performScrollTo().performTextReplacement("#359f78")
++            compose.onNodeWithTag("ghajar_accent_apply").performScrollTo().performClick()
++            compose.runOnIdle { assertEquals("#359F78", settings.accent.value) }
++            screenshot(context, "custom-accent-fa")
++            compose.onNodeWithText("رنگ اصلی").performScrollTo().performClick()
++            compose.runOnIdle { assertNull(settings.accent.value) }
++        } finally { settings.setAccent(null) }
++    }
++
++    @Test fun firstWelcomeShowsOnlyOnePosterWithoutASlider() {
++        context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE).edit().putBoolean("soft_intro_seen", false).commit()
++        var closed = false
++        compose.setContent { MaterialTheme { GhajarWelcomeScreen { closed = true } } }
++        compose.waitUntil(10000) { compose.onAllNodesWithTag("ghajar_welcome_poster").fetchSemanticsNodes().size == 1 }
++        compose.onAllNodesWithTag("ghajar_welcome_poster").assertCountEquals(1)
++        compose.onNodeWithText("بعدی").assertDoesNotExist()
++        screenshot(context, "single-welcome-fa")
++        compose.onNodeWithText("ورود به قاجار VPN").performClick()
++        compose.runOnIdle { assertTrue(closed) }
++    }
++
++    @Test fun storyReactionAndGiftUseTheNativeRouteWithoutSilentRedemption() {
++        val story = GhajarStoryRules.parse(JSONObject("""{"items":[{"id":"qa-viewer","label":"داستان قاجار","sublabel":"هدیهٔ آزمایشی",
++            "slides":[{"title":"خوش آمدی","body":"اعتبار هدیه فقط پس از تأیید شما ثبت می‌شود.","bg":"#082F2B",
++            "code":"QA-GIFT","code_kind":"gift","cta_label":"کیف پول","cta_link":"#/wallet","cta_color":"#C79E48"}]}]}""")).single()
++        var closed by mutableStateOf(false)
++        var reaction: String? = null
++        GhajarStoryNavigation.pending.value?.let(GhajarStoryNavigation::consumed)
++        try {
++            compose.setContent { MaterialTheme {
++                CompositionLocalProvider(LocalLang provides Lang.FA, LocalLayoutDirection provides LayoutDirection.Rtl) {
++                    if (!closed) GhajarStoryViewer(story, { closed = true }, { closed = true }) { value, done -> reaction = value; done(true) }
++                }
++            } }
++            compose.onNodeWithContentDescription("توقف استوری").performClick()
++            compose.onNodeWithText("❤️").performClick()
++            compose.runOnIdle { assertEquals("heart", reaction) }
++            compose.onNodeWithText("واکنش ثبت شد").assertExists()
++            screenshot(context, "story-gift-fa")
++            compose.onNodeWithText("استفاده از هدیه").performScrollTo().performClick()
++            compose.runOnIdle {
++                assertTrue(closed)
++                assertEquals(GhajarStoryRoute(3, giftCode = "QA-GIFT"), GhajarStoryNavigation.pending.value)
++            }
++        } finally { GhajarStoryNavigation.pending.value?.let(GhajarStoryNavigation::consumed) }
++    }
++
++    @Test fun storyContractHandlesMediaTransformsGiftAndMultipleAttachments() {
++        val story = GhajarStoryRules.parse(JSONObject("""{"items":[{"id":"qa","label":"داستان قاجار","slides":[
++            {"title":"هدیه","body":"<b>برای شما</b>","media":"assets/story-media/qa.mp4?v=7","media_type":"video",
++             "media_x":10,"media_y":-12,"media_scale":2,"media_rotate":45,"code":"QA-GIFT","code_kind":"gift",
++             "attaches":[{"url":"assets/story-media/qa.pdf","name":"راهنما","size":1024}]}]}]}""")).single()
++        assertTrue(story.slides.single().video)
++        assertEquals(10f, story.slides.single().x, .001f)
++        assertEquals(2f, story.slides.single().scale, .001f)
++        assertEquals("gift", story.slides.single().codeKind)
++        assertEquals("برای شما", story.slides.single().body)
++        assertEquals(1, story.slides.single().attachments.size)
++    }
++
++    @Test fun geoProviderMismatchNeverCreatesAFakeCountry() {
++        val body = """{"success":true,"ip":"8.8.8.8","country":"United States","country_code":"US","latitude":37.4,"longitude":-122.1}"""
++        assertNotNull(LocationFetcher.parse(body, false, "8.8.8.8"))
++        assertNull(LocationFetcher.parse(body, false, "1.1.1.1"))
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+index 42fdef5..bf5dca6 100644
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+@@ -110,6 +110,17 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+ 
+     fun refreshMethods() = runOperation { methods.value = api.paymentOptions() }
+ 
++    fun redeemGift(code: String) = runOperation {
++        val (balance, confirmation) = api.redeemGift(code)
++        methods.value = methods.value?.copy(balance = balance)
++        message.value = confirmation
++        revision.intValue++
++        // The credit was already confirmed; a failed refresh must not invite another redemption.
++        storeResult { methods.value = api.paymentOptions() }.onFailure {
++            error.value = "کد هدیه ثبت شد؛ برای نمایش موجودی تازه «بروزرسانی موجودی» را بزن."
++        }
++    }
++
+     fun beginPayment(method: GhajarPaymentMethod) = runOperation {
+         val target = purchase.value ?: return@runOperation
+         if (payment.value != null) {
+diff --git a/app/src/main/java/net/gozar/app/GhajarPublicMedia.kt b/app/src/main/java/net/gozar/app/GhajarPublicMedia.kt
+new file mode 100644
+index 0000000..510e693
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarPublicMedia.kt
+@@ -0,0 +1,86 @@
++package net.gozar.app
++
++import android.content.Context
++import android.graphics.Bitmap
++import android.graphics.BitmapFactory
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.ensureActive
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withContext
++import java.io.File
++import java.io.IOException
++import java.net.URL
++import java.security.MessageDigest
++import javax.net.ssl.HttpsURLConnection
++
++/** Public story media only. No bearer, cookies or checkout state enter this downloader. */
++internal object GhajarPublicMedia {
++    private val mutex = Mutex()
++    suspend fun file(context: Context, input: String, video: Boolean = false): File = withContext(Dispatchers.IO) {
++        val url = GhajarStoryRules.mediaUrl(input) ?: throw IOException("Invalid story media URL")
++        val limit = if (video) 40L * 1024 * 1024 else 12L * 1024 * 1024
++        mutex.withLock {
++            val folder = File(context.cacheDir, "ghajar-story-media").apply { mkdirs() }
++            val key = MessageDigest.getInstance("SHA-256").digest(url.toByteArray()).joinToString("") { "%02x".format(it) }
++            val target = File(folder, key)
++            if (target.isFile && target.length() in 1..limit) {
++                target.setLastModified(System.currentTimeMillis())
++                return@withLock target
++            }
++            val partial = File(folder, "$key.part")
++            var next = url
++            try {
++                for (redirect in 0..3) {
++                    currentCoroutineContext().ensureActive()
++                    val connection = (URL(next).openConnection() as HttpsURLConnection).apply {
++                        connectTimeout = 7000; readTimeout = 15000
++                        instanceFollowRedirects = false
++                        setRequestProperty("User-Agent", "Ghajarvpn")
++                    }
++                    try {
++                        val status = connection.responseCode
++                        if (status in listOf(301, 302, 303, 307, 308)) {
++                            val location = connection.getHeaderField("Location") ?: throw IOException("Missing redirect")
++                            next = GhajarStoryRules.mediaUrl(URL(URL(next), location).toString())
++                                ?: throw IOException("Unsafe media redirect")
++                            continue
++                        }
++                        if (status != 200 || connection.contentLengthLong > limit) throw IOException("Story media unavailable or too large")
++                        connection.inputStream.use { source -> partial.outputStream().use { destination ->
++                            val buffer = ByteArray(16384); var total = 0L
++                            while (true) {
++                                currentCoroutineContext().ensureActive()
++                                val count = source.read(buffer)
++                                if (count < 0) break
++                                total += count
++                                if (total > limit) throw IOException("Story media too large")
++                                destination.write(buffer, 0, count)
++                            }
++                        } }
++                        if (partial.length() == 0L || !partial.renameTo(target)) throw IOException("Unable to store story media")
++                        var bytes = folder.listFiles().orEmpty().sumOf { it.length() }
++                        folder.listFiles().orEmpty().filter { it != target && !it.name.endsWith(".part") }.sortedBy { it.lastModified() }.forEach {
++                            if (bytes > 96L * 1024 * 1024) { val size = it.length(); if (it.delete()) bytes -= size }
++                        }
++                        return@withLock target
++                    } finally { connection.disconnect() }
++                }
++                throw IOException("Too many media redirects")
++            } finally { partial.delete() }
++        }
++    }
++
++    suspend fun image(context: Context, url: String, maxEdge: Int = 1440): Bitmap = withContext(Dispatchers.IO) {
++        val file = file(context, url)
++        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
++        BitmapFactory.decodeFile(file.absolutePath, bounds)
++        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) throw IOException("Unsupported story image")
++        var sample = 1
++        while (bounds.outWidth / sample > maxEdge || bounds.outHeight / sample > maxEdge) sample *= 2
++        currentCoroutineContext().ensureActive()
++        BitmapFactory.decodeFile(file.absolutePath, BitmapFactory.Options().apply { inSampleSize = sample })
++            ?: throw IOException("Unable to decode story image")
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index 09d9386..b8feedd 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -52,6 +52,7 @@ import androidx.compose.material3.FilterChip
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
++import androidx.compose.material3.HorizontalDivider
+ import androidx.compose.material3.DropdownMenu
+ import androidx.compose.material3.DropdownMenuItem
+ import androidx.compose.material3.OutlinedButton
+@@ -59,6 +60,7 @@ import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.collectAsState
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableIntStateOf
+@@ -147,6 +149,19 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+     var customUsername by remember { mutableStateOf("") }
+     var customNote by remember { mutableStateOf("") }
+     var discountCode by remember { mutableStateOf("") }
++    var giftEntry by remember { mutableStateOf("") }
++    var giftPrompt by remember { mutableStateOf<String?>(null) }
++    val storyRoute by GhajarStoryNavigation.pending.collectAsState()
++    LaunchedEffect(storyRoute, active, linked) {
++        val route = storyRoute ?: return@LaunchedEffect
++        if (!active) return@LaunchedEffect
++        if (!linked) { message = "برای استفاده از هدیه یا تخفیف، ابتدا حساب را متصل کن."; return@LaunchedEffect }
++        section = route.section
++        route.discountCode?.let { discountCode = it; message = "کد تخفیف در سفارش قرار گرفت؛ اعتبار و مبلغ نهایی هنگام تأیید بررسی می‌شود." }
++        route.giftCode?.let { giftEntry = it; giftPrompt = it }
++        GhajarStoryNavigation.consumed(route)
++        listState.animateScrollToItem(0)
++    }
+ 
+     val pendingPurchase by checkoutModel.purchase
+     val paymentOptions by checkoutModel.methods
+@@ -336,6 +351,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+         item {
+             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
+         }
++        if (linked) item(key = "stories") { GhajarStoriesStrip(active = active, refreshKey = refreshKey) }
+         if (busy || checkoutBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+         message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
+         error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
+@@ -408,6 +424,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+                                 modifier = Modifier.fillMaxWidth()) { Text("بروزرسانی موجودی") }
+                             Text("شارژ پس از تأیید پنل به موجودی اضافه می‌شود. برای شارژ، سرویس جدید ساخته نمی‌شود.",
+                                 style = MaterialTheme.typography.bodySmall)
++                            HorizontalDivider()
++                            OutlinedTextField(giftEntry, { giftEntry = it.take(200) }, label = { Text("کد هدیه") },
++                                singleLine = true, modifier = Modifier.fillMaxWidth())
++                            OutlinedButton(onClick = { giftPrompt = giftEntry.trim() }, enabled = giftEntry.isNotBlank() && !checkoutBusy,
++                                modifier = Modifier.fillMaxWidth()) { Text("استفاده از کد هدیه") }
+                         }
+                     }
+                 }
+@@ -604,6 +625,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+                 else checkoutModel.importOwned(result.service.username)
+             }, busy = checkoutBusy)
+     }
++    giftPrompt?.let { code ->
++        AlertDialog(onDismissRequest = { giftPrompt = null }, title = { Text("افزودن هدیه به کیف پول") },
++            text = { Text("کد «$code» برای همین حساب مصرف شود؟ اعتبار هدیه را سرور تأیید می‌کند.") },
++            confirmButton = { TextButton(onClick = { giftPrompt = null; checkoutModel.redeemGift(code) }, enabled = !checkoutBusy) { Text("تأیید هدیه") } },
++            dismissButton = { TextButton(onClick = { giftPrompt = null }) { Text("انصراف") } })
++    }
++
+     confirmation?.let { request ->
+         AlertDialog(
+             onDismissRequest = { confirmation = null },
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+index a1ad135..a73b244 100644
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -293,6 +293,26 @@ class GhajarStoreApi(context: Context) {
+         return serviceFrom(payload, username)
+     }
+ 
++    internal suspend fun stories(): List<GhajarStory> =
++        GhajarStoryRules.parse(action("promo_stories_list").payloadObject())
++
++    internal suspend fun viewStory(id: String) {
++        action("promo_stories_view", method = "POST", body = JSONObject().put("story_id", id))
++    }
++
++    internal suspend fun reactStory(id: String, reaction: String) {
++        require(reaction in listOf("heart", "fire", "party", "gift"))
++        action("promo_stories_react", method = "POST", body = JSONObject().put("story_id", id).put("reaction", reaction))
++    }
++
++    internal suspend fun redeemGift(code: String): Pair<Long, String> {
++        require(code.isNotBlank() && code.length <= 200)
++        val payload = action("redeem_giftcode", method = "POST", body = JSONObject().put("code", code)).payloadObject()
++        val balance = payload.optDouble("new_balance", Double.NaN)
++        require(balance.isFinite() && balance >= 0) { "پاسخ موجودی هدیه معتبر نیست؛ موجودی را دوباره بررسی کن." }
++        return balance.toLong() to visible(payload.optString("message", "کد هدیه به کیف پول اضافه شد."))
++    }
++
+     suspend fun notices(): List<GhajarNotice> {
+         val general = runCatching { action("announcements_list").payloadArray().objects() }.getOrDefault(emptyList())
+         val personalPayload = runCatching { action("user_notifications_list").payloadObject() }.getOrNull()
+@@ -469,6 +489,7 @@ class GhajarStoreApi(context: Context) {
+     }
+ 
+     private suspend fun importServiceLocked(store: ConfigStore, service: GhajarServiceDetails): Int {
++        store.awaitReady()
+         val joined = service.outputs.filter { it.isNotBlank() }.joinToString("\n")
+         val payload = service.subscriptionUrl?.takeIf { it.isNotBlank() } ?: joined
+         if (payload.isBlank()) return 0
+diff --git a/app/src/main/java/net/gozar/app/GhajarStories.kt b/app/src/main/java/net/gozar/app/GhajarStories.kt
+new file mode 100644
+index 0000000..328f22e
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarStories.kt
+@@ -0,0 +1,286 @@
++package net.gozar.app
++
++import android.content.Context
++import android.content.Intent
++import android.graphics.Bitmap
++import android.net.Uri
++import android.os.SystemClock
++import android.widget.VideoView
++import androidx.compose.foundation.Image
++import androidx.compose.foundation.background
++import androidx.compose.foundation.border
++import androidx.compose.foundation.clickable
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.lazy.LazyRow
++import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.shape.CircleShape
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.Close
++import androidx.compose.material.icons.filled.Pause
++import androidx.compose.material.icons.filled.PlayArrow
++import androidx.compose.material.icons.filled.VolumeOff
++import androidx.compose.material.icons.filled.VolumeUp
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.asImageBitmap
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.platform.LocalClipboardManager
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.testTag
++import androidx.compose.ui.text.AnnotatedString
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.viewinterop.AndroidView
++import androidx.compose.ui.window.Dialog
++import androidx.compose.ui.window.DialogProperties
++import androidx.lifecycle.Lifecycle
++import androidx.lifecycle.LifecycleEventObserver
++import androidx.lifecycle.compose.LocalLifecycleOwner
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import java.io.File
++import java.security.MessageDigest
++
++internal object GhajarStoryNavigation {
++    private val _pending = MutableStateFlow<GhajarStoryRoute?>(null)
++    val pending = _pending.asStateFlow()
++    fun open(route: GhajarStoryRoute) { _pending.value = route }
++    fun consumed(route: GhajarStoryRoute) { _pending.compareAndSet(route, null) }
++}
++
++@Composable
++internal fun GhajarStoriesStrip(active: Boolean, refreshKey: Int) {
++    val context = LocalContext.current
++    val api = remember { GhajarStoreApi(context) }
++    val scope = rememberCoroutineScope()
++    val token = GhajarAccountStore(context).token()
++    val owner = remember(token) { MessageDigest.getInstance("SHA-256").digest(token.toByteArray()).joinToString("") { "%02x".format(it) } }
++    val prefs = remember { context.getSharedPreferences("ghajar_stories", Context.MODE_PRIVATE) }
++    var stories by remember(owner) { mutableStateOf<List<GhajarStory>>(emptyList()) }
++    var selectedId by remember(owner) { mutableStateOf<String?>(null) }
++    var seen by remember(owner) { mutableStateOf(prefs.getStringSet(owner, emptySet()).orEmpty().toSet()) }
++    var failed by remember(owner) { mutableStateOf(false) }
++    var retry by remember { mutableIntStateOf(0) }
++    LaunchedEffect(active, owner, refreshKey, retry) {
++        if (!active || token.isBlank()) return@LaunchedEffect
++        storeResult { stories = api.stories(); failed = false }.onFailure { failed = true }
++    }
++    if (failed && stories.isEmpty()) TextButton(onClick = { retry++ }) { Text("استوری‌ها دریافت نشدند؛ تلاش دوباره") }
++    if (stories.isNotEmpty()) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
++        Text("داستان‌های قاجار", style = MaterialTheme.typography.titleSmall)
++        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.testTag("ghajar_stories")) {
++            items(stories, key = { it.id }) { story ->
++                Column(Modifier.width(80.dp).clip(RoundedCornerShape(18.dp)).clickable { selectedId = story.id }.padding(4.dp),
++                    horizontalAlignment = Alignment.CenterHorizontally) {
++                    Box(Modifier.size(62.dp).border(if (story.id in seen) 1.dp else 3.dp,
++                        if (story.id in seen) MaterialTheme.colorScheme.outline else MaterialTheme.colorScheme.primary, CircleShape)
++                        .padding(5.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primaryContainer), contentAlignment = Alignment.Center) {
++                        val bitmap by produceState<Bitmap?>(null, story.iconMedia) {
++                            value = null
++                            story.iconMedia?.let { url -> storeResult { value = GhajarPublicMedia.image(context, url, 160) } }
++                        }
++                        if (bitmap == null) Text(story.icon, style = MaterialTheme.typography.headlineSmall)
++                        else Image(bitmap!!.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
++                    }
++                    Text(story.label, maxLines = 2, textAlign = TextAlign.Center, overflow = TextOverflow.Ellipsis,
++                        style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(top = 5.dp))
++                    if (story.tag.isNotBlank()) {
++                        val tagColor = Color(android.graphics.Color.parseColor(story.tagColor))
++                        val tagText = if (ghajarContrast(tagColor, Color.White) >= ghajarContrast(tagColor, Color.Black)) Color.White else Color.Black
++                        Surface(color = tagColor, contentColor = tagText, shape = RoundedCornerShape(8.dp)) {
++                            Text(story.tag, maxLines = 1, overflow = TextOverflow.Ellipsis,
++                                style = MaterialTheme.typography.labelSmall, modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp))
++                        }
++                    }
++                }
++            }
++        }
++    }
++    stories.firstOrNull { it.id == selectedId }?.let { story ->
++        LaunchedEffect(story.id) {
++            seen = (seen + story.id).toList().takeLast(200).toSet()
++            prefs.edit().putStringSet(owner, seen).apply()
++            storeResult { api.viewStory(story.id) }
++        }
++        key(story.id) {
++            GhajarStoryViewer(story, onDismiss = { selectedId = null },
++                onFinish = { selectedId = stories.getOrNull(stories.indexOf(story) + 1)?.id },
++                onReaction = { reaction, result -> scope.launch {
++                    storeResult { api.reactStory(story.id, reaction) }
++                        .onSuccess { result(true) }.onFailure { result(false) }
++                } })
++        }
++    }
++}
++
++@Composable
++internal fun GhajarStoryViewer(story: GhajarStory, onDismiss: () -> Unit, onFinish: () -> Unit,
++    onReaction: (String, (Boolean) -> Unit) -> Unit) {
++    var index by remember { mutableIntStateOf(0) }
++    var paused by remember { mutableStateOf(false) }
++    var muted by remember { mutableStateOf(true) }
++    var reactionBusy by remember { mutableStateOf(false) }
++    var notice by remember { mutableStateOf<String?>(null) }
++    val context = LocalContext.current
++    val clipboard = LocalClipboardManager.current
++    val lifecycle = LocalLifecycleOwner.current.lifecycle
++    var resumed by remember { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
++    DisposableEffect(lifecycle) {
++        val observer = LifecycleEventObserver { _, _ -> resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) }
++        lifecycle.addObserver(observer)
++        onDispose { lifecycle.removeObserver(observer) }
++    }
++    val slide = story.slides[index]
++    var ready by remember(index) { mutableStateOf(slide.media == null) }
++    var duration by remember(index) { mutableLongStateOf(10000L) }
++    var elapsed by remember(index) { mutableLongStateOf(0L) }
++    var advanced by remember(index) { mutableStateOf(false) }
++    fun next() { if (advanced) return; advanced = true; if (index < story.slides.lastIndex) index++ else onFinish() }
++    val nextCallback by rememberUpdatedState(::next)
++    LaunchedEffect(index, ready, paused, resumed) {
++        if (!ready || paused || !resumed) return@LaunchedEffect
++        var before = SystemClock.elapsedRealtime()
++        while (elapsed < duration) {
++            delay(60)
++            val now = SystemClock.elapsedRealtime(); elapsed += now - before; before = now
++        }
++        nextCallback()
++    }
++    fun openExternal(url: String) {
++        val valid = GhajarStoryRules.externalLink(url)
++        if (valid == null) { notice = "این پیوند قابل بازکردن نیست."; return }
++        paused = true
++        if (runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(valid)).addCategory(Intent.CATEGORY_BROWSABLE)) }.isFailure)
++            notice = "برنامه‌ای برای بازکردن پیوند پیدا نشد."
++    }
++    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false)) {
++        Surface(Modifier.fillMaxSize(), color = Color(0xFF071B20)) {
++            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(12.dp)) {
++                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
++                    story.slides.indices.forEach { position -> LinearProgressIndicator(
++                        progress = { if (position < index) 1f else if (position == index) (elapsed.toFloat() / duration).coerceIn(0f, 1f) else 0f },
++                        modifier = Modifier.weight(1f).height(3.dp), color = Color(0xFFE3BF69), trackColor = Color.White.copy(alpha = .2f)) }
++                }
++                Row(verticalAlignment = Alignment.CenterVertically) {
++                    Column(Modifier.weight(1f)) {
++                        Text(story.label, color = Color.White, fontWeight = FontWeight.Bold)
++                        if (story.sublabel.isNotBlank()) Text(story.sublabel, color = Color.White.copy(alpha = .8f),
++                            style = MaterialTheme.typography.labelSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
++                    }
++                    IconButton(onClick = { paused = !paused }) { Icon(if (paused) Icons.Filled.PlayArrow else Icons.Filled.Pause,
++                        if (paused) "ادامهٔ استوری" else "توقف استوری", tint = Color.White) }
++                    if (slide.video) IconButton(onClick = { muted = !muted }) { Icon(if (muted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
++                        if (muted) "روشن‌کردن صدا" else "قطع صدا", tint = Color.White) }
++                    IconButton(onClick = onDismiss) { Icon(Icons.Filled.Close, "بستن استوری", tint = Color.White) }
++                }
++                key(story.id, index) {
++                    GhajarStoryMedia(slide, resumed && !paused, muted, onReady = { length -> ready = true; duration = length },
++                        onComplete = { nextCallback() }, onOpen = { slide.media?.let(::openExternal) },
++                        modifier = Modifier.weight(1f).fillMaxWidth().clip(RoundedCornerShape(24.dp)))
++                }
++                Column(Modifier.fillMaxWidth().heightIn(max = 210.dp).verticalScroll(rememberScrollState()).padding(top = 10.dp),
++                    verticalArrangement = Arrangement.spacedBy(6.dp)) {
++                    if (slide.title.isNotBlank()) Text(slide.title, color = Color.White, fontWeight = FontWeight.Bold)
++                    if (slide.body.isNotBlank()) Text(slide.body, color = Color(0xFFD6E5E1), style = MaterialTheme.typography.bodySmall)
++                    if (slide.code.isNotBlank()) Row(verticalAlignment = Alignment.CenterVertically) {
++                        TextButton(onClick = { clipboard.setText(AnnotatedString(slide.code)); notice = "کد کپی شد" }) { Text("${slide.code} · کپی", color = Color(0xFFFFDE91)) }
++                        if (slide.codeKind.isNotBlank()) TextButton(onClick = {
++                            GhajarStoryNavigation.open(if (slide.codeKind == "gift") GhajarStoryRoute(3, giftCode = slide.code)
++                                else GhajarStoryRoute(0, discountCode = slide.code))
++                            onDismiss()
++                        }) { Text(if (slide.codeKind == "gift") "استفاده از هدیه" else "خرید با تخفیف", color = Color.White) }
++                    }
++                    if (slide.ctaLabel.isNotBlank() && slide.ctaLink.isNotBlank()) {
++                        val color = Color(android.graphics.Color.parseColor(slide.ctaColor))
++                        val foreground = if (ghajarContrast(color, Color.White) >= ghajarContrast(color, Color.Black)) Color.White else Color.Black
++                        Button(onClick = {
++                            val route = GhajarStoryRules.route(slide.ctaLink)
++                            if (route != null) { GhajarStoryNavigation.open(route); onDismiss() } else openExternal(slide.ctaLink)
++                        }, colors = ButtonDefaults.buttonColors(containerColor = color, contentColor = foreground),
++                            modifier = Modifier.fillMaxWidth()) { Text(slide.ctaLabel) }
++                    }
++                    slide.attachments.forEach { attachment -> TextButton(onClick = { openExternal(attachment.url) }) {
++                        Text("دریافت ${attachment.name}", color = Color(0xFFFFDE91))
++                    } }
++                    notice?.let { Text(it, color = Color.White, style = MaterialTheme.typography.labelSmall) }
++                }
++                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
++                    listOf("heart" to "❤️", "fire" to "🔥", "party" to "🎉", "gift" to "🎁").forEach { (key, label) ->
++                        TextButton(enabled = !reactionBusy, onClick = {
++                            reactionBusy = true
++                            onReaction(key) { success -> reactionBusy = false; notice = if (success) "واکنش ثبت شد" else "واکنش ثبت نشد؛ دوباره تلاش کن." }
++                        }) { Text(label, style = MaterialTheme.typography.titleLarge) }
++                    }
++                }
++                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
++                    TextButton(onClick = { if (index > 0) index-- }, enabled = index > 0) { Text("قبلی", color = Color.White) }
++                    TextButton(onClick = ::next) { Text(if (index < story.slides.lastIndex) "بعدی" else "استوری بعد", color = Color.White) }
++                }
++            }
++        }
++    }
++}
++
++@Composable
++private fun GhajarStoryMedia(slide: GhajarStorySlide, playing: Boolean, muted: Boolean,
++    onReady: (Long) -> Unit, onComplete: () -> Unit, onOpen: () -> Unit, modifier: Modifier) {
++    val context = LocalContext.current
++    var bitmap by remember { mutableStateOf<Bitmap?>(null) }
++    var video by remember { mutableStateOf<File?>(null) }
++    var failed by remember { mutableStateOf(false) }
++    val ready by rememberUpdatedState(onReady)
++    val complete by rememberUpdatedState(onComplete)
++    var player by remember { mutableStateOf<android.media.MediaPlayer?>(null) }
++    var view by remember { mutableStateOf<VideoView?>(null) }
++    LaunchedEffect(slide.media) {
++        val url = slide.media ?: return@LaunchedEffect
++        try {
++            if (slide.video) video = GhajarPublicMedia.file(context, url, video = true)
++            else { bitmap = GhajarPublicMedia.image(context, url); ready(10000L) }
++        } catch (cancel: CancellationException) { throw cancel }
++        catch (_: Exception) { failed = true }
++    }
++    LaunchedEffect(player, muted, playing) {
++        runCatching {
++            player?.setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f)
++            if (playing) view?.start() else view?.pause()
++        }
++    }
++    DisposableEffect(Unit) { onDispose { runCatching { view?.stopPlayback() }; player = null; view = null } }
++    Box(modifier.background(Color(android.graphics.Color.parseColor(slide.background))), contentAlignment = Alignment.Center) {
++        val mediaModifier = Modifier.fillMaxSize().graphicsLayer {
++            scaleX = slide.scale; scaleY = slide.scale; rotationZ = slide.rotation
++            translationX = size.width * slide.x / 100; translationY = size.height * slide.y / 100
++        }
++        bitmap?.let { Image(it.asImageBitmap(), slide.title, mediaModifier, contentScale = ContentScale.Fit) }
++        video?.let { file -> AndroidView(modifier = mediaModifier, factory = { ctx -> VideoView(ctx).also { videoView ->
++            view = videoView
++            videoView.setOnPreparedListener { mp ->
++                player = mp; mp.isLooping = false
++                mp.setVolume(if (muted) 0f else 1f, if (muted) 0f else 1f)
++                ready(mp.duration.toLong().coerceAtLeast(1000L))
++                if (playing) videoView.start()
++            }
++            videoView.setOnCompletionListener { complete() }
++            videoView.setOnErrorListener { _, _, _ -> failed = true; true }
++            videoView.setVideoPath(file.absolutePath)
++        } }) }
++        if (failed) Column(horizontalAlignment = Alignment.CenterHorizontally) {
++            Text("رسانه در اپ پخش نشد یا حجمش زیاد است.", color = Color.White)
++            TextButton(onClick = onOpen) { Text("بازکردن رسانه در مرورگر", color = Color.White) }
++        } else if (slide.media != null && bitmap == null && video == null) CircularProgressIndicator(color = Color.White)
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoryModels.kt b/app/src/main/java/net/gozar/app/GhajarStoryModels.kt
+new file mode 100644
+index 0000000..9f31300
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarStoryModels.kt
+@@ -0,0 +1,88 @@
++package net.gozar.app
++
++import org.json.JSONObject
++import java.net.URI
++
++internal data class GhajarStoryAttachment(val url: String, val name: String, val size: Long)
++internal data class GhajarStorySlide(
++    val title: String, val body: String, val background: String,
++    val media: String?, val video: Boolean, val x: Float, val y: Float, val scale: Float, val rotation: Float,
++    val ctaLabel: String, val ctaLink: String, val ctaColor: String,
++    val code: String, val codeKind: String, val attachments: List<GhajarStoryAttachment>
++)
++internal data class GhajarStory(val id: String, val icon: String, val iconMedia: String?, val label: String,
++    val sublabel: String, val tag: String, val tagColor: String, val slides: List<GhajarStorySlide>)
++internal data class GhajarStoryRoute(val section: Int, val discountCode: String? = null, val giftCode: String? = null)
++
++internal object GhajarStoryRules {
++    private val base = URI(BrandConfig.STORE_URL)
++
++    /** The bot emits flat relative public media paths, never authenticated API URLs. */
++    fun mediaUrl(value: String): String? = runCatching {
++        if (value.isBlank()) return null
++        val uri = base.resolve(value.trim()).normalize()
++        if (uri.scheme != "https" || !uri.host.equals(base.host, true) || uri.port !in listOf(-1, 443) ||
++            uri.userInfo != null || uri.fragment != null) return null
++        val prefix = base.path.trimEnd('/') + "/assets/story-media/"
++        if (!uri.path.startsWith(prefix)) return null
++        val filename = uri.path.removePrefix(prefix)
++        if (!filename.matches(Regex("[A-Za-z0-9_-][A-Za-z0-9._-]{0,199}")) || ".." in filename) return null
++        uri.toASCIIString()
++    }.getOrNull()
++
++    fun externalLink(value: String): String? = runCatching {
++        val uri = URI(value.trim())
++        if (uri.scheme != "https" || uri.host.isNullOrBlank() || uri.userInfo != null || uri.port !in listOf(-1, 443)) null
++        else uri.toASCIIString()
++    }.getOrNull()
++
++    fun route(value: String): GhajarStoryRoute? = when (value.trim().substringBefore('?').trimEnd('/')) {
++        "#/recharge", "#/wallet" -> GhajarStoryRoute(3)
++        "#/buy", "#/shop" -> GhajarStoryRoute(0)
++        "#/services" -> GhajarStoryRoute(1)
++        else -> null
++    }
++
++    fun parse(payload: JSONObject): List<GhajarStory> {
++        val items = payload.optJSONArray("items") ?: return emptyList()
++        return (0 until minOf(items.length(), 60)).mapNotNull { index ->
++            val story = items.optJSONObject(index) ?: return@mapNotNull null
++            val id = story.optString("id").take(120)
++            val slides = story.optJSONArray("slides") ?: return@mapNotNull null
++            if (id.isBlank()) return@mapNotNull null
++            val parsed = (0 until minOf(slides.length(), 8)).mapNotNull slide@{ i ->
++                val slide = slides.optJSONObject(i) ?: return@slide null
++                val attachments = mutableListOf<GhajarStoryAttachment>()
++                val array = slide.optJSONArray("attaches")
++                if (array != null) for (j in 0 until minOf(array.length(), 4)) {
++                    val attachment = array.optJSONObject(j) ?: continue
++                    val url = mediaUrl(attachment.optString("url")) ?: continue
++                    attachments += GhajarStoryAttachment(url, clean(attachment.optString("name"), 120).ifBlank { "فایل ضمیمه" },
++                        attachment.optLong("size").coerceAtLeast(0))
++                }
++                if (attachments.isEmpty()) mediaUrl(slide.optString("attach"))?.let {
++                    attachments += GhajarStoryAttachment(it, clean(slide.optString("attach_name"), 120).ifBlank { "فایل ضمیمه" },
++                        slide.optLong("attach_size").coerceAtLeast(0))
++                }
++                fun number(key: String, default: Float, min: Float, max: Float): Float =
++                    slide.optDouble(key, default.toDouble()).toFloat().takeIf { it.isFinite() }?.coerceIn(min, max) ?: default
++                GhajarStorySlide(clean(slide.optString("title"), 200), clean(slide.optString("body"), 4000),
++                    GhajarColorRules.normalize(slide.optString("bg")) ?: "#082F2B",
++                    mediaUrl(slide.optString("media")), slide.optString("media_type") == "video",
++                    number("media_x", 0f, -50f, 50f), number("media_y", 0f, -50f, 50f),
++                    number("media_scale", 1f, .5f, 3f), number("media_rotate", 0f, -180f, 180f),
++                    clean(slide.optString("cta_label"), 120), slide.optString("cta_link").take(2000),
++                    GhajarColorRules.normalize(slide.optString("cta_color")) ?: "#C79E48",
++                    slide.optString("code").trim().take(200), slide.optString("code_kind").takeIf { it in listOf("gift", "discount") }.orEmpty(),
++                    attachments)
++            }
++            if (parsed.isEmpty()) null else GhajarStory(id, clean(story.optString("icon"), 16).ifBlank { "🎁" },
++                mediaUrl(story.optString("icon_media")), clean(story.optString("label"), 80),
++                clean(story.optString("sublabel"), 120), clean(story.optString("tag"), 30),
++                GhajarColorRules.normalize(story.optString("tag_color")) ?: "#C79E48", parsed)
++        }.distinctBy { it.id }
++    }
++
++    private fun clean(value: String, limit: Int): String = BrandConfig.sanitizePublicText(value)
++        .replace(Regex("<[^>]*>"), "").take(limit)
++}
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 0da0450..564cb2c 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -1082,6 +1082,8 @@ private fun GozarApp(
+         else -> isSystemInDarkTheme()
+     }
+     val pagerState = rememberPagerState(initialPage = PAGE_HOME, pageCount = { PAGE_COUNT })
++    val storyRoute by GhajarStoryNavigation.pending.collectAsState()
++    LaunchedEffect(storyRoute) { if (storyRoute != null) pagerState.animateScrollToPage(PAGE_SHOP) }
+     val settingsScroll = rememberScrollState()
+ 
+     var showPicker by remember { mutableStateOf(false) }
+diff --git a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+index fecf18c..f4f34f0 100644
+--- a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
++++ b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+@@ -1,10 +1,18 @@
+ package net.gozar.app
+ 
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++import kotlinx.coroutines.withContext
++
+ object SubscriptionRefresher {
++    private val refreshMutex = Mutex()
+ 
+-    suspend fun refreshStale(store: ConfigStore, force: Boolean = false) {
++    suspend fun refreshStale(store: ConfigStore, force: Boolean = false) = refreshMutex.withLock {
++        // A cold foreground event can arrive before preferences have loaded.
++        store.awaitReady()
+         val hours = store.autoRefreshHours.value
+-        if (hours <= 0 && !force) return
++        if (hours <= 0 && !force) return@withLock
+         val cutoff = System.currentTimeMillis() - hours * 3_600_000L
+ 
+         store.subscriptions.value
+@@ -14,17 +22,24 @@ object SubscriptionRefresher {
+                     val result = SubscriptionFetcher.fetchFull(sub.url)
+                     if (result.configs.isNotEmpty()) {
+                         val info = result.userInfo
+-                        store.upsertSubscription(
+-                            sub.copy(
+-                                used = info?.used ?: sub.used,
+-                                total = info?.total ?: sub.total,
+-                                expire = info?.expire ?: sub.expire,
+-                                lastUpdated = System.currentTimeMillis()
+-                            ),
+-                            result.configs
+-                        )
++                        withContext(Dispatchers.Main) {
++                            val current = store.subscriptions.value.firstOrNull { it.id == sub.id }
++                                ?: return@withContext
++                            // Do not resurrect a deleted feed, overwrite a delivery refresh,
++                            // or undo a rename performed while the network request was running.
++                            if (current.url != sub.url || current.lastUpdated != sub.lastUpdated) return@withContext
++                            store.upsertSubscription(
++                                current.copy(
++                                    used = info?.used ?: current.used,
++                                    total = info?.total ?: current.total,
++                                    expire = info?.expire ?: current.expire,
++                                    lastUpdated = System.currentTimeMillis()
++                                ),
++                                result.configs
++                            )
++                        }
+                     }
+                 }
+             }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/test/java/net/gozar/app/GhajarStoryRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarStoryRulesTest.kt
+new file mode 100644
+index 0000000..1005d8d
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarStoryRulesTest.kt
+@@ -0,0 +1,34 @@
++package net.gozar.app
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class GhajarStoryRulesTest {
++    @Test fun relativeMediaUsesTheActualMiniappDirectory() {
++        assertEquals(BrandConfig.STORE_URL + "assets/story-media/king.jpg?v=42",
++            GhajarStoryRules.mediaUrl("assets/story-media/king.jpg?v=42"))
++    }
++
++    @Test fun mediaNeverEscapesToApiOrAnotherHost() {
++        listOf("https://example.com/photo.jpg", "//example.com/evil.mp4", "../api/miniapp.php",
++            "assets/story-media/../../secret.txt", "assets/story-media/%2e%2e/secret.txt",
++            "assets/story-media/a%2Fb.jpg", "file:///sdcard/photo.jpg", "javascript:alert(1)",
++            BrandConfig.STORE_URL.replace("https://", "http://") + "assets/story-media/a.jpg",
++            "https://user:password@${BrandConfig.STORE_HOST}${BrandConfig.STORE_PATH}assets/story-media/a.jpg").forEach {
++            assertNull(it, GhajarStoryRules.mediaUrl(it))
++        }
++    }
++
++    @Test fun knownMiniappRoutesOpenTheEquivalentNativeSection() {
++        assertEquals(3, GhajarStoryRules.route("#/recharge")?.section)
++        assertEquals(0, GhajarStoryRules.route("#/buy")?.section)
++        assertEquals(1, GhajarStoryRules.route("#/services")?.section)
++        assertNull(GhajarStoryRules.route("#/admin"))
++    }
++
++    @Test fun externalActionsCannotLaunchScriptOrEmbeddedCredentials() {
++        assertEquals("https://t.me/Ghajar_vpnbot", GhajarStoryRules.externalLink("https://t.me/Ghajar_vpnbot"))
++        listOf("javascript:alert(1)", "intent://example", "file:///secret", "https://user:pass@example.com", "https://example.com:8080/")
++            .forEach { assertNull(GhajarStoryRules.externalLink(it)) }
++    }
++}
+-- 
+2.51.1
+

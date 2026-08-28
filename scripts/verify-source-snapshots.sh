@@ -6,6 +6,12 @@ source_root="$(cd "${1:?Usage: verify-source-snapshots.sh SOURCE_ROOT}" && pwd)"
 
 # The readable GitHub files must be the same files that the patch series builds.
 snapshots=(
+  "app/src/androidTest/java/net/gozar/app/GhajarNativeUiTest.kt"
+  "app/src/main/java/net/gozar/app/GhajarPublicMedia.kt"
+  "app/src/main/java/net/gozar/app/GhajarStories.kt"
+  "app/src/main/java/net/gozar/app/GhajarStoryModels.kt"
+  "app/src/main/java/net/gozar/app/Subscriptionrefresher.kt"
+  "app/src/test/java/net/gozar/app/GhajarStoryRulesTest.kt"
   "app/src/androidTest/java/net/gozar/app/ExampleInstrumentedTest.kt"
   "app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt"
   "app/src/main/java/net/gozar/app/DotGlobe.kt"

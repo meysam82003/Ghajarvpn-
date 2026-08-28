@@ -52,6 +52,7 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
@@ -59,6 +60,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -147,6 +149,19 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var customUsername by remember { mutableStateOf("") }
     var customNote by remember { mutableStateOf("") }
     var discountCode by remember { mutableStateOf("") }
+    var giftEntry by remember { mutableStateOf("") }
+    var giftPrompt by remember { mutableStateOf<String?>(null) }
+    val storyRoute by GhajarStoryNavigation.pending.collectAsState()
+    LaunchedEffect(storyRoute, active, linked) {
+        val route = storyRoute ?: return@LaunchedEffect
+        if (!active) return@LaunchedEffect
+        if (!linked) { message = "برای استفاده از هدیه یا تخفیف، ابتدا حساب را متصل کن."; return@LaunchedEffect }
+        section = route.section
+        route.discountCode?.let { discountCode = it; message = "کد تخفیف در سفارش قرار گرفت؛ اعتبار و مبلغ نهایی هنگام تأیید بررسی می‌شود." }
+        route.giftCode?.let { giftEntry = it; giftPrompt = it }
+        GhajarStoryNavigation.consumed(route)
+        listState.animateScrollToItem(0)
+    }
 
     val pendingPurchase by checkoutModel.purchase
     val paymentOptions by checkoutModel.methods
@@ -336,6 +351,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         item {
             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
         }
+        if (linked) item(key = "stories") { GhajarStoriesStrip(active = active, refreshKey = refreshKey) }
         if (busy || checkoutBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
         error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
@@ -408,6 +424,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                                 modifier = Modifier.fillMaxWidth()) { Text("بروزرسانی موجودی") }
                             Text("شارژ پس از تأیید پنل به موجودی اضافه می‌شود. برای شارژ، سرویس جدید ساخته نمی‌شود.",
                                 style = MaterialTheme.typography.bodySmall)
+                            HorizontalDivider()
+                            OutlinedTextField(giftEntry, { giftEntry = it.take(200) }, label = { Text("کد هدیه") },
+                                singleLine = true, modifier = Modifier.fillMaxWidth())
+                            OutlinedButton(onClick = { giftPrompt = giftEntry.trim() }, enabled = giftEntry.isNotBlank() && !checkoutBusy,
+                                modifier = Modifier.fillMaxWidth()) { Text("استفاده از کد هدیه") }
                         }
                     }
                 }
@@ -604,6 +625,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 else checkoutModel.importOwned(result.service.username)
             }, busy = checkoutBusy)
     }
+    giftPrompt?.let { code ->
+        AlertDialog(onDismissRequest = { giftPrompt = null }, title = { Text("افزودن هدیه به کیف پول") },
+            text = { Text("کد «$code» برای همین حساب مصرف شود؟ اعتبار هدیه را سرور تأیید می‌کند.") },
+            confirmButton = { TextButton(onClick = { giftPrompt = null; checkoutModel.redeemGift(code) }, enabled = !checkoutBusy) { Text("تأیید هدیه") } },
+            dismissButton = { TextButton(onClick = { giftPrompt = null }) { Text("انصراف") } })
+    }
+
     confirmation?.let { request ->
         AlertDialog(
             onDismissRequest = { confirmation = null },
