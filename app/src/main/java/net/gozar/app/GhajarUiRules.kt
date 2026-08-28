@@ -44,3 +44,20 @@ internal object GhajarUiRules {
         return listOf("tg://resolve?domain=$bot&start=start", "https://t.me/$bot?start=start")
     }
 }
+
+/** Shuffle without replacement. Stable names survive resource-ID changes. */
+internal object GhajarWelcomeRotation {
+    data class Pick(val name: String, val seen: Set<String>)
+
+    fun next(available: List<String>, previouslySeen: Set<String>, last: String?,
+             random: kotlin.random.Random = kotlin.random.Random.Default): Pick? {
+        val names = available.filter { it.isNotBlank() }.distinct()
+        if (names.isEmpty()) return null
+        val seen = previouslySeen.intersect(names.toSet())
+        val unseen = names.filterNot { it in seen }
+        val newCycle = unseen.isEmpty()
+        val choices = if (newCycle) names.filter { names.size == 1 || it != last } else unseen
+        val selected = choices.random(random)
+        return Pick(selected, (if (newCycle) emptySet() else seen) + selected)
+    }
+}

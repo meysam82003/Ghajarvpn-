@@ -20,6 +20,7 @@ snapshots=(
   "app/src/main/java/net/gozar/app/GhajarUiRules.kt"
   "app/src/main/java/net/gozar/app/GhajarLinkFlow.kt"
   "app/src/main/java/net/gozar/app/GhajarVisuals.kt"
+  "app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt"
   "app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt"
   "app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt"
   "app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt"

@@ -8,6 +8,53 @@ import org.junit.Test
 class GhajarUiRulesTest {
     private val linkToken = "a".repeat(48)
 
+    @Test fun welcomeShowsEveryImageExactlyOnceBeforeRepeating() {
+        val images = (1..33).map { "poster_$it" }
+        var seen = emptySet<String>()
+        var last: String? = null
+        val random = kotlin.random.Random(42)
+        repeat(4) {
+            val cycle = mutableListOf<String>()
+            repeat(images.size) {
+                val pick = GhajarWelcomeRotation.next(images, seen, last, random)!!
+                cycle += pick.name; seen = pick.seen; last = pick.name
+            }
+            assertEquals(images.toSet(), cycle.toSet())
+            assertEquals(images.size, cycle.size)
+        }
+    }
+    @Test fun welcomeDoesNotRepeatAtTheBoundaryBetweenCycles() {
+        val images = listOf("king", "queen", "minister")
+        repeat(50) { seed ->
+            val pick = GhajarWelcomeRotation.next(images, images.toSet(), "queen", kotlin.random.Random(seed))!!
+            assertFalse(pick.name == "queen")
+            assertEquals(setOf(pick.name), pick.seen)
+        }
+    }
+    @Test fun newWelcomePicturesAreShownBeforeTheNextCycle() {
+        val pick = GhajarWelcomeRotation.next(listOf("king", "queen", "new"), setOf("king", "queen"), "queen")!!
+        assertEquals("new", pick.name)
+    }
+    @Test fun removedWelcomePicturesCannotReappearFromSavedHistory() {
+        val pick = GhajarWelcomeRotation.next(listOf("king", "queen"), setOf("deleted", "king"), "king")!!
+        assertEquals("queen", pick.name)
+        assertEquals(setOf("king", "queen"), pick.seen)
+    }
+    @Test fun welcomeHistoryCanBeRestoredBetweenLaunches() {
+        val images = listOf("king", "queen", "minister")
+        val first = GhajarWelcomeRotation.next(images, emptySet(), null)!!
+        val saved = first.seen.joinToString(",").split(",").toSet()
+        val second = GhajarWelcomeRotation.next(images, saved, first.name)!!
+        assertFalse(first.name == second.name)
+        assertEquals(2, second.seen.size)
+    }
+    @Test fun welcomeHandlesOnePictureDuplicateNamesAndEmptySets() {
+        assertEquals(null, GhajarWelcomeRotation.next(emptyList(), setOf("old"), "old"))
+        val pick = GhajarWelcomeRotation.next(listOf("king", "king", ""), setOf("king"), "king")!!
+        assertEquals("king", pick.name)
+        assertEquals(setOf("king"), pick.seen)
+    }
+
     @Test fun nativeTelegramIntentCarriesTheSameCommandAsTheWebFallback() {
         assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=link_012345",
             "https://t.me/Ghajar_vpnbot?start=link_012345"),

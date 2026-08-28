@@ -1,0 +1,301 @@
+From 879160e386954a7528d85252f6f0c5c69d55ab15 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Fri, 28 Aug 2026 14:36:11 +0900
+Subject: [PATCH] Use 33 offline welcome posters with persistent no-repeat
+ cycles
+
+---
+ .../main/java/net/gozar/app/GhajarUiRules.kt  | 17 ++++
+ .../main/java/net/gozar/app/GhajarVisuals.kt  | 96 +++++++------------
+ .../java/net/gozar/app/GhajarWelcomeAssets.kt | 53 ++++++++++
+ .../java/net/gozar/app/GhajarUiRulesTest.kt   | 47 +++++++++
+ 4 files changed, 154 insertions(+), 59 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarUiRules.kt b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+index 1568d89..58a5be1 100644
+--- a/app/src/main/java/net/gozar/app/GhajarUiRules.kt
++++ b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+@@ -44,3 +44,20 @@ internal object GhajarUiRules {
+         return listOf("tg://resolve?domain=$bot&start=start", "https://t.me/$bot?start=start")
+     }
+ }
++
++/** Shuffle without replacement. Stable names survive resource-ID changes. */
++internal object GhajarWelcomeRotation {
++    data class Pick(val name: String, val seen: Set<String>)
++
++    fun next(available: List<String>, previouslySeen: Set<String>, last: String?,
++             random: kotlin.random.Random = kotlin.random.Random.Default): Pick? {
++        val names = available.filter { it.isNotBlank() }.distinct()
++        if (names.isEmpty()) return null
++        val seen = previouslySeen.intersect(names.toSet())
++        val unseen = names.filterNot { it in seen }
++        val newCycle = unseen.isEmpty()
++        val choices = if (newCycle) names.filter { names.size == 1 || it != last } else unseen
++        val selected = choices.random(random)
++        return Pick(selected, (if (newCycle) emptySet() else seen) + selected)
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+index 715dcc3..cc52da3 100644
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -7,8 +7,6 @@ import androidx.compose.foundation.Image
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.*
+-import androidx.compose.foundation.pager.HorizontalPager
+-import androidx.compose.foundation.pager.rememberPagerState
+ import androidx.compose.foundation.shape.CircleShape
+ import androidx.compose.foundation.shape.RoundedCornerShape
+ import androidx.compose.material3.*
+@@ -20,7 +18,6 @@ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.Shape
+ import androidx.compose.ui.graphics.graphicsLayer
+-import androidx.compose.ui.graphics.luminance
+ import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.res.painterResource
+@@ -29,6 +26,10 @@ import androidx.compose.ui.semantics.semantics
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import kotlinx.coroutines.delay
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.withContext
++import androidx.compose.runtime.saveable.rememberSaveable
++import androidx.compose.ui.platform.testTag
+ 
+ internal val GhajarSoftShapes = Shapes(
+     extraSmall = RoundedCornerShape(10.dp),
+@@ -56,76 +57,53 @@ internal fun GhajarWordmark(modifier: Modifier = Modifier) {
+     )
+ }
+ 
+-/** Posters are intro illustrations, never a substitute for live VPN state. */
++/** One locally bundled picture per launch, with no carousel or network access. */
+ @Composable
+ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+     val context = LocalContext.current
+     val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
+     val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
+-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+-    // Stable ordering also prevents a repeated image when the theme changes between launches.
+-    val posters = remember {
+-        listOf(R.drawable.ghajar_welcome_world, R.drawable.ghajar_welcome_connection,
+-            R.drawable.ghajar_welcome_locations, R.drawable.ghajar_welcome_royal)
+-    }
+-    val selectedPoster = remember { GhajarCommerceRules.nextPoster(prefs.getInt("last_poster", -1), posters.size) }
+-    val pager = rememberPagerState(initialPage = if (returning) selectedPoster else if (dark) 3 else 0, pageCount = { posters.size })
+-    val finish by rememberUpdatedState(onDone)
++    var selectedName by rememberSaveable { mutableStateOf<String?>(null) }
++    var closed by remember { mutableStateOf(false) }
+     var entered by remember { mutableStateOf(false) }
+-    val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(450), label = "welcome-reveal")
++    val finish by rememberUpdatedState(onDone)
++    val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(400), label = "welcome-reveal")
++    val selected = GhajarWelcomeAssets.posters.firstOrNull { it.name == selectedName }
+     fun close() {
+-        prefs.edit().putBoolean("soft_intro_seen", true)
+-            .putInt("last_poster", if (returning) selectedPoster else pager.currentPage).apply()
++        if (closed) return
++        closed = true
++        prefs.edit().putBoolean("soft_intro_seen", true).apply()
+         finish()
+     }
+     LaunchedEffect(Unit) {
+-        entered = true
+-        if (returning) {
+-            prefs.edit().putInt("last_poster", selectedPoster).apply()
+-            delay(1500)
+-            close()
++        if (selectedName == null) selectedName = withContext(Dispatchers.IO) {
++            GhajarWelcomeAssets.reserve(context)
+         }
+     }
+-    val posterDark = posters[pager.currentPage] == R.drawable.ghajar_welcome_royal
+-    val backdrop = if (posterDark) Color(0xFF061226) else Color(0xFFEAF1FB)
+-    Column(
+-        Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
+-        horizontalAlignment = Alignment.CenterHorizontally
+-    ) {
+-        if (returning) {
+-            Image(painterResource(posters[selectedPoster]), contentDescription = "خوش آمدی به قاجار VPN",
+-                contentScale = ContentScale.Fit,
+-                modifier = Modifier.weight(1f).fillMaxWidth().clickable(onClick = ::close).graphicsLayer { alpha = reveal })
+-        } else HorizontalPager(
+-            state = pager,
+-            modifier = Modifier.weight(1f).fillMaxWidth(),
+-            beyondViewportPageCount = 0
+-        ) { page ->
+-            Image(
+-                painterResource(posters[page]),
+-                contentDescription = "تصویر معرفی قاجار VPN، صفحه ${page + 1}",
+-                // FIT is deliberate: hats, feet, captions and all four edges stay visible.
+-                contentScale = ContentScale.Fit,
+-                modifier = Modifier.fillMaxSize().padding(4.dp).graphicsLayer {
+-                    alpha = reveal
+-                    scaleX = 0.985f + reveal * 0.015f
+-                    scaleY = scaleX
+-                }
+-            )
++    LaunchedEffect(selectedName) {
++        if (selectedName != null) {
++            entered = true
++            if (returning) { delay(1800); close() }
+         }
+-        if (!returning) Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
+-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.semantics { contentDescription = "صفحه ${pager.currentPage + 1} از ${posters.size}" }) {
+-                    posters.indices.forEach { index ->
+-                        Box(Modifier.size(if (index == pager.currentPage) 8.dp else 6.dp)
+-                            .background(if (index == pager.currentPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, CircleShape))
+-                    }
+-                }
+-                Text("تصاویر معرفی • وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود", style = MaterialTheme.typography.labelSmall,
+-                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
+-                    modifier = Modifier.padding(vertical = 6.dp))
++    }
++    val backdrop = if (selected?.dark != false) Color(0xFF061226) else Color(0xFFEAF1FB)
++    Column(Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
++        horizontalAlignment = Alignment.CenterHorizontally) {
++        if (selected != null) Image(painterResource(selected.resourceId),
++            contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
++            contentScale = ContentScale.Fit,
++            modifier = Modifier.weight(1f).fillMaxWidth().testTag("ghajar_welcome_poster")
++                .clickable(onClick = ::close).graphicsLayer { alpha = reveal })
++        else Spacer(Modifier.weight(1f))
++        if (!returning) Surface(color = MaterialTheme.colorScheme.surface,
++            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
++            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
++                horizontalAlignment = Alignment.CenterHorizontally) {
++                Text("تصویر معرفی • وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود",
++                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
++                    textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 6.dp))
+                 Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+-                    shape = RoundedCornerShape(20.dp), elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)) {
++                    shape = RoundedCornerShape(20.dp), enabled = selected != null) {
+                     Text("ورود به قاجار VPN")
+                 }
+             }
+diff --git a/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt b/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
+new file mode 100644
+index 0000000..5e284be
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
+@@ -0,0 +1,53 @@
++package net.gozar.app
++
++import android.content.Context
++
++/** Offline artwork only: no host, bot gallery or remote boot request. */
++internal object GhajarWelcomeAssets {
++    data class Poster(val name: String, val resourceId: Int, val dark: Boolean)
++    val posters = listOf(
++        Poster("ghajar_welcome_world", R.drawable.ghajar_welcome_world, false),
++        Poster("ghajar_welcome_connection", R.drawable.ghajar_welcome_connection, false),
++        Poster("ghajar_welcome_locations", R.drawable.ghajar_welcome_locations, false),
++        Poster("ghajar_welcome_royal", R.drawable.ghajar_welcome_royal, true),
++        Poster("ghajar_welcome_queen_phone", R.drawable.ghajar_welcome_queen_phone, false),
++        Poster("ghajar_welcome_king_night", R.drawable.ghajar_welcome_king_night, true),
++        Poster("ghajar_welcome_king_light", R.drawable.ghajar_welcome_king_light, false),
++        Poster("ghajar_welcome_queen_shield", R.drawable.ghajar_welcome_queen_shield, true),
++        Poster("ghajar_welcome_queen_night", R.drawable.ghajar_welcome_queen_night, true),
++        Poster("ghajar_welcome_king_world", R.drawable.ghajar_welcome_king_world, false),
++        Poster("ghajar_welcome_queen_light", R.drawable.ghajar_welcome_queen_light, false),
++        Poster("ghajar_welcome_extra_01", R.drawable.ghajar_welcome_extra_01, true),
++        Poster("ghajar_welcome_extra_02", R.drawable.ghajar_welcome_extra_02, true),
++        Poster("ghajar_welcome_extra_03", R.drawable.ghajar_welcome_extra_03, true),
++        Poster("ghajar_welcome_extra_04", R.drawable.ghajar_welcome_extra_04, true),
++        Poster("ghajar_welcome_extra_05", R.drawable.ghajar_welcome_extra_05, false),
++        Poster("ghajar_welcome_extra_06", R.drawable.ghajar_welcome_extra_06, true),
++        Poster("ghajar_welcome_extra_07", R.drawable.ghajar_welcome_extra_07, true),
++        Poster("ghajar_welcome_extra_08", R.drawable.ghajar_welcome_extra_08, false),
++        Poster("ghajar_welcome_extra_09", R.drawable.ghajar_welcome_extra_09, true),
++        Poster("ghajar_welcome_extra_10", R.drawable.ghajar_welcome_extra_10, true),
++        Poster("ghajar_welcome_extra_11", R.drawable.ghajar_welcome_extra_11, false),
++        Poster("ghajar_welcome_extra_12", R.drawable.ghajar_welcome_extra_12, true),
++        Poster("ghajar_welcome_extra_13", R.drawable.ghajar_welcome_extra_13, true),
++        Poster("ghajar_welcome_extra_14", R.drawable.ghajar_welcome_extra_14, true),
++        Poster("ghajar_welcome_extra_15", R.drawable.ghajar_welcome_extra_15, true),
++        Poster("ghajar_welcome_extra_16", R.drawable.ghajar_welcome_extra_16, false),
++        Poster("ghajar_welcome_extra_17", R.drawable.ghajar_welcome_extra_17, false),
++        Poster("ghajar_welcome_extra_18", R.drawable.ghajar_welcome_extra_18, false),
++        Poster("ghajar_welcome_extra_19", R.drawable.ghajar_welcome_extra_19, false),
++        Poster("ghajar_welcome_extra_20", R.drawable.ghajar_welcome_extra_20, false),
++        Poster("ghajar_welcome_extra_21", R.drawable.ghajar_welcome_extra_21, true),
++        Poster("ghajar_welcome_extra_22", R.drawable.ghajar_welcome_extra_22, false)
++    )
++
++    @Synchronized
++    fun reserve(context: Context): String {
++        val prefs = context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE)
++        val pick = requireNotNull(GhajarWelcomeRotation.next(posters.map { it.name },
++            prefs.getStringSet("seen_in_cycle", emptySet()).orEmpty(), prefs.getString("last_name", null)))
++        // Called on IO; commit together so a process restart retains rotation.
++        prefs.edit().putStringSet("seen_in_cycle", pick.seen).putString("last_name", pick.name).commit()
++        return pick.name
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+index 3d3f01a..432b39d 100644
+--- a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
++++ b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+@@ -8,6 +8,53 @@ import org.junit.Test
+ class GhajarUiRulesTest {
+     private val linkToken = "a".repeat(48)
+ 
++    @Test fun welcomeShowsEveryImageExactlyOnceBeforeRepeating() {
++        val images = (1..33).map { "poster_$it" }
++        var seen = emptySet<String>()
++        var last: String? = null
++        val random = kotlin.random.Random(42)
++        repeat(4) {
++            val cycle = mutableListOf<String>()
++            repeat(images.size) {
++                val pick = GhajarWelcomeRotation.next(images, seen, last, random)!!
++                cycle += pick.name; seen = pick.seen; last = pick.name
++            }
++            assertEquals(images.toSet(), cycle.toSet())
++            assertEquals(images.size, cycle.size)
++        }
++    }
++    @Test fun welcomeDoesNotRepeatAtTheBoundaryBetweenCycles() {
++        val images = listOf("king", "queen", "minister")
++        repeat(50) { seed ->
++            val pick = GhajarWelcomeRotation.next(images, images.toSet(), "queen", kotlin.random.Random(seed))!!
++            assertFalse(pick.name == "queen")
++            assertEquals(setOf(pick.name), pick.seen)
++        }
++    }
++    @Test fun newWelcomePicturesAreShownBeforeTheNextCycle() {
++        val pick = GhajarWelcomeRotation.next(listOf("king", "queen", "new"), setOf("king", "queen"), "queen")!!
++        assertEquals("new", pick.name)
++    }
++    @Test fun removedWelcomePicturesCannotReappearFromSavedHistory() {
++        val pick = GhajarWelcomeRotation.next(listOf("king", "queen"), setOf("deleted", "king"), "king")!!
++        assertEquals("queen", pick.name)
++        assertEquals(setOf("king", "queen"), pick.seen)
++    }
++    @Test fun welcomeHistoryCanBeRestoredBetweenLaunches() {
++        val images = listOf("king", "queen", "minister")
++        val first = GhajarWelcomeRotation.next(images, emptySet(), null)!!
++        val saved = first.seen.joinToString(",").split(",").toSet()
++        val second = GhajarWelcomeRotation.next(images, saved, first.name)!!
++        assertFalse(first.name == second.name)
++        assertEquals(2, second.seen.size)
++    }
++    @Test fun welcomeHandlesOnePictureDuplicateNamesAndEmptySets() {
++        assertEquals(null, GhajarWelcomeRotation.next(emptyList(), setOf("old"), "old"))
++        val pick = GhajarWelcomeRotation.next(listOf("king", "king", ""), setOf("king"), "king")!!
++        assertEquals("king", pick.name)
++        assertEquals(setOf("king"), pick.seen)
++    }
++
+     @Test fun nativeTelegramIntentCarriesTheSameCommandAsTheWebFallback() {
+         assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=link_012345",
+             "https://t.me/Ghajar_vpnbot?start=link_012345"),
+-- 
+2.51.1
+
