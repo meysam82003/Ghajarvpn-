@@ -2058,7 +2058,7 @@ private fun ConfigPickerScreen(
             val bytes = withContext(Dispatchers.IO) {
                 runCatching { pickerContext.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
             }
-            if (!bytes.isNullOrEmpty()) {
+            if (bytes != null && bytes.isNotEmpty()) {
                 GhajarOpenVpnBridge.offer(bytes).onFailure {
                     android.widget.Toast.makeText(pickerContext,
                         it.message ?: "فایل OVPN معتبر نیست", android.widget.Toast.LENGTH_LONG).show()
