@@ -1,0 +1,42 @@
+From 8b65dc7b522f79e6f5173854c9e2808c4cdc92fb Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sat, 29 Aug 2026 11:07:49 +0330
+Subject: [PATCH] fix(shop): keep t.me payment links in-app with clipboard
+ handoff
+
+---
+ app/src/main/java/net/gozar/app/GhajarShopScreen.kt | 11 ++++++-----
+ 1 file changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index 8c4ddf0e..e8766705 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -396,10 +396,6 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                     items(methods, key = { "pay:${it.id}" }) { method ->
+                         PaymentMethodCard(method, purchase.amountDue) {
+                             scope.launch {
+-                                if (method.directUrl?.contains("t.me/") == true) {
+-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(method.directUrl)))
+-                                    return@launch
+-                                }
+                                 if (purchase.amountDue < method.minimum || (method.maximum > 0 && purchase.amountDue > method.maximum)) {
+                                     error = "مبلغ این خرید خارج از محدودهٔ روش ${method.label} است"
+                                     return@launch
+@@ -409,7 +405,12 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                                     .onSuccess { result ->
+                                         paymentInit = result
+                                         receiptUri = null
+-                                        if (result.url != null) openCheckout(result.url)
++                                        if (result.url?.contains("t.me/") == true) {
++                                            val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
++                                            cm.setPrimaryClip(android.content.ClipData.newPlainText("ghajar_pay", result.url))
++                                            message = "لینک پرداخت تلگرام کپی شد؛ در تلگرام به ربات بفرست. پس از بازگشت وضعیت خودکار بررسی می‌شود."
++                                        } else if (result.url != null) openCheckout(result.url)
++                                        else message = result.message.ifBlank { "درخواست پرداخت ثبت شد" }
+                                         else message = result.message.ifBlank { "درخواست پرداخت ثبت شد" }
+                                     }
+                                     .onFailure { error = it.message }
+-- 
+2.55.0
+
