@@ -49,6 +49,18 @@ class SecurePaymentActivity : Activity() {
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
 
         val checkoutUrl = intent.getStringExtra(EXTRA_URL)?.toUri()
+        if (checkoutUrl != null &&
+            checkoutUrl.scheme.equals("https", true) &&
+            checkoutUrl.host.equals("t.me", true) &&
+            checkoutUrl.userInfo == null
+        ) {
+            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("ghajar_pay", checkoutUrl.toString()))
+            Toast.makeText(this, "لینک پرداخت تلگرام کپی شد؛ آن را در تلگرام ارسال کن و به قاجار VPN برگرد.", Toast.LENGTH_LONG).show()
+            setResult(RESULT_OK)
+            finish()
+            return
+        }
         initialHost = checkoutUrl?.host
         if (checkoutUrl == null || !BrandConfig.isTrustedPaymentUri(checkoutUrl, initialHost)) {
             finishWithError("آدرس پرداخت امن یا معتبر نیست")
