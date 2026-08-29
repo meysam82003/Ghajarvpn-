@@ -1,0 +1,663 @@
+From 1ee0cb10f93f47170c959cbd5c7a5f590ef68b0a Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Sat, 29 Aug 2026 17:45:33 -0400
+Subject: [PATCH] fix(bot): refund failed delivery exactly once
+
+---
+ api/handlers/PaymentStatusHandler.php |  17 +-
+ api/handlers/PurchaseHandler.php      |  74 +++++++--
+ lib/PaymentConfirm.php                | 114 +++++++++++--
+ re/rx/function/database_helpers_2.php | 221 ++++++++++++++++++++------
+ table.php                             |   2 +
+ tests/static_sanity.mjs               |  31 ++++
+ 6 files changed, 383 insertions(+), 76 deletions(-)
+
+diff --git a/api/handlers/PaymentStatusHandler.php b/api/handlers/PaymentStatusHandler.php
+index 68ae3ae..3e7b828 100644
+--- a/api/handlers/PaymentStatusHandler.php
++++ b/api/handlers/PaymentStatusHandler.php
+@@ -103,9 +103,20 @@ final class PaymentStatusHandler extends BaseHandler
+         $walletCreditedOnly = false;
+         $walletCreditedUsername = null;
+         $decNoteRaw = (string)($report['dec_not_confirmed'] ?? '');
+-        if ($paymentStatus === 'paid' && preg_match('/wallet_credited_only:([^\s|]*)/', $decNoteRaw, $wm)) {
+-            $walletCreditedOnly = true;
+-            $walletCreditedUsername = trim((string)$wm[1]) !== '' ? trim((string)$wm[1]) : null;
++        if ($paymentStatus === 'paid') {
++            if (preg_match('/wallet_credited_only:([^\s|]*)/', $decNoteRaw, $wm)) {
++                $walletCreditedOnly = true;
++                $walletCreditedUsername = trim((string)$wm[1]) !== '' ? trim((string)$wm[1]) : null;
++            } elseif (stripos($decNoteRaw, 'auto-refund') !== false
++                || (int)($report['wallet_fallback_applied'] ?? 0) === 1
++                || strtolower((string)($report['fulfillment_status'] ?? '')) === 'wallet_credited') {
++                // Compatibility for already-paid orders from versions that
++                // refunded the balance before the explicit wallet marker existed.
++                $walletCreditedOnly = true;
++                if ($hasPurchaseTarget) {
++                    $walletCreditedUsername = $target !== '' ? $target : null;
++                }
++            }
+         }
+         $balanceAfter = null;
+         if ($walletCreditedOnly) {
+diff --git a/api/handlers/PurchaseHandler.php b/api/handlers/PurchaseHandler.php
+index e0eeaaf..e330455 100644
+--- a/api/handlers/PurchaseHandler.php
++++ b/api/handlers/PurchaseHandler.php
+@@ -16,7 +16,15 @@ final class PurchaseHandler extends BaseHandler
+ 
+         global $textbotlang, $connect;
+ 
+-        $managePanel = new ManagePanel();
++        try {
++            $managePanel = new ManagePanel();
++        } catch (Throwable $e) {
++            FaoximaLogger::exception($e, 'Purchase ManagePanel bootstrap failed', [
++                'user_id' => $this->user['id'] ?? null,
++            ]);
++            $this->diag('purchase', 'manage-panel-bootstrap-failed', ['error' => $e->getMessage()]);
++            FaoximaResponse::serverError('ارتباط فروشگاه با پنل سرویس برقرار نشد؛ مبلغی کسر نشده است. کمی بعد دوباره تلاش کنید.');
++        }
+         $errorReport   = (string)(select('topicid', 'idreport', 'report', 'errorreport',  'select')['idreport'] ?? '');
+         $porsantReport = (string)(select('topicid', 'idreport', 'report', 'porsantreport', 'select')['idreport'] ?? '');
+         $buyReport     = (string)(select('topicid', 'idreport', 'report', 'buyreport',     'select')['idreport'] ?? '');
+@@ -123,7 +131,23 @@ final class PurchaseHandler extends BaseHandler
+             'SELECT 1 FROM invoice WHERE username = :u LIMIT 1',
+             [':u' => $usernameAc]
+         );
+-        $remoteCheck = $managePanel->DataUser($panel['name_panel'], $usernameAc);
++        $remoteCheck = null;
++        try {
++            $remoteCheck = $managePanel->DataUser($panel['name_panel'], $usernameAc);
++        } catch (Throwable $e) {
++            // A duplicate-name preflight is only an optimisation. A temporary
++            // panel timeout here must not turn every store purchase into HTTP 500.
++            // The real createUser call below still rejects an actual duplicate.
++            FaoximaLogger::warn('Purchase duplicate preflight failed open', [
++                'user_id' => $this->user['id'],
++                'panel'   => $panel['name_panel'],
++                'error'   => $e->getMessage(),
++            ]);
++            $this->diag('purchase', 'duplicate-preflight-failed', [
++                'panel' => $panel['name_panel'],
++                'error' => $e->getMessage(),
++            ]);
++        }
+         if ($existsLocal || (is_array($remoteCheck) && isset($remoteCheck['username']))) {
+             FaoximaResponse::fail(409, 'نام کاربری وجود دارد مراحل را از اول طی کنید');
+         }
+@@ -390,12 +414,45 @@ final class PurchaseHandler extends BaseHandler
+             'type'       => 'buy',
+         ];
+ 
+-        $remote = $managePanel->createUser(
+-            $panel['name_panel'],
+-            $product['code_product'],
+-            $usernameAc,
+-            $createPayload
+-        );
++        try {
++            $remote = $managePanel->createUser(
++                $panel['name_panel'],
++                $product['code_product'],
++                $usernameAc,
++                $createPayload
++            );
++        } catch (Throwable $e) {
++            $refundOk = !$balanceChargedAtomically || balance_atomic_credit($this->user['id'], $priceToCharge);
++            try {
++                FaoximaDb::execute(
++                    'DELETE FROM invoice WHERE id_invoice = :o AND id_user = :u',
++                    [':o' => $orderId, ':u' => $this->user['id']]
++                );
++            } catch (Throwable $_) {
++            }
++            FaoximaLogger::exception($e, 'Purchase createUser threw', [
++                'user_id' => $this->user['id'],
++                'order_id' => $orderId,
++                'panel' => $panel['name_panel'],
++                'refund_ok' => $refundOk,
++            ]);
++            $this->diag('purchase', 'create-user-threw', [
++                'order_id' => $orderId,
++                'panel' => $panel['name_panel'],
++                'refund_ok' => $refundOk,
++                'error' => $e->getMessage(),
++            ]);
++            $errorText = "⭕️ خطای ارتباط فروشگاه با پنل\n"
++                . "سفارش: {$orderId}\nکاربر: {$this->user['id']}\n"
++                . "پنل: {$panel['name_panel']}\nخطا: {$e->getMessage()}\n"
++                . 'بازگشت وجه: ' . ($refundOk ? 'انجام شد' : 'نیازمند بررسی');
++            $this->reportToChannel($errorText, $errorReport);
++            FaoximaResponse::serverError(
++                $refundOk
++                    ? 'پنل سرویس پاسخ نداد؛ خرید انجام نشد و مبلغ کسرشده به کیف پول برگشت.'
++                    : 'پنل سرویس پاسخ نداد؛ سفارش برای بررسی پشتیبانی ثبت شد.'
++            );
++        }
+ 
+         if (empty($remote['username'])) {
+             $reason = is_array($remote) ? json_encode($remote['msg'] ?? $remote) : (string)$remote;
+@@ -999,4 +1056,3 @@ final class PurchaseHandler extends BaseHandler
+         ]);
+     }
+ }
+-
+diff --git a/lib/PaymentConfirm.php b/lib/PaymentConfirm.php
+index 0d1326b..f8f73a0 100644
+--- a/lib/PaymentConfirm.php
++++ b/lib/PaymentConfirm.php
+@@ -145,6 +145,7 @@ if (!function_exists('rx_payment_confirmation_schema_ready')) {
+             'reported_at' => 'VARCHAR(20) NULL',
+             'cashback_applied' => 'TINYINT(1) NOT NULL DEFAULT 0',
+             'discount_applied' => 'TINYINT(1) NOT NULL DEFAULT 0',
++            'wallet_fallback_applied' => 'TINYINT(1) NOT NULL DEFAULT 0',
+         ];
+         try {
+             foreach ($columns as $name => $ddl) {
+@@ -167,7 +168,7 @@ if (!function_exists('payment_confirm_paid')) {
+ 
+     function payment_confirm_paid(string $orderId, string $cashbackKey, array $reportData = []): array
+     {
+-        global $pdo, $connect, $setting;
++        global $pdo, $connect, $setting, $ManagePanel;
+ 
+         if (!($pdo instanceof PDO)) {
+             return ['ok' => false, 'reason' => 'pdo unavailable'];
+@@ -215,7 +216,8 @@ if (!function_exists('payment_confirm_paid')) {
+         }
+ 
+         $fulfillmentError = '';
+-        if ($firstConfirmation && function_exists('DirectPayment')) {
++        $fulfillmentOutcome = 'pending';
++        if ($firstConfirmation) {
+             $imagePath = __DIR__ . '/../images.jpeg';
+             if (!is_file($imagePath)) {
+                 $imagePath = __DIR__ . '/../images.jpg';
+@@ -225,24 +227,109 @@ if (!function_exists('payment_confirm_paid')) {
+                     $pdo->prepare("UPDATE Payment_report SET fulfillment_status = 'processing', fulfillment_error = NULL WHERE id_order = :id")
+                         ->execute([':id' => $orderId]);
+                 }
+-                DirectPayment($report['id_order'], $imagePath);
+-                if ($hasStateColumns) {
+-                    $pdo->prepare("UPDATE Payment_report SET fulfillment_status = 'done', fulfilled_at = :at WHERE id_order = :id")
+-                        ->execute([':at' => (string)time(), ':id' => $orderId]);
++                if (!function_exists('DirectPayment')) {
++                    throw new RuntimeException('DirectPayment is unavailable');
+                 }
++                $invoiceField = trim((string)($report['id_invoice'] ?? ''));
++                if (strpos($invoiceField, 'getconfigafterpay|') === 0 && (!isset($ManagePanel) || !is_object($ManagePanel))) {
++                    if (!class_exists('ManagePanel')) {
++                        throw new RuntimeException('ManagePanel is unavailable');
++                    }
++                    $ManagePanel = new ManagePanel();
++                }
++                DirectPayment($report['id_order'], $imagePath);
+             } catch (Throwable $e) {
+                 $fulfillmentError = $e->getMessage();
+                 error_log('[PaymentConfirm] DirectPayment failed order=' . $orderId . ': ' . $fulfillmentError);
+-                if ($hasStateColumns) {
+-                    $pdo->prepare("UPDATE Payment_report SET fulfillment_status = 'failed', fulfillment_error = :err WHERE id_order = :id")
+-                        ->execute([':err' => substr($fulfillmentError, 0, 2000), ':id' => $orderId]);
++            }
++
++            $latest = select('Payment_report', '*', 'id_order', $orderId, 'select');
++            if (!is_array($latest)) $latest = $report;
++            $invoiceField = trim((string)($latest['id_invoice'] ?? ''));
++            $note = (string)($latest['dec_not_confirmed'] ?? '');
++            $directPurchase = strpos($invoiceField, 'getconfigafterpay|') === 0;
++            $isLegacyOperation = preg_match('/^(getextenduser|getextravolumeuser|getextratimeuser)\|/', $invoiceField) === 1;
++            $walletMarked = stripos($note, 'wallet_credited_only:') !== false
++                || stripos($note, 'auto-refund') !== false
++                || (int)($latest['wallet_fallback_applied'] ?? 0) === 1;
++            $serviceMarked = stripos($note, 'service-created') !== false;
++            $walletRecovered = false;
++
++            if ($directPurchase && !$serviceMarked && !$walletMarked) {
++                $target = trim(substr($invoiceField, strlen('getconfigafterpay|')));
++                if ($target !== '') {
++                    $invoiceStmt = $pdo->prepare(
++                        "SELECT Status FROM invoice WHERE id_user = :u AND username = :n ORDER BY id_invoice DESC LIMIT 1"
++                    );
++                    $invoiceStmt->execute([':u' => (string)($latest['id_user'] ?? ''), ':n' => $target]);
++                    $invoiceStatus = strtolower(trim((string)$invoiceStmt->fetchColumn()));
++                    $serviceMarked = in_array($invoiceStatus, ['active', 'end_of_time', 'end_of_volume', 'sendedwarn', 'send_on_hold'], true);
+                 }
+-                if (function_exists('rxSendReport')) {
+-                    rxSendReport('errorreport', "⚠️ <b>پرداخت تأیید شد اما تحویل سفارش خطا داد</b>\n"
+-                        . "🛒 سفارش: <code>" . htmlspecialchars($orderId) . "</code>\n"
+-                        . "🧩 خطا: <code>" . htmlspecialchars($fulfillmentError) . "</code>");
++            }
++
++            // Direct buys and wallet recharges have a deterministic recovery:
++            // if no service/credit marker exists after a paid callback, credit
++            // the wallet once under a database row lock.
++            $plainRecharge = !$directPurchase && !$isLegacyOperation;
++            if (!$serviceMarked && !$walletMarked && ($directPurchase || $plainRecharge)) {
++                $target = $directPurchase
++                    ? trim(substr($invoiceField, strlen('getconfigafterpay|')))
++                    : '';
++                $creditAmount = (float)($latest['price'] ?? 0)
++                    + ($plainRecharge ? (float)($latest['charge_bonus'] ?? 0) : 0.0);
++                $recovery = function_exists('payment_report_wallet_credit_once')
++                    ? payment_report_wallet_credit_once(
++                        $orderId,
++                        $fulfillmentError !== '' ? 'fallback-exception' : 'fallback-no-delivery',
++                        $target,
++                        $creditAmount
++                    )
++                    : ['ok' => false, 'reason' => 'wallet-credit helper unavailable'];
++                if (!empty($recovery['ok'])) {
++                    if (($recovery['reason'] ?? '') === 'service-created') {
++                        $serviceMarked = true;
++                    } else {
++                        $walletMarked = true;
++                        $walletRecovered = !empty($recovery['credited']);
++                    }
++                } else {
++                    $recoveryError = (string)($recovery['reason'] ?? 'wallet recovery failed');
++                    $fulfillmentError = trim($fulfillmentError . '; ' . $recoveryError, '; ');
+                 }
+             }
++
++            $fulfillmentOutcome = $serviceMarked ? 'done'
++                : ($walletMarked ? 'wallet_credited'
++                : ($fulfillmentError === '' ? 'done' : 'failed'));
++            if ($hasStateColumns) {
++                $pdo->prepare(
++                    "UPDATE Payment_report
++                        SET fulfillment_status = :status,
++                            fulfillment_error = :err,
++                            fulfilled_at = CASE WHEN :status2 IN ('done', 'wallet_credited') THEN :at ELSE fulfilled_at END
++                      WHERE id_order = :id"
++                )->execute([
++                    ':status' => $fulfillmentOutcome,
++                    ':status2' => $fulfillmentOutcome,
++                    ':err' => $fulfillmentOutcome === 'failed' ? substr($fulfillmentError, 0, 2000) : null,
++                    ':at' => (string)time(),
++                    ':id' => $orderId,
++                ]);
++            }
++            if ($walletRecovered && function_exists('sendmessage')) {
++                $priceFmt = number_format((int)($latest['price'] ?? 0));
++                sendmessage(
++                    (string)($latest['id_user'] ?? ''),
++                    "💎 <b>وجه شما محفوظ است</b>\n\nپرداخت تأیید شد، اما سرویس به‌صورت خودکار تحویل نشد؛ مبلغ {$priceFmt} تومان فقط یک‌بار به کیف پول شما افزوده شد.",
++                    null,
++                    'HTML'
++                );
++            }
++            if ($fulfillmentOutcome === 'failed' && function_exists('rxSendReport')) {
++                rxSendReport('errorreport', "⚠️ <b>پرداخت تأیید شد اما تحویل و بازگشت وجه خطا داد</b>\n"
++                    . "🛒 سفارش: <code>" . htmlspecialchars($orderId) . "</code>\n"
++                    . "🧩 خطا: <code>" . htmlspecialchars($fulfillmentError) . "</code>");
++            }
+         }
+ 
+ 
+@@ -375,6 +462,7 @@ if (!function_exists('payment_confirm_paid')) {
+             'amount'          => (int)($report['price'] ?? 0),
+             'cashback_amount' => $cashbackAmount,
+             'fulfillment_error' => $fulfillmentError,
++            'fulfillment_outcome' => $fulfillmentOutcome,
+         ];
+     }
+ }
+diff --git a/re/rx/function/database_helpers_2.php b/re/rx/function/database_helpers_2.php
+index 6ecc109..93eeb1b 100644
+--- a/re/rx/function/database_helpers_2.php
++++ b/re/rx/function/database_helpers_2.php
+@@ -316,6 +316,134 @@ if (!function_exists('balance_atomic_credit')) {
+     }
+ }
+ 
++if (!function_exists('payment_report_wallet_credit_once')) {
++    /**
++     * Credit a confirmed payment exactly once. The Payment_report row is
++     * locked in the same transaction as the balance update, so webhook,
++     * return-page and cron retries cannot double-credit a user.
++     *
++     * @return array{ok:bool,credited:bool,balance:float,reason:string}
++     */
++    function payment_report_wallet_credit_once($orderId, $reason, $username = '', $amount = null) {
++        global $pdo;
++        if (!($pdo instanceof PDO)) {
++            return ['ok' => false, 'credited' => false, 'balance' => 0.0, 'reason' => 'pdo-unavailable'];
++        }
++
++        static $schemaReady = null;
++        if ($schemaReady === null) {
++            $schemaReady = false;
++            try {
++                // Direct gateway/webhook entry points can reach this helper on
++                // installations that have not rerun table.php yet. Ensure every
++                // column used by the atomic claim exists, not only its lock bit.
++                $columns = [
++                    'fulfillment_status' => "VARCHAR(24) NOT NULL DEFAULT 'pending'",
++                    'fulfillment_error' => 'TEXT NULL',
++                    'fulfilled_at' => 'VARCHAR(20) NULL',
++                    'wallet_fallback_applied' => 'TINYINT(1) NOT NULL DEFAULT 0',
++                ];
++                foreach ($columns as $name => $ddl) {
++                    $check = $pdo->query("SHOW COLUMNS FROM Payment_report LIKE " . $pdo->quote($name));
++                    if (!$check || $check->fetch(PDO::FETCH_ASSOC) === false) {
++                        $pdo->exec("ALTER TABLE Payment_report ADD COLUMN `{$name}` {$ddl}");
++                    }
++                }
++                $schemaReady = true;
++            } catch (Throwable $e) {
++                error_log('[wallet-credit-once] schema unavailable: ' . $e->getMessage());
++            }
++        }
++        if (!$schemaReady) {
++            return ['ok' => false, 'credited' => false, 'balance' => 0.0, 'reason' => 'schema-unavailable'];
++        }
++
++        $ownsTransaction = !$pdo->inTransaction();
++        try {
++            if ($ownsTransaction) $pdo->beginTransaction();
++            $lock = $pdo->prepare('SELECT * FROM Payment_report WHERE id_order = :o LIMIT 1 FOR UPDATE');
++            $lock->execute([':o' => (string)$orderId]);
++            $report = $lock->fetch(PDO::FETCH_ASSOC);
++            if (!is_array($report)) throw new RuntimeException('payment-report-missing');
++
++            $userId = (string)($report['id_user'] ?? '');
++            $note = (string)($report['dec_not_confirmed'] ?? '');
++            $already = (int)($report['wallet_fallback_applied'] ?? 0) === 1
++                || stripos($note, 'wallet_credited_only:') !== false
++                || stripos($note, 'auto-refund') !== false;
++            if ($already) {
++                $balanceStmt = $pdo->prepare('SELECT Balance FROM user WHERE id = :u LIMIT 1');
++                $balanceStmt->execute([':u' => $userId]);
++                $balance = (float)$balanceStmt->fetchColumn();
++                if ($ownsTransaction) $pdo->commit();
++                return ['ok' => true, 'credited' => false, 'balance' => $balance, 'reason' => 'already-credited'];
++            }
++            if (stripos($note, 'service-created') !== false) {
++                if ($ownsTransaction) $pdo->commit();
++                return ['ok' => true, 'credited' => false, 'balance' => 0.0, 'reason' => 'service-created'];
++            }
++
++            $invoiceField = trim((string)($report['id_invoice'] ?? ''));
++            if (strpos($invoiceField, 'getconfigafterpay|') === 0) {
++                $target = trim(substr($invoiceField, strlen('getconfigafterpay|')));
++                if ($target !== '') {
++                    $invoiceStmt = $pdo->prepare(
++                        "SELECT Status FROM invoice WHERE id_user = :u AND username = :n ORDER BY id_invoice DESC LIMIT 1"
++                    );
++                    $invoiceStmt->execute([':u' => $userId, ':n' => $target]);
++                    $invoiceStatus = strtolower(trim((string)$invoiceStmt->fetchColumn()));
++                    if (in_array($invoiceStatus, ['active', 'end_of_time', 'end_of_volume', 'sendedwarn', 'send_on_hold'], true)) {
++                        if ($ownsTransaction) $pdo->commit();
++                        return ['ok' => true, 'credited' => false, 'balance' => 0.0, 'reason' => 'service-created'];
++                    }
++                    if ((string)$username === '') $username = $target;
++                }
++            }
++
++            $credit = $amount === null
++                ? (float)($report['price'] ?? 0) + (float)($report['charge_bonus'] ?? 0)
++                : (float)$amount;
++            if ($userId === '' || $credit <= 0) throw new RuntimeException('invalid-credit-target');
++
++            $safeUsername = preg_replace('/[^A-Za-z0-9_.-]/', '_', trim((string)$username));
++            $safeReason = preg_replace('/[^A-Za-z0-9_.-]/', '-', trim((string)$reason));
++            $marker = 'wallet_credited_only:' . $safeUsername . '|credit-once:' . $safeReason;
++            $claim = $pdo->prepare(
++                "UPDATE Payment_report
++                    SET wallet_fallback_applied = 1,
++                        fulfillment_status = 'wallet_credited',
++                        fulfillment_error = NULL,
++                        fulfilled_at = :at,
++                        dec_not_confirmed = CASE
++                            WHEN dec_not_confirmed IS NULL OR dec_not_confirmed = '' THEN :marker1
++                            ELSE CONCAT(dec_not_confirmed, ' | ', :marker2)
++                        END
++                  WHERE id_order = :o AND COALESCE(wallet_fallback_applied, 0) = 0"
++            );
++            $claim->execute([
++                ':at' => (string)time(),
++                ':marker1' => $marker,
++                ':marker2' => $marker,
++                ':o' => (string)$orderId,
++            ]);
++            if ($claim->rowCount() !== 1) throw new RuntimeException('credit-lock-lost');
++
++            $creditStmt = $pdo->prepare('UPDATE user SET Balance = Balance + :d WHERE id = :u');
++            $creditStmt->execute([':d' => $credit, ':u' => $userId]);
++            if ($creditStmt->rowCount() !== 1) throw new RuntimeException('wallet-user-missing');
++            $balanceStmt = $pdo->prepare('SELECT Balance FROM user WHERE id = :u LIMIT 1');
++            $balanceStmt->execute([':u' => $userId]);
++            $balance = (float)$balanceStmt->fetchColumn();
++            if ($ownsTransaction) $pdo->commit();
++            return ['ok' => true, 'credited' => true, 'balance' => $balance, 'reason' => 'credited'];
++        } catch (Throwable $e) {
++            if ($ownsTransaction && $pdo->inTransaction()) $pdo->rollBack();
++            error_log('[wallet-credit-once] order=' . (string)$orderId . ' failed: ' . $e->getMessage());
++            return ['ok' => false, 'credited' => false, 'balance' => 0.0, 'reason' => $e->getMessage()];
++        }
++    }
++}
++
+ 
+ function StatusPayment($paymentid)
+ {
+@@ -762,6 +890,12 @@ function DirectPayment($order_id, $image = 'images.jpg')
+     update("user", "Processing_value_tow", "0", "id", $Balance_id['id']);
+     update("user", "Processing_value_four", "0", "id", $Balance_id['id']);
+     if ($steppay[0] == "getconfigafterpay") {
++        if (!isset($ManagePanel) || !is_object($ManagePanel)) {
++            if (!class_exists('ManagePanel')) {
++                throw new RuntimeException('ManagePanel class is unavailable for direct purchase');
++            }
++            $ManagePanel = new ManagePanel();
++        }
+         // [invoice lookup with fallbacks] گاهی به‌خاطر race/cleanup/timing بین crypto-pay و DirectPayment،
+         // فاکتور با username + Status='unpaid' پیدا نمیشه. چندتا fallback می‌گذاریم تا قبل از refund همه گزینه‌ها تست بشن.
+         $__invUsername = isset($steppay[1]) ? trim((string)$steppay[1]) : '';
+@@ -848,27 +982,20 @@ function DirectPayment($order_id, $image = 'images.jpg')
+             }
+         }
+         if (in_array($__gwMethodBuy, $__walletOnlyGatewaysBuy, true)) {
+-            $__balanceBeforeBuy = (float)($Balance_id['Balance'] ?? 0);
+             $__creditAmountBuy  = (float)($Payment_report['price'] ?? 0);
+-            if (function_exists('balance_atomic_credit')) {
+-                balance_atomic_credit($Balance_id['id'], $__creditAmountBuy);
+-                $__newBalanceBuy = $__balanceBeforeBuy + $__creditAmountBuy;
+-            } else {
+-                $__newBalanceBuy = $__balanceBeforeBuy + $__creditAmountBuy;
+-                update("user", "Balance", $__newBalanceBuy, "id", $Balance_id['id']);
++            $__creditResultBuy = payment_report_wallet_credit_once(
++                $Payment_report['id_order'],
++                'gateway-wallet',
++                (string)($get_invoice['username'] ?? ''),
++                $__creditAmountBuy
++            );
++            if (empty($__creditResultBuy['ok'])) {
++                throw new RuntimeException('wallet credit failed: ' . (string)($__creditResultBuy['reason'] ?? 'unknown'));
+             }
++            $__newBalanceBuy = (float)($__creditResultBuy['balance'] ?? 0);
+             $__balanceFmtBuy = number_format($__newBalanceBuy, 0);
+             $__priceFmtBuy   = number_format($__creditAmountBuy, 0);
+ 
+-            // ── نشانه‌گذاریِ Payment_report برایِ اینکه مینی‌اپ بفهمد این پرداخت
+-            // فقط شارژِ کیف‌پول بوده (نه ساختِ خودکارِ سرویس)، تا اسپینرِ صفحه
+-            // منتظرِ «is_service_ready» بی‌پایان نماند و کاربر را به فرمِ خرید برگرداند.
+-            try {
+-                $__prevNoteBuy = (string)($Payment_report['dec_not_confirmed'] ?? '');
+-                update("Payment_report", "dec_not_confirmed", $__prevNoteBuy . '|wallet_credited_only:' . (string)($get_invoice['username'] ?? ''), "id_order", $Payment_report['id_order']);
+-            } catch (Throwable $e) {
+-            }
+-
+             $__kbBackBuy = json_encode([
+                 'inline_keyboard' => [[
+                     ['text' => $textbotlang['users']['stateus']['backlist'] ?? '🔙 بازگشت', 'callback_data' => "backorder"],
+@@ -993,14 +1120,13 @@ function DirectPayment($order_id, $image = 'images.jpg')
+                 sendmessage($Balance_id['id'], $textbotlang['users']['selectoption'], $keyboard, 'HTML');
+                 return;
+             }
+-            $balance = $Balance_id['Balance'] + $Payment_report['price'];
+-            update("user", "Balance", $balance, "id", $Balance_id['id']);
+-            // [refund-marker] برای جلوگیری از double-refund توسط retry
+-            try {
+-                $__nationalNote = '[auto-refund: national stock empty at ' . date('Y-m-d H:i:s') . ']';
+-                $__mk = $pdo->prepare("UPDATE Payment_report SET dec_not_confirmed = CASE WHEN dec_not_confirmed IS NULL OR dec_not_confirmed = '' THEN :n1 ELSE CONCAT(dec_not_confirmed, ' | ', :n2) END WHERE id_order = :o");
+-                $__mk->execute([':n1' => $__nationalNote, ':n2' => $__nationalNote, ':o' => $order_id]);
+-            } catch (Throwable $__e) { /* fail-open */ }
++            $__nationalCredit = payment_report_wallet_credit_once(
++                $Payment_report['id_order'], 'auto-refund-national', $username_ac, (float)$Payment_report['price']
++            );
++            if (empty($__nationalCredit['ok'])) {
++                throw new RuntimeException('national stock refund failed: ' . (string)($__nationalCredit['reason'] ?? 'unknown'));
++            }
++            $balance = (float)($__nationalCredit['balance'] ?? 0);
+             sendmessage($Balance_id['id'], "❌ وضعیت نت ملی فعال است اما موجودی انبار برای این محصول تمام شده است. مبلغ پرداختی به کیف پول برگشت خورد.", $keyboard, 'HTML');
+             return;
+         }
+@@ -1087,14 +1213,13 @@ function DirectPayment($order_id, $image = 'images.jpg')
+         }
+         if ($dataoutput['username'] == null) {
+             $dataoutput['msg'] = json_encode($dataoutput['msg']);
+-            $balance = $Balance_id['Balance'] + $Payment_report['price'];
+-            update("user", "Balance", $balance, "id", $Balance_id['id']);
+-            // [refund-marker] برای جلوگیری از double-refund توسط retry — حتماً قبل از sendmessageها مارک کن
+-            try {
+-                $__failNote = '[auto-refund: service creation failed at ' . date('Y-m-d H:i:s') . ']';
+-                $__mk = $pdo->prepare("UPDATE Payment_report SET dec_not_confirmed = CASE WHEN dec_not_confirmed IS NULL OR dec_not_confirmed = '' THEN :n1 ELSE CONCAT(dec_not_confirmed, ' | ', :n2) END WHERE id_order = :o");
+-                $__mk->execute([':n1' => $__failNote, ':n2' => $__failNote, ':o' => $order_id]);
+-            } catch (Throwable $__e) { /* fail-open */ }
++            $__failedCredit = payment_report_wallet_credit_once(
++                $Payment_report['id_order'], 'auto-refund-create-failed', $username_ac, (float)$Payment_report['price']
++            );
++            if (empty($__failedCredit['ok'])) {
++                throw new RuntimeException('service failure refund failed: ' . (string)($__failedCredit['reason'] ?? 'unknown'));
++            }
++            $balance = (float)($__failedCredit['balance'] ?? 0);
+             // پیام UI fallback اگه textbotlang در دسترس نباشه (مثلاً وقتی از cron صدا زده میشه)
+             $__uiErr = isset($textbotlang['users']['sell']['ErrorConfig']) && is_string($textbotlang['users']['sell']['ErrorConfig']) && trim($textbotlang['users']['sell']['ErrorConfig']) !== ''
+                 ? $textbotlang['users']['sell']['ErrorConfig']
+@@ -1338,15 +1463,14 @@ $textonebuy
+         }
+ 
+         if (in_array($__gwMethod, $__walletOnlyGateways, true)) {
+-            $balanceBefore = (float)($Balance_id['Balance'] ?? 0);
+             $creditAmount  = (float)($Payment_report['price'] ?? 0);
+-            if (function_exists('balance_atomic_credit')) {
+-                balance_atomic_credit($Balance_id['id'], $creditAmount);
+-                $newBalance = $balanceBefore + $creditAmount;
+-            } else {
+-                $newBalance = $balanceBefore + $creditAmount;
+-                update("user", "Balance", $newBalance, "id", $Balance_id['id']);
++            $creditResult = payment_report_wallet_credit_once(
++                $Payment_report['id_order'], 'gateway-wallet-renew', $usernamepanel, $creditAmount
++            );
++            if (empty($creditResult['ok'])) {
++                throw new RuntimeException('renew wallet credit failed: ' . (string)($creditResult['reason'] ?? 'unknown'));
+             }
++            $newBalance = (float)($creditResult['balance'] ?? 0);
+             $balanceformatsell = number_format($newBalance, 0);
+ 
+             // اگر رکوردِ service_other مربوط به این درخواستِ تمدید پیدا شود، برایِ ثبت/شفافیت
+@@ -1365,15 +1489,6 @@ $textonebuy
+             } catch (Throwable $e) {
+             }
+ 
+-            // ── نشانه‌گذاریِ Payment_report برایِ اینکه مینی‌اپ بفهمد این پرداخت
+-            // فقط شارژِ کیف‌پول بوده (نه تکمیلِ خودکارِ تمدید)، و چرخیدنِ بی‌پایانِ
+-            // اسپینر را متوقف کرده و کاربر را به همان سرویس برگرداند.
+-            try {
+-                $__prevNote = (string)($Payment_report['dec_not_confirmed'] ?? '');
+-                update("Payment_report", "dec_not_confirmed", $__prevNote . '|wallet_credited_only:' . $usernamepanel, "id_order", $Payment_report['id_order']);
+-            } catch (Throwable $e) {
+-            }
+-
+             $keyboardextendfnished = json_encode([
+                 'inline_keyboard' => [
+                     [
+@@ -1799,9 +1914,13 @@ $textonebuy
+         $__chargeBonus = isset($Payment_report['charge_bonus']) ? intval($Payment_report['charge_bonus']) : 0;
+         $__paidAmount = intval($Payment_report['price']);
+         $__creditAmount = $__paidAmount + $__chargeBonus;
+-        $Balance_confrim = intval($Balance_id['Balance']) + $__creditAmount;
+-        update("user", "Balance", $Balance_confrim, "id", $Payment_report['id_user']);
+-        update("Payment_report", "payment_Status", "paid", "id_order", $Payment_report['id_order']);
++        $__walletCredit = payment_report_wallet_credit_once(
++            $Payment_report['id_order'], 'wallet-recharge', '', $__creditAmount
++        );
++        if (empty($__walletCredit['ok'])) {
++            throw new RuntimeException('wallet recharge failed: ' . (string)($__walletCredit['reason'] ?? 'unknown'));
++        }
++        $Balance_confrim = (float)($__walletCredit['balance'] ?? 0);
+         update("user", "Processing_value_four", "", "id", $Payment_report['id_user']);
+         $format_price_cart = number_format($__paidAmount, 0);
+         if ($Payment_report['Payment_Method'] == "cart to cart" or $Payment_report['Payment_Method'] == "arze digital offline") {
+diff --git a/table.php b/table.php
+index ce45342..0161973 100644
+--- a/table.php
++++ b/table.php
+@@ -727,6 +727,7 @@ try {
+         reported_at varchar(20) NULL,
+         cashback_applied TINYINT(1) NOT NULL DEFAULT 0,
+         discount_applied TINYINT(1) NOT NULL DEFAULT 0,
++        wallet_fallback_applied TINYINT(1) NOT NULL DEFAULT 0,
+         id_invoice varchar(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci NULL)
+         ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+         if (!$result) {
+@@ -771,6 +772,7 @@ try {
+         addFieldToTable("Payment_report", "reported_at", null, "VARCHAR(20) NULL");
+         addFieldToTable("Payment_report", "cashback_applied", "0", "TINYINT(1) NOT NULL DEFAULT 0");
+         addFieldToTable("Payment_report", "discount_applied", "0", "TINYINT(1) NOT NULL DEFAULT 0");
++        addFieldToTable("Payment_report", "wallet_fallback_applied", "0", "TINYINT(1) NOT NULL DEFAULT 0");
+         try {
+             $idxBluePal = $connect->query("SHOW INDEX FROM Payment_report WHERE Key_name = 'idx_gateway_invoice'");
+             if ($idxBluePal && mysqli_num_rows($idxBluePal) === 0) {
+diff --git a/tests/static_sanity.mjs b/tests/static_sanity.mjs
+index 77ce717..c517cff 100644
+--- a/tests/static_sanity.mjs
++++ b/tests/static_sanity.mjs
+@@ -11,6 +11,8 @@ const phpFiles = [
+   'payment/bluepal_return.php',
+   'cronbot/bluepalcheck.php',
+   'api/handlers/PaymentInitHandler.php',
++  'api/handlers/PaymentStatusHandler.php',
++  'api/handlers/PurchaseHandler.php',
+   'api/handlers/DiscountSupport.php',
+   'api/handlers/AdminDiscountsHandler.php',
+   'api/lib/WebLink.php',
+@@ -105,4 +107,33 @@ if (!dbBackupHandler.includes("array_map(static fn($id): string => (string)$id")
+   throw new Error('Admin IDs are not normalized before backup authorization');
+ }
+ 
++const helpers = fs.readFileSync(path.join(root, 're/rx/function/database_helpers_2.php'), 'utf8');
++if (!helpers.includes('function payment_report_wallet_credit_once')) {
++  throw new Error('Idempotent wallet fallback helper is missing');
++}
++if (!helpers.includes('LIMIT 1 FOR UPDATE') || !helpers.includes('wallet_fallback_applied')) {
++  throw new Error('Wallet fallback is not protected by a durable row lock');
++}
++
++const confirm = fs.readFileSync(path.join(root, 'lib/PaymentConfirm.php'), 'utf8');
++if (!confirm.includes("$ManagePanel = new ManagePanel()")) {
++  throw new Error('Gateway confirmation does not self-initialize ManagePanel');
++}
++if (!confirm.includes("'fallback-no-delivery'")) {
++  throw new Error('Paid-without-delivery wallet recovery is missing');
++}
++
++const purchase = fs.readFileSync(path.join(root, 'api/handlers/PurchaseHandler.php'), 'utf8');
++if (!purchase.includes('Purchase duplicate preflight failed open')) {
++  throw new Error('Purchase duplicate preflight can still turn a timeout into HTTP 500');
++}
++if (!purchase.includes('Purchase createUser threw') || !purchase.includes('balance_atomic_credit')) {
++  throw new Error('Purchase exception refund guard is missing');
++}
++
++const bootstrap = fs.readFileSync(path.join(root, 'api/lib/Bootstrap.php'), 'utf8');
++if (!bootstrap.includes("require_once __DIR__ . '/AgentPricing.php'")) {
++  throw new Error('Mini-app agent pricing bootstrap is missing');
++}
++
+ console.log(`static sanity OK (${phpFiles.length} PHP files)`);
+-- 
+2.51.1
+

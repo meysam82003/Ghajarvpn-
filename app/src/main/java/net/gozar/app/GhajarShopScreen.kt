@@ -771,32 +771,47 @@ private fun <T> NullableFilterRow(allLabel: String, items: List<T>, selected: T?
 
 @Composable
 private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
-    var details by remember(product.id) { mutableStateOf(false) }
-    Card(onClick = { details = true }, enabled = enabled,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(22.dp), elevation = CardDefaults.cardElevation(1.dp),
+    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(24.dp), elevation = CardDefaults.cardElevation(2.dp),
+        border = BorderStroke(1.dp, Color(0x66D6B45F)),
         modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Filled.Shield, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(product.name, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(listOfNotNull(product.trafficGb?.let { "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ" },
-                    product.days?.let { "$it روز" }).joinToString("  •  "),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
-                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+        Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+                Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0x1FD6B45F)),
+                    contentAlignment = Alignment.Center) {
+                    Icon(Icons.Filled.Shield, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(27.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(product.name, style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" }
+                        ?: "قیمت در دسترس نیست", color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                }
             }
-            Icon(Icons.Filled.OpenInNew, "مشاهدهٔ محصول", modifier = Modifier.size(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                product.trafficGb?.let {
+                    Text("${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ",
+                        modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        style = MaterialTheme.typography.labelLarge)
+                }
+                product.days?.let {
+                    Text("$it روز", modifier = Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            Text(product.description.ifBlank { "سرویس آمادهٔ اتصال؛ مشخصات از پنل فروش دریافت شده است." },
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Button(onClick = onBuy, enabled = enabled && product.price != null,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp)) {
+                Icon(Icons.Filled.ShoppingCart, null, modifier = Modifier.size(19.dp))
+                Spacer(Modifier.width(8.dp))
+                Text("انتخاب این سرویس")
+            }
         }
     }
-    if (details) AlertDialog(onDismissRequest = { details = false },
-        title = { Text(product.name) },
-        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(product.price?.let { "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست", fontWeight = FontWeight.Bold)
-            Text(product.description.ifBlank { "توضیح بیشتری از پنل ارسال نشده است." })
-        } },
-        confirmButton = { Button(onClick = { details = false; onBuy() }, enabled = enabled && product.price != null) { Text("انتخاب و ادامه") } },
-        dismissButton = { TextButton(onClick = { details = false }) { Text("بازگشت") } })
 }
 
 @Composable

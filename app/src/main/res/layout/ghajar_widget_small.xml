@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="horizontal" android:gravity="center_vertical" android:layoutDirection="rtl"
+    android:background="@drawable/ghajar_widget_background" android:padding="10dp">
+    <ImageView android:layout_width="42dp" android:layout_height="42dp" android:src="@mipmap/ic_launcher"
+        android:contentDescription="قاجار وی پی ان" />
+    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+        android:orientation="vertical" android:paddingHorizontal="8dp">
+        <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="قطع" android:textColor="#F7F2E8" android:textStyle="bold" android:textSize="15sp" />
+        <TextView android:id="@+id/widget_server" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="انتخاب سرور" android:textColor="#91BCC7" android:textSize="11sp" android:maxLines="1" />
+        <TextView android:id="@+id/widget_message" android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="آماده" android:textColor="#D6B45F" android:textSize="10sp" android:maxLines="1" />
+    </LinearLayout>
+    <TextView android:id="@+id/widget_connect" android:layout_width="58dp" android:layout_height="42dp"
+        android:gravity="center" android:background="@drawable/ghajar_widget_button" android:text="وصل"
+        android:textColor="#F7F2E8" android:textStyle="bold" />
+</LinearLayout>

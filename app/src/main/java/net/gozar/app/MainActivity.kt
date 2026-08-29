@@ -1,10145 +1,2352 @@
-package net.gozar.app
-
-import android.app.Activity
-import android.content.Context
-import android.widget.Toast
-import android.content.Intent
-import android.net.Uri
-import android.net.VpnService
-import android.os.Bundle
-import androidx.activity.ComponentActivity
-import androidx.activity.compose.BackHandler
-import androidx.activity.compose.PredictiveBackHandler
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.compose.setContent
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
-import androidx.compose.foundation.layout.calculateEndPadding
-import androidx.compose.foundation.layout.calculateStartPadding
-import androidx.compose.foundation.layout.ime
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.foundation.layout.offset
-import androidx.compose.animation.AnimatedContent
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.animation.AnimatedContentTransitionScope
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.Crossfade
-import androidx.compose.animation.animateContentSize
-import androidx.compose.animation.expandHorizontally
-import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.AnimationVector1D
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.animateFloat
-import androidx.compose.animation.core.rememberInfiniteTransition
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
-import androidx.compose.animation.scaleOut
-import androidx.compose.animation.shrinkVertically
-import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.BorderStroke
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.material3.LocalContentColor
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.toArgb
-import androidx.compose.ui.graphics.luminance
-import androidx.compose.ui.text.SpanStyle
-import androidx.compose.ui.text.buildAnnotatedString
-import androidx.compose.ui.text.withStyle
-import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.DpOffset
-import androidx.compose.ui.unit.IntSize
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.gestures.Orientation
-import androidx.compose.foundation.gestures.draggable
-import androidx.compose.foundation.gestures.rememberDraggableState
-import androidx.compose.foundation.text.selection.SelectionContainer
-import androidx.compose.foundation.layout.wrapContentWidth
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.scrollBy
-import androidx.compose.foundation.gestures.waitForUpOrCancellation
-import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.ColumnScope
-import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
-import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.text.input.ImeAction
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.unit.sp
-import androidx.compose.animation.slideInVertically
-import androidx.compose.animation.slideOutVertically
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.automirrored.filled.Article
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.BugReport
-import androidx.compose.material.icons.filled.Build
-import androidx.compose.material.icons.filled.DataUsage
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.rounded.Home
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Public
-import androidx.compose.material.icons.filled.Radar
-import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Terminal
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Remove
-import androidx.compose.material.icons.filled.ArrowDownward
-import androidx.compose.material.icons.filled.ArrowUpward
-import androidx.compose.material.icons.filled.Autorenew
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.PowerSettingsNew
-import androidx.compose.material.icons.filled.CardGiftcard
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Contrast
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Cancel
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.ChevronLeft
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.GraphicEq
-import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.NetworkCheck
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
-import androidx.compose.material.icons.filled.ContentCopy
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Groups
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.UploadFile
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.ShoppingBag
-import android.Manifest
-import android.graphics.Bitmap
-import androidx.core.content.ContextCompat
-import androidx.compose.ui.viewinterop.AndroidView
-import androidx.compose.ui.graphics.FilterQuality
-import android.content.ContextWrapper
-import androidx.lifecycle.LifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
-import androidx.camera.core.CameraSelector
-import androidx.camera.core.ImageAnalysis
-import androidx.camera.core.ImageProxy
-import androidx.camera.core.Preview
-import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.PreviewView
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.BinaryBitmap
-import com.google.zxing.DecodeHintType
-import com.google.zxing.LuminanceSource
-import com.google.zxing.MultiFormatReader
-import com.google.zxing.PlanarYUVLuminanceSource
-import com.google.zxing.common.HybridBinarizer
-import java.io.File
-import java.util.concurrent.Executors
-import androidx.compose.material.icons.filled.EditOff
-import androidx.compose.material.icons.filled.ErrorOutline
-import androidx.compose.material.icons.filled.FileUpload
-import androidx.compose.material.icons.filled.FileDownload
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.VisibilityOff
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.DeleteSweep
-import androidx.compose.material.icons.filled.DeleteForever
-import androidx.compose.material.icons.filled.TimerOff
-import androidx.compose.material.icons.filled.QrCode2
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.SelectAll
-import androidx.compose.material.icons.filled.Deselect
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.SmartToy
-import androidx.compose.material.icons.filled.SportsEsports
-import androidx.compose.material.icons.filled.TravelExplore
-import androidx.compose.material.icons.filled.TrendingUp
-import androidx.compose.material.icons.filled.SwapVert
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.WifiOff
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalTextStyle
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
-import androidx.compose.material3.Text
-import androidx.compose.material3.AlertDialog
-import androidx.compose.foundation.layout.heightIn
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.CenterAlignedTopAppBar
-import androidx.compose.material3.Typography
-import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.lightColorScheme
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.compositionLocalOf
-import androidx.compose.runtime.derivedStateOf
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshots.SnapshotStateMap
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.draw.blur
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.RoundRect
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.TransformOrigin
-import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.ColorFilter
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.PathParser
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.graphics.PathMeasure
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.layout.positionInRoot
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalContext
-import androidx.core.content.FileProvider
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.platform.LocalConfiguration
-import androidx.compose.ui.platform.LocalLayoutDirection
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.LayoutDirection
-import androidx.compose.ui.unit.TextUnit
-import androidx.compose.ui.unit.IntOffset
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.window.Dialog
-import androidx.core.view.WindowCompat
-import android.content.pm.PackageManager
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.Checkbox
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.ui.graphics.ImageBitmap
-import androidx.core.graphics.drawable.toBitmap
-import androidx.lifecycle.lifecycleScope
-import gozarcore.Gozarcore
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
-import kotlinx.coroutines.isActive
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
-import java.net.URL
-import java.time.LocalDate
-import kotlin.math.round
-import kotlin.math.sqrt
-import kotlin.math.roundToInt
-
-private val BrandBlue = Color(0xFF91BCC7)
-private val SplashBackground = Color(0xFF071B2E)
-
-private val GnetLightColors = lightColorScheme(
-    primary = Color(0xFF0D6853),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD9EEE8),
-    onPrimaryContainer = Color(0xFF08214F),
-    inversePrimary = Color(0xFF91BCC7),
-    secondary = Color(0xFF987018),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFF2E4B5),
-    onSecondaryContainer = Color(0xFF17212F),
-    tertiary = Color(0xFF0A7C99),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFC9EDF7),
-    onTertiaryContainer = Color(0xFF04333F),
-    background = Color(0xFFEEF3FA),
-    onBackground = Color(0xFF131720),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF131720),
-    surfaceVariant = Color(0xFFE1E8F4),
-    onSurfaceVariant = Color(0xFF566276),
-    surfaceTint = Color(0xFF0D6853),
-    surfaceBright = Color(0xFFFFFFFF),
-    surfaceDim = Color(0xFFD7DFEC),
-    surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFFFFFFF),
-    surfaceContainer = Color(0xFFFDFEFF),
-    surfaceContainerHigh = Color(0xFFF7FAFE),
-    surfaceContainerHighest = Color(0xFFFFFFFF),
-    inverseSurface = Color(0xFF272E3C),
-    inverseOnSurface = Color(0xFFEBF0F8),
-    error = Color(0xFFC02B26),
-    onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFFFDAD6),
-    onErrorContainer = Color(0xFF410002),
-    outline = Color(0xFFB6C1D2),
-    outlineVariant = Color(0xFFD7DFEC),
-    scrim = Color(0xFF000000)
-)
-
-private val GnetDarkColors = darkColorScheme(
-    primary = Color(0xFF91BCC7),
-    onPrimary = Color(0xFF071226),
-    primaryContainer = Color(0xFF103F39),
-    onPrimaryContainer = Color(0xFFD6E3FF),
-    secondary = Color(0xFFD5AD4A),
-    onSecondary = Color(0xFF0E1626),
-    secondaryContainer = Color(0xFF1C2740),
-    onSecondaryContainer = Color(0xFFD9E2F2),
-    background = Color(0xFF071B2E),
-    onBackground = Color(0xFFE6EAF2),
-    surface = Color(0xFF102637),
-    onSurface = Color(0xFFE6EAF2),
-    surfaceVariant = Color(0xFF232C40),
-    onSurfaceVariant = Color(0xFFA2B0C8),
-    surfaceBright = Color(0xFF2A3348),
-    surfaceDim = Color(0xFF0B101B),
-    surfaceContainerLowest = Color(0xFF0A0F1A),
-    surfaceContainerLow = Color(0xFF131A29),
-    surfaceContainer = Color(0xFF161D2E),
-    surfaceContainerHigh = Color(0xFF1D2537),
-    surfaceContainerHighest = Color(0xFF232C40),
-    tertiary = Color(0xFF0F8C70),
-    onTertiary = Color(0xFF042430),
-    tertiaryContainer = Color(0xFF10394A),
-    onTertiaryContainer = Color(0xFFC5F1FD),
-    inversePrimary = Color(0xFF2557D6),
-    surfaceTint = Color(0xFF6CA0FF),
-    inverseSurface = Color(0xFFE6EAF2),
-    inverseOnSurface = Color(0xFF161D2E),
-    error = Color(0xFFFF7A7A),
-    onError = Color(0xFF2A0A0A),
-    errorContainer = Color(0xFF5A1A1A),
-    onErrorContainer = Color(0xFFFFDAD6),
-    outline = Color(0xFF38445C),
-    outlineVariant = Color(0xFF283244),
-    scrim = Color(0xFF000000)
-)
-
-private val GnetAmoledColors = darkColorScheme(
-    primary = Color(0xFF6CA0FF),
-    onPrimary = Color(0xFF071226),
-    primaryContainer = Color(0xFF1B2944),
-    onPrimaryContainer = Color(0xFFD6E3FF),
-    secondary = Color(0xFF93A7C9),
-    onSecondary = Color(0xFF0E1626),
-    secondaryContainer = Color(0xFF11161F),
-    onSecondaryContainer = Color(0xFFD9E2F2),
-    background = Color(0xFF000000),
-    onBackground = Color(0xFFE6EAF2),
-    surface = Color(0xFF000000),
-    onSurface = Color(0xFFE6EAF2),
-    surfaceVariant = Color(0xFF12161F),
-    onSurfaceVariant = Color(0xFFA2B0C8),
-    surfaceBright = Color(0xFF1A1F2A),
-    surfaceDim = Color(0xFF000000),
-    surfaceContainerLowest = Color(0xFF000000),
-    surfaceContainerLow = Color(0xFF07090D),
-    surfaceContainer = Color(0xFF0B0E14),
-    surfaceContainerHigh = Color(0xFF0F131B),
-    surfaceContainerHighest = Color(0xFF12161F),
-    tertiary = Color(0xFF35E0FF),
-    onTertiary = Color(0xFF042430),
-    tertiaryContainer = Color(0xFF0A2733),
-    onTertiaryContainer = Color(0xFFC5F1FD),
-    inversePrimary = Color(0xFF2557D6),
-    surfaceTint = Color(0xFF6CA0FF),
-    inverseSurface = Color(0xFFE6EAF2),
-    inverseOnSurface = Color(0xFF0B0E14),
-    error = Color(0xFFFF7A7A),
-    onError = Color(0xFF2A0A0A),
-    errorContainer = Color(0xFF3A1010),
-    onErrorContainer = Color(0xFFFFDAD6),
-    outline = Color(0xFF2A3344),
-    outlineVariant = Color(0xFF1B2130),
-    scrim = Color(0xFF000000)
-)
-
-private val AppCyan: Color
-    @Composable get() =
-        if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF35E0FF)
-        else Color(0xFF0A7C99)
-
-private val AppAqua: Color
-    @Composable get() =
-        if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF2AE6FF)
-        else Color(0xFF067E9B)
-
-internal val LocalLang = compositionLocalOf { Lang.EN }
-
-private const val PAGE_SHOP = 0
-private const val PAGE_SSH = 1
-private const val PAGE_HOME = 2
-private const val PAGE_DEBUG = 3
-private const val PAGE_SETTINGS = 4
-private const val PAGE_COUNT = 5
-
-@Composable
-private fun stringsFn(): (String) -> String {
-    val lang = LocalLang.current
-    return { Strings.get(lang, it) }
-}
-
-
-internal val LocalHazeState = compositionLocalOf<HazeState?> { null }
-
-object WindscribeBrand {
-
-    const val SUB_NAME = "Windscribe"
-
-    fun isWindscribe(sub: Subscription): Boolean {
-        val n = sub.name.trim()
-        return n.equals(SUB_NAME, ignoreCase = true) ||
-                n.startsWith("$SUB_NAME -", ignoreCase = true) ||
-                n.startsWith("$SUB_NAME-", ignoreCase = true)
-    }
-
-    fun displayName(sub: Subscription, lang: Lang): String =
-        if (lang == Lang.FA && isWindscribe(sub)) Strings.get(lang, "ws_title") else sub.name
-
-    internal val LightStops = listOf(
-        Color(0xFFC3D9F2),
-        Color(0xFFBFE2F5),
-        Color(0xFFC6EDF8)
-    )
-
-    internal val DarkStops = listOf(
-        Color(0xFF1B2E4A),
-        Color(0xFF1B3D5C),
-        Color(0xFF1C4E6B)
-    )
-
-    internal val AmoledStops = listOf(
-        Color(0xFF0B1521),
-        Color(0xFF0C1F2E),
-        Color(0xFF0D2839)
-    )
-
-    internal val LightRow = Color(0xFFA9D2F4)
-    internal val DarkRow = Color(0xFF0C2138)
-    internal val AmoledRow = Color(0xFF0C2A48)
-
-}
-
-@Composable
-private fun windscribeDark(): Boolean =
-    MaterialTheme.colorScheme.surface.luminance() < 0.5f
-
-@Composable
-private fun windscribeAmoled(): Boolean =
-    MaterialTheme.colorScheme.surface == Color(0xFF000000)
-
-@Composable
-private fun windscribeCardBrush(): Brush = Brush.linearGradient(
-    when {
-        windscribeAmoled() -> WindscribeBrand.AmoledStops
-        windscribeDark() -> WindscribeBrand.DarkStops
-        else -> WindscribeBrand.LightStops
-    }
-)
-
-@Composable
-private fun windscribeRowColor(): Color = when {
-    windscribeAmoled() -> WindscribeBrand.AmoledRow
-    windscribeDark() -> WindscribeBrand.DarkRow
-    else -> WindscribeBrand.LightRow
-}
-
-
-object ImportBus {
-    private val _pending = kotlinx.coroutines.flow.MutableStateFlow<ByteArray?>(null)
-    val pending: kotlinx.coroutines.flow.StateFlow<ByteArray?> = _pending
-    fun offer(bytes: ByteArray) { _pending.value = bytes }
-    fun clear() { _pending.value = null }
-
-    private val _scanned = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
-    val scanned: kotlinx.coroutines.flow.StateFlow<String?> = _scanned
-    fun offerScan(text: String) { _scanned.value = text }
-    fun clearScan() { _scanned.value = null }
-}
-
-class MainActivity : ComponentActivity() {
-
-    private lateinit var store: ConfigStore
-    private var afterPermission: (() -> Unit)? = null
-
-    private val vpnPermission =
-        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            val continuation = afterPermission
-            afterPermission = null
-            if (result.resultCode == Activity.RESULT_OK) guardedConnect { continuation?.invoke() }
-            else VpnState.setDisconnected()
-        }
-
-    private var pendingConnect: (() -> Unit)? = null
-
-    private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-            pendingConnect?.invoke()
-            pendingConnect = null
-        }
-
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        store = ConfigStore.get(applicationContext)
-        UsageStore.init(applicationContext)
-        VpnBridge.register(applicationContext)
-        handleImportIntent(intent)
-        IkeController.bind(this)
-        watchTunnel()
-        lifecycleScope.launch {
-            VpnState.state.collect { s ->
-                if (s == Connection.DISCONNECTED && !IkeController.active) {
-                    delay(500)
-                    if (VpnState.state.value == Connection.DISCONNECTED) warm()
-                }
-            }
-        }
-        lifecycleScope.launch(Dispatchers.Default) {
-            Gozarcore.setLogger(object : gozarcore.Logger {
-                override fun log(line: String?) {
-                    android.util.Log.i("XrayCore", line ?: "")
-                }
-            })
-            withContext(Dispatchers.Main) { warm() }
-        }
-        startAutoSwitch()
-        lifecycleScope.launch {
-            SecureScreen.on.collect { secure ->
-                if (secure) {
-                    window.setFlags(
-                        android.view.WindowManager.LayoutParams.FLAG_SECURE,
-                        android.view.WindowManager.LayoutParams.FLAG_SECURE
-                    )
-                } else {
-                    window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
-                }
-            }
-        }
-        setContent {
-            val themeMode by store.themeMode.collectAsState()
-            val dark = when (themeMode) {
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK, ThemeMode.AMOLED -> true
-                else -> isSystemInDarkTheme()
-            }
-            val controller = WindowCompat.getInsetsController(window, window.decorView)
-            androidx.compose.runtime.SideEffect {
-                controller.isAppearanceLightStatusBars = !dark
-                controller.isAppearanceLightNavigationBars = !dark
-                @Suppress("DEPRECATION")
-                window.navigationBarColor = if (dark) 0xFF071B2E.toInt() else 0xFFEEF3FA.toInt()
-                if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
-            }
-            val lang by store.lang.collectAsState()
-            val direction = if (lang == Lang.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
-
-            val customAccent by GhajarAppearance.get(applicationContext).accent.collectAsState()
-            MaterialTheme(
-                colorScheme = ghajarColorScheme(if (!dark) GnetLightColors
-                else if (themeMode == ThemeMode.AMOLED) GnetAmoledColors
-                else GnetDarkColors, customAccent),
-                typography = if (lang == Lang.FA) VazirTypography else LexendTypography,
-                shapes = GhajarSoftShapes
-            ) {
-                CompositionLocalProvider(
-                    LocalLang provides lang,
-                    LocalLayoutDirection provides direction
-                ) {
-                    ObserveGhajarLocation()
-                    var showWelcome by remember { mutableStateOf(true) }
-                    var startMain by remember { mutableStateOf(false) }
-                    val pendingOvpn by GhajarOpenVpnBridge.pending.collectAsState()
-                    LaunchedEffect(Unit) {
-                        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
-                            while (true) {
-                                GhajarNotificationMonitor.refresh(applicationContext)
-                                delay(60_000)
-                            }
-                        }
-                    }
-                    LaunchedEffect(Unit) {
-                        delay(1100)
-                        startMain = true
-                    }
-                    Box {
-                        if (startMain) {
-                            GozarApp(store = store, onConnect = ::connectTo, onDisconnect = ::disconnect, onSwitch = ::switchTo, onCancelPick = ::cancelPick)
-                        }
-                        AnimatedVisibility(
-                            visible = showWelcome,
-                            exit = fadeOut(tween(400))
-                        ) {
-                            GhajarWelcomeScreen(onDone = { startMain = true; showWelcome = false })
-                        }
-                        pendingOvpn?.let { profile ->
-                            var ovpnUser by remember(profile) { mutableStateOf(profile.embeddedUsername) }
-                            var ovpnPass by remember(profile) { mutableStateOf(profile.embeddedPassword) }
-                            var ovpnPing by remember(profile) { mutableStateOf("Ø¯Ø± Ø­Ø§Ù„ Ø¨Ø±Ø±Ø³ÛŒ Ù¾ÛŒÙ†Ú¯â€¦") }
-                            LaunchedEffect(profile) {
-                                ovpnPing = when (val result = Pinger.ping(profile.host, profile.port, 3000)) {
-                                    is PingResult.Ok -> "Ù¾ÛŒÙ†Ú¯ Ù¾ÛŒØ´ Ø§Ø² Ø§ØªØµØ§Ù„: ${result.ms} ms"
-                                    else -> "Ù¾ÛŒÙ†Ú¯ Ù¾ÛŒØ´ Ø§Ø² Ø§ØªØµØ§Ù„: Ù†Ø§Ù…ÙˆÙÙ‚"
-                                }
-                            }
-                            AlertDialog(
-                                onDismissRequest = GhajarOpenVpnBridge::dismiss,
-                                title = { Text("Ø§ÙØ²ÙˆØ¯Ù† OVPN Ø¨Ù‡ Ù‚Ø§Ø¬Ø§Ø±") },
-                                text = {
-                                    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                        Text("${profile.name}\n${profile.host}:${profile.port}\n$ovpnPing")
-                                        if (profile.needsCredentials) {
-                                            OutlinedTextField(
-                                                value = ovpnUser,
-                                                onValueChange = { ovpnUser = it },
-                                                label = { Text("Ù†Ø§Ù… Ú©Ø§Ø±Ø¨Ø±ÛŒ") },
-                                                singleLine = true
-                                            )
-                                            OutlinedTextField(
-                                                value = ovpnPass,
-                                                onValueChange = { ovpnPass = it },
-                                                label = { Text("Ø±Ù…Ø² Ø¹Ø¨ÙˆØ±") },
-                                                singleLine = true,
-                                                visualTransformation = PasswordVisualTransformation()
-                                            )
-                                        }
-                                    }
-                                },
-                                dismissButton = {
-                                    TextButton(onClick = GhajarOpenVpnBridge::dismiss) { Text("Ø§Ù†ØµØ±Ø§Ù") }
-                                },
-                                confirmButton = {
-                                    Button(
-                                        onClick = { connectImportedOpenVpn(profile, ovpnUser, ovpnPass) },
-                                        enabled = !profile.needsCredentials || (ovpnUser.isNotBlank() && ovpnPass.isNotBlank())
-                                    ) { Text("Ø§ØªØµØ§Ù„") }
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        setIntent(intent)
-        handleImportIntent(intent)
-    }
-
-    private fun handleImportIntent(intent: Intent?) {
-        intent ?: return
-        val uri = when (intent.action) {
-            Intent.ACTION_VIEW -> intent.data
-            Intent.ACTION_SEND ->
-                if (android.os.Build.VERSION.SDK_INT >= 33)
-                    intent.getParcelableExtra(Intent.EXTRA_STREAM, android.net.Uri::class.java)
-                else @Suppress("DEPRECATION") (intent.getParcelableExtra(Intent.EXTRA_STREAM) as? android.net.Uri)
-            else -> null
-        } ?: return
-        lifecycleScope.launch {
-            if (uri.scheme.equals("happ", true) || uri.scheme.equals("happ-proxy", true)) {
-                store.awaitReady()
-                val imported = GhajarCompatibilityImport.parseDeepLink(uri.toString())
-                val count = store.addImported(imported)
-                Toast.makeText(
-                    this@MainActivity,
-                    if (count > 0) "$count Ù¾ÛŒÚ©Ø±Ø¨Ù†Ø¯ÛŒ Ø³Ø§Ø²Ú¯Ø§Ø± Ø¨Ù‡ Ù‚Ø§Ø¬Ø§Ø± Ø§Ø¶Ø§ÙÙ‡ Ø´Ø¯" else "Ø§ÛŒÙ† Ù„ÛŒÙ†Ú© Ø±Ù…Ø²Ú¯Ø°Ø§Ø±ÛŒ Ø§Ø®ØªØµØ§ØµÛŒ Ùˆ Ù†Ø§Ø³Ø§Ø²Ú¯Ø§Ø± Ø¯Ø§Ø±Ø¯",
-                    Toast.LENGTH_LONG
-                ).show()
-                return@launch
-            }
-            val bytes = withContext(Dispatchers.IO) {
-                runCatching {
-                    contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                }.getOrNull()
-            }
-            if (bytes != null && bytes.isNotEmpty()) {
-                val isOvpn = uri.lastPathSegment?.endsWith(".ovpn", true) == true ||
-                    bytes.toString(Charsets.UTF_8).contains(Regex("(?im)^\\s*(client|remote)\\b"))
-                if (isOvpn) {
-                    GhajarOpenVpnBridge.offer(bytes).onFailure {
-                        Toast.makeText(this@MainActivity, it.message ?: "ÙØ§ÛŒÙ„ OVPN Ù…Ø¹ØªØ¨Ø± Ù†ÛŒØ³Øª", Toast.LENGTH_LONG).show()
-                    }
-                } else ImportBus.offer(bytes)
-            }
-        }
-    }
-
-    private fun connectImportedOpenVpn(profile: PendingOpenVpnImport, username: String, password: String) {
-        val start: () -> Unit = {
-            lifecycleScope.launch {
-                GhajarOpenVpnBridge.connect(this@MainActivity, profile, username, password)
-                    .onSuccess { Toast.makeText(this@MainActivity, "Ø§ØªØµØ§Ù„ OVPN Ø¢ØºØ§Ø² Ø´Ø¯", Toast.LENGTH_SHORT).show() }
-                    .onFailure { Toast.makeText(this@MainActivity, it.message ?: "Ø§ØªØµØ§Ù„ OVPN Ù†Ø§Ù…ÙˆÙÙ‚ Ø¨ÙˆØ¯", Toast.LENGTH_LONG).show() }
-            }
-            Unit
-        }
-        val permission = VpnService.prepare(this)
-        if (permission == null) start()
-        else {
-            afterPermission = start
-            vpnPermission.launch(permission)
-        }
-    }
-
-    private fun launchConnect(config: ProxyConfig) {
-        if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
-            config.security.trim().lowercase() == "tls"
-        ) {
-            VpnState.setConnecting(config.id)
-            lifecycleScope.launch {
-                val pin = CertPin.fetch(config.address, config.port, config.sni)
-                val ready = if (pin.isNullOrBlank()) config
-                else config.copy(pinnedCertSha256 = pin).also { store.update(it) }
-                proceedLaunch(ready)
-            }
-            return
-        }
-        proceedLaunch(config)
-    }
-
-    private fun proceedLaunch(config: ProxyConfig) {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
-            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
-            android.content.pm.PackageManager.PERMISSION_GRANTED
-        ) {
-            pendingConnect = { proceedConnect(config) }
-            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-        } else {
-            proceedConnect(config)
-        }
-    }
-
-    private fun connectTo(config: ProxyConfig) {
-        val s = VpnState.state.value
-        if (s == Connection.CONNECTING || s == Connection.CONNECTED) return
-
-        if (!store.autoSelect.value) {
-            launchConnect(config)
-            return
-        }
-
-        pickJob?.cancel()
-        pickJob = lifecycleScope.launch {
-            VpnState.setPicking(true)
-            val best = try {
-                AutoSelector(applicationContext, store).pickFastest()
-            } catch (e: CancellationException) {
-                VpnState.setPicking(false)
-                throw e
-            } catch (e: Exception) {
-                null
-            }
-            ensureActive()
-            val chosen = best ?: config
-            if (chosen.id != config.id) store.setSelectedId(chosen.id)
-            VpnState.setPicking(false)
-            launchConnect(chosen)
-        }
-    }
-
-    private fun cancelPick() {
-        pickJob?.cancel()
-        pickJob = null
-        VpnState.setPicking(false)
-    }
-
-    private fun watchTunnel() {
-        lifecycleScope.launch {
-            VpnState.state.collect { state ->
-                if (state == Connection.CONNECTED && !IkeController.active) {
-                    TunnelHealth.check()
-                    RadarRunner.start(true)
-                    val id = VpnState.activeId.value
-                    store.configs.value.find { it.id == id }?.let {
-                        DebugRunner.start(it, store)
-                    }
-                } else if (state == Connection.DISCONNECTED) {
-                    TunnelHealth.reset()
-                    RadarRunner.start(false)
-                } else {
-                    TunnelHealth.reset()
-                }
-            }
-        }
-    }
-
-    private fun t2(key: String): String = Strings.get(store.lang.value, key)
-
-
-    private var pickJob: Job? = null
-    private var autoSwitchJob: Job? = null
-    private val AUTO_SWITCH_MS = 60_000L
-    private val AUTO_SWITCH_MARGIN_MS = 40
-    private val AUTO_SWITCH_PROBE_MS = 25_000L
-
-    private fun startAutoSwitch() {
-        if (autoSwitchJob?.isActive == true) return
-        autoSwitchJob = lifecycleScope.launch {
-            val selector = AutoSelector(applicationContext, store)
-            while (isActive) {
-                delay(AUTO_SWITCH_MS)
-                val tag = "GhajarAuto"
-                if (!store.autoSelect.value) {
-                    android.util.Log.d(tag, "skip: smart connect is off"); continue
-                }
-                if (VpnState.state.value != Connection.CONNECTED) {
-                    android.util.Log.d(tag, "skip: state is ${VpnState.state.value}"); continue
-                }
-                if (VpnState.picking.value) {
-                    android.util.Log.d(tag, "skip: a pick is already running"); continue
-                }
-
-                val activeId = VpnState.activeId.value ?: store.selectedId.value
-                if (activeId == null) {
-                    android.util.Log.d(tag, "skip: no active config id"); continue
-                }
-                val activeCfg = store.configs.value.find { it.id == activeId }
-                if (activeCfg?.protocol?.trim()?.lowercase() in setOf("tor", "aether")) {
-                    android.util.Log.d(tag, "skip: active is ${activeCfg?.protocol}"); continue
-                }
-
-                val best = runCatching { selector.pickFastest(AUTO_SWITCH_PROBE_MS) }
-                    .onFailure { android.util.Log.w(tag, "probe threw", it) }
-                    .getOrNull()
-                if (best == null) {
-                    android.util.Log.d(tag, "skip: no server responded to the probe"); continue
-                }
-
-                val results = selector.results.value
-                val bestMs = (results[best.id] as? PingResult.Ok)?.ms
-                val currentMs = (results[activeId] as? PingResult.Ok)?.ms
-                android.util.Log.d(
-                    tag,
-                    "active=${activeCfg?.name} ${currentMs}ms  best=${best.name} ${bestMs}ms"
-                )
-
-                if (best.id == activeId) {
-                    android.util.Log.d(tag, "skip: already on the fastest"); continue
-                }
-                if (bestMs == null) {
-                    android.util.Log.d(tag, "skip: best has no timing"); continue
-                }
-                if (currentMs != null && currentMs - bestMs < AUTO_SWITCH_MARGIN_MS) {
-                    android.util.Log.d(
-                        tag,
-                        "skip: gain ${currentMs - bestMs}ms under margin $AUTO_SWITCH_MARGIN_MS"
-                    ); continue
-                }
-
-                android.util.Log.d(tag, "SWITCHING to ${best.name}")
-                store.setSelectedId(best.id)
-                switchTo(best)
-            }
-        }
-    }
-
-    private fun guardedConnect(block: () -> Unit) {
-        try { block() }
-        catch (error: LinkageError) {
-            VpnState.setError("Ù‡Ø³ØªÙ‡Ù” Ø§ØªØµØ§Ù„ Ø¨Ø§Ø±Ú¯Ø°Ø§Ø±ÛŒ Ù†Ø´Ø¯Ø› Ù†Ø³Ø®Ù‡Ù” Ø³Ø§Ø²Ú¯Ø§Ø± Ø¨Ø§ Ú¯ÙˆØ´ÛŒ Ø±Ø§ Ù†ØµØ¨ Ú©Ù†.")
-        } catch (error: Exception) {
-            android.util.Log.e("GhajarConnect", error.javaClass.simpleName)
-            VpnState.setError("Ø´Ø±ÙˆØ¹ Ø§ØªØµØ§Ù„ Ù†Ø§Ù…ÙˆÙÙ‚ Ø¨ÙˆØ¯Ø› Ù…Ø¬ÙˆØ² VPN Ùˆ ØªÙ†Ø¸ÛŒÙ…Ø§Øª Ø³Ø±ÙˆÛŒØ³ Ø±Ø§ Ø¨Ø±Ø±Ø³ÛŒ Ú©Ù†.")
-        }
-    }
-
-    private fun proceedConnect(config: ProxyConfig) {
-        guardedConnect { proceedConnectChecked(config) }
-    }
-
-    private fun proceedConnectChecked(config: ProxyConfig) {
-        if (VpnState.state.value == Connection.CONNECTED) return
-        if (config.protocol == "ikev2") {
-            val xrayWasUp = VpnState.state.value != Connection.DISCONNECTED
-            IkeController.claim(config)
-            if (xrayWasUp) startService(
-                Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP)
-            )
-            val startIke = {
-                if (!IkeController.connect(this, config)) {
-                    Toast.makeText(this, t2("ikev2_bad_config"), Toast.LENGTH_LONG).show()
-                    VpnState.setDisconnected()
-                }
-            }
-            val consent = runCatching { VpnService.prepare(this) }.getOrNull()
-            if (consent != null) {
-                afterPermission = startIke
-                vpnPermission.launch(consent)
-            } else startIke()
-            return
-        }
-        if (IkeController.active) IkeController.disconnect(this)
-        val json = ConfigBuilder.build(config, store.fragment.value, store.splitRouting.value, store.sniffing.value, store.sniffTypes.value, mux = store.mux.value, muxConcurrency = store.muxConcurrency.value, adBlock = store.adBlock.value, fakeDns = store.fakeDns.value,
-            encryptedDns = store.encryptedDns.value,
-            torBase = if (config.protocol == "tor" && config.torBaseId.isNotEmpty())
-                store.configs.value.find { it.id == config.torBaseId } else null,
-            chainBase = if (config.chainId.isNotEmpty())
-                store.configs.value.find { it.id == config.chainId } else null,
-            onionRouting = store.onionRouting.value,
-            coreLogLevel = store.coreLogLevel.value)
-        VpnState.setConnecting(config.id)
-        val aether = if (config.protocol == "aether") AetherController.spec(config) else ""
-        val intent = VpnService.prepare(this)
-        val tor = when {
-            config.protocol == "tor" ->
-                config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0")
-            store.onionRouting.value -> "|1"
-            else -> null
-        }
-        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor) }; vpnPermission.launch(intent) }
-        else startTunnel(json, config.name, aether, tor)
-    }
-
-    private fun startTunnel(configJson: String, name: String, aether: String, tor: String?) {
-        guardedConnect { androidx.core.content.ContextCompat.startForegroundService(this,
-            Intent(this, GozarVpnService::class.java)
-                .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
-                .putExtra(GozarVpnService.EXTRA_NAME, name)
-                .putExtra(GozarVpnService.EXTRA_AETHER, aether)
-                .putExtra(GozarVpnService.EXTRA_TOR, tor)
-                .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
-        ) }
-    }
-
-    private fun startBlockOnly() {
-        if (!store.adBlock.value || !store.blockWhenOff.value) return
-        if (VpnService.prepare(this) != null) return
-        val json = ConfigBuilder.build(
-            ProxyConfig(name = "adblock", protocol = "freedom", address = "127.0.0.1", port = 1),
-            splitRouting = store.splitRouting.value,
-            sniffing = store.sniffing.value,
-            sniffTypes = store.sniffTypes.value,
-            adBlock = true,
-            directOnly = true,
-            fakeDns = store.fakeDns.value,
-            encryptedDns = store.encryptedDns.value,
-            coreLogLevel = store.coreLogLevel.value
-        )
-        startTunnel(json, Strings.get(store.lang.value, "adblock_notif"), "", null)
-    }
-
-    private fun disconnect() {
-        if (IkeController.active) {
-            IkeController.disconnect(this)
-            VpnState.setDisconnected()
-            return
-        }
-        startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
-    }
-
-    private fun switchTo(config: ProxyConfig) {
-        val s = VpnState.state.value
-        if (s != Connection.CONNECTED && s != Connection.CONNECTING) { launchConnect(config); return }
-        lifecycleScope.launch {
-            disconnect()
-            withTimeoutOrNull(6000) {
-                VpnState.state.first { it == Connection.DISCONNECTED || it == Connection.ERROR }
-            }
-            if (VpnState.state.value == Connection.CONNECTED) VpnState.setDisconnected()
-            delay(400)
-            launchConnect(config)
-        }
-    }
-
-    private fun warm() {
-        if (IkeController.active) return
-        val s = VpnState.state.value
-        if (s == Connection.CONNECTING || s == Connection.CONNECTED) return
-        runCatching {
-            startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_WARM))
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun GozarApp(
-    store: ConfigStore,
-    onConnect: (ProxyConfig) -> Unit,
-    onDisconnect: () -> Unit,
-    onSwitch: (ProxyConfig) -> Unit,
-    onCancelPick: () -> Unit = {}
-) {
-    val t = stringsFn()
-    val scope = rememberCoroutineScope()
-    val themeMode by store.themeMode.collectAsState()
-    val effectiveDark = when (themeMode) {
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK, ThemeMode.AMOLED -> true
-        else -> isSystemInDarkTheme()
-    }
-    val pagerState = rememberPagerState(initialPage = PAGE_HOME, pageCount = { PAGE_COUNT })
-    val settingsScroll = rememberScrollState()
-
-    var showPicker by remember { mutableStateOf(false) }
-    var showManual by remember { mutableStateOf(false) }
-    var showProjects by remember { mutableStateOf(false) }
-    var showTorNodes by remember { mutableStateOf(false) }
-    var showWindscribe by remember { mutableStateOf(false) }
-    var showScanner by remember { mutableStateOf(false) }
-    var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
-    val updateCtx = LocalContext.current
-    val updateUri = LocalUriHandler.current
-    var updateAvailable by remember { mutableStateOf<UpdateChecker.Result.Available?>(null) }
-    LaunchedEffect(Unit) {
-        if (System.currentTimeMillis() - store.lastUpdateCheck() >= 24L * 60 * 60 * 1000L) {
-            val ver = runCatching {
-                updateCtx.packageManager.getPackageInfo(updateCtx.packageName, 0).versionName
-            }.getOrNull() ?: ""
-            val r = UpdateChecker.check(ver)
-            store.markUpdateChecked()
-            if (r is UpdateChecker.Result.Available) updateAvailable = r
-        }
-    }
-    updateAvailable?.let { upd ->
-        GlassDialog(
-            onDismiss = { updateAvailable = null },
-            title = t("update_available").format(upd.version),
-            confirmLabel = t("update_now"),
-            dismissLabel = t("later"),
-            onConfirm = {
-                runCatching { updateUri.openUri(upd.url) }
-                updateAvailable = null
-            }
-        ) {}
-    }
-    var usageDetail by remember { mutableStateOf(false) }
-    var perAppDetail by remember { mutableStateOf(false) }
-    var logsDetail by remember { mutableStateOf(false) }
-    var stabilityDetail by remember { mutableStateOf(false) }
-    var aboutDetail by remember { mutableStateOf(false) }
-    var themeDetail by remember { mutableStateOf(false) }
-    var cleanIpDetail by remember { mutableStateOf(false) }
-    var netMonDetail by remember { mutableStateOf(false) }
-    var netCatDetail by remember { mutableStateOf(false) }
-    var netCatIndex by remember { mutableStateOf(-1) }
-    var checkHostDetail by remember { mutableStateOf(false) }
-    var toolsDetail by remember { mutableStateOf(false) }
-    var connDetail by remember { mutableStateOf(false) }
-    var prefsDetail by remember { mutableStateOf(false) }
-    var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
-    val sortMode by store.sortMode.collectAsState()
-    val selectedId by store.selectedId.collectAsState()
-    val pings = remember { mutableStateMapOf<String, PingResult>() }
-
-    LaunchedEffect(Unit) {
-        store.awaitReady()
-        store.seedDefaultAetherIfNeeded()
-        while (true) {
-            SubscriptionRefresher.refreshStale(store)
-            delay(30 * 60 * 1000L)
-        }
-    }
-
-    val importContext = LocalContext.current
-    val pendingImport by ImportBus.pending.collectAsState()
-    var importNeedsPassword by remember { mutableStateOf(false) }
-    var importPassword by remember { mutableStateOf("") }
-    var importError by remember { mutableStateOf("") }
-    var importBusy by remember { mutableStateOf(false) }
-
-    LaunchedEffect(pendingImport) {
-        val bytes = pendingImport ?: return@LaunchedEffect
-        importPassword = ""
-        importError = ""
-        val plain = withContext(Dispatchers.Default) {
-            runCatching { ConfigParser.parseBundle(String(bytes, Charsets.UTF_8)) }
-                .getOrDefault(emptyList())
-        }
-        if (plain.isNotEmpty()) {
-            val added = store.addImported(plain)
-            android.widget.Toast.makeText(
-                importContext, t("import_success").format(added),
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-            ImportBus.clear()
-            return@LaunchedEffect
-        }
-        importNeedsPassword = runCatching { ConfigFile.isPasswordProtected(bytes) }.getOrDefault(false)
-        if (!importNeedsPassword) {
-            val configs = withContext(Dispatchers.Default) {
-                runCatching { ConfigFile.decode(importContext, bytes, null) }.getOrNull()
-            }
-            if (configs != null) {
-                val n = store.addImported(configs)
-                android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
-                ImportBus.clear()
-            } else {
-                importNeedsPassword = true
-            }
-        }
-    }
-
-    if (pendingImport != null && importNeedsPassword) {
-        GlassDialog(
-            onDismiss = { if (!importBusy) ImportBus.clear() },
-            title = t("import_title"),
-            confirmLabel = t("import_button"),
-            dismissLabel = t("cancel"),
-            onConfirm = {
-                val bytes = pendingImport
-                if (bytes != null && !importBusy && importPassword.isNotEmpty()) {
-                    importBusy = true
-                    scope.launch {
-                        val configs = withContext(Dispatchers.Default) {
-                            runCatching { ConfigFile.decode(importContext, bytes, importPassword) }
-                        }
-                        importBusy = false
-                        configs.onSuccess { list ->
-                            val n = store.addImported(list)
-                            android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
-                            ImportBus.clear()
-                            importNeedsPassword = false
-                        }.onFailure { e ->
-                            importError = when (e) {
-                                is ConfigFile.WrongPassword -> t("import_wrong_password")
-                                is ConfigFile.ForeignApp -> t("import_foreign_app")
-                                else -> t("import_bad_file")
-                            }
-                        }
-                    }
-                }
-            }
-        ) {
-            Text(t("import_needs_password"), style = MaterialTheme.typography.bodySmall)
-            OutlinedTextField(
-                importPassword, { importPassword = it; importError = "" },
-                label = { Text(t("import_password")) },
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-            if (importError.isNotEmpty())
-                Text(importError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-        }
-    }
-
-    var sshSubScreen by remember { mutableStateOf(false) }
-    val page = pagerState.currentPage
-    val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_SSH && sshSubScreen) || (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail))
-
-    val screenKey = when {
-        page == PAGE_SHOP -> "shop"
-        page == PAGE_SSH -> "ssh"
-        page == PAGE_HOME && exportConfigs != null -> "export"
-        page == PAGE_HOME && showManual -> "manual"
-        page == PAGE_HOME && showTorNodes -> "tornodes"
-        page == PAGE_HOME && showScanner -> "scanqr"
-        page == PAGE_HOME && showWindscribe -> "windscribe"
-        page == PAGE_HOME && showProjects -> "projects"
-        page == PAGE_HOME && showPicker -> "picker"
-        page == PAGE_HOME -> "connection"
-        page == PAGE_DEBUG -> "debugger"
-        onSettingsTab && usageDetail -> "usage"
-        onSettingsTab && perAppDetail -> "perapp"
-        onSettingsTab && logsDetail -> "logs"
-        onSettingsTab && stabilityDetail -> "stability"
-        onSettingsTab && aboutDetail -> "about"
-        onSettingsTab && themeDetail -> "theme"
-        onSettingsTab && cleanIpDetail -> "cleanip"
-        onSettingsTab && checkHostDetail -> "checkhost"
-        onSettingsTab && netCatIndex >= 0 -> "netcatone"
-        onSettingsTab && netCatDetail -> "netcat"
-        onSettingsTab && netMonDetail -> "netmon"
-        onSettingsTab && toolsDetail -> "tools"
-        onSettingsTab && connDetail -> "connection_settings"
-        onSettingsTab && prefsDetail -> "preferences"
-        else -> "settings"
-    }
-
-    fun pop() {
-        when {
-            exportConfigs != null -> exportConfigs = null
-            showManual -> { showManual = false; editingConfig = null }
-            showWindscribe -> showWindscribe = false
-            showScanner -> showScanner = false
-            showTorNodes -> showTorNodes = false
-            showProjects -> showProjects = false
-            showPicker -> showPicker = false
-            usageDetail -> usageDetail = false
-            perAppDetail -> perAppDetail = false
-            logsDetail -> logsDetail = false
-            stabilityDetail -> stabilityDetail = false
-            aboutDetail -> aboutDetail = false
-            themeDetail -> themeDetail = false
-            cleanIpDetail -> cleanIpDetail = false
-            checkHostDetail -> checkHostDetail = false
-            netCatIndex >= 0 -> netCatIndex = -1
-            netCatDetail -> netCatDetail = false
-            netMonDetail -> netMonDetail = false
-            toolsDetail -> toolsDetail = false
-            connDetail -> connDetail = false
-            prefsDetail -> prefsDetail = false
-            page == PAGE_SSH && sshSubScreen -> Unit
-            page != PAGE_HOME -> scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
-        }
-    }
-
-    val canGoBack = subScreenOpen || page != PAGE_HOME
-    var backProgress by remember { mutableStateOf(0f) }
-
-    PredictiveBackHandler(enabled = canGoBack) { progress ->
-        try {
-            progress.collect { event -> backProgress = event.progress }
-            backProgress = 0f
-            pop()
-        } catch (e: CancellationException) {
-            backProgress = 0f
-        }
-    }
-
-    val contentScale = 1f - backProgress * 0.08f
-    val contentAlpha = 1f - backProgress * 0.25f
-
-    val gradBg = MaterialTheme.colorScheme.background
-    val gradDark = gradBg.luminance() < 0.5f
-    val gradient = remember(gradBg, gradDark) {
-        if (gradDark) Brush.verticalGradient(
-            0f to lerp(gradBg, Color(0xFF6D9BEE), 0.12f),
-            0.45f to lerp(gradBg, Color(0xFF6D9BEE), 0.05f),
-            1f to gradBg
-        ) else SolidColor(gradBg)
-    }
-
-    Scaffold(
-        containerColor = Color.Transparent,
-        contentColor = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.background(gradient),
-        topBar = {
-            Column {
-            CenterAlignedTopAppBar(
-                title = {
-                    if (screenKey == "connection") {
-                        GhajarWordmark(Modifier.height(48.dp).width(164.dp))
-                    } else {
-                        Text(
-                            mixedText(when (screenKey) {
-                                "manual" -> if (editingConfig != null) t("edit_config_title") else t("add_config_title")
-                                "export" -> t("export_title")
-                                "picker" -> t("choose_server")
-                                "projects" -> t("free_projects")
-                                "tornodes" -> t("tor_nodes")
-                                "windscribe" -> t("ws_title")
-                                "scanqr" -> t("scan_qr")
-                                "usage" -> t("data_usage")
-                                "perapp" -> t("per_app")
-                                "logs" -> t("xray_logs")
-                                "stability" -> t("stab_title")
-                                "about" -> t("about")
-                                "theme" -> t("theme_settings")
-                                "cleanip" -> t("scan_title")
-                                "netmon" -> t("netmon_title")
-                                "netcat" -> t("netcat_title")
-                                "checkhost" -> t("chk_title")
-                                "netcatone" -> t(NetMonitor.Categories.getOrNull(netCatIndex)?.key ?: "netcat_title")
-                                "tools" -> t("tools")
-                                "connection_settings" -> t("connection_settings")
-                                "preferences" -> t("preferences")
-                                "shop" -> t("shop")
-                                "ssh" -> t("ssh")
-                                "debugger" -> t("debugger_title")
-                                else -> t("settings")
-                            }),
-                            fontFamily = AntaFont
-                        )
-                    }
-                },
-                navigationIcon = {
-                    when (screenKey) {
-                        "manual" -> BounceIconButton(onClick = { showManual = false; editingConfig = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "export" -> BounceIconButton(onClick = { exportConfigs = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "picker" -> BounceIconButton(onClick = { showPicker = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "projects" -> BounceIconButton(onClick = { showProjects = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "tornodes" -> BounceIconButton(onClick = { showTorNodes = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "windscribe" -> BounceIconButton(onClick = { showWindscribe = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "scanqr" -> BounceIconButton(onClick = { showScanner = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "usage" -> BounceIconButton(onClick = { usageDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "perapp" -> BounceIconButton(onClick = { perAppDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "logs" -> BounceIconButton(onClick = { logsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "stability" -> BounceIconButton(onClick = { stabilityDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "about" -> BounceIconButton(onClick = { aboutDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "theme" -> BounceIconButton(onClick = { themeDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "cleanip" -> BounceIconButton(onClick = { cleanIpDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "netmon" -> BounceIconButton(onClick = { netMonDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "netcat" -> BounceIconButton(onClick = { netCatDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "checkhost" -> BounceIconButton(onClick = { checkHostDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "netcatone" -> BounceIconButton(onClick = { netCatIndex = -1 }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "tools" -> BounceIconButton(onClick = { toolsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "connection_settings" -> BounceIconButton(onClick = { connDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "preferences" -> BounceIconButton(onClick = { prefsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                    }
-                },
-                actions = {
-                    BounceIconButton(onClick = {
-                        store.setThemeMode(when (themeMode) {
-                            ThemeMode.LIGHT -> ThemeMode.DARK
-                            ThemeMode.DARK -> ThemeMode.AMOLED
-                            ThemeMode.AMOLED -> ThemeMode.LIGHT
-                            else -> if (effectiveDark) ThemeMode.LIGHT else ThemeMode.DARK
-                        })
-                    }) {
-                        Icon(
-                            when (themeMode) {
-                                ThemeMode.LIGHT -> Icons.Filled.LightMode
-                                ThemeMode.AMOLED -> Icons.Filled.Contrast
-                                ThemeMode.DARK -> Icons.Filled.DarkMode
-                                else -> if (effectiveDark) Icons.Filled.DarkMode else Icons.Filled.LightMode
-                            },
-                            contentDescription = "Toggle theme"
-                        )
-                    }
-                }
-            )
-            GhajarNoticeBanner()
-            }
-        },
-        bottomBar = {
-            NavigationBar(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(28.dp)),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp
-            ) {
-                NavigationBarItem(
-                    selected = page == PAGE_SHOP,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_shop), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("shop")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_SSH,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SSH) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_tunnel), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("ssh")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_HOME,
-                    onClick = {
-                        showPicker = false; showManual = false; showProjects = false; showTorNodes = false; showWindscribe = false; editingConfig = null
-                        scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
-                    },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("home")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_DEBUG,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_DEBUG) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_tools), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("debugger")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_SETTINGS,
-                    onClick = {
-                        usageDetail = false
-                        perAppDetail = false
-                        logsDetail = false
-                        stabilityDetail = false
-                        aboutDetail = false
-                        themeDetail = false
-                        cleanIpDetail = false
-                        netMonDetail = false
-                        netCatDetail = false
-                        netCatIndex = -1
-                        checkHostDetail = false
-                        toolsDetail = false
-                        connDetail = false
-                        prefsDetail = false
-                        scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
-                    },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("settings")) }
-                )
-            }
-        }
-    ) { padding ->
-        val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
-        val layoutDir = LocalLayoutDirection.current
-        HorizontalPager(
-            state = pagerState,
-            userScrollEnabled = !subScreenOpen,
-            modifier = Modifier
-                .padding(
-                    start = padding.calculateStartPadding(layoutDir),
-                    end = padding.calculateEndPadding(layoutDir),
-                    top = padding.calculateTopPadding(),
-                    bottom = maxOf(padding.calculateBottomPadding(), imeBottom)
-                )
-                .graphicsLayer {
-                    scaleX = contentScale
-                    scaleY = contentScale
-                    alpha = contentAlpha
-                }
-        ) { p ->
-            if (p == PAGE_SHOP) {
-                GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
-            } else if (p == PAGE_SSH) {
-                SshScreen(
-                    store = SshStore.get(LocalContext.current),
-                    onSubScreenChange = { sshSubScreen = it }
-                )
-            } else if (p == PAGE_HOME) {
-                val connKey = when {
-                    exportConfigs != null -> "export"
-                    showManual -> "manual"
-                    showScanner -> "scanqr"
-                    showWindscribe -> "windscribe"
-                    showTorNodes -> "tornodes"
-                    showProjects -> "projects"
-                    showPicker -> "picker"
-                    else -> "connection"
-                }
-                AnimatedContent(
-                    targetState = connKey,
-                    transitionSpec = {
-                        (scaleIn(tween(220), initialScale = 0.92f) + fadeIn(tween(220))) togetherWith
-                                (scaleOut(tween(180), targetScale = 0.92f) + fadeOut(tween(180)))
-                    },
-                    label = "connTab"
-                ) { key ->
-                    when (key) {
-                        "export" -> ExportConfigScreen(
-                            configs = exportConfigs ?: emptyList(),
-                            onCancel = { exportConfigs = null }
-                        )
-                        "manual" -> ManualConfigScreen(
-                            existing = editingConfig,
-                            onSave = { cfg ->
-                                if (editingConfig != null) store.update(cfg) else store.add(cfg)
-                                showManual = false; editingConfig = null
-                            },
-                            onCancel = { showManual = false; editingConfig = null }
-                        )
-                        "picker" -> ConfigPickerScreen(
-                            store = store,
-                            selectedId = selectedId,
-                            sortMode = sortMode,
-                            pings = pings,
-                            onSelect = { id ->
-                                store.setSelectedId(id)
-                                showPicker = false
-                                val st = VpnState.state.value
-                                if ((st == Connection.CONNECTED || st == Connection.CONNECTING) && id != VpnState.activeId.value) {
-                                    store.configs.value.find { c -> c.id == id }?.let(onSwitch)
-                                }
-                            },
-                            onEdit = { editingConfig = it; showManual = true },
-                            onAddManually = { showManual = true },
-                            onFreeProjects = { showProjects = true },
-                            onWindscribe = { showWindscribe = true },
-                            onScanQr = { showScanner = true },
-                            onShareFile = { exportConfigs = it }
-                        )
-                        "projects" -> FreeProjectsScreen(
-                            store = store,
-                            onOpenTor = { showTorNodes = true }
-                        )
-                        "windscribe" -> WindscribeScreen(store = store)
-                        "scanqr" -> QrScannerScreen(
-                            onResult = { text ->
-                                showScanner = false
-                                ImportBus.offerScan(text)
-                            }
-                        )
-                        "tornodes" -> TorNodesScreen(store = store)
-                        else -> ConnectionScreen(
-                            store = store,
-                            selectedId = selectedId,
-                            onOpenPicker = { showPicker = true },
-                            onConnect = onConnect,
-                            onDisconnect = onDisconnect,
-                            onCancelPick = onCancelPick
-                        )
-                    }
-                }
-            } else if (p == PAGE_DEBUG) {
-                ConfigDebuggerScreen(
-                    store = store,
-                    onSwitch = onSwitch,
-                    active = pagerState.settledPage == 2 && !pagerState.isScrollInProgress
-                )
-            } else {
-                val setKey = when {
-                    usageDetail -> "usage"
-                    perAppDetail -> "perapp"
-                    logsDetail -> "logs"
-                    stabilityDetail -> "stability"
-                    aboutDetail -> "about"
-                    themeDetail -> "theme"
-                    cleanIpDetail -> "cleanip"
-                    checkHostDetail -> "checkhost"
-                    netCatIndex >= 0 -> "netcatone"
-                    netCatDetail -> "netcat"
-                    netMonDetail -> "netmon"
-                    toolsDetail -> "tools"
-                    connDetail -> "connection_settings"
-                    prefsDetail -> "preferences"
-                    else -> "settings"
-                }
-                AnimatedContent(
-                    targetState = setKey,
-                    transitionSpec = {
-                        if (settingsDepth(targetState) > settingsDepth(initialState)) {
-                            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(250)) togetherWith
-                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(250))
-                        } else {
-                            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(250)) togetherWith
-                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(250))
-                        }
-                    },
-                    label = "setTab"
-                ) { key ->
-                    when (key) {
-                        "usage" -> DataUsageScreen()
-                        "perapp" -> AppProxyScreen(store = store)
-                        "logs" -> LogsScreen(store = store)
-                        "stability" -> StabilityTestScreen(store = store)
-                        "about" -> AboutScreen()
-                        "theme" -> ThemeSettingsScreen(store = store)
-                        "cleanip" -> CleanIpScreen()
-                        "netmon" -> NetMonitorScreen(onOpenCategories = { netCatDetail = true })
-                        "netcat" -> NetCategoriesScreen(onOpen = { netCatIndex = it })
-                        "checkhost" -> CheckHostScreen()
-                        "netcatone" -> NetCategoryScreen(index = netCatIndex)
-                        "tools" -> ToolsScreen(
-                            store = store,
-                            onOpenCheckHost = { checkHostDetail = true },
-                            onOpenStability = { stabilityDetail = true },
-                            onOpenCleanIp = { cleanIpDetail = true }
-                        )
-                        "connection_settings" -> ConnectionSettingsScreen(
-                            store = store,
-                            onOpenPerApp = { perAppDetail = true },
-                            onOpenLogs = { logsDetail = true }
-                        )
-                        "preferences" -> PreferencesScreen(
-                            store = store,
-                            onOpenTheme = { themeDetail = true }
-                        )
-                        else -> SettingsScreen(
-                            store = store,
-                            scrollState = settingsScroll,
-                            onOpenUsage = { usageDetail = true },
-                            onOpenTools = { toolsDetail = true },
-                            onOpenConnection = { connDetail = true },
-                            onOpenPreferences = { prefsDetail = true },
-                            onOpenAbout = { aboutDetail = true },
-                            onOpenNetMon = { netMonDetail = true }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-private const val PICKING_LABEL = "__picking__"
-
-@Composable
-fun SecureWhile(active: Boolean, key: String) {
-    DisposableEffect(active, key) {
-        if (active) SecureScreen.acquire(key)
-        onDispose { SecureScreen.release(key) }
-    }
-}
-
-@Composable
-private fun ConnectionScreen(
-    store: ConfigStore,
-    selectedId: String?,
-    onOpenPicker: () -> Unit,
-    onConnect: (ProxyConfig) -> Unit,
-    onDisconnect: () -> Unit,
-    onCancelPick: () -> Unit = {},
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val n: (String) -> String = { localizeDigits(it, lang) }
-    val configs by store.configs.collectAsState()
-    val conn by VpnState.state.collectAsState()
-    val activeCfgId by VpnState.activeId.collectAsState()
-    val picking by VpnState.picking.collectAsState()
-
-    val mixedPortValue by store.mixedPort.collectAsState()
-    LaunchedEffect(mixedPortValue) { MixedPort.value = mixedPortValue }
-
-    LaunchedEffect(activeCfgId, configs) {
-        UsageStore.currentConfigKey = configs.find { it.id == activeCfgId }?.name
-    }
-
-    LaunchedEffect(conn) {
-        val off = conn != Connection.CONNECTED && conn != Connection.CONNECTING
-        if (android.net.TrafficStats.getTotalRxBytes() == android.net.TrafficStats.UNSUPPORTED.toLong())
-            return@LaunchedEffect
-        UsageStore.syncDirect(
-            android.net.TrafficStats.getTotalRxBytes(),
-            android.net.TrafficStats.getTotalTxBytes(),
-            off
-        )
-        if (!off) return@LaunchedEffect
-        while (isActive) {
-            delay(5000)
-            UsageStore.syncDirect(
-                android.net.TrafficStats.getTotalRxBytes(),
-                android.net.TrafficStats.getTotalTxBytes(),
-                true
-            )
-        }
-    }
-    val error by VpnState.error.collectAsState()
-    val scope = rememberCoroutineScope()
-
-    var totalUp by remember { mutableStateOf(0L) }
-    var totalDown by remember { mutableStateOf(0L) }
-    var upSpeed by remember { mutableStateOf(0L) }
-    var downSpeed by remember { mutableStateOf(0L) }
-    var delayResult by remember { mutableStateOf<String?>(null) }
-    var delayRunning by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        VpnBridge.counters.collect { c ->
-            totalUp = c.totalUp; totalDown = c.totalDown
-            upSpeed = c.upSpeed; downSpeed = c.downSpeed
-        }
-    }
-    LaunchedEffect(conn) {
-        if (conn != Connection.CONNECTED) delayResult = null
-    }
-
-    val selectedConfig = configs.find { it.id == selectedId }
-    val connected = conn == Connection.CONNECTED || conn == Connection.CONNECTING
-
-    val hazeState = remember { HazeState() }
-    Box(modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalHazeState provides hazeState) {
-            Column(
-                Modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                GhajarSelectedServerCard(selectedConfig, conn, onOpenPicker)
-
-                var btnPressed by remember { mutableStateOf(false) }
-                val glowActive = !connected && selectedConfig != null && !btnPressed
-                val glowAlpha by animateFloatAsState(
-                    targetValue = if (glowActive) 1f else 0f,
-                    animationSpec = tween(300),
-                    label = "glowAlpha"
-                )
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(64.dp)
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
-                                btnPressed = true
-                                waitForUpOrCancellation()
-                                btnPressed = false
-                            }
-                        }
-                ) {
-                    val netOffline = rememberInternetOffline()
-                    val alive by TunnelHealth.alive.collectAsState()
-                    val deadTunnel = conn == Connection.CONNECTED && alive == false
-                    val stateTint by animateColorAsState(
-                        when {
-                            netOffline || deadTunnel -> Color(0xFFE0413C)
-                            conn == Connection.CONNECTING -> Color(0xFFFFA94D)
-                            connected -> AppGreen
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        tween(450),
-                        label = "connTint"
-                    )
-                    val enabled = connected || selectedConfig != null
-                    val press by animateFloatAsState(
-                        if (btnPressed && enabled) 0.97f else 1f,
-                        tween(140, easing = FastOutSlowInEasing),
-                        label = "connPress"
-                    )
-                    Box(
-                        Modifier.matchParentSize()
-                            .graphicsLayer { scaleX = press; scaleY = press }
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        stateTint.copy(alpha = 0.18f),
-                                        stateTint.copy(alpha = 0.30f),
-                                        stateTint.copy(alpha = 0.18f)
-                                    )
-                                )
-                            )
-                            .border(1.6.dp, stateTint.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
-                            .testTag("ghajar_connect")
-                            .clickable(enabled = enabled || picking) {
-                                when {
-                                    picking -> onCancelPick()
-                                    connected -> onDisconnect()
-                                    else -> selectedConfig?.let { onConnect(it) }
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ConnectSweep(
-                            color = stateTint,
-                            active = conn == Connection.CONNECTING,
-                            modifier = Modifier.matchParentSize()
-                        )
-                        AnimatedContent(
-                            targetState = if (picking) PICKING_LABEL else conn.name,
-                            transitionSpec = {
-                                (slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it / 2 } +
-                                        fadeIn(tween(340))) togetherWith
-                                        (slideOutVertically(tween(340, easing = FastOutSlowInEasing)) { -it / 2 } +
-                                                fadeOut(tween(200)))
-                            },
-                            label = "connLabel",
-                            modifier = Modifier.fillMaxSize()
-                        ) { key ->
-                            val isPicking = key == PICKING_LABEL
-                            val spinning = isPicking || key == Connection.CONNECTING.name
-                            val spin by rememberInfiniteTransition(label = "connSpin")
-                                .animateFloat(
-                                    initialValue = 0f,
-                                    targetValue = 360f,
-                                    animationSpec = infiniteRepeatable(
-                                        tween(900, easing = LinearEasing),
-                                        RepeatMode.Restart
-                                    ),
-                                    label = "connSpinAngle"
-                                )
-                            Row(
-                                Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    when {
-                                        isPicking -> Icons.Filled.Autorenew
-                                        key == Connection.CONNECTING.name -> Icons.Filled.Autorenew
-                                        key == Connection.CONNECTED.name -> Icons.Filled.PowerSettingsNew
-                                        else -> Icons.Filled.Bolt
-                                    },
-                                    contentDescription = null,
-                                    tint = stateTint,
-                                    modifier = Modifier
-                                        .size(22.dp)
-                                        .graphicsLayer { rotationZ = if (spinning) spin else 0f }
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    when {
-                                        isPicking -> t("finding_fastest")
-                                        key == Connection.CONNECTING.name -> t("connecting_cancel")
-                                        key == Connection.CONNECTED.name -> t("disconnect")
-                                        else -> t("connect")
-                                    },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = stateTint,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-                    }
-                }
-
-                AnimatedVisibility(
-                    visible = conn == Connection.CONNECTED,
-                    enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-                    exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        StatBox(
-                            speed = downSpeed,
-                            total = totalDown,
-                            icon = Icons.Filled.ArrowDownward,
-                            color = Color(0xFF35E0FF),
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatBox(
-                            speed = upSpeed,
-                            total = totalUp,
-                            icon = Icons.Filled.ArrowUpward,
-                            color = Color(0xFFD6B25E),
-                            modifier = Modifier.weight(1f)
-                        )
-                        BounceOutlinedButton(
-                            onClick = {
-                                delayRunning = true; delayResult = null
-                                scope.launch {
-                                    val ms = SpeedTest.delay()
-                                    delayResult = if (ms != null) "${localizeDigits("$ms", lang)} ${t("unit_ms")}" else t("delay_failed")
-                                    delayRunning = false
-                                }
-                            },
-                            enabled = !delayRunning,
-                            minHeight = 44.dp,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            when {
-                                delayRunning -> Text("â€¦", style = MaterialTheme.typography.labelLarge)
-                                delayResult != null -> Text(delayResult!!, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                else -> Icon(Icons.Filled.NetworkCheck, contentDescription = t("real_delay"), modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    }
-                }
-
-                val globeStyle by store.globeStyle.collectAsState()
-                if (globeStyle == "royal" || globeStyle == "shield") {
-                    GhajarRoyalHome(globeStyle, Modifier.weight(1f).fillMaxWidth())
-                } else if (globeStyle == "dots") {
-                    DotGlobeSection(Modifier.weight(1f).fillMaxWidth())
-                } else {
-                    EarthSection(Modifier.weight(1f).fillMaxWidth())
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun ConfigPickerScreen(
-    store: ConfigStore,
-    selectedId: String?,
-    sortMode: String,
-    pings: SnapshotStateMap<String, PingResult>,
-    onSelect: (String) -> Unit,
-    onEdit: (ProxyConfig) -> Unit,
-    onAddManually: () -> Unit,
-    onFreeProjects: () -> Unit,
-    onWindscribe: () -> Unit,
-    onScanQr: () -> Unit,
-    onShareFile: (List<ProxyConfig>) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val n: (String) -> String = { localizeDigits(it, lang) }
-    val configs by store.configs.collectAsState()
-    val subscriptions by store.subscriptions.collectAsState()
-    val activeId by VpnState.activeId.collectAsState()
-    val clipboard = LocalClipboardManager.current
-    val pickerContext = LocalContext.current
-    val pickerScope = rememberCoroutineScope()
-    val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            pickerScope.launch {
-                val bytes: ByteArray? = withContext(Dispatchers.IO) {
-                    runCatching {
-                        pickerContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    }.getOrNull()
-                }
-                if (bytes != null && bytes.isNotEmpty()) ImportBus.offer(bytes)
-            }
-        }
-    }
-
-    var subStatus by remember { mutableStateOf("") }
-    var addBusy by remember { mutableStateOf(false) }
-    var addDone by remember { mutableStateOf("") }
-    var testAllState by remember { mutableStateOf(0) }
-    var addMenu by remember { mutableStateOf(false) }
-    var sortMenu by remember { mutableStateOf(false) }
-    var purgeMenu by remember { mutableStateOf(false) }
-    var confirmPurgeManual by remember { mutableStateOf(false) }
-    var confirmPurgeDupes by remember { mutableStateOf(false) }
-    var confirmPurgeAll by remember { mutableStateOf(false) }
-    var confirmPurgeDead by remember { mutableStateOf(false) }
-    var searchOpen by remember { mutableStateOf(false) }
-    var pingingSubs by remember { mutableStateOf(emptySet<String>()) }
-    var query by remember { mutableStateOf("") }
-    val expandedSubs by store.expandedSubs.collectAsState()
-    val scope = rememberCoroutineScope()
-
-    val context = LocalContext.current
-    val haptic = LocalHapticFeedback.current
-    val selected = remember { mutableStateMapOf<String, Boolean>() }
-    var selectionMode by remember { mutableStateOf(false) }
-    val listState = rememberLazyListState()
-    val painting = remember { booleanArrayOf(false) }
-    val paintSelect = remember { booleanArrayOf(true) }
-    val anchorIdx = remember { intArrayOf(-1) }
-    val lastIdx = remember { intArrayOf(-1) }
-    val orderedSnapshot = remember { mutableListOf<String>() }
-    val base = remember { hashSetOf<String>() }
-    var viewportH by remember { mutableStateOf(0) }
-    var dragging by remember { mutableStateOf(false) }
-    var dragY by remember { mutableStateOf<Float?>(null) }
-    var confirmDelete by remember { mutableStateOf(false) }
-    var chainFor by remember { mutableStateOf<ProxyConfig?>(null) }
-    var openActionsId by remember { mutableStateOf<String?>(null) }
-
-    val allIds = remember(configs) { configs.map { it.id }.toSet() }
-
-    fun sortMaybe(list: List<ProxyConfig>): List<ProxyConfig> = when (sortMode) {
-        ConfigStore.SORT_FASTEST -> list.sortedBy { pingRank(pings[it.id]) }
-        ConfigStore.SORT_ALPHA -> list.sortedBy { it.name.lowercase() }
-        else -> list
-    }
-    val pingSortKey = if (sortMode == ConfigStore.SORT_FASTEST) {
-        remember(configs, pings.toList()) {
-            configs.joinToString(",") { "${it.id}:${pingRank(pings[it.id])}" }
-        }
-    } else 0
-    val q = query.trim()
-    val grouped = remember(configs, subscriptions, sortMode, pingSortKey, q) {
-        subscriptions.map { sub ->
-            val all = sortMaybe(configs.filter { it.subId == sub.id })
-            sub to when {
-                q.isEmpty() || sub.name.contains(q, true) -> all
-                else -> all.filter { it.name.contains(q, true) }
-            }
-        }.filter { (sub, list) -> q.isEmpty() || list.isNotEmpty() || sub.name.contains(q, true) }
-            .sortedByDescending { (sub, _) -> WindscribeBrand.isWindscribe(sub) }
-    }
-    val loose = remember(configs, sortMode, pingSortKey, q) {
-        sortMaybe(configs.filter { it.subId.isEmpty() && (q.isEmpty() || it.name.contains(q, true)) })
-    }
-    fun displayedOrder(): List<String> = buildList {
-        grouped.forEach { (sub, cfgs) -> if (sub.id in expandedSubs || q.isNotEmpty()) cfgs.forEach { add(it.id) } }
-        loose.forEach { add(it.id) }
-    }
-
-    fun idAt(y: Float): String? {
-        val item = listState.layoutInfo.visibleItemsInfo.firstOrNull {
-            y >= it.offset && y < it.offset + it.size
-        } ?: return null
-        val key = item.key as? String ?: return null
-        return if (key in allIds) key else null
-    }
-    fun toggle(id: String) {
-        if (selected.remove(id) == null) selected[id] = true
-        selectionMode = selected.isNotEmpty()
-    }
-    fun applyRange(currentIdx: Int) {
-        if (currentIdx < 0 || anchorIdx[0] < 0) return
-        val lo = minOf(anchorIdx[0], currentIdx)
-        val hi = maxOf(anchorIdx[0], currentIdx)
-        orderedSnapshot.forEachIndexed { i, id ->
-            val want = if (i in lo..hi) paintSelect[0] else (id in base)
-            val have = selected.containsKey(id)
-            if (want && !have) selected[id] = true
-            else if (!want && have) selected.remove(id)
-        }
-    }
-    fun beginPaint(id: String) {
-        orderedSnapshot.clear(); orderedSnapshot.addAll(displayedOrder())
-        base.clear(); base.addAll(selected.keys)
-        anchorIdx[0] = orderedSnapshot.indexOf(id)
-        lastIdx[0] = anchorIdx[0]
-        paintSelect[0] = !(id in base)
-        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-        applyRange(anchorIdx[0])
-        painting[0] = true
-        dragging = true
-    }
-    fun paintAt(id: String?) {
-        if (id == null) return
-        val idx = orderedSnapshot.indexOf(id)
-        if (idx < 0 || idx == lastIdx[0]) return
-        lastIdx[0] = idx
-        applyRange(idx)
-    }
-    fun endPaint() {
-        painting[0] = false
-        dragging = false
-        dragY = null
-        anchorIdx[0] = -1
-        lastIdx[0] = -1
-        selectionMode = selected.isNotEmpty()
-    }
-    fun clearSel() { selected.clear(); selectionMode = false }
-
-    BackHandler(enabled = selectionMode) { clearSel() }
-
-    LaunchedEffect(dragging) {
-        while (dragging) {
-            val y = dragY
-            if (y != null && viewportH > 0) {
-                val delta = when {
-                    y < 72f -> -14f
-                    y > viewportH - 72f -> 14f
-                    else -> 0f
-                }
-                if (delta != 0f) {
-                    listState.scrollBy(delta)
-                    paintAt(idAt(y))
-                }
-            }
-            delay(16)
-        }
-    }
-
-    LaunchedEffect(subStatus) {
-        if (subStatus.isNotEmpty()) { delay(3000); subStatus = "" }
-    }
-    LaunchedEffect(addDone) { if (addDone.isNotEmpty()) { delay(3000); addDone = "" } }
-    LaunchedEffect(testAllState) { if (testAllState == 2) { delay(2500); testAllState = 0 } }
-
-    fun doAdd(raw: String) {
-        val text = raw.trim()
-        when {
-            text.isEmpty() -> {}
-            (text.startsWith("http://") || text.startsWith("https://")) && !text.contains('\n') -> {
-                addBusy = true; addDone = ""
-                scope.launch {
-                    try {
-                        val result = SubscriptionFetcher.fetchFull(text)
-                        if (result.configs.isEmpty()) {
-                            addDone = t("no_configs")
-                        } else {
-                            val name = runCatching { URL(text).host }.getOrDefault("Subscription")
-                            val info = result.userInfo
-                            store.upsertSubscription(
-                                Subscription(
-                                    name = name, url = text,
-                                    used = info?.used ?: 0,
-                                    total = info?.total ?: 0,
-                                    expire = info?.expire ?: 0,
-                                    lastUpdated = System.currentTimeMillis()
-                                ),
-                                result.configs
-                            )
-                            addDone = n(t("added_sub").format(result.configs.size))
-                        }
-                    } catch (e: SubscriptionError) {
-                        addDone = when (e.kind) {
-                            SubscriptionError.Kind.HTTP ->
-                                n(t("sub_err_http").format(e.code))
-                            SubscriptionError.Kind.EMPTY -> t("sub_err_empty")
-                            SubscriptionError.Kind.CLASH -> t("sub_err_clash")
-                            SubscriptionError.Kind.NOT_CONFIG -> t("sub_err_notconfig")
-                        }
-                    } catch (e: Exception) {
-                        addDone = t("fetch_failed")
-                    } finally {
-                        addBusy = false
-                    }
-                }
-            }
-            else -> {
-                val parsed = ConfigParser.parseBundle(text)
-                if (parsed.isEmpty()) {
-                    addDone = t("parse_none")
-                } else {
-                    parsed.forEach { store.add(it) }
-                    addDone = n(t("added_configs").format(parsed.size))
-                }
-            }
-        }
-    }
-
-    val scanned by ImportBus.scanned.collectAsState()
-    LaunchedEffect(scanned) {
-        scanned?.let { text ->
-            ImportBus.clearScan()
-            if (ConfigParser.parseBundle(text).isEmpty() &&
-                !text.startsWith("http://") && !text.startsWith("https://")
-            ) {
-                addDone = t("qr_invalid")
-            } else {
-                doAdd(text)
-            }
-        }
-    }
-
-    Column(
-        modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        AddServerPanel(
-            expanded = addMenu,
-            busy = addBusy,
-            onToggle = { addMenu = !addMenu },
-            onPaste = {
-                addMenu = false
-                val clip = clipboard.getText()?.text
-                if (clip.isNullOrBlank()) subStatus = t("clipboard_empty")
-                else if (!addBusy) doAdd(clip)
-            },
-            onManual = { addMenu = false; onAddManually() },
-            onImport = { addMenu = false; filePicker.launch(arrayOf("*/*")) },
-            onProjects = { addMenu = false; onFreeProjects() },
-            onWindscribe = { addMenu = false; onWindscribe() },
-            onScanQr = { addMenu = false; onScanQr() }
-        )
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BounceOutlinedButton(
-                onClick = {
-                    val snapshot = configs
-                    if (testAllState != 1 && snapshot.isNotEmpty()) {
-                        snapshot.forEach { pings[it.id] = PingResult.Testing }
-                        testAllState = 1
-                        scope.launch {
-                            val sem = Semaphore(4)
-                            val jobs = snapshot.map { cfg ->
-                                launch {
-                                    sem.withPermit {
-                                        pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") {
-                                            Pinger.pingIke(cfg.address)
-                                        } else {
-                                            val ms = withContext(Dispatchers.IO) {
-                                                Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg))
-                                            }
-                                            if (ms >= 0) PingResult.Ok(ms.toInt())
-                                            else PingResult.Failed
-                                        }
-                                    }
-                                }
-                            }
-                            jobs.joinAll()
-                            testAllState = 2
-                        }
-                    }
-                },
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                modifier = Modifier.weight(1f).height(42.dp)
-            ) {
-                Icon(painterResource(R.drawable.signal), contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    when (testAllState) {
-                        1 -> t("testing")
-                        2 -> t("test_completed")
-                        else -> t("test_all")
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-
-            Box {
-                BounceOutlinedButton(
-                    onClick = { purgeMenu = true },
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.DeleteSweep,
-                        contentDescription = t("delete_all"),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-                DropdownMenu(
-                    expanded = purgeMenu,
-                    onDismissRequest = { purgeMenu = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(t("delete_manual_configs"), style = MaterialTheme.typography.bodyMedium) },
-                        leadingIcon = {
-                            Icon(Icons.Filled.EditOff, contentDescription = null, modifier = Modifier.size(18.dp))
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = {
-                            purgeMenu = false
-                            if (configs.none { it.subId.isBlank() }) addDone = t("no_manual")
-                            else confirmPurgeManual = true
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(t("delete_timed_out"), style = MaterialTheme.typography.bodyMedium) },
-                        leadingIcon = {
-                            Icon(Icons.Filled.TimerOff, contentDescription = null, modifier = Modifier.size(18.dp))
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = {
-                            purgeMenu = false
-                            if (configs.none { pings[it.id] == PingResult.Failed }) {
-                                addDone = t("no_timed_out")
-                            } else confirmPurgeDead = true
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(t("delete_duplicates"), style = MaterialTheme.typography.bodyMedium) },
-                        leadingIcon = {
-                            Icon(Icons.Filled.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = {
-                            purgeMenu = false
-                            if (store.duplicateIds().isEmpty()) addDone = t("no_duplicates")
-                            else confirmPurgeDupes = true
-                        }
-                    )
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.error.copy(alpha = 0.25f),
-                        modifier = Modifier.padding(vertical = 4.dp)
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                t("delete_everything"),
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.error
-                            )
-                        },
-                        leadingIcon = {
-                            Icon(
-                                Icons.Filled.DeleteForever,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.error,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { purgeMenu = false; confirmPurgeAll = true }
-                    )
-                }
-            }
-
-            Box {
-                BounceOutlinedButton(
-                    onClick = { sortMenu = true },
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(Icons.Filled.SwapVert, contentDescription = t("sort"), modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = sortMenu,
-                    onDismissRequest = { sortMenu = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                ) {
-                    listOf(
-                        ConfigStore.SORT_ALPHA to t("sort_alpha"),
-                        ConfigStore.SORT_FASTEST to t("sort_fastest"),
-                        ConfigStore.SORT_ADDED to t("sort_added")
-                    ).forEach { (mode, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
-                            trailingIcon = {
-                                if (sortMode == mode)
-                                    Icon(
-                                        Icons.Filled.Check,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { store.setSortMode(mode); sortMenu = false }
-                        )
-                    }
-                }
-            }
-
-            BounceOutlinedButton(
-                onClick = {
-                    searchOpen = !searchOpen
-                    if (!searchOpen) query = ""
-                },
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(42.dp)
-            ) {
-                Icon(
-                    if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
-                    contentDescription = t("search_servers"),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = searchOpen,
-            enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-        ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                label = { Text(t("search_servers")) },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        val statusLine = when {
-            addBusy -> t("adding")
-            addDone.isNotEmpty() -> addDone
-            else -> subStatus
-        }
-        val badLines = remember(lang) {
-            setOf(
-                t("fetch_failed"), t("parse_none"), t("no_configs"), t("clipboard_empty"),
-                t("qr_invalid"), t("no_timed_out"), t("import_bad_file"),
-                t("import_wrong_password"), t("import_foreign_app"), t("ws_fetch_failed")
-            )
-        }
-        val isBad = statusLine.isNotEmpty() &&
-                badLines.any { it.isNotEmpty() && statusLine.startsWith(it) }
-        val statusAccent =
-            if (isBad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-
-        AnimatedVisibility(
-            visible = statusLine.isNotEmpty(),
-            enter = fadeIn(tween(220)) + expandVertically(tween(260, easing = FastOutSlowInEasing)) +
-                    slideInVertically(tween(260, easing = FastOutSlowInEasing)) { -it / 3 },
-            exit = fadeOut(tween(160)) + shrinkVertically(tween(220, easing = FastOutSlowInEasing)) +
-                    slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { -it / 3 }
-        ) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Row(
-                    Modifier.clip(RoundedCornerShape(14.dp))
-                        .background(statusAccent.copy(alpha = 0.10f))
-                        .border(1.dp, statusAccent.copy(alpha = 0.30f), RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (addBusy) {
-                        CircularProgressIndicator(
-                            strokeWidth = 2.dp,
-                            color = statusAccent,
-                            modifier = Modifier.size(14.dp)
-                        )
-                    } else {
-                        Icon(
-                            if (isBad) Icons.Filled.ErrorOutline else Icons.Filled.CheckCircle,
-                            contentDescription = null,
-                            tint = statusAccent,
-                            modifier = Modifier.size(15.dp)
-                        )
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        mixedText(statusLine),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = statusAccent,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-        }
-
-        val wsRowColor = windscribeRowColor()
-
-        LazyColumn(
-            state = listState,
-            modifier = Modifier.weight(1f)
-                .onSizeChanged { viewportH = it.height }
-                .pointerInput(allIds) {
-                    awaitEachGesture {
-                        val down = awaitFirstDown(requireUnconsumed = false)
-                        var painted = false
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val c = event.changes.firstOrNull { it.id == down.id } ?: break
-                            if (!c.pressed) break
-                            if (painting[0]) {
-                                painted = true
-                                c.consume()
-                                dragY = c.position.y
-                                paintAt(idAt(c.position.y))
-                            }
-                        }
-                        if (painting[0] || painted) endPaint()
-                    }
-                },
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            grouped.forEach { (sub, subConfigs) ->
-                val wsRow = if (WindscribeBrand.isWindscribe(sub)) wsRowColor else null
-                item(key = "sub-${sub.id}") {
-                    SubscriptionHeader(
-                        sub = sub,
-                        isOpen = sub.id in expandedSubs || q.isNotEmpty(),
-                        onToggle = { store.toggleSubExpanded(sub.id) },
-                        onRefresh = {
-                            subStatus = t("fetching_sub")
-                            scope.launch {
-                                if (sub.url == FreeConfigs.SOURCE_URL) {
-                                    val kept = FreeConfigs.refresh(store, sub.name)
-                                    subStatus = when {
-                                        kept > 0 -> t("proj_free_added").format(kept)
-                                        kept == FreeConfigs.UNREACHABLE -> t("proj_free_unreachable")
-                                        kept == FreeConfigs.NO_CONFIGS -> t("proj_free_nocfg")
-                                        kept == FreeConfigs.BUSY -> t("proj_free_working")
-                                        else -> t("proj_free_none")
-                                    }
-                                    return@launch
-                                }
-                                try {
-                                    val result = SubscriptionFetcher.fetchFull(sub.url)
-                                    val info = result.userInfo
-                                    store.upsertSubscription(
-                                        sub.copy(
-                                            used = info?.used ?: sub.used,
-                                            total = info?.total ?: sub.total,
-                                            expire = info?.expire ?: sub.expire,
-                                            lastUpdated = System.currentTimeMillis()
-                                        ),
-                                        result.configs
-                                    )
-                                    subStatus = n("${sub.name}: ${result.configs.size}")
-                                } catch (e: Exception) {
-                                    subStatus = "${t("fetch_failed")}: ${e.message ?: ""}"
-                                }
-                            }
-                        },
-                        onRename = { newName -> store.renameSubscription(sub.id, newName) },
-                        onRemove = { store.deleteSubscription(sub.id) },
-                        timedOutCount = subConfigs.count { pings[it.id] == PingResult.Failed },
-                        onRemoveTimedOut = {
-                            val dead = subConfigs.filter { pings[it.id] == PingResult.Failed }
-                                .map { it.id }.toSet()
-                            store.deleteConfigsByIds(dead)
-                            dead.forEach { pings.remove(it); selected.remove(it) }
-                            addDone = n(t("deleted_n").format(dead.size))
-                        },
-                        pinging = sub.id in pingingSubs,
-                        onPing = {
-                            if (sub.id !in pingingSubs && subConfigs.isNotEmpty()) {
-                                pingingSubs = pingingSubs + sub.id
-                                subConfigs.forEach { pings[it.id] = PingResult.Testing }
-                                scope.launch {
-                                    val sem = Semaphore(4)
-                                    subConfigs.map { cfg ->
-                                        launch {
-                                            sem.withPermit {
-                                                pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") {
-                                                    Pinger.pingIke(cfg.address)
-                                                } else {
-                                                    val ms = withContext(Dispatchers.IO) {
-                                                        Gozarcore.measureDelay(
-                                                            ConfigBuilder.buildForTest(cfg)
-                                                        )
-                                                    }
-                                                    if (ms >= 0) PingResult.Ok(ms.toInt())
-                                                    else PingResult.Failed
-                                                }
-                                            }
-                                        }
-                                    }.joinAll()
-                                    pingingSubs = pingingSubs - sub.id
-                                }
-                            }
-                        },
-                        modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200))
-                    )
-                }
-                if (sub.id in expandedSubs || q.isNotEmpty()) {
-                    items(subConfigs, key = { it.id }) { cfg ->
-                        ConfigRow(
-                            config = cfg,
-                            isSelected = cfg.id == selectedId,
-                            isActive = cfg.id == activeId,
-                            ping = pings[cfg.id],
-                            selectionMode = selectionMode,
-                            isChecked = { selected.containsKey(cfg.id) },
-                            onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
-                            onLongPress = { beginPaint(cfg.id) },
-                            onEdit = { onEdit(cfg) },
-                            onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
-                            onShareFile = { onShareFile(listOf(cfg)) },
-                            onChain = { chainFor = cfg },
-                            actionsOpen = openActionsId == cfg.id,
-                            onToggleActions = {
-                                openActionsId = if (openActionsId == cfg.id) null else cfg.id
-                            },
-                            modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
-                            containerColor = wsRow
-                        )
-                    }
-                }
-            }
-
-            if (loose.isNotEmpty()) {
-                item(key = "loose-header") {
-                    Box(
-                        Modifier.fillMaxWidth().padding(top = 10.dp, bottom = 2.dp)
-                            .animateItem(
-                                fadeInSpec = tween(300),
-                                placementSpec = tween(300),
-                                fadeOutSpec = tween(200)
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Row(
-                            Modifier.clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
-                                    RoundedCornerShape(12.dp)
-                                )
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Icon(
-                                Icons.Filled.Edit,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(Modifier.width(7.dp))
-                            Text(
-                                n("${t("manual_configs")} (${loose.size})"),
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-                    }
-                }
-                items(loose, key = { it.id }) { cfg ->
-                    ConfigRow(
-                        config = cfg,
-                        isSelected = cfg.id == selectedId,
-                        isActive = cfg.id == activeId,
-                        ping = pings[cfg.id],
-                        selectionMode = selectionMode,
-                        isChecked = { selected.containsKey(cfg.id) },
-                        onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
-                        onLongPress = { beginPaint(cfg.id) },
-                        onEdit = { onEdit(cfg) },
-                        onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
-                        onShareFile = { onShareFile(listOf(cfg)) },
-                        onChain = { chainFor = cfg },
-                        actionsOpen = openActionsId == cfg.id,
-                        onToggleActions = {
-                            openActionsId = if (openActionsId == cfg.id) null else cfg.id
-                        },
-                        modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200))
-                    )
-                }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = selectionMode,
-            enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-            exit = fadeOut(tween(150)) + shrinkVertically(tween(200))
-        ) {
-            SelectionActionBar(
-                count = selected.size,
-                onClose = { clearSel() },
-                onCopy = {
-                    val text = configs.filter { selected.containsKey(it.id) }
-                        .joinToString("\n") { ConfigShare.toLink(it) }
-                    clipboard.setText(AnnotatedString(text))
-                    android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
-                },
-                onShareApp = {
-                    val text = configs.filter { selected.containsKey(it.id) }
-                        .joinToString("\n") { ConfigShare.toLink(it) }
-                    val send = Intent(Intent.ACTION_SEND).apply {
-                        type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text)
-                    }
-                    context.startActivity(Intent.createChooser(send, t("share")))
-                },
-                onShareFile = {
-                    onShareFile(configs.filter { selected.containsKey(it.id) })
-                    clearSel()
-                },
-                onDelete = { confirmDelete = true }
-            )
-        }
-    }
-
-    chainFor?.let { target ->
-        ChainPickerDialog(
-            store = store,
-            config = configs.find { it.id == target.id } ?: target,
-            onDismiss = { chainFor = null }
-        )
-    }
-
-    if (confirmPurgeManual) {
-        val manual = remember(configs) {
-            configs.filter { it.subId.isBlank() }.map { it.id }.toSet()
-        }
-        GlassDialog(
-            onDismiss = { confirmPurgeManual = false },
-            title = t("delete_manual_configs"),
-            confirmLabel = t("delete"),
-            dismissLabel = t("cancel"),
-            destructive = true,
-            onConfirm = {
-                store.deleteConfigsByIds(manual)
-                manual.forEach { pings.remove(it); selected.remove(it) }
-                addDone = n(t("deleted_n").format(manual.size))
-                confirmPurgeManual = false
-            }
-        ) {
-            Text(
-                n(t("delete_manual_q").format(manual.size)),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-
-    if (confirmPurgeDupes) {
-        val dupes = remember(configs) { store.duplicateIds() }
-        GlassDialog(
-            onDismiss = { confirmPurgeDupes = false },
-            title = t("delete_duplicates"),
-            confirmLabel = t("delete"),
-            dismissLabel = t("cancel"),
-            destructive = true,
-            onConfirm = {
-                store.deleteConfigsByIds(dupes)
-                dupes.forEach { pings.remove(it); selected.remove(it) }
-                addDone = n(t("deleted_n").format(dupes.size))
-                confirmPurgeDupes = false
-            }
-        ) {
-            Text(
-                n(t("delete_duplicates_q").format(dupes.size)),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-
-    if (confirmPurgeAll) {
-        GlassDialog(
-            onDismiss = { confirmPurgeAll = false },
-            title = t("delete_everything"),
-            confirmLabel = t("delete"),
-            destructive = true,
-            onConfirm = {
-                val removed = configs.size
-                store.deleteAllConfigs()
-                selected.clear()
-                selectionMode = false
-                addDone = n(t("deleted_n").format(removed))
-                confirmPurgeAll = false
-            }
-        ) {
-            Text(
-                n(t("delete_everything_q").format(configs.size)),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-
-    if (confirmPurgeDead) {
-        val dead = remember(configs, pings.toMap()) {
-            configs.filter { pings[it.id] == PingResult.Failed }.map { it.id }.toSet()
-        }
-        GlassDialog(
-            onDismiss = { confirmPurgeDead = false },
-            title = t("delete_timed_out"),
-            confirmLabel = t("delete"),
-            destructive = true,
-            onConfirm = {
-                store.deleteConfigsByIds(dead)
-                dead.forEach { pings.remove(it); selected.remove(it) }
-                addDone = n(t("deleted_n").format(dead.size))
-                confirmPurgeDead = false
-            }
-        ) {
-            Text(
-                n(t("delete_timeout_q").format(dead.size)),
-                style = MaterialTheme.typography.bodyMedium
-            )
-        }
-    }
-
-    if (confirmDelete) {
-        GlassDialog(
-            onDismiss = { confirmDelete = false },
-            title = t("delete"),
-            confirmLabel = t("delete"),
-            dismissLabel = t("cancel"),
-            destructive = true,
-            onConfirm = {
-                configs.filter { selected.containsKey(it.id) }
-                    .forEach { store.delete(it.id); pings.remove(it.id) }
-                clearSel()
-                confirmDelete = false
-            }
-        ) {
-            Text(t("delete_selected_q"), style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-@Composable
-private fun ExportConfigScreen(
-    configs: List<ProxyConfig>,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val multi = configs.size > 1
-
-    val defaultName = if (multi) "Ghajarvpn-configs" else (configs.firstOrNull()?.name?.ifBlank { "config" } ?: "config")
-    var fileName by remember { mutableStateOf(defaultName) }
-    var password by remember { mutableStateOf("") }
-    var showPassword by remember { mutableStateOf(false) }
-    var lockDetails by remember { mutableStateOf(true) }
-    var busy by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf("") }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        InfoBox(t("export_encrypted_note"))
-
-        if (multi) {
-            InfoBox(localizeDigits(t("export_count").format(configs.size), lang))
-        }
-
-        SettingsGroup {
-            OutlinedTextField(
-                fileName,
-                { fileName = it },
-                label = { Text(t("export_file_name")) },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                textStyle = LocalTextStyle.current.copy(fontFamily = monoLatinFont()),
-                trailingIcon = {
-                    Text(
-                        ".grt",
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.padding(end = 14.dp)
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            OutlinedTextField(
-                password,
-                { password = it },
-                label = { Text(t("export_password")) },
-                placeholder = { Text(t("export_password_hint"), maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                singleLine = true,
-                visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(),
-                shape = RoundedCornerShape(16.dp),
-                textStyle = LocalTextStyle.current.copy(fontFamily = monoLatinFont()),
-                trailingIcon = {
-                    Icon(
-                        if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                        contentDescription = t("show"),
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .padding(end = 6.dp)
-                            .clip(CircleShape)
-                            .clickable { showPassword = !showPassword }
-                            .padding(8.dp)
-                            .size(20.dp)
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            SettingRow(
-                title = t("export_lock_details"),
-                subtitle = if (lockDetails) t("export_locked_note") else t("export_unlocked_note"),
-                checked = lockDetails,
-                onCheckedChange = { lockDetails = it }
-            )
-        }
-
-        AnimatedVisibility(
-            visible = error.isNotEmpty(),
-            enter = fadeIn(tween(200)) + expandVertically(tween(240, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(150)) + shrinkVertically(tween(200, easing = FastOutSlowInEasing))
-        ) {
-            InfoBox(error, accent = MaterialTheme.colorScheme.error, centered = true)
-        }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BounceOutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text(t("cancel")) }
-            BounceButton(
-                onClick = {
-                    if (busy) return@BounceButton
-                    busy = true
-                    error = ""
-                    scope.launch {
-                        val result = runCatching {
-                            withContext(Dispatchers.Default) {
-                                val bytes = ConfigFile.encode(
-                                    context, configs, password.ifBlank { null }, lockDetails
-                                )
-                                ConfigFile.writeToCache(context, fileName, bytes)
-                            }
-                        }
-                        busy = false
-                        result.onSuccess { file ->
-                            val uri = FileProvider.getUriForFile(
-                                context, "${context.packageName}.fileprovider", file
-                            )
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = ConfigFile.MIME
-                                putExtra(Intent.EXTRA_STREAM, uri)
-                                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                            }
-                            context.startActivity(Intent.createChooser(send, t("export_continue")))
-                            onCancel()
-                        }.onFailure {
-                            error = t("import_bad_file")
-                        }
-                    }
-                },
-                enabled = !busy && fileName.isNotBlank(),
-                modifier = Modifier.weight(1f)
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        modifier = Modifier.size(16.dp)
-                    )
-                } else {
-                    Icon(
-                        Icons.Filled.InsertDriveFile,
-                        contentDescription = null,
-                        modifier = Modifier.size(17.dp)
-                    )
-                    Spacer(Modifier.width(7.dp))
-                    Text(t("export_continue"), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ManualConfigScreen(
-    existing: ProxyConfig? = null,
-    onSave: (ProxyConfig) -> Unit,
-    onCancel: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    var name by remember { mutableStateOf(existing?.name ?: "") }
-
-    if (existing?.locked == true) {
-        Column(
-            modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(t("locked_config"), style = MaterialTheme.typography.titleMedium)
-            }
-            Text(
-                t("locked_note"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            OutlinedTextField(
-                name, { name = it },
-                label = { Text(t("name_optional")) },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BounceOutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text(t("cancel")) }
-                BounceButton(
-                    onClick = { onSave(existing.copy(name = name.ifBlank { existing.name })) },
-                    modifier = Modifier.weight(1f)
-                ) { Text(t("save")) }
-            }
-        }
-        return
-    }
-
-    var protocol by remember { mutableStateOf(existing?.protocol ?: "vless") }
-    var address by remember { mutableStateOf(existing?.address ?: "") }
-    var port by remember { mutableStateOf(existing?.port?.takeIf { it > 0 }?.toString() ?: "") }
-    var uuid by remember { mutableStateOf(existing?.uuid ?: "") }
-    var password by remember { mutableStateOf(existing?.password ?: "") }
-    var method by remember { mutableStateOf(existing?.method?.ifEmpty { "aes-256-gcm" } ?: "aes-256-gcm") }
-    var flow by remember { mutableStateOf(existing?.flow ?: "") }
-    var network by remember { mutableStateOf(existing?.network ?: "tcp") }
-    var security by remember { mutableStateOf(existing?.security ?: "none") }
-    var sni by remember { mutableStateOf(existing?.sni ?: "") }
-    var publicKey by remember { mutableStateOf(existing?.publicKey ?: "") }
-    var shortId by remember { mutableStateOf(existing?.shortId ?: "") }
-    var path by remember { mutableStateOf(existing?.path ?: "") }
-    var host by remember { mutableStateOf(existing?.host ?: "") }
-    var serviceName by remember { mutableStateOf(existing?.serviceName ?: "") }
-    var mode by remember { mutableStateOf(existing?.mode ?: "") }
-    var alpn by remember { mutableStateOf(existing?.alpn ?: "") }
-    var fingerprint by remember { mutableStateOf(existing?.fingerprint ?: "chrome") }
-    var allowInsecure by remember { mutableStateOf(existing?.allowInsecure ?: false) }
-    var pinnedCert by remember { mutableStateOf(existing?.pinnedCertSha256 ?: "") }
-    var pinning by remember { mutableStateOf(false) }
-    val pinScope = rememberCoroutineScope()
-    LaunchedEffect(Unit) {
-        if (allowInsecure && !CertPin.isValid(pinnedCert) && address.isNotBlank()) {
-            pinning = true
-            pinnedCert = CertPin.fetch(
-                address.trim(), port.toIntOrNull() ?: 0, sni.trim()
-            ).orEmpty()
-            pinning = false
-        }
-    }
-    var hyObfsPassword by remember { mutableStateOf(existing?.hyObfsPassword ?: "") }
-    var hyUp by remember { mutableStateOf(if ((existing?.hyUpMbps ?: 0) > 0) "${existing?.hyUpMbps}" else "") }
-    var hyDown by remember { mutableStateOf(if ((existing?.hyDownMbps ?: 0) > 0) "${existing?.hyDownMbps}" else "") }
-    var error by remember { mutableStateOf("") }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        OutlinedTextField(name, { name = it }, label = { Text(t("name_optional")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = scriptFont(name)), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        LabeledDropdown(t("protocol"), listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "wireguard", "ikev2", "socks", "http"), protocol) { protocol = it }
-        OutlinedTextField(address, { address = it }, label = { Text(t("address")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = monoFont()), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol != "ikev2") OutlinedTextField(
-            port, { port = it.filter { c -> c.isDigit() } },
-            label = { Text(t("port")) }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        if (protocol == "vless" || protocol == "vmess")
-            OutlinedTextField(uuid, { uuid = it }, label = { Text(t("uuid")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol == "ikev2") {
-            OutlinedTextField(uuid, { uuid = it }, label = { Text(t("ikev2_user")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(password, { password = it }, label = { Text(t("password")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(sni, { sni = it }, label = { Text(t("ikev2_remote_id")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            Text(
-                t("ikev2_note"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        if (protocol == "trojan" || protocol == "shadowsocks" || protocol == "hysteria2")
-            OutlinedTextField(password, { password = it }, label = { Text(t("password")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol == "hysteria2") {
-            OutlinedTextField(hyObfsPassword, { hyObfsPassword = it }, label = { Text(t("hy_obfs")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    hyUp, { hyUp = it.filter { c -> c.isDigit() } },
-                    label = { Text(t("hy_up")) }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    hyDown, { hyDown = it.filter { c -> c.isDigit() } },
-                    label = { Text(t("hy_down")) }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)
-                )
-            }
-        }
-        if (protocol == "shadowsocks")
-            LabeledDropdown(t("enc_method"),
-                listOf("aes-256-gcm", "aes-128-gcm", "chacha20-ietf-poly1305", "2022-blake3-aes-256-gcm"), method) { method = it }
-        if (protocol == "vless")
-            OutlinedTextField(flow, { flow = it }, label = { Text(t("flow_optional")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-
-        if (protocol == "hysteria2") {
-            OutlinedTextField(sni, { sni = it }, label = { Text(t("sni")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(alpn, { alpn = it }, label = { Text(t("alpn")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        }
-
-        if (protocol !in setOf("shadowsocks", "hysteria2", "wireguard", "ikev2")) {
-            LabeledDropdown(t("network"), listOf("tcp", "ws", "grpc", "http", "httpupgrade", "xhttp"), network) { network = it }
-            LabeledDropdown(t("security"), listOf("none", "tls", "reality"), security) { security = it }
-            if (security == "tls" || security == "reality") {
-                OutlinedTextField(sni, { sni = it }, label = { Text(t("sni")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = monoFont()), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                LabeledDropdown(t("fingerprint"), listOf("chrome", "firefox", "safari", "ios", "android", "edge", "random"), fingerprint.ifEmpty { "chrome" }) { fingerprint = it }
-            }
-            if (security == "tls")
-                OutlinedTextField(alpn, { alpn = it }, label = { Text(t("alpn")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            if (security == "tls") {
-                SettingsGroup {
-                    SettingRow(
-                        title = t("allow_insecure"),
-                        subtitle = when {
-                            pinning -> t("pin_fetching")
-                            allowInsecure && CertPin.isValid(pinnedCert) -> t("pin_ready")
-                            allowInsecure -> t("pin_failed")
-                            else -> t("allow_insecure_sub")
-                        },
-                        checked = allowInsecure,
-                        enabled = !pinning,
-                        onCheckedChange = { on ->
-                            allowInsecure = on
-                            if (!on) {
-                                pinnedCert = ""
-                            } else {
-                                pinning = true
-                                pinScope.launch {
-                                    pinnedCert = CertPin.fetch(
-                                        address.trim(),
-                                        port.toIntOrNull() ?: 0,
-                                        sni.trim()
-                                    ).orEmpty()
-                                    pinning = false
-                                }
-                            }
-                        }
-                    )
-                }
-            }
-            if (security == "reality") {
-                OutlinedTextField(publicKey, { publicKey = it }, label = { Text(t("public_key")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(shortId, { shortId = it }, label = { Text(t("short_id")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            }
-            if (network == "ws" || network == "httpupgrade" || network == "http" || network == "xhttp") {
-                OutlinedTextField(path, { path = it }, label = { Text(t("ws_path")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(host, { host = it }, label = { Text(t("ws_host")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            }
-            if (network == "xhttp")
-                LabeledDropdown(t("mode"), listOf("auto", "packet-up", "stream-up", "stream-one"), mode.ifEmpty { "auto" }) { mode = it }
-            if (network == "grpc") {
-                OutlinedTextField(serviceName, { serviceName = it }, label = { Text(t("service_name")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                LabeledDropdown(t("mode"), listOf("gun", "multi"), mode.ifEmpty { "gun" }) { mode = it }
-            }
-        }
-
-        if (error.isNotEmpty())
-            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BounceOutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text(t("cancel")) }
-            BounceButton(
-                onClick = {
-                    val p = if (protocol == "ikev2") 500 else port.toIntOrNull()
-                    when {
-                        address.isBlank() -> error = t("err_address")
-                        p == null || p !in 1..65535 -> error = t("err_port")
-                        (protocol == "vless" || protocol == "vmess") && uuid.isBlank() -> error = t("err_uuid")
-                        protocol == "ikev2" && uuid.isBlank() -> error = t("err_uuid")
-                        (protocol == "trojan" || protocol == "shadowsocks" || protocol == "hysteria2" ||
-                                protocol == "ikev2") && password.isBlank() -> error = t("err_password")
-                        else -> onSave(
-                            (existing ?: ProxyConfig(name = "", protocol = "", address = "", port = 0)).copy(
-                                name = name.ifBlank { "$protocol $address" },
-                                protocol = protocol,
-                                address = address.trim(),
-                                port = p,
-                                uuid = uuid.trim(),
-                                password = password.trim(),
-                                method = method.trim(),
-                                encryption = if (protocol == "vmess") "auto" else "none",
-                                flow = flow.trim(),
-                                network = when (protocol) {
-                                    "shadowsocks" -> "tcp"
-                                    "hysteria2" -> "hysteria"
-                                    "ikev2" -> "ikev2"
-                                    else -> network
-                                },
-                                security = when (protocol) {
-                                    "shadowsocks" -> "none"
-                                    "hysteria2" -> "tls"
-                                    "ikev2" -> "none"
-                                    else -> security
-                                },
-                                sni = sni.trim(),
-                                publicKey = publicKey.trim(),
-                                shortId = shortId.trim(),
-                                path = path.trim(),
-                                host = host.trim(),
-                                serviceName = serviceName.trim(),
-                                mode = mode.trim(),
-                                alpn = alpn.trim(),
-                                fingerprint = fingerprint.trim(),
-                                allowInsecure = allowInsecure,
-                                pinnedCertSha256 = pinnedCert,
-                                hyObfs = if (hyObfsPassword.isBlank()) "" else "salamander",
-                                hyObfsPassword = hyObfsPassword.trim(),
-                                hyUpMbps = hyUp.toIntOrNull() ?: 0,
-                                hyDownMbps = hyDown.toIntOrNull() ?: 0
-                            )
-                        )
-                    }
-                },
-                modifier = Modifier.weight(1f)
-            ) { Text(t("save")) }
-        }
-    }
-}
-
-@Composable
-private fun AddServerPanel(
-    expanded: Boolean,
-    busy: Boolean,
-    onToggle: () -> Unit,
-    onPaste: () -> Unit,
-    onManual: () -> Unit,
-    onImport: () -> Unit,
-    onProjects: () -> Unit,
-    onWindscribe: () -> Unit,
-    onScanQr: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val rot by animateFloatAsState(
-        targetValue = if (expanded) 45f else 0f,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "addRot"
-    )
-
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-        modifier = modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.fillMaxWidth().padding(10.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    monoText(t("add_server")),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                    letterSpacing = (-0.5).sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(start = 6.dp)
-                )
-                BounceOutlinedButton(
-                    onClick = onToggle,
-                    enabled = !busy,
-                    minHeight = 44.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = t("add_server"),
-                        modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = rot }
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-            ) {
-                Column(
-                    Modifier.padding(top = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AddTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f))
-                        AddTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f))
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AddTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f))
-                        AddTile(
-                            Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f)
-                        )
-                    }
-                    AddTile(
-                        Icons.Filled.Shield, t("ws_title"), onWindscribe, Modifier.fillMaxWidth()
-                    )
-                    AddTile(
-                        Icons.Filled.CardGiftcard, t("free_projects"), onProjects, Modifier.fillMaxWidth(),
-                        accent = MaterialTheme.colorScheme.tertiary
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun AddTile(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    accent: Color = MaterialTheme.colorScheme.primary
-) {
-    val density = LocalDensity.current
-    var textW by remember(label) { mutableStateOf<Dp?>(null) }
-
-    BounceOutlinedButton(
-        onClick = onClick,
-        minHeight = 60.dp,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-        accent = accent,
-        modifier = modifier.height(60.dp)
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(7.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            onTextLayout = { r ->
-                var widest = 0f
-                for (i in 0 until r.lineCount) {
-                    val lw = r.getLineRight(i) - r.getLineLeft(i)
-                    if (lw > widest) widest = lw
-                }
-                val want = with(density) { widest.toDp() } + 1.dp
-                val have = textW
-                if (have == null || want.value > have.value + 0.5f) textW = want
-            },
-            modifier = textW?.let { Modifier.width(it) } ?: Modifier.weight(1f, fill = false)
-        )
-    }
-}
-
-@Composable
-private fun FreeProjectsScreen(
-    store: ConfigStore,
-    onOpenTor: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-    var busy by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("") }
-    var statusOwner by remember { mutableStateOf("") }
-    var aetherMode by remember { mutableStateOf("masque") }
-    var aetherH2 by remember { mutableStateOf(true) }
-
-    LaunchedEffect(status) {
-        if (status.isNotEmpty()) { delay(4000); status = ""; statusOwner = "" }
-    }
-
-    Column(
-        modifier.fillMaxSize()
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Bolt,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(t("legacy_warp"), style = MaterialTheme.typography.titleMedium)
-                }
-                Text(
-                    accentText(
-                        t("proj_warp_desc"),
-                        "use Aether instead there",
-                        "\u062f\u0631 \u0627\u06cc\u0631\u0627\u0646 \u0627\u0632 Aether \u0627\u0633\u062a\u0641\u0627\u062f\u0647 \u06a9\u0646\u06cc\u062f"
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                BounceButton(
-                    onClick = {
-                        if (busy) return@BounceButton
-                        busy = true; status = ""; statusOwner = "warp"
-                        scope.launch {
-                            val result = withContext(Dispatchers.IO) { Warp.register() }
-                            status = when (result) {
-                                is Warp.Result.Success -> {
-                                    result.configs.forEach { store.add(it) }
-                                    t("warp_added")
-                                }
-                                is Warp.Result.Failure -> t("warp_failed")
-                            }
-                            busy = false
-                        }
-                    },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    ProjectButtonLabel(
-                        status = if (statusOwner == "warp") status else "",
-                        label = if (busy) t("adding") else t("add_warp")
-                    )
-                }
-            }
-        }
-
-        SettingsGroup {
-            Text(
-                t("proj_aether_title"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
-            )
-            Text(
-                accentText(
-                    t("proj_aether_desc"),
-                    "MASQUE, WireGuard and nested WireGuard tunnels",
-                    "\u062a\u0648\u0646\u0644 MASQUE\u060c \u0648\u0627\u06cc\u0631\u06af\u0627\u0631\u062f \u0648 \u0648\u0627\u06cc\u0631\u06af\u0627\u0631\u062f \u062a\u0648\u062f\u0631\u062a\u0648"
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("masque" to "MASQUE", "wg" to "WireGuard", "gool" to "gool").forEach { (key, label) ->
-                    val on = aetherMode == key
-                    BounceOutlinedButton(
-                        onClick = {
-                            aetherMode = key
-                            aetherH2 = key == "masque"
-                        },
-                        minHeight = 40.dp,
-                        contentPadding = PaddingValues(horizontal = 4.dp),
-                        accent = if (on) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f).height(40.dp)
-                    ) {
-                        Text(mixedText(label), maxLines = 1, softWrap = false,
-                            style = MaterialTheme.typography.labelMedium)
-                    }
-                }
-            }
-            SettingRow(
-                title = t("proj_aether_h2"),
-                subtitle = t("proj_aether_h2_sub"),
-                checked = aetherH2 && aetherMode == "masque",
-                onCheckedChange = { aetherH2 = it },
-                enabled = aetherMode == "masque"
-            )
-            BounceButton(
-                onClick = {
-                    if (!AetherController.available(context)) {
-                        status = t("proj_aether_missing"); statusOwner = "aether"
-                        return@BounceButton
-                    }
-                    val cfg = ProxyConfig(
-                        name = "Aether (${aetherMode.uppercase()})",
-                        protocol = "aether",
-                        address = "127.0.0.1",
-                        port = AetherController.SOCKS_PORT,
-                        aetherMode = aetherMode,
-                        aetherScan = "balanced",
-                        aetherHttp2 = aetherH2,
-                        source = ConfigSource.COMMUNITY
-                    )
-                    store.add(cfg)
-                    status = t("proj_aether_added"); statusOwner = "aether"
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                ProjectButtonLabel(
-                    status = if (statusOwner == "aether") status else "",
-                    label = t("add")
-                )
-            }
-        }
-
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val freeBusy by FreeConfigs.busy.collectAsState()
-            val freeProgress by FreeConfigs.progress.collectAsState()
-            val subs by store.subscriptions.collectAsState()
-            val added = subs.any { it.url == FreeConfigs.SOURCE_URL }
-
-            Column(
-                Modifier.fillMaxWidth().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    t("proj_free"),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    t("proj_free_desc"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                val p = freeProgress
-                if (p != null) {
-                    Text(
-                        t("proj_free_testing").format(p.tested, p.total, p.alive),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                BounceButton(
-                    onClick = {
-                        scope.launch {
-                            val kept = FreeConfigs.refresh(store, t("proj_free"))
-                            statusOwner = "free"
-                            status = when {
-                                kept > 0 -> t("proj_free_added").format(kept)
-                                kept == FreeConfigs.UNREACHABLE -> t("proj_free_unreachable")
-                                kept == FreeConfigs.NO_CONFIGS -> t("proj_free_nocfg")
-                                kept == FreeConfigs.BUSY -> t("proj_free_working")
-                                else -> t("proj_free_none")
-                            }
-                        }
-                    },
-                    enabled = !freeBusy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    ProjectButtonLabel(
-                        status = if (statusOwner == "free") status else "",
-                        label = when {
-                            freeBusy -> t("proj_free_working")
-                            added -> t("refresh")
-                            else -> t("add")
-                        }
-                    )
-                }
-            }
-        }
-
-        SettingsHubCard(
-            iconRes = R.drawable.tor,
-            title = "Tor",
-            subtitle = t("proj_tor_desc"),
-            onClick = onOpenTor,
-            accents = listOf(
-                "Slow but very resilient",
-                "\u06a9\u0646\u062f \u0627\u0645\u0627 \u0628\u0633\u06cc\u0627\u0631 \u0645\u0642\u0627\u0648\u0645"
-            )
-        )
-
-        Text(
-            t("proj_more_soon"),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-private fun ProjectButtonLabel(status: String, label: String) {
-    AnimatedContent(
-        targetState = status.ifBlank { label },
-        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
-        label = "projectButton"
-    ) { text ->
-        Text(
-            text,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
-        )
-    }
-}
-
-@Composable
-private fun CompactMenuItem(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clickable { onClick() }
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurface)
-        Spacer(Modifier.width(12.dp))
-        Text(mixedText(label), style = MaterialTheme.typography.bodyMedium)
-    }
-}
-
-@Composable
-private fun Modifier.appearOnce(delayMillis: Int = 0, offsetY: Float = 26f): Modifier {
-    var shown by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-    val spec = tween<Float>(360, delayMillis = delayMillis, easing = FastOutSlowInEasing)
-    val a by animateFloatAsState(if (shown) 1f else 0f, spec, label = "appearA")
-    val ty by animateFloatAsState(if (shown) 0f else offsetY, spec, label = "appearY")
-    val sc by animateFloatAsState(if (shown) 1f else 0.96f, spec, label = "appearS")
-    return this.graphicsLayer {
-        alpha = a
-        translationY = ty
-        scaleX = sc
-        scaleY = sc
-    }
-}
-
-@Composable
-private fun LabeledDropdown(
-    label: String,
-    options: List<String>,
-    selected: String,
-    onSelect: (String) -> Unit
-) {
-    var open by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        Box {
-            OutlinedButton(
-                onClick = { open = true },
-                shape = RoundedCornerShape(14.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    selected,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = scriptFont(selected),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-            }
-            DropdownMenu(
-                expanded = open,
-                onDismissRequest = { open = false },
-                offset = DpOffset(0.dp, 8.dp),
-                shape = RoundedCornerShape(16.dp),
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-            ) {
-                options.forEach { opt ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                opt,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = scriptFont(opt)
-                            )
-                        },
-                        trailingIcon = {
-                            if (opt == selected) Icon(
-                                Icons.Filled.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { onSelect(opt); open = false }
-                    )
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-private fun settingsDepth(key: String): Int = when (key) {
-    "settings" -> 0
-    "stability", "cleanip", "perapp", "theme", "netcat" -> 2
-    "checkhost" -> 3
-    "netcatone" -> 3
-    else -> 1
-}
-
-@Composable
-private fun InfoBox(
-    text: String,
-    modifier: Modifier = Modifier,
-    accent: Color = MaterialTheme.colorScheme.primary,
-    centered: Boolean = false
-) {
-    Box(
-        modifier.fillMaxWidth(),
-        contentAlignment = if (centered) Alignment.Center else Alignment.CenterStart
-    ) {
-        Text(
-            mixedText(text),
-            style = MaterialTheme.typography.bodySmall,
-            color = accent,
-            textAlign = if (centered) TextAlign.Center else TextAlign.Start,
-            modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(accent.copy(alpha = 0.08f))
-                .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
-                .padding(horizontal = 14.dp, vertical = 9.dp)
-        )
-    }
-}
-
-@Composable
-private fun GlassDialog(
-    onDismiss: () -> Unit,
-    title: String,
-    confirmLabel: String,
-    onConfirm: () -> Unit,
-    dismissLabel: String? = null,
-    destructive: Boolean = false,
-    accentOverride: Color? = null,
-    body: @Composable ColumnScope.() -> Unit
-) {
-    val accent = accentOverride
-        ?: if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            ),
-            border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = accent
-                )
-                body()
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (dismissLabel != null) {
-                        BounceOutlinedButton(
-                            onClick = onDismiss,
-                            minHeight = 42.dp,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(dismissLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
-                        }
-                    }
-                    BounceOutlinedButton(
-                        onClick = onConfirm,
-                        minHeight = 42.dp,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        accent = accent,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(confirmLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ShopScreen(modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val plans = listOf(
-        Triple("Û± Ù…Ø§Ù‡Ù‡ Â· 30 GB", "Û±Û²Û°,Û°Û°Û°", "1 month Â· 30 GB"),
-        Triple("Û² Ù…Ø§Ù‡Ù‡ Â· 80 GB", "Û²Û²Û°,Û°Û°Û°", "2 months Â· 80 GB"),
-        Triple("Û³ Ù…Ø§Ù‡Ù‡ Â· 150 GB", "Û³Û²Û°,Û°Û°Û°", "3 months Â· 150 GB"),
-        Triple("Û¶ Ù…Ø§Ù‡Ù‡ Â· 400 GB", "ÛµÛ¹Û°,Û°Û°Û°", "6 months Â· 400 GB"),
-        Triple("Û± Ø³Ø§Ù„Ù‡ Â· Ù†Ø§Ù…Ø­Ø¯ÙˆØ¯", "Û¹Û¹Û°,Û°Û°Û°", "1 year Â· Unlimited"),
-        Triple("Û² Ø³Ø§Ù„Ù‡ Â· Ù†Ø§Ù…Ø­Ø¯ÙˆØ¯", "Û±,Û·Û¹Û°,Û°Û°Û°", "2 years Â· Unlimited"),
-        Triple("Ø§Ø´ØªØ±Ø§Ú© Ø®Ø§Ù†ÙˆØ§Ø¯Ù‡", "Û±,Û²Û¹Û°,Û°Û°Û°", "Family plan"),
-        Triple("Ø§Ø´ØªØ±Ø§Ú© Ù†Ù…Ø§ÛŒÙ†Ø¯Ú¯ÛŒ", "Û²,Û¹Û¹Û°,Û°Û°Û°", "Reseller plan")
-    )
-
-    Box(modifier.fillMaxSize()) {
-        Column(
-            Modifier.fillMaxSize().blur(14.dp).padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            plans.forEach { (fa, price, en) ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 18.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                if (lang == Lang.FA) fa else en,
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                if (lang == Lang.FA) "ØªØ­ÙˆÛŒÙ„ Ø¢Ù†ÛŒ" else "Instant delivery",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                        Text(
-                            price + if (lang == Lang.FA) " ØªÙˆÙ…Ø§Ù†" else " T",
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                }
-            }
-        }
-
-        Box(
-            Modifier.fillMaxSize().background(
-                MaterialTheme.colorScheme.background.copy(alpha = 0.35f)
-            )
-        )
-
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            ),
-            border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)),
-            modifier = Modifier.align(Alignment.Center).padding(horizontal = 32.dp)
-        ) {
-            Column(
-                Modifier.padding(horizontal = 28.dp, vertical = 22.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(
-                    Icons.Filled.ShoppingBag,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(30.dp)
-                )
-                Text(
-                    t("shop_soon"),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = MaterialTheme.colorScheme.primary
-                )
-                Text(
-                    t("shop_soon_sub"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun WindscribeScreen(store: ConfigStore, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val scope = rememberCoroutineScope()
-    var user by remember { mutableStateOf("") }
-    var pass by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-    var nodes by remember { mutableStateOf<List<WindscribeNode>>(emptyList()) }
-    val picked = remember { mutableStateMapOf<String, Boolean>() }
-    var status by remember { mutableStateOf("") }
-    var statusOwner by remember { mutableStateOf("") }
-    var query by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        if (nodes.isEmpty()) {
-            loading = true
-            nodes = WindscribeFetcher.fetch()
-            loading = false
-            if (nodes.isEmpty()) status = t("ws_fetch_failed")
-        }
-    }
-
-    val shown = remember(nodes, query) {
-        if (query.isBlank()) nodes
-        else nodes.filter {
-            it.label.contains(query, true) || it.hostname.contains(query, true) ||
-                    it.country.contains(query, true)
-        }
-    }
-    val grouped = remember(shown) {
-        shown.groupBy { it.country.ifBlank { "?" } }.toList().sortedBy { it.first }
-    }
-    val open = remember { mutableStateMapOf<String, Boolean>() }
-    var locationsOpen by remember { mutableStateOf(false) }
-    var searchOpen by remember { mutableStateOf(false) }
-    val count = picked.count { it.value }
-
-    Column(Modifier.fillMaxSize()) {
-        LazyColumn(
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            item(key = "intro") {
-                Text(
-                    mixedText(t("ws_intro")),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-
-            item(key = "creds") {
-                TorCountryGroup(t("ws_credentials")) {
-                    OutlinedTextField(
-                        user, { user = it },
-                        label = { Text(t("ikev2_user")) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    OutlinedTextField(
-                        pass, { pass = it },
-                        label = { Text(t("password")) },
-                        singleLine = true,
-                        shape = RoundedCornerShape(16.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    Spacer(Modifier.height(8.dp))
-                    Text(
-                        accentText(
-                            t("ws_creds_hint"),
-                            "windscribe.com/myaccount",
-                            "Config Generators",
-                            "IKEv2"
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            if (loading) item(key = "loading") {
-                Row(
-                    Modifier.fillMaxWidth().padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.Center,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(18.dp),
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(t("ws_loading"), style = MaterialTheme.typography.bodySmall)
-                }
-            }
-
-            item(key = "locations") {
-                androidx.compose.animation.AnimatedVisibility(
-                    visible = nodes.isNotEmpty(),
-                    enter = fadeIn(tween(320)) +
-                            expandVertically(tween(400, easing = FastOutSlowInEasing)) +
-                            slideInVertically(tween(400, easing = FastOutSlowInEasing)) { it / 6 },
-                    exit = fadeOut(tween(180)) + shrinkVertically(tween(260))
-                ) {
-                    WindscribeLocationsHeader(
-                        title = t("ws_locations"),
-                        total = nodes.size,
-                        chosen = count,
-                        expanded = locationsOpen,
-                        searchOpen = searchOpen,
-                        allSelected = shown.isNotEmpty() &&
-                                shown.all { picked[it.hostname] == true },
-                        onSelectAll = {
-                            val target = !(shown.isNotEmpty() &&
-                                    shown.all { picked[it.hostname] == true })
-                            shown.forEach { node ->
-                                if (target) picked[node.hostname] = true
-                                else picked.remove(node.hostname)
-                            }
-                        },
-                        onToggle = { locationsOpen = !locationsOpen },
-                        onToggleSearch = {
-                            searchOpen = !searchOpen
-                            if (!searchOpen) query = ""
-                        },
-                        query = query,
-                        onQuery = { query = it },
-                        searchLabel = t("search_servers")
-                    )
-                }
-            }
-
-            if (locationsOpen && nodes.isNotEmpty()) {
-                items(grouped, key = { "c-" + it.first }) { (country, servers) ->
-                    val open2 = open[country] == true || query.isNotBlank()
-                    val chosen2 = servers.count { picked[it.hostname] == true }
-                    WindscribeCountryCard(
-                        country = country,
-                        total = servers.size,
-                        chosen = chosen2,
-                        expanded = open2,
-                        onToggle = { open[country] = !open2 },
-                        modifier = Modifier
-                            .animateItem(
-                                fadeInSpec = tween(220),
-                                placementSpec = tween(220, easing = FastOutSlowInEasing),
-                                fadeOutSpec = tween(140)
-                            )
-                            .padding(horizontal = 12.dp)
-                    ) {
-                        servers.forEach { node ->
-                            WindscribeServerRow(
-                                label = node.label,
-                                selected = picked[node.hostname] == true,
-                                accent = FlagColors.of(country)
-                                    ?: MaterialTheme.colorScheme.primary,
-                                onClick = {
-                                    picked[node.hostname] = picked[node.hostname] != true
-                                }
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (nodes.isEmpty() && !loading) item(key = "retry") {
-                BounceOutlinedButton(
-                    onClick = {
-                        scope.launch {
-                            loading = true
-                            status = ""
-                            nodes = WindscribeFetcher.fetch()
-                            loading = false
-                            if (nodes.isEmpty()) status = t("ws_fetch_failed")
-                        }
-                    },
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(t("netmon_recheck"), maxLines = 1)
-                }
-            }
-        }
-
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            if (status.isNotEmpty()) Text(
-                mixedText(status),
-                style = MaterialTheme.typography.bodySmall,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-            BounceButton(
-                onClick = {
-                    val chosen = nodes.filter { picked[it.hostname] == true }
-                    if (user.isBlank() || pass.isBlank()) {
-                        status = t("ws_need_creds")
-                        return@BounceButton
-                    }
-                    if (chosen.isEmpty()) {
-                        status = t("ws_need_host")
-                        return@BounceButton
-                    }
-                    store.addToLocalSub(
-                        WindscribeBrand.SUB_NAME,
-                        chosen.map { node ->
-                            ProxyConfig(
-                                name = node.label,
-                                protocol = "ikev2",
-                                address = node.ip.ifBlank { node.hostname },
-                                port = 500,
-                                uuid = user.trim(),
-                                password = pass.trim(),
-                                sni = node.hostname,
-                                network = "ikev2",
-                                security = "none",
-                                source = ConfigSource.COMMUNITY
-                            )
-                        }
-                    )
-                    picked.clear()
-                    status = t("ws_added").format(chosen.size)
-                },
-                enabled = count > 0 && user.isNotBlank() && pass.isNotBlank(),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    if (count > 0) t("ws_add_n").format(localizeDigits("$count", lang))
-                    else t("add"),
-                    maxLines = 1
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun WindscribeLocationsHeader(
-    title: String,
-    total: Int,
-    chosen: Int,
-    expanded: Boolean,
-    searchOpen: Boolean,
-    allSelected: Boolean,
-    onSelectAll: () -> Unit,
-    onToggle: () -> Unit,
-    onToggleSearch: () -> Unit,
-    query: String,
-    onQuery: (String) -> Unit,
-    searchLabel: String
-) {
-    val lang = LocalLang.current
-    val rot by animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
-        label = "wsOuterChevron"
-    )
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(22.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
-    ) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(22.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onToggle() }
-                    .padding(
-                        start = 16.dp,
-                        end = 8.dp,
-                        top = 14.dp,
-                        bottom = if (expanded && searchOpen) 2.dp else 14.dp
-                    ),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    mixedText(title),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    if (chosen > 0)
-                        localizeDigits("$chosen", lang) + " / " + localizeDigits("$total", lang)
-                    else localizeDigits("$total", lang),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (chosen > 0) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                AnimatedVisibility(
-                    visible = expanded,
-                    enter = fadeIn(tween(180)) + expandHorizontally(tween(200)),
-                    exit = fadeOut(tween(120)) + shrinkHorizontally(tween(160))
-                ) {
-                    Icon(
-                        if (allSelected) Icons.Filled.Deselect else Icons.Filled.SelectAll,
-                        contentDescription = null,
-                        tint = if (allSelected) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(start = 6.dp)
-                            .clip(CircleShape)
-                            .clickable { onSelectAll() }
-                            .padding(6.dp)
-                            .size(19.dp)
-                    )
-                }
-                AnimatedVisibility(
-                    visible = expanded,
-                    enter = fadeIn(tween(180)) + expandHorizontally(tween(200)),
-                    exit = fadeOut(tween(120)) + shrinkHorizontally(tween(160))
-                ) {
-                    Icon(
-                        if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = if (searchOpen) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier
-                            .clip(CircleShape)
-                            .clickable { onToggleSearch() }
-                            .padding(6.dp)
-                            .size(19.dp)
-                    )
-                }
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(start = 6.dp, end = 6.dp)
-                        .size(20.dp)
-                        .graphicsLayer { rotationZ = rot }
-                )
-            }
-
-            AnimatedVisibility(
-                visible = expanded && searchOpen,
-                enter = fadeIn(tween(180)) +
-                        expandVertically(tween(220, easing = FastOutSlowInEasing)),
-                exit = fadeOut(tween(120)) +
-                        shrinkVertically(tween(180, easing = FastOutSlowInEasing))
-            ) {
-                OutlinedTextField(
-                    query, onQuery,
-                    label = { Text(searchLabel) },
-                    singleLine = true,
-                    shape = RoundedCornerShape(16.dp),
-                    modifier = Modifier.fillMaxWidth()
-                        .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun WindscribeServerRow(
-    label: String,
-    selected: Boolean,
-    accent: Color,
-    onClick: () -> Unit
-) {
-    val onAccent = Color.White
-    val shape = RoundedCornerShape(14.dp)
-    var center by remember { mutableStateOf(Offset.Zero) }
-    var sz by remember { mutableStateOf(IntSize.Zero) }
-
-    val maxR = remember(center, sz) {
-        val dx = maxOf(center.x, sz.width - center.x)
-        val dy = maxOf(center.y, sz.height - center.y)
-        sqrt(dx * dx + dy * dy)
-    }
-    val radius by animateFloatAsState(
-        targetValue = if (selected) maxR else 0f,
-        animationSpec = tween(if (selected) 480 else 300, easing = FastOutSlowInEasing),
-        label = "wsRowFill"
-    )
-    val frac = if (maxR > 0f) (radius / maxR).coerceIn(0f, 1f) else 0f
-    val textColor = lerp(MaterialTheme.colorScheme.onSurface, onAccent, frac)
-
-    Box(
-        Modifier.fillMaxWidth()
-            .clip(shape)
-            .onGloballyPositioned {
-                sz = it.size
-                if (center == Offset.Zero) center = Offset(it.size.width / 2f, it.size.height / 2f)
-            }
-            .drawBehind {
-                if (radius > 0.5f) drawCircle(color = accent, radius = radius, center = center)
-            }
-            .border(
-                1.dp,
-                lerp(
-                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
-                    accent.copy(alpha = 0.65f),
-                    frac
-                ),
-                shape
-            )
-            .pointerInput(Unit) {
-                detectTapGestures(onPress = { center = it }, onTap = { onClick() })
-            }
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                mixedText(label),
-                style = MaterialTheme.typography.bodyMedium,
-                color = textColor,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Icon(
-                Icons.Filled.Check,
-                contentDescription = null,
-                tint = textColor.copy(alpha = frac),
-                modifier = Modifier.size(18.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun WindscribeCountryCard(
-    country: String,
-    total: Int,
-    chosen: Int,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    val lang = LocalLang.current
-    val rot by animateFloatAsState(
-        targetValue = if (expanded) 90f else 0f,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
-        label = "wsChevron"
-    )
-    val accent = FlagColors.of(country) ?: MaterialTheme.colorScheme.primary
-    val border by animateColorAsState(
-        targetValue = if (chosen > 0) accent.copy(alpha = 0.75f)
-        else MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-        animationSpec = tween(320, easing = FastOutSlowInEasing),
-        label = "wsBorder"
-    )
-    Card(
-        modifier = modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
-        ),
-        border = BorderStroke(1.dp, border)
-    ) {
-        Column(Modifier.fillMaxWidth()) {
-            Row(
-                Modifier.fillMaxWidth()
-                    .clip(RoundedCornerShape(20.dp))
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null
-                    ) { onToggle() }
-                    .padding(horizontal = 14.dp, vertical = 13.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CountryFlag(country, height = 16.dp)
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    mixedText(countryName(country).ifBlank { country.uppercase() }),
-                    style = MaterialTheme.typography.bodyLarge,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    if (chosen > 0)
-                        localizeDigits("$chosen", lang) + " / " + localizeDigits("$total", lang)
-                    else localizeDigits("$total", lang),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    color = if (chosen > 0) accent
-                    else MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(Modifier.width(8.dp))
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = rot }
-                )
-            }
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn(tween(180)) +
-                        expandVertically(tween(220, easing = FastOutSlowInEasing)),
-                exit = fadeOut(tween(120)) +
-                        shrinkVertically(tween(180, easing = FastOutSlowInEasing))
-            ) {
-                Column(
-                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                    content = content
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun TorNodesScreen(store: ConfigStore, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val ready = remember { TorController.available(context) }
-    var picked by remember { mutableStateOf(setOf<String>()) }
-    val configs by store.configs.collectAsState()
-    val selectedId by store.selectedId.collectAsState()
-    val base = configs.find { it.id == selectedId && it.protocol != "tor" }
-        ?: configs.firstOrNull { it.protocol != "tor" && it.protocol != "aether" }
-    val baseId = base?.id ?: ""
-    var throughVpn by remember { mutableStateOf(false) }
-    var status by remember { mutableStateOf("") }
-    var statusOwner by remember { mutableStateOf("") }
-
-    LaunchedEffect(status) { if (status.isNotEmpty()) { delay(3000); status = "" } }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            t("tor_nodes_intro"),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        if (!ready) {
-            InfoBox(
-                t("proj_tor_missing"),
-                accent = MaterialTheme.colorScheme.error,
-                centered = true
-            )
-        }
-
-        SettingsGroup {
-            SettingRow(
-                title = t("tor_through_vpn"),
-                subtitle = t("tor_through_vpn_sub"),
-                checked = throughVpn,
-                onCheckedChange = { throughVpn = it }
-            )
-            if (throughVpn) {
-                Text(
-                    if (base != null) t("tor_base_is").format(base.name) else t("tor_base_none"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (base != null) MaterialTheme.colorScheme.onSurfaceVariant
-                    else MaterialTheme.colorScheme.error
-                )
-            }
-        }
-
-        TorCountryGroup(t("tor_exit_country")) {
-            TorController.Countries.filter { it.first.isNotEmpty() }.forEach { (code, label) ->
-                val on = code in picked
-                val boxTint by animateColorAsState(
-                    targetValue = if (on) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    animationSpec = tween(300, easing = FastOutSlowInEasing),
-                    label = "torCountryTint"
-                )
-                val boxFill by animateFloatAsState(
-                    targetValue = if (on) 1f else 0f,
-                    animationSpec = tween(300, easing = FastOutSlowInEasing),
-                    label = "torCountryFill"
-                )
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(boxTint.copy(alpha = 0.05f + 0.09f * boxFill))
-                        .border(
-                            1.dp,
-                            boxTint.copy(alpha = 0.16f + 0.36f * boxFill),
-                            RoundedCornerShape(14.dp)
-                        )
-                        .clickable {
-                            picked = if (on) picked - code else picked + code
-                        }
-                        .padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    CountryFlag(code, height = 14.dp)
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f)
-                    )
-                    SmoothCheckbox(checked = on)
-                }
-            }
-        }
-
-        BounceButton(
-            onClick = {
-                if (!ready) { status = t("proj_tor_missing"); return@BounceButton }
-                val list = if (picked.isEmpty()) listOf("") else picked.toList()
-                list.forEach { code ->
-                    val label = TorController.Countries.firstOrNull { it.first == code }?.second
-                    store.add(
-                        ProxyConfig(
-                            name = if (code.isEmpty()) "Tor" else "Tor - " + (label ?: code),
-                            protocol = "tor",
-                            address = "127.0.0.1",
-                            port = TorController.SOCKS_PORT,
-                            torCountry = code,
-                            torThroughVpn = throughVpn,
-                            torBaseId = if (throughVpn) baseId else "",
-                            source = ConfigSource.COMMUNITY
-                        )
-                    )
-                }
-                status = t("proj_tor_added")
-            },
-            enabled = ready && (!throughVpn || base != null),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                if (picked.isEmpty()) t("tor_add_auto")
-                else t("tor_add_n").format(localizeDigits("${picked.size}", LocalLang.current)),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false
-            )
-        }
-
-        AnimatedVisibility(
-            visible = status.isNotEmpty(),
-            enter = fadeIn(tween(220)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(160)) + shrinkVertically(tween(220, easing = FastOutSlowInEasing))
-        ) {
-            InfoBox(status, centered = true)
-        }
-    }
-}
-
-@Composable
-private fun SmoothCheckbox(checked: Boolean, modifier: Modifier = Modifier) {
-    val tint = MaterialTheme.colorScheme.primary
-    val idle = MaterialTheme.colorScheme.onSurfaceVariant
-    val mark = MaterialTheme.colorScheme.onPrimary
-    val p by animateFloatAsState(
-        targetValue = if (checked) 1f else 0f,
-        animationSpec = tween(320, easing = FastOutSlowInEasing),
-        label = "checkboxFill"
-    )
-    Canvas(modifier.size(22.dp)) {
-        val stroke = 1.6.dp.toPx()
-        val radius = 7.dp.toPx()
-        drawRoundRect(
-            color = lerp(idle.copy(alpha = 0.50f), tint, p),
-            topLeft = Offset(stroke / 2f, stroke / 2f),
-            size = Size(size.width - stroke, size.height - stroke),
-            cornerRadius = CornerRadius(radius, radius),
-            style = Stroke(width = stroke)
-        )
-        if (p > 0.004f) {
-            val grow = size.minDimension * p
-            drawRoundRect(
-                color = tint.copy(alpha = p),
-                topLeft = Offset((size.width - grow) / 2f, (size.height - grow) / 2f),
-                size = Size(grow, grow),
-                cornerRadius = CornerRadius(radius * p, radius * p)
-            )
-            val tick = Path().apply {
-                moveTo(size.width * 0.27f, size.height * 0.52f)
-                lineTo(size.width * 0.44f, size.height * 0.70f)
-                lineTo(size.width * 0.75f, size.height * 0.32f)
-            }
-            val pm = PathMeasure().apply { setPath(tick, false) }
-            val seg = Path()
-            pm.getSegment(0f, pm.length * p, seg, true)
-            drawPath(
-                seg,
-                color = mark.copy(alpha = p),
-                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
-            )
-        }
-    }
-}
-
-@Composable
-private fun CheckHostScreen(modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val scope = rememberCoroutineScope()
-    val focus = LocalFocusManager.current
-    var host by remember { mutableStateOf("") }
-    var kind by remember { mutableStateOf("ping") }
-    var running by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf("") }
-    val currentIp by LocationFetcher.lastIp.collectAsState()
-    var touched by remember { mutableStateOf(false) }
-
-    LaunchedEffect(currentIp) {
-        if (!touched && currentIp.isNotBlank()) host = currentIp
-    }
-    var nodes by remember { mutableStateOf(listOf<CheckHost.Node>()) }
-    var info by remember { mutableStateOf<CheckHost.IpInfo?>(null) }
-    val results = remember { mutableStateMapOf<String, CheckHost.NodeResult>() }
-
-    fun run() {
-        val target = host.trim()
-        if (running || target.isEmpty()) return
-        focus.clearFocus()
-        running = true
-        error = ""
-        nodes = emptyList()
-        info = null
-        results.clear()
-        scope.launch {
-            launch { info = CheckHost.ipInfo(target) }
-            val ok = CheckHost.run(
-                host = target,
-                kind = kind,
-                onNodes = { list ->
-                    nodes = list
-                    list.forEach { results[it.id] = CheckHost.NodeResult.Pending }
-                },
-                onResults = { map -> map.forEach { (k, v) -> results[k] = v } }
-            )
-            if (!ok) error = t("chk_failed")
-            running = false
-        }
-    }
-
-    Column(
-        modifier.fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { focus.clearFocus() }
-            .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        OutlinedTextField(
-            value = host,
-            onValueChange = { host = it; touched = true },
-            singleLine = true,
-            label = { Text(t("chk_host")) },
-            placeholder = {
-                Text(
-                    mixedText(currentIp.ifEmpty { "example.com" }),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            },
-            textStyle = LocalTextStyle.current.copy(
-                fontFamily = if (LocalLang.current == Lang.FA) VazirFont else LexendFont
-            ),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
-            keyboardActions = KeyboardActions(onGo = { run() }, onDone = { focus.clearFocus() }),
-            trailingIcon = {
-                if (host.isNotEmpty()) {
-                    Icon(
-                        Icons.Filled.Close,
-                        contentDescription = null,
-                        modifier = Modifier.clickable { host = ""; touched = true; focus.clearFocus() }
-                    )
-                }
-            },
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            listOf("ping" to t("chk_ping"), "http" to t("chk_http"), "tcp" to t("chk_tcp")).forEach { (k, label) ->
-                val on = kind == k
-                BounceOutlinedButton(
-                    onClick = { kind = k },
-                    minHeight = 40.dp,
-                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
-                    accent = if (on) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Text(mixedText(label), maxLines = 1, style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
-
-        BounceButton(
-            onClick = { run() },
-            enabled = !running && host.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(
-                if (running) t("chk_running") else t("chk_start"),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false
-            )
-        }
-
-        if (error.isNotEmpty()) {
-            Text(
-                error,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-
-        info?.let { i ->
-            SettingsGroup(t("chk_info")) {
-                listOf(
-                    t("chk_ip") to i.ip,
-                    t("chk_asn") to i.asn,
-                    t("chk_org") to i.org,
-                    t("chk_country") to i.country,
-                    t("chk_region") to i.region,
-                    t("chk_city") to i.city,
-                    t("chk_tz") to i.timezone
-                ).filter { it.second.isNotBlank() && it.second != " ()" && it.second != ", " }
-                    .forEach { (k, v) ->
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(
-                                k,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.width(96.dp)
-                            )
-                            if (k == t("chk_country") && i.countryCode.length == 2) {
-                                CountryFlag(i.countryCode, height = 12.dp)
-                                Spacer(Modifier.width(7.dp))
-                            }
-                            Text(
-                                monoText(v),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
-                    }
-            }
-        }
-
-        if (nodes.isNotEmpty()) {
-            SettingsGroup {
-                nodes.forEach { node ->
-                    val res = results[node.id] ?: CheckHost.NodeResult.Pending
-                    val tint = when (res) {
-                        is CheckHost.NodeResult.Ok -> AppGreen
-                        is CheckHost.NodeResult.Failed -> Color(0xFFE0413C)
-                        else -> MaterialTheme.colorScheme.primary
-                    }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        RadarDot(tint, res is CheckHost.NodeResult.Pending)
-                        Spacer(Modifier.width(8.dp))
-                        Row(
-                            Modifier.weight(1f),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            if (node.countryCode.length == 2) {
-                                CountryFlag(node.countryCode, height = 13.dp)
-                                Spacer(Modifier.width(7.dp))
-                            }
-                            Text(
-                                mixedText(node.city.ifEmpty { node.country.ifEmpty { node.id } }),
-                                style = MaterialTheme.typography.bodyMedium,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            if (node.city.isNotEmpty() && node.country.isNotEmpty()) {
-                                Spacer(Modifier.width(6.dp))
-                                Text(
-                                    mixedText(node.country),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f, fill = false)
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(10.dp))
-                        Row(
-                            Modifier.clip(RoundedCornerShape(8.dp))
-                                .background(tint.copy(alpha = 0.14f))
-                                .border(1.dp, tint.copy(alpha = 0.42f), RoundedCornerShape(8.dp))
-                                .padding(horizontal = 7.dp, vertical = 4.dp)
-                                .animateContentSize(tween(320, easing = FastOutSlowInEasing)),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                when (res) {
-                                    is CheckHost.NodeResult.Ok -> localizeDigits(
-                                        String.format(
-                                            java.util.Locale.US,
-                                            if (res.avgMs < 10) "%.1f" else "%.0f",
-                                            res.avgMs
-                                        ), lang
-                                    ) + " " + t("unit_ms")
-                                    is CheckHost.NodeResult.Failed -> t("netmon_down")
-                                    else -> t("testing")
-                                },
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = tint,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun NetRadarRow(site: NetMonitor.Site, st: NetMonitor.State) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val target = when (st) {
-        is NetMonitor.State.Reachable -> AppGreen
-        is NetMonitor.State.Sanctioned -> Color(0xFFFFA94D)
-        is NetMonitor.State.Unreachable -> Color(0xFFE0413C)
-        is NetMonitor.State.Testing -> MaterialTheme.colorScheme.primary
-        else -> MaterialTheme.colorScheme.onSurfaceVariant
-    }
-    val tint by animateColorAsState(target, tween(400), label = "radarTint")
-    val label = when (st) {
-        is NetMonitor.State.Reachable -> t("netmon_up")
-        is NetMonitor.State.Sanctioned -> t("netmon_sanctioned")
-        is NetMonitor.State.Unreachable -> t("netmon_down")
-        is NetMonitor.State.Testing -> t("testing")
-        else -> "\u2014"
-    }
-
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        RadarDot(tint, st is NetMonitor.State.Testing)
-        Spacer(Modifier.width(8.dp))
-        Column(Modifier.weight(1f)) {
-            Text(mixedText(site.name), style = MaterialTheme.typography.bodyMedium)
-            Text(
-                scriptRuns(site.host, MonoFont),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Spacer(Modifier.width(10.dp))
-        Row(
-            Modifier.clip(RoundedCornerShape(9.dp))
-                .background(tint.copy(alpha = 0.12f))
-                .border(1.dp, tint.copy(alpha = 0.38f), RoundedCornerShape(9.dp))
-                .padding(horizontal = 8.dp, vertical = 5.dp)
-                .animateContentSize(tween(320, easing = FastOutSlowInEasing)),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AnimatedVisibility(
-                visible = st is NetMonitor.State.Reachable,
-                enter = fadeIn(tween(280)) + expandHorizontally(tween(320)),
-                exit = fadeOut(tween(160)) + shrinkHorizontally(tween(240))
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        if (st is NetMonitor.State.Reachable)
-                            localizeDigits("${st.ms}", lang) + " " + t("unit_ms") else "",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = tint.copy(alpha = 0.85f),
-                        maxLines = 1
-                    )
-                    Spacer(Modifier.width(6.dp))
-                }
-            }
-            Crossfade(targetState = label, animationSpec = tween(300), label = "radarLabel") { l ->
-                Text(
-                    l,
-                    style = MaterialTheme.typography.labelSmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = tint,
-                    maxLines = 1
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun RadarDot(tint: Color, pulsing: Boolean) {
-    val transition = rememberInfiniteTransition(label = "radarDot")
-    val ripple by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
-        label = "radarRipple"
-    )
-    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-        if (pulsing) {
-            Box(
-                Modifier
-                    .size(24.dp)
-                    .graphicsLayer {
-                        val sc = 0.40f + ripple * 0.60f
-                        scaleX = sc; scaleY = sc
-                        alpha = (1f - ripple) * 0.6f
-                    }
-                    .background(Brush.radialGradient(listOf(tint, Color.Transparent)), CircleShape)
-            )
-        }
-        Box(
-            Modifier
-                .size(16.dp)
-                .background(
-                    Brush.radialGradient(listOf(tint.copy(alpha = 0.40f), Color.Transparent)),
-                    CircleShape
-                )
-        )
-        Box(Modifier.size(9.dp).clip(CircleShape).background(tint))
-    }
-}
-
-@Composable
-private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val states by RadarRunner.states.collectAsState()
-    val running by RadarRunner.running.collectAsState()
-    val conn by VpnState.state.collectAsState()
-    val viaTunnel = conn == Connection.CONNECTED
-
-    fun run() {
-        if (!running) RadarRunner.start(viaTunnel)
-    }
-
-    LaunchedEffect(Unit) {
-        if (states.isEmpty() && !running) RadarRunner.start(viaTunnel)
-    }
-
-    val reachable = states.values.count { it is NetMonitor.State.Reachable }
-    val done = states.values.count { it !is NetMonitor.State.Testing }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            InfoBox(
-                if (viaTunnel) t("netmon_via_tunnel") else t("netmon_via_direct"),
-                accent = if (viaTunnel) AppGreen else MaterialTheme.colorScheme.primary,
-                modifier = Modifier.weight(1f)
-            )
-            val spin = rememberInfiniteTransition(label = "radarSpin")
-            val angle by spin.animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1100, easing = LinearEasing)
-                ),
-                label = "radarSpinAngle"
-            )
-            BounceIconButton(onClick = { run() }, enabled = !running) {
-                Icon(
-                    Icons.Filled.Autorenew,
-                    contentDescription = t("netmon_recheck"),
-                    tint = if (running) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
-                    else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(21.dp)
-                        .graphicsLayer { rotationZ = if (running) angle else 0f }
-                )
-            }
-        }
-
-        SettingsGroup {
-            NetMonitor.Essential.forEach { site ->
-                NetRadarRow(site, states[site.host] ?: NetMonitor.State.Idle)
-            }
-        }
-
-        Text(
-            t("netmon_summary").format(
-                localizeDigits("$reachable", lang),
-                localizeDigits("${NetMonitor.Essential.size}", lang)
-            ),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        SettingsHubCard(
-            icon = Icons.Filled.Apps,
-            title = t("netcat_title"),
-            subtitle = t("netcat_sub"),
-            onClick = onOpenCategories
-        )
-    }
-}
-
-@Composable
-private fun NetCategoriesScreen(onOpen: (Int) -> Unit, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        NetMonitor.Categories.forEachIndexed { i, cat ->
-            SettingsHubCard(
-                icon = when (cat.icon) {
-                    "ai" -> Icons.Filled.SmartToy
-                    "social" -> Icons.Filled.Groups
-                    "gaming" -> Icons.Filled.SportsEsports
-                    "trading" -> Icons.Filled.TrendingUp
-                    "news" -> Icons.AutoMirrored.Filled.Article
-                    else -> null
-                },
-                iconRes = if (cat.icon == "iranian") R.drawable.iran else null,
-                title = t(cat.key),
-                subtitle = t("netcat_count").format(
-                    localizeDigits("${cat.sites.size}", LocalLang.current)
-                ),
-                onClick = { onOpen(i) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun NetCategoryScreen(index: Int, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val scope = rememberCoroutineScope()
-    val cat = NetMonitor.Categories.getOrNull(index) ?: return
-    val states = remember(index) { mutableStateMapOf<String, NetMonitor.State>() }
-    val conn by VpnState.state.collectAsState()
-    val viaTunnel = conn == Connection.CONNECTED
-
-    LaunchedEffect(index) {
-        cat.sites.forEach { states[it.host] = NetMonitor.State.Testing }
-        NetMonitor.probeAll(viaTunnel, cat.sites) { site, state -> states[site.host] = state }
-    }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            if (viaTunnel) t("netmon_via_tunnel") else t("netmon_via_direct"),
-            style = MaterialTheme.typography.bodySmall,
-            color = if (viaTunnel) AppGreen else MaterialTheme.colorScheme.onSurfaceVariant
-        )
-        SettingsGroup {
-            cat.sites.forEach { site ->
-                NetRadarRow(site, states[site.host] ?: NetMonitor.State.Idle)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingsHubCard(
-    icon: ImageVector? = null,
-    title: String,
-    subtitle: String,
-    onClick: () -> Unit,
-    tint: Color? = null,
-    iconRes: Int? = null,
-    accents: List<String> = emptyList()
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, (tint ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.30f))
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
-                    .background((tint ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                val iconTint = tint ?: MaterialTheme.colorScheme.primary
-                if (iconRes != null) {
-                    Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        tint = iconTint,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else if (icon != null) {
-                    Icon(icon, contentDescription = null, tint = iconTint,
-                        modifier = Modifier.size(20.dp))
-                }
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(mixedText(title), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    if (accents.isEmpty()) mixedText(subtitle)
-                    else accentText(subtitle, *accents.toTypedArray()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun SettingsScreen(
-    store: ConfigStore,
-    scrollState: ScrollState,
-    onOpenUsage: () -> Unit,
-    onOpenTools: () -> Unit,
-    onOpenConnection: () -> Unit,
-    onOpenPreferences: () -> Unit,
-    onOpenAbout: () -> Unit,
-    onOpenNetMon: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val usage by UsageStore.usage.collectAsState()
-    val allTime = remember(usage) { UsageStore.totalAll(usage) }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        SettingsHubCard(
-            icon = Icons.Filled.DataUsage,
-            title = t("data_usage"),
-            subtitle = formatBytes(allTime[0] + allTime[1], lang),
-            onClick = onOpenUsage
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.TravelExplore,
-            title = t("netmon_title"),
-            subtitle = t("netmon_sub"),
-            onClick = onOpenNetMon
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Build,
-            title = t("tools"),
-            subtitle = t("tools_sub"),
-            onClick = onOpenTools
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Router,
-            title = t("connection_settings"),
-            subtitle = t("connection_settings_sub"),
-            onClick = onOpenConnection
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Tune,
-            title = t("preferences"),
-            subtitle = t("preferences_sub"),
-            onClick = onOpenPreferences
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Info,
-            title = t("about"),
-            subtitle = t("about_sub"),
-            onClick = onOpenAbout
-        )
-
-        BackupRow(store)
-    }
-}
-
-@Composable
-private fun BackupRow(store: ConfigStore) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-
-    var status by remember { mutableStateOf("") }
-    var statusOwner by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var pending by remember { mutableStateOf<ByteArray?>(null) }
-
-    LaunchedEffect(status) {
-        if (status.isNotEmpty()) { delay(3500); status = "" }
-    }
-
-    val saver = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument(ConfigFile.MIME)
-    ) { uri ->
-        if (uri != null) {
-            busy = true
-            scope.launch {
-                val ok = withContext(Dispatchers.IO) {
-                    runCatching {
-                        val data = ConfigFile.encodeBackup(
-                            context,
-                            store.configs.value,
-                            store.subscriptions.value,
-                            store.settingsSnapshot(),
-                            null
-                        )
-                        context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
-                        true
-                    }.getOrDefault(false)
-                }
-                status = if (ok) t("backup_done") else t("backup_failed")
-                busy = false
-            }
-        }
-    }
-
-    val opener = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            scope.launch {
-                val bytes = withContext(Dispatchers.IO) {
-                    runCatching {
-                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    }.getOrNull()
-                }
-                when {
-                    bytes == null || bytes.isEmpty() -> status = t("import_bad_file")
-                    runCatching { ConfigFile.isBackup(context, bytes, null) }
-                        .getOrDefault(false) -> pending = bytes
-                    else -> status = t("backup_not_backup")
-                }
-            }
-        }
-    }
-
-    Column(
-        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BounceOutlinedButton(
-                onClick = {
-                    if (!busy) {
-                        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
-                            .format(java.util.Date())
-                        saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
-                    }
-                },
-                enabled = !busy,
-                minHeight = 34.dp,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
-            ) {
-                Icon(
-                    Icons.Filled.FileUpload,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    t("backup_export"),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-            BounceOutlinedButton(
-                onClick = { opener.launch(arrayOf("*/*")) },
-                minHeight = 34.dp,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
-            ) {
-                Icon(
-                    Icons.Filled.FileDownload,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    t("backup_import"),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-        }
-        AnimatedVisibility(visible = status.isNotEmpty()) {
-            Text(
-                mixedText(status),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
-            )
-        }
-    }
-
-    pending?.let { bytes ->
-        GlassDialog(
-            onDismiss = { pending = null },
-            title = t("backup_import"),
-            confirmLabel = t("import_button"),
-            dismissLabel = t("cancel"),
-            accentOverride = AppGreen,
-            onConfirm = {
-                pending = null
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) {
-                        runCatching { ConfigFile.decodeBackup(context, bytes, null) }.getOrNull()
-                    }
-                    if (result == null) {
-                        status = t("import_bad_file")
-                    } else {
-                        store.restoreBackup(result.configs, result.subs, result.settings)
-                        status = localizeDigits(
-                            t("backup_restored").format(result.configs.size, result.subs.size),
-                            store.lang.value
-                        )
-                    }
-                }
-            }
-        ) {
-            Text(mixedText(t("backup_restore_q")), style = MaterialTheme.typography.bodyMedium)
-        }
-    }
-}
-
-@Composable
-private fun ToolsScreen(
-    store: ConfigStore,
-    onOpenStability: () -> Unit,
-    onOpenCleanIp: () -> Unit,
-    onOpenCheckHost: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val autoSelect by store.autoSelect.collectAsState()
-    val onionRouting by store.onionRouting.collectAsState()
-    val adBlock by store.adBlock.collectAsState()
-    val blockWhenOff by store.blockWhenOff.collectAsState()
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        SettingsHubCard(
-            icon = Icons.Filled.NetworkCheck,
-            title = t("stab_title"),
-            subtitle = t("stab_sub"),
-            onClick = onOpenStability
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Dns,
-            title = t("chk_title"),
-            subtitle = t("chk_sub"),
-            onClick = onOpenCheckHost
-        )
-        SettingsHubCard(
-            iconRes = R.drawable.cloudflare,
-            title = t("scan_warp"),
-            subtitle = t("scan_sub"),
-            onClick = onOpenCleanIp
-        )
-        SettingsGroup {
-            SettingRow(
-                title = t("adblock_title"),
-                subtitle = t("adblock_sub"),
-                checked = adBlock,
-                onCheckedChange = { store.setAdBlock(it) }
-            )
-            AnimatedVisibility(visible = adBlock) {
-                Box(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                            RoundedCornerShape(14.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
-                ) {
-                    SettingRow(
-                        title = t("adblock_always_title"),
-                        subtitle = t("adblock_always_sub"),
-                        checked = blockWhenOff,
-                        onCheckedChange = { store.setBlockWhenOff(it) }
-                    )
-                }
-            }
-            SettingRow(
-                title = t("onion_title"),
-                subtitle = t("onion_sub"),
-                checked = onionRouting,
-                onCheckedChange = { store.setOnionRouting(it) }
-            )
-            SettingRow(
-                title = t("smart_connect"),
-                subtitle = t("smart_connect_sub"),
-                checked = autoSelect,
-                onCheckedChange = { store.setAutoSelect(it) }
-            )
-        }
-    }
-}
-
-@Composable
-private fun TorCountryGroup(
-    title: String,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            Text(
-                title,
-                style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
-            )
-            content()
-        }
-    }
-}
-
-@Composable
-private fun ConfigDebuggerScreen(
-    store: ConfigStore,
-    onSwitch: (ProxyConfig) -> Unit,
-    active: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val configs by store.configs.collectAsState()
-    val selectedId by store.selectedId.collectAsState()
-    val config = configs.find { it.id == selectedId }
-
-    if (config == null) {
-        Column(
-            modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            SettingsGroup {
-                Text(
-                    t("dbg_no_config"),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-        return
-    }
-
-    val staticChecks = remember(config) { ConfigDebug.inspect(config) }
-
-    var tick by remember { mutableStateOf(0) }
-    var connecting by remember(config.id) { mutableStateOf(false) }
-    val allResults by DebugRunner.results.collectAsState()
-    val runningIds by DebugRunner.running.collectAsState()
-    val result = allResults[config.id]
-    val testing = runningIds.contains(config.id)
-
-    LaunchedEffect(config.id, tick, active) {
-        if (!active) return@LaunchedEffect
-        if (tick == 0) return@LaunchedEffect
-        if (VpnState.activeId.value != config.id ||
-            VpnState.state.value != Connection.CONNECTED
-        ) {
-            connecting = true
-            onSwitch(config)
-            withTimeoutOrNull(30000) {
-                VpnState.state.first {
-                    (it == Connection.CONNECTED && VpnState.activeId.value == config.id) ||
-                            it == Connection.ERROR
-                }
-            }
-            connecting = false
-        }
-        DebugRunner.start(config, store)
-    }
-
-    val info = result?.info
-    var shownInfo by remember(config.id) { mutableStateOf<ProbeInfo?>(null) }
-    if (info != null) shownInfo = info
-
-    val checks = staticChecks + (result?.findings ?: emptyList())
-    val problems = checks.filter { it.level != DebugLevel.OK }
-    val broken = checks.count { it.level == DebugLevel.BAD }
-    val warned = checks.count { it.level == DebugLevel.WARN }
-    val state = result?.state ?: DebugState.TIMEOUT
-    val pingMs = result?.pingMs ?: -1
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-
-    val stateColor = when {
-        testing || result == null -> MaterialTheme.colorScheme.primary
-        state == DebugState.HEALTHY -> AppGreen
-        state == DebugState.TIMEOUT -> if (dark) Color(0xFFFFC24D) else Color(0xFF9A6B00)
-        state == DebugState.BLOCKED -> if (dark) Color(0xFFFF8A3D) else Color(0xFFD2620F)
-        state == DebugState.OFFLINE -> if (dark) Color(0xFF8A93A5) else Color(0xFF6B7484)
-        else -> MaterialTheme.colorScheme.error
-    }
-    val stateLabel = when {
-        connecting -> t("dbg_connecting")
-        testing || result == null -> t("dbg_testing")
-        state == DebugState.HEALTHY -> t("dbg_healthy")
-        state == DebugState.TIMEOUT -> t("dbg_timeout")
-        state == DebugState.BLOCKED -> t("dbg_blocked")
-        state == DebugState.OFFLINE -> t("dbg_offline")
-        else -> t("dbg_broken")
-    }
-    val tint by animateColorAsState(stateColor, tween(400), label = "dbgState")
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        SettingsGroup {
-            Row(
-                Modifier.animateContentSize(tween(320, easing = FastOutSlowInEasing)),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                RadarDot(tint, testing)
-                Spacer(Modifier.width(8.dp))
-                Column(Modifier.weight(1f)) {
-                    if (config.locked) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Filled.Lock,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(13.dp)
-                            )
-                            Spacer(Modifier.width(4.dp))
-                            Box(Modifier.weight(1f)) {
-                                MarqueeName(config.name, MaterialTheme.typography.titleSmall)
-                            }
-                        }
-                    } else {
-                        MarqueeName(config.name, MaterialTheme.typography.titleSmall)
-                    }
-                    Text(
-                        if (config.locked) AnnotatedString(t("locked_config"))
-                        else monoText(
-                            localizeDigits(
-                                "${config.protocol} \u00b7 ${config.address}:${config.port}", lang
-                            )
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                BounceIconButton(onClick = { if (!testing) tick++ }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = t("dbg_recheck"))
-                }
-            }
-        }
-
-        SettingsGroup(t("dbg_state")) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                AnimatedContent(
-                    targetState = stateLabel,
-                    transitionSpec = {
-                        (slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it / 2 } +
-                                fadeIn(tween(320))) togetherWith
-                                (slideOutVertically(tween(320, easing = FastOutSlowInEasing)) { -it / 2 } +
-                                        fadeOut(tween(180)))
-                    },
-                    label = "dbgStateLabel",
-                    modifier = Modifier.weight(1f)
-                ) { label ->
-                    Text(
-                        label,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = tint
-                    )
-                }
-                Row(
-                    Modifier.clip(RoundedCornerShape(9.dp))
-                        .background(tint.copy(alpha = 0.12f))
-                        .border(1.dp, tint.copy(alpha = 0.38f), RoundedCornerShape(9.dp))
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        monoText(
-                            t("dbg_ping") + "  " + localizeDigits("$pingMs", lang) +
-                                    if (pingMs >= 0) " " + t("unit_ms") else ""
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = tint,
-                        maxLines = 1
-                    )
-                }
-            }
-            Text(
-                if (broken == 0 && warned == 0) t("dbg_all_ok")
-                else t("dbg_issues").format(
-                    localizeDigits("$broken", lang),
-                    localizeDigits("$warned", lang)
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        AnimatedVisibility(
-            visible = info != null,
-            enter = fadeIn(tween(340)) +
-                    slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it / 4 } +
-                    expandVertically(tween(340, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(220)) + shrinkVertically(tween(280, easing = FastOutSlowInEasing))
-        ) {
-            shownInfo?.let { info ->
-                SettingsGroup(t("dbg_info")) {
-                    DebugInfoRow(t("dbg_part_transport"), info.method)
-                    if (info.entryIp.isNotBlank() && !info.entryIp.equals(info.exitIp, true)) DebugInfoRow(
-                        t("dbg_part_entry"),
-                        listOf(info.entryIp, countryName(info.entryCountry), info.entryIsp)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" \u00b7 ")
-                    )
-                    DebugInfoRow(
-                        t("dbg_part_ip"),
-                        if (info.exitIp.isBlank()) t("dbg_exit_offline")
-                        else listOf(info.exitIp, countryName(info.exitCountry), info.exitIsp)
-                            .filter { it.isNotBlank() }
-                            .joinToString(" \u00b7 ")
-                    )
-                    DebugInfoRow(
-                        t("dbg_part_iptype"),
-                        info.kind.ifBlank { t("dbg_rep_unavailable") },
-                        if (info.flagged) MaterialTheme.colorScheme.error else null
-                    )
-                    DebugInfoRow(
-                        t("dbg_part_risk"),
-                        if (info.reputation < 0) t("dbg_rep_unavailable")
-                        else localizeDigits("${info.reputation} / 100", lang) + " \u00b7 " + info.repBand,
-                        when {
-                            info.reputation < 0 -> null
-                            info.reputation >= 60 -> AppGreen
-                            info.reputation >= 40 -> Color(0xFFFF8A3D)
-                            else -> MaterialTheme.colorScheme.error
-                        }
-                    )
-                    if (info.flags.isNotBlank()) DebugInfoRow(
-                        t("dbg_part_flags"), info.flags, MaterialTheme.colorScheme.error
-                    )
-                }
-            }
-        }
-
-        SettingsGroup(t("dbg_client_checks")) {
-            AnimatedVisibility(
-                visible = problems.isEmpty(),
-                enter = fadeIn(tween(280)) + expandVertically(tween(280, easing = FastOutSlowInEasing)),
-                exit = fadeOut(tween(160)) + shrinkVertically(tween(220, easing = FastOutSlowInEasing))
-            ) {
-                Text(
-                    t("dbg_all_ok"),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            problems.forEach { check ->
-                val color = when (check.level) {
-                    DebugLevel.OK -> AppGreen
-                    DebugLevel.WARN -> Color(0xFFFFA94D)
-                    DebugLevel.BAD -> MaterialTheme.colorScheme.error
-                }
-                val icon = when (check.level) {
-                    DebugLevel.OK -> Icons.Filled.CheckCircle
-                    DebugLevel.WARN -> Icons.Filled.Warning
-                    DebugLevel.BAD -> Icons.Filled.Cancel
-                }
-                Row(
-                    Modifier.fillMaxWidth()
-                        .animateContentSize(tween(300, easing = FastOutSlowInEasing)),
-                    verticalAlignment = Alignment.Top
-                ) {
-                    Icon(
-                        icon,
-                        contentDescription = null,
-                        tint = color,
-                        modifier = Modifier.padding(top = 2.dp).size(18.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            t(check.partKey),
-                            style = MaterialTheme.typography.bodyMedium
-                        )
-                        Text(
-                            if (check.level == DebugLevel.OK) check.value.ifBlank { "\u2014" }
-                            else t(check.noteKey),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (check.level == DebugLevel.OK)
-                                MaterialTheme.colorScheme.onSurfaceVariant else color
-                        )
-                        if (check.level != DebugLevel.OK && check.value.isNotBlank()) Text(
-                            monoText(check.value),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        ServerChecksGroup(config)
-        PanelChecksGroup(config)
-    }
-}
-
-@Composable
-private fun CollapsibleGroup(
-    title: String,
-    expanded: Boolean,
-    onToggle: () -> Unit,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-    ) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
-            Row(
-                Modifier.fillMaxWidth().clickable(
-                    interactionSource = remember { MutableInteractionSource() },
-                    indication = null
-                ) { onToggle() },
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    mixedText(title),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.weight(1f)
-                )
-                val angle by animateFloatAsState(
-                    targetValue = if (expanded) -90f else 0f,
-                    animationSpec = tween(260, easing = FastOutSlowInEasing),
-                    label = "groupChevron"
-                )
-                Icon(
-                    Icons.Filled.ChevronLeft,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = angle }
-                )
-            }
-            AnimatedVisibility(
-                visible = expanded,
-                enter = expandVertically(tween(280, easing = FastOutSlowInEasing)) +
-                        fadeIn(tween(200, delayMillis = 60)),
-                exit = shrinkVertically(tween(240, easing = FastOutSlowInEasing)) +
-                        fadeOut(tween(120))
-            ) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Spacer(Modifier.height(2.dp))
-                    content()
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ProbeCheckRow(check: DebugCheck, index: Int, stamp: Any?) {
-    val t = stringsFn()
-    val color = when (check.level) {
-        DebugLevel.OK -> AppGreen
-        DebugLevel.WARN -> Color(0xFFFFA94D)
-        DebugLevel.BAD -> MaterialTheme.colorScheme.error
-    }
-    val icon = when (check.level) {
-        DebugLevel.OK -> Icons.Filled.CheckCircle
-        DebugLevel.WARN -> Icons.Filled.Warning
-        DebugLevel.BAD -> Icons.Filled.Cancel
-    }
-    var shown by remember(stamp, index) { mutableStateOf(false) }
-    LaunchedEffect(stamp, index) {
-        delay(index * 45L)
-        shown = true
-    }
-    val fade by animateFloatAsState(
-        targetValue = if (shown) 1f else 0f,
-        animationSpec = tween(240, easing = FastOutSlowInEasing),
-        label = "probeFade"
-    )
-    val rise by animateFloatAsState(
-        targetValue = if (shown) 0f else 14f,
-        animationSpec = tween(280, easing = FastOutSlowInEasing),
-        label = "probeRise"
-    )
-    Row(
-        Modifier.fillMaxWidth().graphicsLayer { alpha = fade; translationY = rise },
-        verticalAlignment = Alignment.Top
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = color,
-            modifier = Modifier.padding(top = 2.dp).size(18.dp)
-        )
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(t(check.partKey), style = MaterialTheme.typography.bodyMedium)
-            Text(
-                if (check.noteKey.isBlank()) check.value.ifBlank { "\u2014" } else t(check.noteKey),
-                style = MaterialTheme.typography.bodySmall,
-                color = if (check.level == DebugLevel.OK)
-                    MaterialTheme.colorScheme.onSurfaceVariant else color
-            )
-            if (check.noteKey.isNotBlank() && check.value.isNotBlank()) Text(
-                monoText(check.value),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-@Composable
-private fun PanelChecksGroup(config: ProxyConfig) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val store = remember { SshStore.get(context) }
-    val scope = rememberCoroutineScope()
-
-    var expanded by remember(config.id) { mutableStateOf(false) }
-    var kind by remember(config.id) {
-        mutableStateOf(store.panelKind(config.id).ifBlank { "3x-ui" })
-    }
-    var url by remember(config.id) {
-        mutableStateOf(store.panelUrl(config.id).ifBlank { config.address })
-    }
-    var user by remember(config.id) { mutableStateOf(store.panelUser(config.id)) }
-    var pass by remember(config.id) { mutableStateOf(store.panelPass(config.id)) }
-    var showPass by remember(config.id) { mutableStateOf(false) }
-    var report by remember(config.id) { mutableStateOf<PanelReport?>(null) }
-    var probing by remember(config.id) { mutableStateOf(false) }
-
-    CollapsibleGroup(t("pnl_checks"), expanded, { expanded = !expanded }) {
-        LabeledDropdown(t("pnl_kind"), listOf("3x-ui", "pasarguard"), kind) { kind = it }
-        OutlinedTextField(
-            url, { url = it },
-            label = { Text(t("pnl_url")) },
-            singleLine = true,
-            textStyle = LocalTextStyle.current.copy(fontFamily = monoFont()),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            user, { user = it },
-            label = { Text(t("pnl_user")) },
-            singleLine = true,
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
-        OutlinedTextField(
-            pass, { pass = it },
-            label = { Text(t("pnl_pass")) },
-            singleLine = true,
-            visualTransformation = if (showPass) VisualTransformation.None
-            else PasswordVisualTransformation(),
-            trailingIcon = {
-                IconButton(onClick = { showPass = !showPass }) {
-                    Icon(
-                        if (showPass) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            },
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
-
-        report?.checks?.forEachIndexed { i, check -> ProbeCheckRow(check, i, report) }
-
-        BounceOutlinedButton(
-            onClick = {
-                store.savePanel(config.id, kind, url, user, pass)
-                probing = true
-                scope.launch {
-                    report = runCatching {
-                        PanelProbe.run(
-                            if (kind == "pasarguard") PanelKind.PASARGUARD else PanelKind.XUI,
-                            url, user, pass, config
-                        )
-                    }.getOrNull()
-                    probing = false
-                }
-            },
-            enabled = !probing && url.isNotBlank() && user.isNotBlank(),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (probing) t("pnl_running") else t("pnl_run"))
-        }
-    }
-}
-
-@Composable
-private fun ServerChecksGroup(config: ProxyConfig) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val sshStore = remember { SshStore.get(context) }
-    val hosts by sshStore.hosts.collectAsState()
-    val statuses by SshManager.status.collectAsState()
-    val scope = rememberCoroutineScope()
-
-    var hostId by remember(config.id) { mutableStateOf<String?>(null) }
-    LaunchedEffect(config.id, hosts) {
-        if (hosts.isEmpty()) {
-            hostId = null
-            return@LaunchedEffect
-        }
-        val saved = sshStore.linkedHostId(config.id)?.takeIf { id -> hosts.any { it.id == id } }
-        hostId = saved ?: ServerProbe.bestMatch(sshStore, config)?.id
-    }
-
-    val host = hosts.firstOrNull { it.id == hostId }
-    val connected = host != null && statuses[host.id] is SshStatus.Up
-
-    var report by remember(hostId) { mutableStateOf<ServerReport?>(null) }
-    var probing by remember(hostId) { mutableStateOf(false) }
-
-    var expanded by remember(config.id) { mutableStateOf(false) }
-    if (hosts.isEmpty() || host == null) return
-
-    CollapsibleGroup(t("srv_checks"), expanded, { expanded = !expanded }) {
-        if (hosts.size > 1) {
-            LabeledDropdown(
-                label = t("srv_host"),
-                options = hosts.map { it.title },
-                selected = host.title,
-                onSelect = { title ->
-                    hosts.firstOrNull { it.title == title }?.let {
-                        hostId = it.id
-                        sshStore.link(config.id, it.id)
-                    }
-                }
-            )
-        } else {
-            Text(
-                t("srv_via").format(host.title),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        report?.checks?.forEachIndexed { i, check -> ProbeCheckRow(check, i, report) }
-
-        BounceOutlinedButton(
-            onClick = {
-                probing = true
-                scope.launch {
-                    if (!connected) SshManager.connect(host)
-                    report = if (SshManager.isUp(host.id))
-                        runCatching { ServerProbe.run(host.id, config) }.getOrNull() else null
-                    probing = false
-                }
-            },
-            enabled = !probing,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Text(if (probing) t("srv_running") else t("srv_run"))
-        }
-    }
-}
-
-@Composable
-private fun DebugInfoRow(label: String, value: String, valueColor: Color? = null) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.width(118.dp),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-        Spacer(Modifier.width(8.dp))
-        Text(
-            monoText(value),
-            style = MaterialTheme.typography.labelSmall,
-            color = valueColor ?: MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
-
-@Composable
-private fun SettingsGroup(
-    title: String? = null,
-    content: @Composable ColumnScope.() -> Unit
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (title != null) {
-                Text(
-                    mixedText(title),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            content()
-        }
-    }
-}
-
-@Composable
-private fun ConnectionSettingsScreen(
-    store: ConfigStore,
-    onOpenPerApp: () -> Unit,
-    onOpenLogs: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val fragment by store.fragment.collectAsState()
-    val splitRouting by store.splitRouting.collectAsState()
-    val sniffing by store.sniffing.collectAsState()
-    val sniffTypes by store.sniffTypes.collectAsState()
-    val killSwitch by store.killSwitch.collectAsState()
-    val mux by store.mux.collectAsState()
-    val muxConcurrency by store.muxConcurrency.collectAsState()
-    val perAppMode by store.perAppMode.collectAsState()
-    val perAppList by store.perAppList.collectAsState()
-    val mixedPort by store.mixedPort.collectAsState()
-    val fakeDns by store.fakeDns.collectAsState()
-    val encryptedDns by store.encryptedDns.collectAsState()
-    val settingsContext = androidx.compose.ui.platform.LocalContext.current
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        SettingsGroup(t("routing")) {
-            SettingRow(
-                title = t("fakedns_title"),
-                subtitle = t("fakedns_sub"),
-                checked = fakeDns,
-                onCheckedChange = { store.setFakeDns(it) }
-            )
-            SettingRow(
-                title = t("encdns_title"),
-                subtitle = t("encdns_sub"),
-                checked = encryptedDns,
-                onCheckedChange = { store.setEncryptedDns(it) }
-            )
-            SettingRow(
-                title = t("split_title"),
-                subtitle = t("split_sub"),
-                checked = splitRouting,
-                onCheckedChange = { store.setSplitRouting(it) }
-            )
-            SettingRow(
-                title = t("fragment_title"),
-                subtitle = t("fragment_sub"),
-                checked = fragment,
-                onCheckedChange = { store.setFragment(it) }
-            )
-            SettingRow(
-                title = t("sniffing_title"),
-                subtitle = t("sniffing_sub"),
-                checked = sniffing,
-                onCheckedChange = { store.setSniffing(it) }
-            )
-            AnimatedVisibility(visible = sniffing) {
-                Column {
-                    Text(
-                        t("sniffing_type"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                    SniffTypeSelector(
-                        selected = sniffTypes,
-                        onToggle = { store.toggleSniffType(it) }
-                    )
-                }
-            }
-
-            SettingRow(
-                title = t("mux_title"),
-                subtitle = t("mux_sub"),
-                checked = mux,
-                onCheckedChange = { store.setMux(it) }
-            )
-            AnimatedVisibility(visible = mux) {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(t("mux_concurrency"), style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f))
-                    IconButton(onClick = { store.setMuxConcurrency(muxConcurrency - 1) }) {
-                        Icon(Icons.Filled.Remove, contentDescription = "-")
-                    }
-                    Text("$muxConcurrency", style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
-                    IconButton(onClick = { store.setMuxConcurrency(muxConcurrency + 1) }) {
-                        Icon(Icons.Filled.Add, contentDescription = "+")
-                    }
-                }
-            }
-
-            SettingRow(
-                title = t("kill_switch_title"),
-                subtitle = t("kill_switch_sub"),
-                checked = killSwitch,
-                onCheckedChange = { store.setKillSwitch(it) }
-            )
-            AnimatedVisibility(visible = killSwitch) {
-                Card(
-                    modifier = Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .clickable {
-                            runCatching {
-                                settingsContext.startActivity(
-                                    Intent("android.net.vpn.SETTINGS")
-                                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                )
-                            }.onFailure {
-                                runCatching {
-                                    settingsContext.startActivity(
-                                        Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
-                                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                                    )
-                                }
-                            }
-                        },
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-                    )
-                ) {
-                    Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Lock, contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(t("always_on_title"), style = MaterialTheme.typography.bodyMedium,
-                                fontWeight = FontWeight.SemiBold)
-                            Text(t("always_on_sub"), style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Icon(Icons.Filled.ChevronRight, contentDescription = null)
-                    }
-                }
-            }
-
-        }
-
-        SettingsGroup(t("advanced")) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(t("mixed_port"), style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        t("mixed_port_sub"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                val focus = LocalFocusManager.current
-                var portText by remember(mixedPort) { mutableStateOf(mixedPort.toString()) }
-                BasicTextField(
-                    value = portText,
-                    onValueChange = { raw ->
-                        val digits = raw.filter { it.isDigit() }.take(5)
-                        portText = digits
-                        digits.toIntOrNull()?.let { if (it in 1024..65535) store.setMixedPort(it) }
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = monoFont(),
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-                    modifier = Modifier.width(78.dp).height(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                            RoundedCornerShape(10.dp)
-                        )
-                        .padding(horizontal = 8.dp),
-                    decorationBox = { inner ->
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { inner() }
-                    }
-                )
-            }
-        }
-
-        SettingsHubCard(
-            icon = Icons.Filled.Apps,
-            title = t("per_app"),
-            subtitle = perAppSummary(perAppMode, perAppList.size, lang),
-            onClick = onOpenPerApp
-        )
-
-        SettingsHubCard(
-            icon = Icons.AutoMirrored.Filled.Article,
-            title = t("xray_logs"),
-            subtitle = t("xray_logs_sub"),
-            onClick = onOpenLogs
-        )
-
-        Text(
-            t("takes_effect"),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
-        )
-    }
-}
-
-@Composable
-private fun PreferencesScreen(
-    store: ConfigStore,
-    onOpenTheme: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val curLang by store.lang.collectAsState()
-    var langOpen by remember { mutableStateOf(false) }
-    val autoRefreshHours by store.autoRefreshHours.collectAsState()
-    var autoRefreshOpen by remember { mutableStateOf(false) }
-    val coreLogLevel by store.coreLogLevel.collectAsState()
-    var coreLogOpen by remember { mutableStateOf(false) }
-
-    fun refreshLabel(h: Int): String =
-        if (h <= 0) t("auto_refresh_off")
-        else if (h == 1) t("every_hour").format(localizeDigits("$h", lang))
-        else t("every_hours").format(localizeDigits("$h", lang))
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(14.dp)
-    ) {
-        SettingsHubCard(
-            icon = Icons.Filled.Palette,
-            title = t("theme_settings"),
-            subtitle = t("theme_settings_sub"),
-            onClick = onOpenTheme
-        )
-
-        SettingsGroup {
-            Text(t("language"), style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary)
-            Box {
-                OutlinedButton(
-                    onClick = { langOpen = true },
-                    shape = RoundedCornerShape(16.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        if (curLang == Lang.FA) "ÙØ§Ø±Ø³ÛŒ" else "English",
-                        fontFamily = if (curLang == Lang.FA) VazirFont else LexendFont,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = langOpen,
-                    onDismissRequest = { langOpen = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "English",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = LexendFont
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { store.setLang(Lang.EN); langOpen = false }
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "ÙØ§Ø±Ø³ÛŒ",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = VazirFont
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { store.setLang(Lang.FA); langOpen = false }
-                    )
-                }
-            }
-
-            Text(t("auto_refresh"), style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary)
-            Box {
-                OutlinedButton(
-                    onClick = { autoRefreshOpen = true },
-                    shape = RoundedCornerShape(16.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(refreshLabel(autoRefreshHours), modifier = Modifier.weight(1f))
-                    Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = autoRefreshOpen,
-                    onDismissRequest = { autoRefreshOpen = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                ) {
-                    listOf(0, 1, 6, 12, 24).forEach { h ->
-                        DropdownMenuItem(
-                            text = { Text(refreshLabel(h), style = MaterialTheme.typography.bodyMedium) },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { store.setAutoRefreshHours(h); autoRefreshOpen = false }
-                        )
-                    }
-                }
-            }
-
-            Text(t("core_log_level"), style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary)
-            Box {
-                OutlinedButton(
-                    onClick = { coreLogOpen = true },
-                    shape = RoundedCornerShape(16.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        coreLogLevel,
-                        fontFamily = LexendFont,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = coreLogOpen,
-                    onDismissRequest = { coreLogOpen = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                ) {
-                    listOf("none", "error", "warning", "info", "debug").forEach { level ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    level,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontFamily = LexendFont
-                                )
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { store.setCoreLogLevel(level); coreLogOpen = false }
-                        )
-                    }
-                }
-            }
-            Text(
-                t("core_log_level_sub"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-}
-
-private val TelegramIcon: ImageVector =
-    ImageVector.Builder(
-        defaultWidth = 24.dp,
-        defaultHeight = 24.dp,
-        viewportWidth = 24f,
-        viewportHeight = 24f
-    ).run {
-        addPath(
-            pathData = PathParser().parsePathString(
-                "M9.78,18.65L10.06,14.42L17.74,7.5C18.08,7.19 17.67,7.04 17.22,7.31L7.74,13.3L3.64,12C2.76,11.75 2.75,11.14 3.84,10.7L19.81,4.54C20.54,4.21 21.24,4.72 20.96,5.84L18.24,18.65C18.05,19.55 17.5,19.77 16.74,19.35L12.6,16.3L10.61,18.23C10.38,18.46 10.19,18.65 9.78,18.65Z"
-            ).toNodes(),
-            fill = SolidColor(Color.Black)
-        )
-        build()
-    }
-
-@Composable
-private fun ThemeSettingsScreen(store: ConfigStore, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val themeMode by store.themeMode.collectAsState()
-    val globeStyle by store.globeStyle.collectAsState()
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
-    ) {
-        Text(t("theme_mode"), style = MaterialTheme.typography.titleMedium)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeModeRow(
-                icon = Icons.Filled.LightMode,
-                label = t("theme_light"),
-                selected = themeMode == ThemeMode.LIGHT,
-                onClick = { store.setThemeMode(ThemeMode.LIGHT) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.DarkMode,
-                label = t("theme_dark"),
-                selected = themeMode == ThemeMode.DARK,
-                onClick = { store.setThemeMode(ThemeMode.DARK) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.Contrast,
-                label = t("theme_amoled"),
-                selected = themeMode == ThemeMode.AMOLED,
-                onClick = { store.setThemeMode(ThemeMode.AMOLED) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.Contrast,
-                label = t("theme_system"),
-                selected = themeMode == ThemeMode.SYSTEM,
-                onClick = { store.setThemeMode(ThemeMode.SYSTEM) }
-            )
-        }
-
-        Text(t("globe_style_title"), style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlobeStyleOption(
-                label = t("globe_style_filled"),
-                selected = globeStyle == "filled",
-                onClick = { store.setGlobeStyle("filled") },
-                modifier = Modifier.weight(1f)
-            )
-            GlobeStyleOption(
-                label = t("globe_style_dots"),
-                selected = globeStyle == "dots",
-                onClick = { store.setGlobeStyle("dots") },
-                modifier = Modifier.weight(1f)
-            )
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlobeStyleOption(label = if (LocalLang.current == Lang.FA) "Ø´Ø§Ù‡ Ùˆ Ù…Ù„Ú©Ù‡" else "Royal characters",
-                selected = globeStyle == "royal", onClick = { store.setGlobeStyle("royal") }, modifier = Modifier.weight(1f))
-            GlobeStyleOption(label = if (LocalLang.current == Lang.FA) "Ø³Ù¾Ø± Ù‚Ø§Ø¬Ø§Ø±" else "Shield",
-                selected = globeStyle == "shield", onClick = { store.setGlobeStyle("shield") }, modifier = Modifier.weight(1f))
-        }
-        HorizontalDivider()
-        GhajarAppearanceSettings()
-    }
-}
-
-@Composable
-private fun ThemeModeRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val border = if (selected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    Card(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-            else MaterialTheme.colorScheme.surface
-        )
-    ) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(mixedText(label), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-        }
-    }
-}
-
-@Composable
-private fun AboutScreen(modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
-
-    val appVersion = remember {
-        runCatching {
-            context.packageManager.getPackageInfo(context.packageName, 0).versionName
-        }.getOrNull() ?: "\u2014"
-    }
-    val xrayVersion = remember { xrayCoreVersion() }
-    var privacyOpen by remember { mutableStateOf(false) }
-    var checking by remember { mutableStateOf(false) }
-    var updateStatus by remember { mutableStateOf<String?>(null) }
-    var updateUrl by remember { mutableStateOf<String?>(null) }
-    val scope = rememberCoroutineScope()
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val logoRes = R.drawable.ghajar_wordmark
-    val primary = MaterialTheme.colorScheme.primary
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 2.dp)) {
-            Image(
-                painter = painterResource(logoRes),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth(0.78f).height(104.dp)
-            )
-        }
-
-        Text(
-            mixedText(t("about_tagline")),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        Row(
-            Modifier.padding(bottom = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            AboutChip(t("app_version"), appVersion)
-            AboutChip(t("xray_version"), xrayVersion)
-        }
-
-        AboutCard(
-            icon = Icons.Filled.Hub,
-            title = t("source_code"),
-            value = BrandConfig.GITHUB_URL.removePrefix("https://"),
-            onClick = { runCatching { uriHandler.openUri(BrandConfig.GITHUB_URL) } }
-        )
-
-        AboutCard(
-            icon = Icons.Filled.Refresh,
-            title = t("check_updates"),
-            value = updateStatus,
-            busy = checking,
-            onClick = {
-                if (checking) return@AboutCard
-                val url = updateUrl
-                if (url != null) {
-                    runCatching { uriHandler.openUri(url) }
-                } else {
-                    checking = true
-                    updateStatus = t("checking_updates")
-                    scope.launch {
-                        when (val r = UpdateChecker.check(appVersion)) {
-                            is UpdateChecker.Result.Available -> {
-                                updateStatus = t("update_available").format(r.version)
-                                updateUrl = r.url
-                            }
-                            UpdateChecker.Result.UpToDate -> updateStatus = t("up_to_date")
-                            UpdateChecker.Result.Failed -> updateStatus = t("update_failed")
-                        }
-                        checking = false
-                    }
-                }
-            }
-        )
-
-        Card(
-            modifier = Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(20.dp))
-                .clickable { privacyOpen = !privacyOpen },
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-        ) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    AboutIconTile(Icons.Filled.Lock)
-                    Spacer(Modifier.width(14.dp))
-                    Text(
-                        mixedText(t("privacy_policy")),
-                        style = MaterialTheme.typography.bodyLarge,
-                        modifier = Modifier.weight(1f)
-                    )
-                    val turn by animateFloatAsState(
-                        targetValue = if (privacyOpen) 180f else 0f,
-                        animationSpec = tween(300, easing = FastOutSlowInEasing),
-                        label = "privacyChevron"
-                    )
-                    Icon(
-                        Icons.Filled.ExpandMore,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.graphicsLayer { rotationZ = turn }
-                    )
-                }
-                AnimatedVisibility(
-                    visible = privacyOpen,
-                    enter = fadeIn(tween(260)) + expandVertically(tween(300, easing = FastOutSlowInEasing)),
-                    exit = fadeOut(tween(160)) + shrinkVertically(tween(240, easing = FastOutSlowInEasing))
-                ) {
-                    Text(
-                        mixedText(if (lang == Lang.FA) PRIVACY_FA else PRIVACY_EN),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(top = 14.dp)
-                    )
-                }
-            }
-        }
-
-        AboutCard(
-            iconVector = TelegramIcon,
-            title = t("telegram_support"),
-            value = "@Ghajarvpn",
-            onClick = { runCatching { uriHandler.openUri(BrandConfig.TELEGRAM_CHANNEL_URL) } }
-        )
-
-        Spacer(Modifier.height(4.dp))
-    }
-}
-
-@Composable
-private fun AboutIconTile(icon: ImageVector) {
-    Box(
-        Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(20.dp)
-        )
-    }
-}
-
-@Composable
-private fun AboutChip(label: String, value: String) {
-    Row(
-        Modifier.clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 7.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            mixedText(label),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-        Spacer(Modifier.width(7.dp))
-        Text(
-            mixedText(localizeDigits(value, LocalLang.current)),
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = if (LocalLang.current == Lang.FA) VazirFont else LexendFont,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.primary,
-            maxLines = 1
-        )
-    }
-}
-
-@Composable
-private fun AboutCard(
-    title: String,
-    value: String?,
-    onClick: () -> Unit,
-    icon: ImageVector? = null,
-    iconVector: ImageVector? = null,
-    busy: Boolean = false
-) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            AboutIconTile(icon ?: iconVector ?: Icons.Filled.Info)
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(mixedText(title), style = MaterialTheme.typography.bodyLarge)
-                Crossfade(targetState = value, animationSpec = tween(300), label = "aboutValue") { v ->
-                    if (!v.isNullOrBlank()) {
-                        Text(
-                            if (v.contains("github.com/") || v.startsWith("@")) AnnotatedString("\u2066$v\u2069")
-                            else mixedText(localizeDigits(v, LocalLang.current)),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-            if (busy) {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(18.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    strokeWidth = 2.dp
-                )
-            } else {
-                Icon(
-                    Icons.Filled.ChevronRight,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-private fun xrayCoreVersion(): String = runCatching {
-    Class.forName("gozarcore.Gozarcore")
-        .getMethod("xrayVersion")
-        .invoke(null) as String
-}.getOrNull()?.takeIf { it.isNotBlank() } ?: "â€”"
-
-private val PRIVACY_EN = """
-Ghajarvpn privacy information
-
-Account and store: If you link your account, the app sends its access token to the Ghajar service to load your account, subscriptions, orders and notifications. Purchase requests include the options you enter. If you upload a payment receipt, the selected image is sent to the service and may contain personal or banking information.
-
-On your device: The app stores configurations and settings in its private storage. The account access token is encrypted using Android Keystore. Clearing app data removes local records; it does not delete records held by the service.
-
-Network requests: Account sync, store content and the live welcome image contact the Ghajar service. Network-status features may contact third parties such as ipwho.is and ipify.org. These services can see your connection's IP address.
-
-VPN and payments: The selected VPN server handles your tunnel traffic. A selected payment gateway handles the payment in its own page. This Android client cannot determine or guarantee the logging and retention practices of those services.
-
-Permissions: VPN access starts the tunnel you select. Camera access is used for scanning codes; notification access is used for connection and service alerts.
-
-Questions about data held by the service or deletion requests: contact @Ghajarvpn.
-""".trimIndent()
-
-private val PRIVACY_FA = """
-Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø­Ø±ÛŒÙ… Ø®ØµÙˆØµÛŒ Ù‚Ø§Ø¬Ø§Ø± ÙˆÛŒ Ù¾ÛŒ Ø§Ù†
-
-Ø­Ø³Ø§Ø¨ Ùˆ ÙØ±ÙˆØ´Ú¯Ø§Ù‡: Ø§Ú¯Ø± Ø­Ø³Ø§Ø¨ØªØ§Ù† Ø±Ø§ Ù…ØªØµÙ„ Ú©Ù†ÛŒØ¯ØŒ Ø¨Ø±Ù†Ø§Ù…Ù‡ ØªÙˆÚ©Ù† Ø¯Ø³ØªØ±Ø³ÛŒ Ø±Ø§ Ø¨Ø±Ø§ÛŒ Ø¯Ø±ÛŒØ§ÙØª Ø­Ø³Ø§Ø¨ØŒ Ø§Ø´ØªØ±Ø§Ú©â€ŒÙ‡Ø§ØŒ Ø³ÙØ§Ø±Ø´â€ŒÙ‡Ø§ Ùˆ Ø§Ø¹Ù„Ø§Ù†â€ŒÙ‡Ø§ Ø¨Ù‡ Ø³Ø±ÙˆÛŒØ³ Ù‚Ø§Ø¬Ø§Ø± Ù…ÛŒâ€ŒÙØ±Ø³ØªØ¯. Ø¯Ø±Ø®ÙˆØ§Ø³Øª Ø®Ø±ÛŒØ¯ Ø´Ø§Ù…Ù„ Ú¯Ø²ÛŒÙ†Ù‡â€ŒÙ‡Ø§ÛŒÛŒ Ø§Ø³Øª Ú©Ù‡ ÙˆØ§Ø±Ø¯ Ù…ÛŒâ€ŒÚ©Ù†ÛŒØ¯. Ø§Ú¯Ø± Ø±Ø³ÛŒØ¯ Ù¾Ø±Ø¯Ø§Ø®Øª Ø¨Ø§Ø±Ú¯Ø°Ø§Ø±ÛŒ Ú©Ù†ÛŒØ¯ØŒ ØªØµÙˆÛŒØ± Ø§Ù†ØªØ®Ø§Ø¨â€ŒØ´Ø¯Ù‡ Ø¨Ù‡ Ø³Ø±ÙˆÛŒØ³ Ø§Ø±Ø³Ø§Ù„ Ù…ÛŒâ€ŒØ´ÙˆØ¯ Ùˆ Ù…Ù…Ú©Ù† Ø§Ø³Øª Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø´Ø®ØµÛŒ ÛŒØ§ Ø¨Ø§Ù†Ú©ÛŒ Ø¯Ø§Ø´ØªÙ‡ Ø¨Ø§Ø´Ø¯.
-
-Ø±ÙˆÛŒ Ú¯ÙˆØ´ÛŒ: Ø¨Ø±Ù†Ø§Ù…Ù‡ Ú©Ø§Ù†ÙÛŒÚ¯â€ŒÙ‡Ø§ Ùˆ ØªÙ†Ø¸ÛŒÙ…Ø§Øª Ø±Ø§ Ø¯Ø± Ø­Ø§ÙØ¸Ù‡Ù” Ø®ØµÙˆØµÛŒ Ø®ÙˆØ¯ Ù†Ú¯Ù‡ Ù…ÛŒâ€ŒØ¯Ø§Ø±Ø¯. ØªÙˆÚ©Ù† Ø¯Ø³ØªØ±Ø³ÛŒ Ø­Ø³Ø§Ø¨ Ø¨Ø§ Android Keystore Ø±Ù…Ø²Ú¯Ø°Ø§Ø±ÛŒ Ù…ÛŒâ€ŒØ´ÙˆØ¯. Ù¾Ø§Ú©â€ŒÚ©Ø±Ø¯Ù† Ø¯Ø§Ø¯Ù‡Ù” Ø¨Ø±Ù†Ø§Ù…Ù‡ØŒ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ù…Ø­Ù„ÛŒ Ø±Ø§ Ø­Ø°Ù Ù…ÛŒâ€ŒÚ©Ù†Ø¯Ø› Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ù†Ú¯Ù‡Ø¯Ø§Ø±ÛŒâ€ŒØ´Ø¯Ù‡ Ø¯Ø± Ø³Ø±ÙˆÛŒØ³ Ø¨Ø§ Ø§ÛŒÙ† Ú©Ø§Ø± Ø­Ø°Ù Ù†Ù…ÛŒâ€ŒØ´ÙˆÙ†Ø¯.
-
-Ø¯Ø±Ø®ÙˆØ§Ø³Øªâ€ŒÙ‡Ø§ÛŒ Ø´Ø¨Ú©Ù‡: Ù‡Ù…Ú¯Ø§Ù…â€ŒØ³Ø§Ø²ÛŒ Ø­Ø³Ø§Ø¨ØŒ Ù…Ø­ØªÙˆØ§ÛŒ ÙØ±ÙˆØ´Ú¯Ø§Ù‡ Ùˆ ØªØµÙˆÛŒØ± Ø²Ù†Ø¯Ù‡Ù” ÙˆØ±ÙˆØ¯ Ø¨Ù‡ Ø³Ø±ÙˆÛŒØ³ Ù‚Ø§Ø¬Ø§Ø± Ù…ØªØµÙ„ Ù…ÛŒâ€ŒØ´ÙˆÙ†Ø¯. Ø§Ù…Ú©Ø§Ù†Ø§Øª Ù†Ù…Ø§ÛŒØ´ ÙˆØ¶Ø¹ÛŒØª Ø´Ø¨Ú©Ù‡ Ù…Ù…Ú©Ù† Ø§Ø³Øª Ø¨Ø§ Ø³Ø±ÙˆÛŒØ³â€ŒÙ‡Ø§ÛŒÛŒ Ù…Ø§Ù†Ù†Ø¯ ipwho.is Ùˆ ipify.org ØªÙ…Ø§Ø³ Ø¨Ú¯ÛŒØ±Ù†Ø¯. Ø§ÛŒÙ† Ø³Ø±ÙˆÛŒØ³â€ŒÙ‡Ø§ Ù†Ø´Ø§Ù†ÛŒ IP Ø§ØªØµØ§Ù„ Ø´Ù…Ø§ Ø±Ø§ Ù…ÛŒâ€ŒØ¨ÛŒÙ†Ù†Ø¯.
-
-ÙˆÛŒâ€ŒÙ¾ÛŒâ€ŒØ§Ù† Ùˆ Ù¾Ø±Ø¯Ø§Ø®Øª: Ø³Ø±ÙˆØ± ÙˆÛŒâ€ŒÙ¾ÛŒâ€ŒØ§Ù† Ø§Ù†ØªØ®Ø§Ø¨â€ŒØ´Ø¯Ù‡ ØªØ±Ø§ÙÛŒÚ© ØªÙˆÙ†Ù„ Ø´Ù…Ø§ Ø±Ø§ Ù…Ø¯ÛŒØ±ÛŒØª Ù…ÛŒâ€ŒÚ©Ù†Ø¯. Ø¯Ø±Ú¯Ø§Ù‡ Ø§Ù†ØªØ®Ø§Ø¨â€ŒØ´Ø¯Ù‡ Ù¾Ø±Ø¯Ø§Ø®Øª Ø±Ø§ Ø¯Ø± ØµÙØ­Ù‡Ù” Ø®ÙˆØ¯Ø´ Ø§Ù†Ø¬Ø§Ù… Ù…ÛŒâ€ŒØ¯Ù‡Ø¯. Ø§ÛŒÙ† Ø¨Ø±Ù†Ø§Ù…Ù‡Ù” Ø§Ù†Ø¯Ø±ÙˆÛŒØ¯ Ù†Ù…ÛŒâ€ŒØªÙˆØ§Ù†Ø¯ Ø´ÛŒÙˆÙ‡Ù” Ø«Ø¨Øª Ù„Ø§Ú¯ Ùˆ Ù…Ø¯Øª Ù†Ú¯Ù‡Ø¯Ø§Ø±ÛŒ Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ø¯Ø± Ø¢Ù† Ø³Ø±ÙˆÛŒØ³â€ŒÙ‡Ø§ Ø±Ø§ Ù…Ø´Ø®Øµ ÛŒØ§ ØªØ¶Ù…ÛŒÙ† Ú©Ù†Ø¯.
-
-Ø¯Ø³ØªØ±Ø³ÛŒâ€ŒÙ‡Ø§: Ø¯Ø³ØªØ±Ø³ÛŒ ÙˆÛŒâ€ŒÙ¾ÛŒâ€ŒØ§Ù† Ø¨Ø±Ø§ÛŒ Ø´Ø±ÙˆØ¹ ØªÙˆÙ†Ù„ Ø§Ù†ØªØ®Ø§Ø¨ÛŒØŒ Ø¯ÙˆØ±Ø¨ÛŒÙ† Ø¨Ø±Ø§ÛŒ Ø§Ø³Ú©Ù† Ú©Ø¯ Ùˆ Ø§Ø¹Ù„Ø§Ù† Ø¨Ø±Ø§ÛŒ Ù†Ù…Ø§ÛŒØ´ ÙˆØ¶Ø¹ÛŒØª Ø§ØªØµØ§Ù„ Ùˆ Ù‡Ø´Ø¯Ø§Ø± Ø³Ø±ÙˆÛŒØ³ Ø§Ø³ØªÙØ§Ø¯Ù‡ Ù…ÛŒâ€ŒØ´ÙˆØ¯.
-
-Ø¨Ø±Ø§ÛŒ Ù¾Ø±Ø³Ø´ Ø¯Ø±Ø¨Ø§Ø±Ù‡Ù” Ø§Ø·Ù„Ø§Ø¹Ø§Øª Ù†Ú¯Ù‡Ø¯Ø§Ø±ÛŒâ€ŒØ´Ø¯Ù‡ Ø¯Ø± Ø³Ø±ÙˆÛŒØ³ ÛŒØ§ Ø¯Ø±Ø®ÙˆØ§Ø³Øª Ø­Ø°Ù Ø¢Ù†â€ŒÙ‡Ø§ØŒ Ø¨Ø§ @Ghajarvpn ØªÙ…Ø§Ø³ Ø¨Ú¯ÛŒØ±ÛŒØ¯.
-""".trimIndent()
-
-@Composable
-private fun LogsScreen(store: ConfigStore, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val scope = rememberCoroutineScope()
-    val clipboard = LocalClipboardManager.current
-    var logs by remember { mutableStateOf("") }
-    var loading by remember { mutableStateOf(false) }
-    var toast by remember { mutableStateOf("") }
-    val configs by store.configs.collectAsState()
-
-    fun load() {
-        loading = true
-        scope.launch {
-            val secrets = configs.filter { it.locked }
-            val out = withContext(Dispatchers.IO) { redactSecrets(readLogcat(), secrets) }
-            logs = out
-            loading = false
-        }
-    }
-    LaunchedEffect(Unit) { load() }
-    LaunchedEffect(toast) { if (toast.isNotEmpty()) { delay(1800); toast = "" } }
-
-    Column(modifier.fillMaxSize().padding(16.dp)) {
-        Card(
-            modifier = Modifier.fillMaxWidth().weight(1f),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-        ) {
-            Column(Modifier.fillMaxSize()) {
-                Row(
-                    Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            t("xray_logs"),
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1
-                        )
-                        Crossfade(
-                            targetState = if (toast.isNotEmpty()) toast else
-                                localizeDigits("${logs.count { it == '\n' }.let { if (logs.isBlank()) 0 else it + 1 }}", lang) +
-                                        " " + t("no_logs").takeIf { logs.isBlank() }.orEmpty(),
-                            animationSpec = tween(260),
-                            label = "logMeta"
-                        ) { line ->
-                            Text(
-                                line.trim(),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.primary,
-                                maxLines = 1
-                            )
-                        }
-                    }
-                    LogAction(Icons.Filled.Refresh, t("refresh")) { load() }
-                    LogAction(Icons.Filled.ContentCopy, t("copy")) {
-                        if (logs.isNotBlank()) {
-                            clipboard.setText(AnnotatedString(logs))
-                            toast = t("copied")
-                        }
-                    }
-                    LogAction(Icons.Filled.Delete, t("clear")) {
-                        runCatching { Runtime.getRuntime().exec(arrayOf("logcat", "-c")) }
-                        logs = ""
-                    }
-                }
-                Box(
-                    Modifier.fillMaxWidth().height(1.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.20f))
-                )
-                if (logs.isBlank()) {
-                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(
-                            if (loading) t("testing") else t("no_logs"),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                } else CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                    SelectionContainer {
-                        Text(
-                            logs,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = MonoFont,
-                            textAlign = TextAlign.Left,
-                            modifier = Modifier.fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 14.dp, vertical = 12.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun LogAction(icon: ImageVector, label: String, onClick: () -> Unit) {
-    val scale = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope()
-    Box(
-        Modifier
-            .padding(start = 6.dp)
-            .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
-            .size(38.dp)
-            .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f))
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f), RoundedCornerShape(12.dp))
-            .clickable {
-                scope.launch {
-                    scale.animateTo(0.88f, tween(90))
-                    scale.animateTo(1f, spring(dampingRatio = 0.45f, stiffness = 420f))
-                }
-                onClick()
-            },
-        contentAlignment = Alignment.Center
-    ) {
-        Icon(
-            icon,
-            contentDescription = label,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(18.dp)
-        )
-    }
-}
-
-private fun redactSecrets(text: String, secrets: List<ProxyConfig>): String {
-    if (secrets.isEmpty() || text.isEmpty()) return text
-    var out = text
-    val tokens = LinkedHashSet<String>()
-    secrets.forEach { c ->
-        if (c.address.isNotBlank()) {
-            tokens.add("${c.address}:${c.port}")
-            tokens.add(c.address)
-        }
-        listOf(c.uuid, c.password, c.publicKey, c.shortId, c.privateKey, c.sni, c.host, c.serviceName)
-            .filter { it.length >= 4 }
-            .forEach { tokens.add(it) }
-    }
-    tokens.sortedByDescending { it.length }.forEach { token ->
-        out = out.replace(token, "[hidden]", ignoreCase = true)
-    }
-    return out
-}
-
-private fun readLogcat(): String = try {
-    val proc = Runtime.getRuntime().exec(arrayOf(
-        "logcat", "-d", "-v", "time",
-        "XrayCore:V", "GoLog:V", "GozarVpnService:V",
-        "Aether:V", "Tor:V", "GhajarIke:V",
-        "charon:V", "CharonVpnService:V",
-        "GhajarAuto:V", "GhajarQr:V", "GhajarHaptic:V", "GhajarGeo:V",
-        "*:S"
-    ))
-    val lines = proc.inputStream.bufferedReader().readLines()
-        .filterNot { it.startsWith("---------") }
-    if (lines.isEmpty()) "" else lines.takeLast(400).joinToString("\n")
-} catch (e: Exception) {
-    e.message ?: "Unable to read logs"
-}
-
-@Composable
-private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val scope = rememberCoroutineScope()
-
-    val configs by store.configs.collectAsState()
-    val selectedId by store.selectedId.collectAsState()
-    val conn by VpnState.state.collectAsState()
-    val activeId by VpnState.activeId.collectAsState()
-    val target = if (conn == Connection.CONNECTED)
-        configs.find { it.id == activeId } ?: configs.find { it.id == selectedId }
-    else null
-
-    var phase by remember { mutableStateOf(StabilityTest.Phase.DONE) }
-    var running by remember { mutableStateOf(false) }
-    var result by remember { mutableStateOf(store.lastTestJson()?.let { StabilityTest.fromJson(it) }) }
-    var lastTestTime by remember { mutableStateOf(store.lastTestTime()) }
-    var failed by remember { mutableStateOf(false) }
-    var dlLive by remember { mutableStateOf(result?.downloadMbps ?: 0.0) }
-    var ulLive by remember { mutableStateOf(result?.uploadMbps ?: 0.0) }
-    var livePing by remember { mutableStateOf(0.0) }
-    var testJob by remember { mutableStateOf<Job?>(null) }
-    fun start() {
-        val cfg = target
-        running = true; failed = false; result = null
-        dlLive = 0.0; ulLive = 0.0; livePing = 0.0
-        phase = StabilityTest.Phase.PING
-        val testJson =
-            if (cfg != null && cfg.protocol.trim().lowercase() != "ikev2")
-                ConfigBuilder.buildForTest(cfg)
-            else ConfigBuilder.buildForTestDirect()
-        testJob = scope.launch {
-            val r = StabilityTest.run(testJson) { ph, v ->
-                phase = ph
-                when (ph) {
-                    StabilityTest.Phase.PING -> if (v > 0) livePing = v
-                    StabilityTest.Phase.DOWNLOAD -> if (v > 0) dlLive = if (dlLive <= 0) v else dlLive * 0.6 + v * 0.4
-                    StabilityTest.Phase.UPLOAD -> if (v > 0) ulLive = if (ulLive <= 0) v else ulLive * 0.6 + v * 0.4
-                    else -> {}
-                }
-            }
-            if (r != null) {
-                dlLive = r.downloadMbps; ulLive = r.uploadMbps
-                val now = System.currentTimeMillis()
-                store.saveLastTest(StabilityTest.toJson(r), now)
-                lastTestTime = now
-            }
-            result = r; failed = r == null; running = false
-            phase = StabilityTest.Phase.DONE
-            testJob = null
-        }
-    }
-
-    fun cancel() {
-        testJob?.cancel(); testJob = null
-        running = false; failed = false
-        phase = StabilityTest.Phase.DONE
-        dlLive = result?.downloadMbps ?: 0.0
-        ulLive = result?.uploadMbps ?: 0.0
-        livePing = 0.0
-    }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Spacer(Modifier.height(4.dp))
-        AnimatedVisibility(
-            visible = running,
-            enter = fadeIn(tween(340, easing = FastOutSlowInEasing)) +
-                    expandVertically(tween(340, easing = FastOutSlowInEasing)) +
-                    slideInVertically(tween(340, easing = FastOutSlowInEasing)) { -it / 2 },
-            exit = fadeOut(tween(160, easing = FastOutSlowInEasing)) +
-                    shrinkVertically(tween(280, easing = FastOutSlowInEasing))
-        ) {
-            val phaseIcon = when (phase) {
-                StabilityTest.Phase.PING -> Icons.Filled.Schedule
-                StabilityTest.Phase.DOWNLOAD -> Icons.Filled.ArrowDownward
-                else -> Icons.Filled.ArrowUpward
-            }
-            val phaseLabel = when (phase) {
-                StabilityTest.Phase.PING -> t("stab_ping")
-                StabilityTest.Phase.DOWNLOAD -> t("download")
-                StabilityTest.Phase.UPLOAD -> t("upload")
-                else -> ""
-            }
-            val phaseValue = when (phase) {
-                StabilityTest.Phase.PING ->
-                    localizeDigits("${livePing.toInt()}", lang) + " " + t("unit_ms")
-                StabilityTest.Phase.DOWNLOAD ->
-                    localizeDigits(String.format(java.util.Locale.US, "%.1f", dlLive), lang) + " " + t("unit_mbps")
-                StabilityTest.Phase.UPLOAD ->
-                    localizeDigits(String.format(java.util.Locale.US, "%.1f", ulLive), lang) + " " + t("unit_mbps")
-                else -> ""
-            }
-            val phaseTint = when (phase) {
-                StabilityTest.Phase.PING -> AppCyan
-                StabilityTest.Phase.DOWNLOAD -> Color(0xFFC23BFF)
-                else -> AppAqua
-            }
-            Crossfade(targetState = phase, animationSpec = tween(300), label = "phaseText") { ph ->
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(phaseTint.copy(alpha = 0.10f))
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    if (ph == StabilityTest.Phase.PING) {
-                        PingLine(color = phaseTint, size = 26.dp)
-                    } else {
-                        Icon(phaseIcon, contentDescription = null, tint = phaseTint,
-                            modifier = Modifier.size(18.dp))
-                    }
-                    Spacer(Modifier.width(10.dp))
-                    Text(
-                        phaseLabel,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        phaseValue,
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = phaseTint
-                    )
-                }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = !running && result != null && lastTestTime > 0L,
-            enter = fadeIn(tween(340, delayMillis = 120, easing = FastOutSlowInEasing)) +
-                    expandVertically(tween(340, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(180)) + shrinkVertically(tween(180))
-        ) {
-            Text(
-                t("stab_last_test") + " " + formatTestTime(lastTestTime, lang),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth().appearOnce(60),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-        ) {
-            Row(
-                Modifier.fillMaxWidth().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                SpeedTile(
-                    icon = Icons.Filled.ArrowDownward,
-                    label = t("download"),
-                    mbps = dlLive,
-                    active = running && phase == StabilityTest.Phase.DOWNLOAD,
-                    tint = Color(0xFFC23BFF),
-                    modifier = Modifier.weight(1f)
-                )
-                SpeedTile(
-                    icon = Icons.Filled.ArrowUpward,
-                    label = t("upload"),
-                    mbps = ulLive,
-                    active = running && phase == StabilityTest.Phase.UPLOAD,
-                    tint = AppAqua,
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        AnimatedVisibility(
-            visible = result != null,
-            enter = fadeIn(tween(420, easing = FastOutSlowInEasing)) +
-                    expandVertically(tween(420, easing = FastOutSlowInEasing)) +
-                    scaleIn(tween(420, easing = FastOutSlowInEasing), initialScale = 0.92f),
-            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-        ) {
-            result?.let { r ->
-                val ms: (Double) -> String = { localizeDigits("${it.toInt()}", lang) + " " + t("unit_ms") }
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                ) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            MetricItem(Icons.Filled.Schedule, t("stab_idle_latency"), ms(r.idleLatency), Modifier.weight(1f))
-                            MetricItem(Icons.Filled.GraphicEq, t("stab_jitter"), ms(r.jitter), Modifier.weight(1f))
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            MetricItem(Icons.Filled.ArrowDownward, t("stab_dl_latency"), ms(r.downloadLatency), Modifier.weight(1f))
-                            MetricItem(Icons.Filled.ArrowUpward, t("stab_ul_latency"), ms(r.uploadLatency), Modifier.weight(1f))
-                        }
-                    }
-                }
-            }
-        }
-
-        QualityStartButton(
-            running = running,
-            onClick = { if (running) cancel() else start() },
-            modifier = Modifier.fillMaxWidth().appearOnce(140)
-        )
-
-        InfoBox(
-            if (target != null) t("stab_testing_server") + " " + target.name
-            else t("stab_direct"),
-            centered = true,
-            modifier = Modifier.appearOnce(200)
-        )
-
-        if (failed) {
-            Text(t("stab_failed"), style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error)
-        }
-
-        AnimatedVisibility(
-            visible = result != null,
-            enter = fadeIn(tween(450, delayMillis = 120, easing = FastOutSlowInEasing)) +
-                    expandVertically(tween(450, easing = FastOutSlowInEasing)) +
-                    scaleIn(tween(450, delayMillis = 120, easing = FastOutSlowInEasing), initialScale = 0.92f),
-            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-        ) {
-            result?.let { r ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(20.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
-                ) {
-                    RevealOnScroll { shown ->
-                        Column(
-                            Modifier.fillMaxWidth().padding(20.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(14.dp)
-                        ) {
-                            RevealText(t("stab_quality"), MaterialTheme.typography.labelLarge, shown, 0)
-                            val score = overallScore(r)
-                            val tint = qualityColor(score)
-                            val sweep by animateFloatAsState(
-                                targetValue = if (shown) (score / 100.0).toFloat() else 0f,
-                                animationSpec = tween(900, easing = FastOutSlowInEasing),
-                                label = "qualityArc"
-                            )
-                            Box(contentAlignment = Alignment.Center) {
-                                Canvas(Modifier.size(148.dp)) {
-                                    val stroke = 14.dp.toPx()
-                                    val inset = stroke / 2f
-                                    drawArc(
-                                        color = tint.copy(alpha = 0.16f),
-                                        startAngle = 135f,
-                                        sweepAngle = 270f,
-                                        useCenter = false,
-                                        topLeft = Offset(inset, inset),
-                                        size = Size(size.width - stroke, size.height - stroke),
-                                        style = Stroke(width = stroke, cap = StrokeCap.Round)
-                                    )
-                                    drawArc(
-                                        color = tint,
-                                        startAngle = 135f,
-                                        sweepAngle = 270f * sweep,
-                                        useCenter = false,
-                                        topLeft = Offset(inset, inset),
-                                        size = Size(size.width - stroke, size.height - stroke),
-                                        style = Stroke(width = stroke, cap = StrokeCap.Round)
-                                    )
-                                }
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    Text(
-                                        localizeDigits("${(sweep * 100).toInt()}", lang),
-                                        style = MaterialTheme.typography.displaySmall,
-                                        fontWeight = FontWeight.Bold,
-                                        color = tint
-                                    )
-                                    Text(
-                                        t(qualityLabelKey(score)),
-                                        style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun overallScore(r: StabilityTest.Result): Double {
-    val latency = (100.0 - (r.idleLatency - 40.0) * 0.45).coerceIn(0.0, 100.0)
-    val jitter = (100.0 - r.jitter * 3.0).coerceIn(0.0, 100.0)
-    val loaded = (100.0 - (maxOf(r.downloadLatency, r.uploadLatency) - r.idleLatency) * 0.5)
-        .coerceIn(0.0, 100.0)
-    val down = (r.downloadMbps / 25.0 * 100.0).coerceIn(0.0, 100.0)
-    val up = (r.uploadMbps / 10.0 * 100.0).coerceIn(0.0, 100.0)
-    return (latency * 0.25 + jitter * 0.2 + loaded * 0.2 + down * 0.25 + up * 0.1)
-        .coerceIn(0.0, 100.0)
-}
-
-private fun qualityLabelKey(score: Double): String = when {
-    score >= 80 -> "stab_q_excellent"
-    score >= 60 -> "stab_q_good"
-    score >= 40 -> "stab_q_fair"
-    else -> "stab_q_poor"
-}
-
-@Composable
-private fun qualityColor(score: Double): Color = when {
-    score >= 80 -> AppGreen
-    score >= 60 -> AppCyan
-    score >= 40 -> Color(0xFFFFA94D)
-    else -> Color(0xFFE0413C)
-}
-
-private fun formatTestTime(millis: Long, lang: Lang): String {
-    val sdf = java.text.SimpleDateFormat("yyyy/MM/dd  HH:mm", java.util.Locale.US)
-    return localizeDigits(sdf.format(java.util.Date(millis)), lang)
-}
-
-@Composable
-internal fun rememberInternetOffline(): Boolean {
-    var offline by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        while (isActive) {
-            val hosts = listOf("8.8.8.8" to 443, "1.1.1.1" to 443)
-            var reached = false
-            for (h in hosts) {
-                if (Pinger.ping(h.first, h.second, 2000) is PingResult.Ok) {
-                    reached = true
-                    break
-                }
-                delay(120)
-            }
-            offline = !reached
-            delay(if (offline) 5000 else 15000)
-        }
-    }
-    return offline
-}
-
-@Composable
-private fun SpeedTile(
-    icon: ImageVector,
-    label: String,
-    mbps: Double,
-    active: Boolean,
-    tint: Color,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val frac by animateFloatAsState(
-        sqrt((mbps / 100.0).coerceIn(0.0, 1.0)).toFloat(),
-        tween(600, easing = FastOutSlowInEasing),
-        label = "speedTile"
-    )
-    val glow by rememberInfiniteTransition(label = "speedGlow").animateFloat(
-        initialValue = 0.35f, targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
-            tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "speedGlowA"
-    )
-    val border = if (active) tint.copy(alpha = glow) else tint.copy(alpha = 0.22f)
-
-    Column(
-        modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(tint.copy(alpha = 0.09f))
-            .border(1.dp, border, RoundedCornerShape(18.dp))
-            .padding(horizontal = 14.dp, vertical = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                localizeDigits(String.format(java.util.Locale.US, "%.1f", mbps), lang),
-                style = MaterialTheme.typography.headlineMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (active) tint else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                t("unit_mbps"),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 4.dp)
-            )
-        }
-        Box(
-            Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp))
-                .background(tint.copy(alpha = 0.15f))
-        ) {
-            Box(
-                Modifier.fillMaxWidth(frac).fillMaxHeight()
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(tint)
-            )
-        }
-    }
-}
-
-@Composable
-private fun SpeedBar(
-    label: String,
-    mbps: Double,
-    active: Boolean,
-    accent: List<Color>
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val track = if (isDark) Color(0xFF111A2F) else MaterialTheme.colorScheme.surfaceVariant
-
-    val targetFrac = sqrt((mbps / 100.0).coerceIn(0.0, 1.0)).toFloat()
-    val frac by animateFloatAsState(targetFrac, tween(600), label = "speedBar")
-
-    val barStart = accent.first()
-    val barEnd = accent.last()
-    var trackPx by remember { mutableStateOf(1) }
-    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-
-    val shimmer = rememberInfiniteTransition(label = "shimmer")
-    val sweep by shimmer.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)),
-        label = "sweep"
-    )
-
-    val accentBrush = Brush.horizontalGradient(
-        if (isDark) accent else accent.map { lerp(it, Color.Black, 0.34f) }
-    )
-    val chip = if (isDark) Color(0xFF1B2440) else MaterialTheme.colorScheme.surfaceVariant
-
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.clip(RoundedCornerShape(10.dp)).background(chip)
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(label, style = MaterialTheme.typography.titleSmall.copy(brush = accentBrush))
-            }
-            Spacer(Modifier.weight(1f))
-            Box(
-                Modifier.clip(RoundedCornerShape(10.dp)).background(chip)
-                    .padding(horizontal = 12.dp, vertical = 6.dp)
-            ) {
-                Text(
-                    localizeDigits("%.2f".format(mbps), lang) + " " + t("unit_mbps"),
-                    style = MaterialTheme.typography.titleLarge.copy(brush = accentBrush)
-                )
-            }
-        }
-        Box(
-            Modifier.fillMaxWidth().height(22.dp)
-                .onSizeChanged { trackPx = it.width }
-                .clip(RoundedCornerShape(50)).background(track)
-        ) {
-            val fillFrac = frac.coerceIn(0f, 1f)
-            val tp = trackPx.toFloat().coerceAtLeast(1f)
-            val brush = if (isRtl)
-                Brush.horizontalGradient(
-                    colors = listOf(barEnd, barStart),
-                    startX = fillFrac * tp - tp,
-                    endX = fillFrac * tp
-                )
-            else
-                Brush.horizontalGradient(
-                    colors = listOf(barStart, barEnd),
-                    startX = 0f,
-                    endX = tp
-                )
-            Box(
-                Modifier.fillMaxWidth(fillFrac).fillMaxHeight()
-                    .clip(RoundedCornerShape(50)).background(brush)
-            ) {
-                if (active) {
-                    val fw = (fillFrac * tp).coerceAtLeast(1f)
-                    val band = fw * 0.4f
-                    val pos = sweep * (fw + band) - band
-                    Box(
-                        Modifier.matchParentSize().background(
-                            Brush.horizontalGradient(
-                                colors = listOf(
-                                    Color.Transparent,
-                                    Color.White.copy(alpha = 0.35f),
-                                    Color.Transparent
-                                ),
-                                startX = pos,
-                                endX = pos + band
-                            )
-                        )
-                    )
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun MetricItem(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    value: String,
-    modifier: Modifier = Modifier
-) {
-    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
-        Icon(
-            icon, contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(22.dp)
-        )
-        Spacer(Modifier.width(10.dp))
-        Column {
-            Text(mixedText(label), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(value, style = MaterialTheme.typography.titleSmall)
-        }
-    }
-}
-
-@Composable
-private fun MetricRow(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.titleSmall)
-    }
-}
-
-@Composable
-private fun QualityStartButton(running: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val tint by animateColorAsState(
-        targetValue = if (running) Color(0xFFFFA94D) else MaterialTheme.colorScheme.primary,
-        animationSpec = tween(420),
-        label = "qualityBtnTint"
-    )
-    var pressed by remember { mutableStateOf(false) }
-    val press by animateFloatAsState(
-        targetValue = if (pressed) 0.97f else 1f,
-        animationSpec = tween(140, easing = FastOutSlowInEasing),
-        label = "qualityBtnPress"
-    )
-    Box(
-        modifier
-            .height(58.dp)
-            .graphicsLayer { scaleX = press; scaleY = press }
-            .clip(RoundedCornerShape(20.dp))
-            .background(
-                Brush.horizontalGradient(
-                    listOf(
-                        tint.copy(alpha = 0.16f),
-                        tint.copy(alpha = 0.30f),
-                        tint.copy(alpha = 0.16f)
-                    )
-                )
-            )
-            .border(1.6.dp, tint.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
-            .pointerInput(Unit) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    pressed = true
-                    waitForUpOrCancellation()
-                    pressed = false
-                }
-            }
-            .clickable { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        ConnectSweep(color = tint, active = running, modifier = Modifier.matchParentSize())
-        AnimatedContent(
-            targetState = running,
-            transitionSpec = {
-                (fadeIn(tween(280)) + scaleIn(tween(280), initialScale = 0.9f)) togetherWith
-                        (fadeOut(tween(160)) + scaleOut(tween(160), targetScale = 0.9f))
-            },
-            label = "qualityBtnLabel"
-        ) { busy ->
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    if (busy) Icons.Filled.Close else Icons.Filled.Speed,
-                    contentDescription = null,
-                    tint = tint,
-                    modifier = Modifier.size(21.dp)
-                )
-                Spacer(Modifier.width(10.dp))
-                Text(
-                    if (busy) t("cancel") else t("stab_start"),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = tint,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun ConnectSweep(color: Color, active: Boolean, modifier: Modifier = Modifier) {
-    val phase = rememberInfiniteTransition(label = "connSweep").animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing)),
-        label = "connSweepV"
-    )
-    val fade by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = tween(260, easing = FastOutSlowInEasing),
-        label = "connSweepFade"
-    )
-    if (fade <= 0.004f) return
-    Spacer(
-        modifier.drawWithCache {
-            val bandW = (size.width * 0.42f).coerceAtLeast(1f)
-            val brush = Brush.horizontalGradient(
-                0.00f to color.copy(alpha = 0f),
-                0.30f to color.copy(alpha = 0.14f),
-                0.50f to color.copy(alpha = 0.42f),
-                0.70f to color.copy(alpha = 0.14f),
-                1.00f to color.copy(alpha = 0f),
-                startX = 0f,
-                endX = bandW
-            )
-            val travel = size.width + bandW
-            val band = Size(bandW, size.height)
-            onDrawBehind {
-                val x = phase.value * travel - bandW
-                translate(left = x) {
-                    drawRect(brush = brush, topLeft = Offset.Zero, size = band, alpha = fade)
-                }
-            }
-        }
-    )
-}
-
-@Composable
-private fun ConnectGlow(color: Color, modifier: Modifier = Modifier, alpha: Float = 1f) {
-    val tr = rememberInfiniteTransition(label = "connectBeam")
-    val progress by tr.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing)),
-        label = "beam"
-    )
-    Spacer(
-        modifier
-            .graphicsLayer { this.alpha = alpha }
-            .drawWithCache {
-                val radius = 16.dp.toPx()
-                val inset = 1.dp.toPx()
-                val path = Path().apply {
-                    addRoundRect(
-                        RoundRect(
-                            Rect(inset, inset, size.width - inset, size.height - inset),
-                            CornerRadius(radius, radius)
-                        )
-                    )
-                }
-                val pm = PathMeasure().apply { setPath(path, true) }
-                val len = pm.length
-                onDrawBehind {
-                    if (len <= 0f) return@onDrawBehind
-                    val head = ((progress % 1f) + 1f) % 1f * len
-                    val tailLen = len * 0.16f
-                    val blobs = 16
-                    val step = tailLen / blobs
-                    fun at(dist: Float) = pm.getPosition(((dist % len) + len) % len)
-                    fun glow(c: Offset, r: Float, peak: Float) {
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colorStops = arrayOf(
-                                    0.0f to color.copy(alpha = peak),
-                                    0.40f to color.copy(alpha = peak * 0.45f),
-                                    0.75f to color.copy(alpha = peak * 0.12f),
-                                    1.0f to color.copy(alpha = 0f)
-                                ),
-                                center = c, radius = r
-                            ),
-                            radius = r, center = c
-                        )
-                    }
-                    for (k in blobs downTo 1) {
-                        val frac = 1f - (k - 1f) / blobs
-                        val a = frac * frac
-                        if (a <= 0.01f) continue
-                        glow(at(head - k * step), 5.dp.toPx() + 7.dp.toPx() * frac, 0.6f * a)
-                    }
-                    val hp = at(head)
-                    glow(hp, 12.dp.toPx(), 0.85f)
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colorStops = arrayOf(
-                                0.0f to Color.White,
-                                0.45f to Color.White.copy(alpha = 0.5f),
-                                1.0f to Color.White.copy(alpha = 0f)
-                            ),
-                            center = hp, radius = 4.5.dp.toPx()
-                        ),
-                        radius = 4.5.dp.toPx(), center = hp
-                    )
-                }
-            }
-    )
-}
-
-@Composable
-private fun PulseHalo(color: Color, size: Dp, modifier: Modifier = Modifier) {
-    val tr = rememberInfiniteTransition(label = "halo")
-    val breath by tr.animateFloat(
-        initialValue = 0.88f,
-        targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(
-            tween(2600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "haloBreath"
-    )
-    val strength by tr.animateFloat(
-        initialValue = 0.75f,
-        targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            tween(2600, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "haloStrength"
-    )
-
-    Canvas(modifier.size(size)) {
-        val c = Offset(this.size.width / 2f, this.size.height / 2f)
-        val glowR = (this.size.minDimension / 2f) * breath
-
-        drawCircle(
-            brush = Brush.radialGradient(
-                colors = listOf(
-                    color.copy(alpha = 0.22f * strength),
-                    color.copy(alpha = 0.07f * strength),
-                    color.copy(alpha = 0f)
-                ),
-                center = c,
-                radius = glowR
-            ),
-            radius = glowR,
-            center = c
-        )
-    }
-}
-
-@Composable
-private fun PingLine(color: Color, size: Dp = 96.dp, modifier: Modifier = Modifier) {
-    val tr = rememberInfiniteTransition(label = "ping")
-    val t by tr.animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing)),
-        label = "pingT"
-    )
-    val core by tr.animateFloat(
-        initialValue = 0.85f, targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
-            tween(900, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "pingCore"
-    )
-
-    Canvas(modifier.size(size)) {
-        val cx = this.size.width / 2f
-        val cy = this.size.height / 2f
-        val maxR = this.size.minDimension / 2f - 2.dp.toPx()
-
-        for (i in 0 until 3) {
-            val p = (t + i / 3f) % 1f
-            val r = maxR * p
-            val fade = (1f - p).coerceIn(0f, 1f)
-            if (r > 1f) {
-                drawCircle(
-                    color = color.copy(alpha = 0.45f * fade * fade),
-                    radius = r,
-                    center = Offset(cx, cy),
-                    style = Stroke(width = 1.5.dp.toPx())
-                )
-            }
-        }
-
-        val coreR = maxR * 0.22f * core
-        drawCircle(color.copy(alpha = 0.18f), radius = coreR * 2.4f, center = Offset(cx, cy))
-        drawCircle(color.copy(alpha = 0.40f), radius = coreR * 1.5f, center = Offset(cx, cy))
-        drawCircle(color, radius = coreR, center = Offset(cx, cy))
-    }
-}
-
-@Composable
-private fun RevealOnScroll(content: @Composable (shown: Boolean) -> Unit) {
-    var shown by remember { mutableStateOf(false) }
-    val screenH = with(LocalDensity.current) { LocalConfiguration.current.screenHeightDp.dp.toPx() }
-    Box(
-        Modifier.onGloballyPositioned { c ->
-            if (!shown) {
-                val b = c.boundsInWindow()
-                if (b.height > 0f && b.top < screenH * 0.9f && b.bottom > 0f) shown = true
-            }
-        }
-    ) {
-        content(shown)
-    }
-}
-
-@Composable
-private fun RevealText(text: String, style: TextStyle, shown: Boolean, order: Int) {
-    val appear = remember { Animatable(0f) }
-    LaunchedEffect(shown) {
-        if (shown) { delay(order * 90L); appear.animateTo(1f, tween(450)) }
-    }
-    val p = appear.value
-    Text(text, style = style, modifier = Modifier.graphicsLayer { alpha = p; translationX = (1f - p) * 24f })
-}
-
-private enum class RangeMode(val key: String) {
-    TODAY("today"), WEEK("range_7d"), MONTH("range_30d"), CUSTOM("custom_range")
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun DataUsageScreen(modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val daily by UsageStore.usage.collectAsState()
-    val hourly by UsageStore.hourly.collectAsState()
-    val dailyCfg by UsageStore.dailyCfg.collectAsState()
-    val hourlyCfg by UsageStore.hourlyCfg.collectAsState()
-    val context = LocalContext.current
-    var mode by remember { mutableStateOf(RangeMode.TODAY) }
-    var menuOpen by remember { mutableStateOf(false) }
-    var fromDate by remember { mutableStateOf(LocalDate.now().minusDays(6)) }
-    var toDate by remember { mutableStateOf(LocalDate.now()) }
-    var fromHour by remember { mutableStateOf(0) }
-    var toHour by remember { mutableStateOf(23) }
-
-    val bars = remember(daily, hourly, mode, fromDate, toDate, fromHour, toHour) {
-        when (mode) {
-            RangeMode.TODAY -> UsageStore.hourlyToday(hourly)
-            RangeMode.WEEK -> UsageStore.dailyBars(daily, 7)
-            RangeMode.MONTH -> UsageStore.dailyBars(daily, 30)
-            RangeMode.CUSTOM -> {
-                val lo = if (fromDate.isAfter(toDate)) toDate else fromDate
-                val hi = if (fromDate.isAfter(toDate)) fromDate else toDate
-                val span = java.time.temporal.ChronoUnit.DAYS.between(lo, hi)
-                if (span <= 2) {
-                    val loH = minOf(fromHour, toHour)
-                    val hiH = maxOf(fromHour, toHour)
-                    UsageStore.hourlyBarsRange(hourly, lo, hi).filter { bar ->
-                        val h = bar.short.toIntOrNull()
-                        h == null || h in loH..hiH
-                    }
-                } else UsageStore.dailyBarsRange(daily, lo, hi)
-            }
-        }
-    }
-    val total = remember(bars) { UsageStore.sum(bars) }
-    val hourlyMode = mode == RangeMode.TODAY ||
-            (mode == RangeMode.CUSTOM &&
-                    java.time.temporal.ChronoUnit.DAYS.between(
-                        if (fromDate.isAfter(toDate)) toDate else fromDate,
-                        if (fromDate.isAfter(toDate)) fromDate else toDate
-                    ) <= 2)
-    val directOf: (UsageStore.Bar) -> Long = { bar ->
-        val src = if (hourlyMode) hourlyCfg else dailyCfg
-        src[bar.key]?.get(UsageStore.DIRECT_KEY)?.let { it[0] + it[1] } ?: 0L
-    }
-    val rangeDirect = remember(bars, dailyCfg, hourlyCfg, hourlyMode) { bars.sumOf(directOf) }
-    val rangeVpn = (total[0] + total[1] - rangeDirect).coerceAtLeast(0L)
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                t("range"),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Box {
-                OutlinedButton(
-                    onClick = { menuOpen = true },
-                    shape = RoundedCornerShape(14.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(t(mode.key), modifier = Modifier.weight(1f))
-                    Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                ) {
-                    RangeMode.values().forEach { m ->
-                        DropdownMenuItem(
-                            text = { Text(t(m.key), style = MaterialTheme.typography.bodyMedium) },
-                            trailingIcon = {
-                                if (mode == m) Icon(
-                                    Icons.Filled.Check,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { mode = m; menuOpen = false }
-                        )
-                    }
-                }
-            }
-        }
-
-        AnimatedVisibility(
-            visible = mode == RangeMode.CUSTOM,
-            enter = fadeIn(tween(280)) +
-                    slideInVertically(tween(320, easing = FastOutSlowInEasing)) { -it / 3 } +
-                    expandVertically(tween(320, easing = FastOutSlowInEasing)),
-            exit = fadeOut(tween(180)) + shrinkVertically(tween(260, easing = FastOutSlowInEasing))
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(
-                    Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                            RoundedCornerShape(14.dp)
-                        ),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    RangeCell(
-                        label = t("from"),
-                        date = fromDate,
-                        hour = fromHour,
-                        lang = lang,
-                        onDate = { showDatePicker(context, fromDate) { fromDate = it } },
-                        onHour = { fromHour = it },
-                        modifier = Modifier.weight(1f)
-                    )
-                    Box(
-                        Modifier.width(1.dp).height(38.dp)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.22f))
-                    )
-                    RangeCell(
-                        label = t("to"),
-                        date = toDate,
-                        hour = toHour,
-                        lang = lang,
-                        onDate = { showDatePicker(context, toDate) { toDate = it } },
-                        onHour = { toHour = it },
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-                Text(
-                    t("custom_hint"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(22.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
-        ) {
-            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TransferTile(
-                        icon = Icons.Filled.ArrowDownward,
-                        label = t("download"),
-                        bytes = total[1],
-                        tint = Color(0xFF35E0FF),
-                        lang = lang,
-                        modifier = Modifier.weight(1f)
-                    )
-                    TransferTile(
-                        icon = Icons.Filled.ArrowUpward,
-                        label = t("upload"),
-                        bytes = total[0],
-                        tint = Color(0xFFB86BFF),
-                        lang = lang,
-                        modifier = Modifier.weight(1f)
-                    )
-                }
-
-                Row(
-                    Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-                        .padding(horizontal = 14.dp, vertical = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(
-                            t("total"),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text(
-                            formatBytes(total[0] + total[1], lang),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            maxLines = 1
-                        )
-                    }
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                Icons.Filled.Lock,
-                                contentDescription = null,
-                                tint = AppGreen,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Spacer(Modifier.width(5.dp))
-                            Text(
-                                t("via_vpn"),
-                                style = MaterialTheme.typography.labelMedium,
-                                color = AppGreen,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
-                        Text(
-                            formatBytes(rangeVpn, lang),
-                            style = MaterialTheme.typography.titleLarge,
-                            fontWeight = FontWeight.Bold,
-                            color = AppGreen,
-                            maxLines = 1
-                        )
-                    }
-                }
-            }
-        }
-
-        if (bars.isEmpty()) {
-            Text(t("no_data_range"), style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            var chartVisible by remember(mode, fromDate, toDate) { mutableStateOf(false) }
-            LaunchedEffect(mode, fromDate, toDate) { chartVisible = true }
-            AnimatedVisibility(
-                visible = chartVisible,
-                enter = fadeIn(tween(300)) + scaleIn(tween(300), initialScale = 0.92f)
-            ) {
-                UsageBarChart(bars)
-            }
-        }
-
-        val ranged = remember(dailyCfg, hourlyCfg, bars, hourlyMode) {
-            UsageStore.configTotalsRange(dailyCfg, hourlyCfg, bars, hourlyMode)
-        }
-        val direct = ranged.firstOrNull { it.first == UsageStore.DIRECT_KEY }?.second
-            ?: longArrayOf(0L, 0L)
-        val perConfig = ranged.filter { it.first != UsageStore.DIRECT_KEY }
-        val grand = direct[0] + direct[1] + perConfig.sumOf { it.second[0] + it.second[1] }
-
-        if (grand > 0L) {
-            SettingsGroup(t("usage_by_config")) {
-                UsageShareRow(
-                    name = t("usage_direct"),
-                    bytes = direct[0] + direct[1],
-                    grand = grand,
-                    tint = DirectBarColor,
-                    lang = lang
-                )
-                perConfig.take(8).forEachIndexed { i, (name, v) ->
-                    UsageShareRow(
-                        name = name,
-                        bytes = v[0] + v[1],
-                        grand = grand,
-                        tint = ServerPalette[i % ServerPalette.size],
-                        lang = lang
-                    )
-                }
-            }
-        }
-    }
-}
-
-private val DirectBarColor = Color(0xFF8A94A6)
-
-private val ServerPalette = listOf(
-    Color(0xFFFFA94D), Color(0xFFFF6BC1), Color(0xFF6D9BEE),
-    Color(0xFFFFD24D), Color(0xFFFF7A6B), Color(0xFF9BE85B)
-)
-
-@Composable
-private fun TransferTile(
-    icon: ImageVector,
-    label: String,
-    bytes: Long,
-    tint: Color,
-    lang: Lang,
-    modifier: Modifier = Modifier
-) {
-    val parts = formatBytesParts(bytes, lang)
-    Column(
-        modifier.clip(RoundedCornerShape(16.dp))
-            .background(tint.copy(alpha = 0.10f))
-            .padding(horizontal = 14.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(6.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
-            Spacer(Modifier.width(6.dp))
-            Text(
-                label,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-        Row(verticalAlignment = Alignment.Bottom) {
-            Text(
-                parts.first,
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.Bold,
-                maxLines = 1
-            )
-            Spacer(Modifier.width(4.dp))
-            Text(
-                parts.second,
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(bottom = 3.dp)
-            )
-        }
-    }
-}
-
-@Composable
-private fun RangeCell(
-    label: String,
-    date: java.time.LocalDate,
-    hour: Int,
-    lang: Lang,
-    onDate: () -> Unit,
-    onHour: (Int) -> Unit,
-    modifier: Modifier = Modifier
-) {
-    var open by remember { mutableStateOf(false) }
-    Column(
-        modifier.padding(horizontal = 12.dp, vertical = 9.dp),
-        verticalArrangement = Arrangement.spacedBy(3.dp)
-    ) {
-        Text(
-            mixedText(label),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                localizeDigits("${date.year}/${date.monthValue}/${date.dayOfMonth}", lang),
-                style = MaterialTheme.typography.bodySmall,
-                fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                softWrap = false,
-                modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { onDate() }
-                    .padding(horizontal = 2.dp, vertical = 2.dp)
-            )
-            Spacer(Modifier.width(6.dp))
-            Box {
-                Text(
-                    localizeDigits(String.format(java.util.Locale.US, "%02d:00", hour), lang),
-                    style = MaterialTheme.typography.bodySmall,
-                    fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    softWrap = false,
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp)).clickable { open = true }
-                        .padding(horizontal = 2.dp, vertical = 2.dp)
-                )
-                DropdownMenu(
-                    expanded = open,
-                    onDismissRequest = { open = false },
-                    offset = DpOffset(0.dp, 4.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                ) {
-                    (0..23).forEach { h ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    localizeDigits(String.format(java.util.Locale.US, "%02d:00", h), lang),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontFamily = if (lang == Lang.FA) VazirFont else LexendFont
-                                )
-                            },
-                            trailingIcon = {
-                                if (h == hour) Icon(
-                                    Icons.Filled.Check, contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(38.dp),
-                            onClick = { onHour(h); open = false }
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun UsageShareRow(
-    name: String,
-    bytes: Long,
-    grand: Long,
-    tint: Color,
-    lang: Lang
-) {
-    val frac = if (grand > 0L) (bytes.toFloat() / grand.toFloat()).coerceIn(0f, 1f) else 0f
-    val width by animateFloatAsState(frac, tween(500), label = "usageShare")
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                flagRuns(name, LexendFont),
-                inlineContent = flagInlineContent(name, MaterialTheme.typography.bodyMedium.fontSize),
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                formatBytes(bytes, lang),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-        Box(
-            Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
-                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.16f))
-        ) {
-            Box(
-                Modifier.fillMaxWidth(width).fillMaxHeight()
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(tint)
-            )
-        }
-    }
-}
-
-private fun showDatePicker(context: Context, initial: LocalDate, onPicked: (LocalDate) -> Unit) {
-    android.app.DatePickerDialog(
-        context,
-        { _, year, month, day -> onPicked(LocalDate.of(year, month + 1, day)) },
-        initial.year, initial.monthValue - 1, initial.dayOfMonth
-    ).show()
-}
-
-@Composable
-private fun UsageBarChart(bars: List<UsageStore.Bar>) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val maxVal = (bars.maxOfOrNull { it.total } ?: 0L).coerceAtLeast(1L)
-    val primary = MaterialTheme.colorScheme.primary
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    val labelEvery = (bars.size / 6).coerceAtLeast(1)
-    var focused by remember { mutableStateOf<Int?>(null) }
-
-    val animKey = remember(bars) { bars.hashCode() }
-    var appeared by remember(animKey) { mutableStateOf(false) }
-    LaunchedEffect(animKey) { appeared = true }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            val f = focused
-            AnimatedVisibility(
-                visible = f != null && f in bars.indices,
-                enter = expandVertically(tween(220)) + fadeIn(tween(220)),
-                exit = shrinkVertically(tween(180)) + fadeOut(tween(150))
-            ) {
-                val bar = bars[f ?: 0]
-                Card(
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-                ) {
-                    Column(Modifier.padding(horizontal = 12.dp, vertical = 8.dp)) {
-                        Text(localizeDigits(bar.label, lang),
-                            style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Text("${t("download")} ${formatBytes(bar.down, lang)}   ${t("upload")} ${formatBytes(bar.up, lang)}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer)
-                    }
-                }
-            }
-            if (f == null) {
-                Text(t("peak_per_bar").format(formatBytes(maxVal, lang)),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-
-            var rowWidth by remember { mutableStateOf(1) }
-            CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(140.dp)
-                        .onSizeChanged { rowWidth = it.width }
-                        .pointerInput(bars.size) {
-                            awaitPointerEventScope {
-                                while (true) {
-                                    val down = awaitFirstDown()
-                                    fun idxAt(x: Float): Int =
-                                        ((x / rowWidth) * bars.size).toInt().coerceIn(0, bars.lastIndex)
-                                    focused = idxAt(down.position.x)
-                                    do {
-                                        val event = awaitPointerEvent()
-                                        val pos = event.changes.first().position
-                                        focused = idxAt(pos.x)
-                                    } while (event.changes.any { it.pressed })
-                                    focused = null
-                                }
-                            }
-                        },
-                    horizontalArrangement = Arrangement.spacedBy(3.dp),
-                    verticalAlignment = Alignment.Bottom
-                ) {
-                    bars.forEachIndexed { i, bar ->
-                        val frac = (bar.total.toFloat() / maxVal).coerceIn(0f, 1f)
-                        val isFocused = focused == i
-                        val targetFrac = if (bar.total > 0 && appeared) frac.coerceAtLeast(0.03f) else 0f
-                        val animatedFrac by animateFloatAsState(
-                            targetValue = targetFrac,
-                            animationSpec = tween(durationMillis = 600),
-                            label = "bar"
-                        )
-                        val focusColor = MaterialTheme.colorScheme.primaryContainer
-                        val barColor by animateColorAsState(
-                            targetValue = if (isFocused) focusColor else primary,
-                            animationSpec = tween(180),
-                            label = "barColor"
-                        )
-                        val barScale by animateFloatAsState(
-                            targetValue = if (isFocused) 1.12f else 1f,
-                            animationSpec = tween(180),
-                            label = "barScale"
-                        )
-                        Box(
-                            Modifier.weight(1f).fillMaxHeight(),
-                            contentAlignment = Alignment.BottomCenter
-                        ) {
-                            Box(
-                                Modifier.fillMaxWidth().fillMaxHeight()
-                                    .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                    .background(track.copy(alpha = 0.4f))
-                            )
-                            if (animatedFrac > 0f) {
-                                Box(
-                                    Modifier.fillMaxWidth().fillMaxHeight(animatedFrac)
-                                        .graphicsLayer {
-                                            scaleX = barScale; scaleY = 1f
-                                            transformOrigin = TransformOrigin(0.5f, 1f)
-                                        }
-                                        .clip(RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp))
-                                        .background(barColor)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(3.dp)) {
-                    bars.forEachIndexed { i, bar ->
-                        Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-                            if (i % labelEvery == 0) {
-                                Text(
-                                    localizeDigits(bar.short, lang),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    maxLines = 1,
-                                    softWrap = false,
-                                    overflow = TextOverflow.Visible,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalLayoutApi::class)
-@Composable
-private fun SniffTypeSelector(selected: Set<String>, onToggle: (String) -> Unit) {
-    val types = listOf("http", "tls", "quic", "fakedns", "fakedns+others")
-    FlowRow(
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
-    ) {
-        types.forEach { type ->
-            val on = type in selected
-            val bg by animateColorAsState(
-                targetValue = if (on) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.surfaceVariant,
-                animationSpec = tween(200), label = "chipBg"
-            )
-            val fg by animateColorAsState(
-                targetValue = if (on) MaterialTheme.colorScheme.onPrimary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                animationSpec = tween(200), label = "chipFg"
-            )
-            Box(
-                Modifier
-                    .clip(RoundedCornerShape(50))
-                    .background(bg)
-                    .clickable { onToggle(type) }
-                    .padding(horizontal = 14.dp, vertical = 8.dp)
-            ) {
-                Text(type, color = fg, style = MaterialTheme.typography.labelLarge)
-            }
-        }
-    }
-}
-
-@Composable
-private fun SettingRow(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true
-) {
-    Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(mixedText(title), style = MaterialTheme.typography.bodyLarge)
-            Text(mixedText(subtitle), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.width(16.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
-    }
-}
-
-@Composable
-private fun GlobeStyleOption(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val border = if (selected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    else Color.Transparent
-    Box(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(bg)
-            .border(BorderStroke(if (selected) 1.5.dp else 1.dp, border), RoundedCornerShape(14.dp))
-            .clickable { onClick() }
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-        )
-    }
-}
-
-private fun Modifier.pressBounce(
-    scale: Animatable<Float, AnimationVector1D>,
-    scope: CoroutineScope
-): Modifier = this
-    .graphicsLayer { scaleX = scale.value; scaleY = scale.value }
-    .pointerInput(Unit) {
-        awaitEachGesture {
-            awaitFirstDown(requireUnconsumed = false)
-            scope.launch {
-                scale.animateTo(0.97f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
-            }
-            waitForUpOrCancellation()
-            scope.launch {
-                scale.animateTo(
-                    1f,
-                    spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMediumLow)
-                )
-            }
-        }
-    }
-
-@Composable
-private fun FillButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    borderWidth: Dp = 1.5.dp,
-    minHeight: Dp = 48.dp,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-    accent: Color = MaterialTheme.colorScheme.primary,
-    content: @Composable RowScope.() -> Unit
-) {
-    val primary = accent
-    val onPrimary = MaterialTheme.colorScheme.onPrimary
-    val disabled = primary.copy(alpha = 0.35f)
-    val shape = RoundedCornerShape(22.dp)
-    val hazeState = LocalHazeState.current
-    val surfaceColor = MaterialTheme.colorScheme.surface
-
-    val interaction = remember { MutableInteractionSource() }
-    var center by remember { mutableStateOf(Offset.Zero) }
-    var sz by remember { mutableStateOf(IntSize.Zero) }
-    var pressed by remember { mutableStateOf(false) }
-
-    val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.98f else 1f,
-        animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
-        label = "fillScale"
-    )
-    val maxR = remember(center, sz) {
-        val dx = maxOf(center.x, sz.width - center.x)
-        val dy = maxOf(center.y, sz.height - center.y)
-        sqrt(dx * dx + dy * dy)
-    }
-    val radius by animateFloatAsState(
-        targetValue = if (pressed) maxR else 0f,
-        animationSpec = tween(durationMillis = if (pressed) 550 else 300),
-        label = "fillRadius"
-    )
-    val fillFrac = if (maxR > 0f) (radius / maxR).coerceIn(0f, 1f) else 0f
-    val contentColor = lerp(if (enabled) primary else disabled, onPrimary, fillFrac)
-
-    Box(
-        modifier
-            .graphicsLayer { scaleX = scale; scaleY = scale }
-            .then(ghajarSoftSurface(shape, enabled))
-            .clip(shape)
-            .then(
-                if (hazeState != null) Modifier.hazeEffect(hazeState) {
-                    blurRadius = 10.dp
-                    backgroundColor = surfaceColor
-                    tints = listOf(HazeTint(surfaceColor.copy(alpha = 0.30f)))
-                    noiseFactor = 0f
-                } else Modifier
-            )
-            .drawBehind {
-                if (radius > 0.5f) drawCircle(color = primary, radius = radius, center = center)
-            }
-            .border(BorderStroke(0.7.dp, if (enabled) primary.copy(alpha = 0.22f) else disabled.copy(alpha = 0.3f)), shape)
-            .defaultMinSize(minWidth = 56.dp, minHeight = minHeight)
-            .onSizeChanged { sz = it }
-            .pointerInput(enabled) {
-                if (!enabled) return@pointerInput
-                awaitEachGesture {
-                    val down = awaitFirstDown(requireUnconsumed = false)
-                    center = down.position
-                    pressed = true
-                    waitForUpOrCancellation()
-                    pressed = false
-                }
-            }
-            .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = androidx.compose.ui.semantics.Role.Button) { onClick() },
-        contentAlignment = Alignment.Center
-    ) {
-        CompositionLocalProvider(LocalContentColor provides contentColor) {
-            Row(
-                Modifier.padding(contentPadding),
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-                content = content
-            )
-        }
-    }
-}
-
-@Composable
-private fun BounceButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable RowScope.() -> Unit
-) = FillButton(onClick, modifier, enabled, borderWidth = 2.dp, content = content)
-
-@Composable
-private fun BounceOutlinedButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    minHeight: Dp = 48.dp,
-    contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
-    accent: Color = MaterialTheme.colorScheme.primary,
-    content: @Composable RowScope.() -> Unit
-) = FillButton(onClick, modifier, enabled, borderWidth = 1.5.dp,
-    minHeight = minHeight, contentPadding = contentPadding, accent = accent, content = content)
-
-@Composable
-private fun BounceTextButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable RowScope.() -> Unit
-) = FillButton(
-    onClick, modifier, enabled,
-    borderWidth = 1.5.dp,
-    minHeight = 40.dp,
-    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-    content = content
-)
-
-@Composable
-private fun BounceIconButton(
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    enabled: Boolean = true,
-    content: @Composable () -> Unit
-) {
-    val scale = remember { Animatable(1f) }
-    val scope = rememberCoroutineScope()
-    IconButton(
-        onClick = onClick,
-        enabled = enabled,
-        modifier = modifier.pressBounce(scale, scope)
-            .then(ghajarSoftSurface(RoundedCornerShape(16.dp), enabled)),
-        content = content
-    )
-}
-
-private fun pingRank(p: PingResult?): Int = when (p) {
-    is PingResult.Ok -> p.ms
-    PingResult.Testing -> 1_000_000
-    null -> 2_000_000
-    PingResult.Failed -> 3_000_000
-}
-
-private fun statusText(conn: Connection, error: String?, lang: Lang): String = when (conn) {
-    Connection.DISCONNECTED -> Strings.get(lang, "status_disconnected")
-    Connection.CONNECTING -> Strings.get(lang, "status_connecting")
-    Connection.CONNECTED -> Strings.get(lang, "status_connected")
-    Connection.ERROR -> localizeDigits("${Strings.get(lang, "status_error")}: ${error ?: ""}", lang)
-}
-
-private fun formatBytes(bytes: Long, lang: Lang): String {
-    val unit: String
-    val num: String
-    when {
-        bytes < 1024 -> { num = "$bytes"; unit = Strings.get(lang, "unit_b") }
-        bytes < 1024 * 1024 -> { num = "%.1f".format(bytes / 1024.0); unit = Strings.get(lang, "unit_kb") }
-        bytes < 1024L * 1024 * 1024 -> { num = "%.1f".format(bytes / (1024.0 * 1024)); unit = Strings.get(lang, "unit_mb") }
-        else -> { num = "%.2f".format(bytes / (1024.0 * 1024 * 1024)); unit = Strings.get(lang, "unit_gb") }
-    }
-    return "\u202A${localizeDigits(num, lang)}\u202C $unit"
-}
-
-@Composable
-private fun SpeedText(bytes: Long) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val parts = formatBytesParts(bytes, lang)
-    Text(
-        buildAnnotatedString {
-            append("\u202A${parts.first}\u202C ")
-            withStyle(SpanStyle(fontSize = 12.sp)) {
-                append(parts.second + t("unit_per_sec"))
-            }
-        },
-        style = MaterialTheme.typography.titleMedium,
-        maxLines = 1
-    )
-}
-
-@Composable
-private fun StatBox(
-    speed: Long,
-    total: Long,
-    icon: ImageVector,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val parts = formatBytesParts(speed, lang)
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val accent = if (isDark) color else lerp(color, Color.Black, 0.42f)
-    val hazeState = LocalHazeState.current
-    Column(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .then(
-                if (hazeState != null) Modifier.hazeEffect(hazeState) {
-                    blurRadius = 10.dp
-                    backgroundColor = surfaceColor
-                    tints = listOf(HazeTint(surfaceColor.copy(alpha = 0.30f)))
-                    noiseFactor = 0f
-                } else Modifier.background(surfaceColor.copy(alpha = if (isDark) 0.55f else 0.75f))
-            )
-            .background(accent.copy(alpha = if (isDark) 0.12f else 0.10f))
-            .border(BorderStroke(1.dp, accent.copy(alpha = if (isDark) 0.75f else 0.55f)), RoundedCornerShape(14.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(
-                "\u202A${parts.first}\u202C ${parts.second}${t("unit_per_sec")}",
-                style = MaterialTheme.typography.bodySmall,
-                color = accent,
-                maxLines = 1
-            )
-        }
-        Text(
-            formatBytes(total, lang),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-    }
-}
-
-private fun formatBytesParts(bytes: Long, lang: Lang): Pair<String, String> {
-    val unit: String
-    val num: String
-    when {
-        bytes < 1024 -> { num = "$bytes"; unit = Strings.get(lang, "unit_b") }
-        bytes < 1024 * 1024 -> { num = "%.1f".format(bytes / 1024.0); unit = Strings.get(lang, "unit_kb") }
-        bytes < 1024L * 1024 * 1024 -> { num = "%.1f".format(bytes / (1024.0 * 1024)); unit = Strings.get(lang, "unit_mb") }
-        else -> { num = "%.2f".format(bytes / (1024.0 * 1024 * 1024)); unit = Strings.get(lang, "unit_gb") }
-    }
-    return localizeDigits(num, lang) to unit
-}
-
-@Composable
-private fun SubscriptionHeader(
-    sub: Subscription,
-    isOpen: Boolean,
-    onToggle: () -> Unit,
-    onRefresh: () -> Unit,
-    onRename: (String) -> Unit,
-    onRemove: () -> Unit,
-    onRemoveTimedOut: () -> Unit,
-    timedOutCount: Int,
-    onPing: () -> Unit,
-    pinging: Boolean,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    var renaming by remember { mutableStateOf(false) }
-    var shareMenu by remember { mutableStateOf(false) }
-    var draftName by remember { mutableStateOf(sub.name) }
-
-    if (renaming) {
-        GlassDialog(
-            onDismiss = { renaming = false },
-            title = t("edit_sub_name"),
-            confirmLabel = t("save"),
-            dismissLabel = t("cancel"),
-            onConfirm = {
-                val nm = draftName.trim()
-                if (nm.isNotEmpty()) onRename(nm)
-                renaming = false
-            }
-        ) {
-            OutlinedTextField(
-                value = draftName,
-                onValueChange = { draftName = it },
-                singleLine = true,
-                shape = RoundedCornerShape(14.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-
-    val ws = WindscribeBrand.isWindscribe(sub)
-    val brandBrush = if (ws) windscribeCardBrush() else null
-
-    Card(
-        modifier = modifier.appearOnce().fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onToggle() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (ws) Color.Transparent
-            else MaterialTheme.colorScheme.secondaryContainer
-        )
-    ) {
-        Column(
-            Modifier.fillMaxWidth()
-                .then(if (brandBrush != null) Modifier.background(brandBrush) else Modifier)
-                .padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val chevron by animateFloatAsState(
-                    targetValue = if (!isOpen) 0f else if (ws) 180f else 90f,
-                    animationSpec = tween(360, easing = FastOutSlowInEasing),
-                    label = "subChevron"
-                )
-                if (ws) {
-                    Image(
-                        painter = painterResource(R.drawable.windscribe),
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.padding(end = 7.dp).size(24.dp)
-                            .graphicsLayer { rotationZ = chevron }
-                    )
-                } else {
-                    Icon(
-                        Icons.Filled.ChevronRight,
-                        contentDescription = null,
-                        modifier = Modifier.padding(end = 7.dp).graphicsLayer { rotationZ = chevron }
-                    )
-                }
-                Box(Modifier.weight(1f)) {
-                    MarqueeName(
-                        WindscribeBrand.displayName(sub, lang),
-                        MaterialTheme.typography.titleSmall
-                    )
-                }
-                Box {
-                    Icon(Icons.Filled.Share, contentDescription = t("share"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { shareMenu = true }.padding(7.dp).size(21.dp))
-                    DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
-                        CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
-                            shareMenu = false
-                            clipboard.setText(AnnotatedString(sub.url))
-                            android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        CompactMenuItem(Icons.Filled.Share, t("share_app")) {
-                            shareMenu = false
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, sub.url)
-                            }
-                            context.startActivity(Intent.createChooser(send, sub.name))
-                        }
-                    }
-                }
-                if (pinging) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(7.dp).size(21.dp)
-                    )
-                } else {
-                    Icon(Icons.Filled.Speed, contentDescription = t("test_all"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onPing() }.padding(7.dp).size(21.dp))
-                }
-                Icon(Icons.Filled.Edit, contentDescription = t("edit_sub_name"), tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { draftName = sub.name; renaming = true }.padding(7.dp).size(21.dp))
-                Icon(Icons.Filled.Refresh, contentDescription = t("refresh"), tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onRefresh() }.padding(7.dp).size(21.dp))
-                Box {
-                    var subPurgeMenu by remember { mutableStateOf(false) }
-                    Icon(Icons.Filled.Delete, contentDescription = t("remove"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50))
-                            .clickable { subPurgeMenu = true }.padding(7.dp).size(21.dp))
-                    DropdownMenu(
-                        expanded = subPurgeMenu,
-                        onDismissRequest = { subPurgeMenu = false },
-                        offset = DpOffset(0.dp, 4.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(t("delete_all_configs"), style = MaterialTheme.typography.bodyMedium) },
-                            leadingIcon = {
-                                Icon(Icons.Filled.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { subPurgeMenu = false; onRemove() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(t("delete_timed_out"), style = MaterialTheme.typography.bodyMedium) },
-                            leadingIcon = {
-                                Icon(Icons.Filled.TimerOff, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            enabled = timedOutCount > 0,
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { subPurgeMenu = false; onRemoveTimedOut() }
-                        )
-                    }
-                }
-            }
-            if (sub.total > 0) {
-                Spacer(Modifier.height(6.dp))
-                UsageBar(used = sub.used, total = sub.total)
-            }
-            val quota = quotaChips(sub, lang)
-            if (quota.isNotEmpty()) {
-                Spacer(Modifier.height(7.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    quota.forEach { (label, level) ->
-                        QuotaChip(label, level)
-                    }
-                }
-            }
-        }
-    }
-}
-
-private fun quotaChips(sub: Subscription, lang: Lang): List<Pair<String, Int>> {
-    if (sub.total <= 0 && sub.expire <= 0) return emptyList()
-    val parts = mutableListOf<Pair<String, Int>>()
-    if (sub.total > 0) {
-        val remaining = (sub.total - sub.used).coerceAtLeast(0)
-        val frac = remaining.toFloat() / sub.total
-        val level = when {
-            frac <= 0.10f -> 2
-            frac <= 0.30f -> 1
-            else -> 0
-        }
-        parts.add(
-            "${formatBytes(remaining, lang)} ${Strings.get(lang, "of")} " +
-                    "${formatBytes(sub.total, lang)} ${Strings.get(lang, "left")}" to level
-        )
-    }
-    if (sub.expire > 0) {
-        val daysLeft = (sub.expire * 1000 - System.currentTimeMillis()) / 86_400_000L
-        if (daysLeft >= 0) {
-            val level = when {
-                daysLeft <= 1L -> 2
-                daysLeft <= 3L -> 1
-                else -> 0
-            }
-            parts.add(
-                "${Strings.get(lang, "expires_in")} " +
-                        "${localizeDigits("$daysLeft", lang)}${Strings.get(lang, "unit_days")}" to level
-            )
-        }
-    }
-    return parts
-}
-
-@Composable
-private fun QuotaChip(label: String, level: Int) {
-    val accent = when (level) {
-        2 -> Color(0xFFE53935)
-        1 -> Color(0xFFF59E0B)
-        else -> MaterialTheme.colorScheme.primary
-    }
-    Text(
-        mixedText(label),
-        style = MaterialTheme.typography.labelSmall,
-        color = accent,
-        maxLines = 1,
-        modifier = Modifier
-            .clip(RoundedCornerShape(9.dp))
-            .background(accent.copy(alpha = 0.10f))
-            .border(1.dp, accent.copy(alpha = 0.28f), RoundedCornerShape(9.dp))
-            .padding(horizontal = 9.dp, vertical = 4.dp)
-    )
-}
-
-@Composable
-private fun UsageBar(used: Long, total: Long) {
-    val remaining = (total - used).coerceAtLeast(0L)
-    val frac = if (total > 0) (remaining.toFloat() / total).coerceIn(0f, 1f) else 0f
-    val barColor = when {
-        frac <= 0.10f -> Color(0xFFE53935)
-        frac <= 0.30f -> Color(0xFFF59E0B)
-        else -> MaterialTheme.colorScheme.primary
-    }
-    Box(
-        Modifier
-            .fillMaxWidth()
-            .height(6.dp)
-            .clip(RoundedCornerShape(50))
-            .background(MaterialTheme.colorScheme.surfaceVariant)
-    ) {
-        if (frac > 0f) {
-            Box(
-                Modifier
-                    .fillMaxWidth(frac)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(50))
-                    .background(barColor)
-            )
-        }
-    }
-}
-
-@Composable
-private fun ChainPickerDialog(
-    store: ConfigStore,
-    config: ProxyConfig,
-    onDismiss: () -> Unit
-) {
-    val t = stringsFn()
-    val configs by store.configs.collectAsState()
-    val options = configs.filter { it.id != config.id && it.protocol != "tor" }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-        ) {
-            Column(
-                Modifier.fillMaxWidth().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Layers,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        t("chain_through"),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                Text(
-                    t("chain_hint"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                TorCountryGroup(t("chain_carrier")) {
-                    LazyColumn(
-                        modifier = Modifier.heightIn(max = 320.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        item(key = "chain-none") {
-                            ChainOptionRow(
-                                label = t("chain_none"),
-                                selected = config.chainId.isEmpty(),
-                                onClick = {
-                                    store.update(config.copy(chainId = ""))
-                                    DebugRunner.clear(config.id)
-                                    onDismiss()
-                                }
-                            )
-                        }
-                        items(options, key = { it.id }) { option ->
-                            ChainOptionRow(
-                                label = option.name,
-                                selected = config.chainId == option.id,
-                                onClick = {
-                                    store.update(config.copy(chainId = option.id))
-                                    DebugRunner.clear(config.id)
-                                    onDismiss()
-                                }
-                            )
-                        }
-                    }
-                }
-
-                BounceTextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) {
-                    Text(t("cancel"))
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChainOptionRow(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val tint by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.onSurfaceVariant,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "chainRowTint"
-    )
-    val fill by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = tween(300, easing = FastOutSlowInEasing),
-        label = "chainRowFill"
-    )
-    Row(
-        Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(tint.copy(alpha = 0.05f + 0.09f * fill))
-            .border(1.dp, tint.copy(alpha = 0.16f + 0.36f * fill), RoundedCornerShape(14.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        Text(
-            flagRuns(label, if (LocalLang.current == Lang.FA) VazirFont else LexendFont),
-            inlineContent = flagInlineContent(
-                label,
-                MaterialTheme.typography.bodyMedium.fontSize
-            ),
-            style = MaterialTheme.typography.bodyMedium,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f)
-        )
-        SmoothCheckbox(checked = selected)
-    }
-}
-
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val accent = MaterialTheme.colorScheme.primary
-    val qrBg = Color(0xFF0E1422)
-    val qrFg = lerp(Color.White, accent, 0.06f)
-    val bmp = remember(link, qrBg, qrFg) {
-        ConfigShare.qrBitmap(link, darkColor = qrFg.toArgb(), lightColor = qrBg.toArgb())
-    }
-
-    val pulseTr = rememberInfiniteTransition(label = "qrPulse")
-    val strokeAlpha by pulseTr.animateFloat(
-        initialValue = 0.22f,
-        targetValue = 0.55f,
-        animationSpec = infiniteRepeatable(
-            tween(900, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "qrStroke"
-    )
-
-    fun shareImage() {
-        val image = bmp ?: return
-        runCatching {
-            val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-            val file = File(dir, "ghajarvpn-qr.png")
-            file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
-            val uri = FileProvider.getUriForFile(
-                context, context.packageName + ".fileprovider", file
-            )
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "image/png"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(send, title))
-        }
-    }
-
-    GlassDialog(
-        onDismiss = onDismiss,
-        title = t("qr_title"),
-        confirmLabel = if (bmp == null) t("cancel") else t("share"),
-        dismissLabel = if (bmp == null) null else t("cancel"),
-        onConfirm = { if (bmp == null) onDismiss() else shareImage() }
-    ) {
-        if (bmp == null) {
-            Text(
-                mixedText(t("qr_too_long")),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error
-            )
-        } else {
-            Text(
-                mixedText(title),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier.size(240.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(qrBg)
-                        .border(
-                            1.dp,
-                            accent.copy(alpha = strokeAlpha),
-                            RoundedCornerShape(18.dp)
-                        )
-                        .padding(12.dp)
-                ) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = null,
-                        filterQuality = FilterQuality.None,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-            Text(
-                mixedText(t("qr_hint")),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
-}
-
-@Composable
-private fun QrScannerScreen(onResult: (String) -> Unit) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val lifecycleOwner = remember(context) {
-        generateSequence(context) { (it as? ContextWrapper)?.baseContext }
-            .filterIsInstance<LifecycleOwner>()
-            .firstOrNull()
-    }
-
-    var granted by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                    PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val permLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted = it }
-
-    LaunchedEffect(Unit) {
-        if (!granted) permLauncher.launch(Manifest.permission.CAMERA)
-    }
-
-    Column(Modifier.fillMaxSize()) {
-        if (!granted) {
-            Column(
-                Modifier.fillMaxSize().padding(28.dp),
-                verticalArrangement = Arrangement.Center,
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Icon(
-                    Icons.Filled.QrCodeScanner,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(46.dp)
-                )
-                Spacer(Modifier.height(14.dp))
-                Text(
-                    mixedText(t("camera_needed")),
-                    style = MaterialTheme.typography.bodyMedium,
-                    textAlign = TextAlign.Center
-                )
-                Spacer(Modifier.height(16.dp))
-                BounceOutlinedButton(onClick = { permLauncher.launch(Manifest.permission.CAMERA) }) {
-                    Text(t("camera_grant"))
-                }
-            }
-            return@Column
-        }
-
-        var handled by remember { mutableStateOf(false) }
-
-        Box(
-            Modifier.weight(1f).fillMaxWidth().padding(16.dp)
-                .clip(RoundedCornerShape(22.dp)),
-            contentAlignment = Alignment.Center
-        ) {
-            AndroidView(
-                modifier = Modifier.fillMaxSize(),
-                factory = { ctx ->
-                    val view = PreviewView(ctx).apply {
-                        scaleType = PreviewView.ScaleType.FILL_CENTER
-                        implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                    }
-                    android.util.Log.d("GhajarQr", "factory: creating PreviewView")
-                    val providerFuture = ProcessCameraProvider.getInstance(ctx)
-                    providerFuture.addListener({
-                        runCatching {
-                            val provider = providerFuture.get()
-                            android.util.Log.d("GhajarQr", "provider ready, owner=$lifecycleOwner")
-                            val preview = Preview.Builder().build().also {
-                                it.setSurfaceProvider(view.surfaceProvider)
-                            }
-                            val analysis = ImageAnalysis.Builder()
-                                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                                .build()
-                            val reader = MultiFormatReader().apply {
-                                setHints(
-                                    mapOf(
-                                        DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE),
-                                        DecodeHintType.TRY_HARDER to true
-                                    )
-                                )
-                            }
-                            analysis.setAnalyzer(Executors.newSingleThreadExecutor()) { proxy ->
-                                if (!handled) {
-                                    decodeQr(proxy, reader)?.let { text ->
-                                        handled = true
-                                        view.post { onResult(text) }
-                                    }
-                                }
-                                proxy.close()
-                            }
-                            if (lifecycleOwner == null) {
-                                android.util.Log.e("GhajarQr", "no LifecycleOwner found - cannot bind")
-                            } else {
-                                provider.unbindAll()
-                                provider.bindToLifecycle(
-                                    lifecycleOwner,
-                                    CameraSelector.DEFAULT_BACK_CAMERA,
-                                    preview,
-                                    analysis
-                                )
-                                android.util.Log.d("GhajarQr", "camera bound")
-                            }
-                        }.onFailure {
-                            android.util.Log.e("GhajarQr", "camera setup failed", it)
-                        }
-                    }, ContextCompat.getMainExecutor(ctx))
-                    view
-                }
-            )
-            Box(
-                Modifier.size(214.dp)
-                    .border(2.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(18.dp))
-            )
-        }
-
-        Text(
-            mixedText(t("scan_qr_hint")),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp)
-        )
-    }
-}
-
-private fun decodeQr(proxy: ImageProxy, reader: MultiFormatReader): String? {
-    val buffer = proxy.planes[0].buffer
-    val data = ByteArray(buffer.remaining()).also { buffer.get(it) }
-    val source = PlanarYUVLuminanceSource(
-        data, proxy.planes[0].rowStride, proxy.height,
-        0, 0, proxy.width, proxy.height, false
-    )
-    val attempt = { src: LuminanceSource ->
-        runCatching { reader.decodeWithState(BinaryBitmap(HybridBinarizer(src))).text }
-            .getOrNull()
-    }
-    reader.reset()
-    return attempt(source) ?: run {
-        reader.reset()
-        attempt(source.invert())
-    }
-}
-
-@Composable
-private fun ConfigRow(
-    config: ProxyConfig,
-    isSelected: Boolean,
-    isActive: Boolean,
-    ping: PingResult?,
-    selectionMode: Boolean,
-    isChecked: () -> Boolean,
-    onClick: () -> Unit,
-    onLongPress: () -> Unit,
-    onEdit: () -> Unit,
-    onDelete: () -> Unit,
-    onShareFile: () -> Unit,
-    onChain: () -> Unit,
-    actionsOpen: Boolean,
-    onToggleActions: () -> Unit,
-    modifier: Modifier = Modifier,
-    appear: Boolean = true,
-    containerColor: Color? = null
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    var shareMenu by remember { mutableStateOf(false) }
-    var qrFor by remember { mutableStateOf<String?>(null) }
-    val checked by remember { derivedStateOf { isChecked() } }
-
-    qrFor?.let { link ->
-        QrDialog(link = link, title = config.name, onDismiss = { qrFor = null })
-    }
-
-    val highlight by animateColorAsState(
-        targetValue = when {
-            checked || isSelected -> MaterialTheme.colorScheme.primaryContainer
-            containerColor != null -> containerColor
-            else -> Color.Transparent
-        },
-        animationSpec = tween(220),
-        label = "rowHighlight"
-    )
-
-    val swipeRed = Color(0xFFE0413C)
-    var rowWidth by remember { mutableStateOf(1) }
-    var dragX by remember { mutableStateOf(0f) }
-    val dragEnabled = !selectionMode && !checked
-
-    val swiping = dragX < -6f
-    val haptics = LocalHapticFeedback.current
-
-    LaunchedEffect(swiping) {
-        if (swiping) {
-            runCatching { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
-            buzz(context)
-        }
-    }
-    LaunchedEffect(dragEnabled) {
-        if (!dragEnabled) dragX = 0f
-    }
-
-    val rowTint by animateColorAsState(
-        targetValue = if (swiping) swipeRed else highlight,
-        animationSpec = tween(200, easing = FastOutSlowInEasing),
-        label = "rowTint"
-    )
-
-    Card(
-        modifier = (if (appear) modifier.appearOnce() else modifier)
-            .fillMaxWidth()
-            .onSizeChanged { rowWidth = it.width }
-            .offset { IntOffset(dragX.roundToInt(), 0) }
-            .clip(RoundedCornerShape(14.dp))
-            .draggable(
-                orientation = Orientation.Horizontal,
-                enabled = dragEnabled,
-                state = rememberDraggableState { delta ->
-                    dragX = (dragX + delta).coerceIn(-rowWidth.toFloat(), 0f)
-                },
-                onDragStopped = {
-                    if (-dragX >= rowWidth * (1f / 3f)) {
-                        runCatching { haptics.performHapticFeedback(HapticFeedbackType.LongPress) }
-                        buzz(context)
-                        animate(
-                            initialValue = dragX,
-                            targetValue = -rowWidth.toFloat(),
-                            animationSpec = tween(260, easing = FastOutSlowInEasing)
-                        ) { value, _ -> dragX = value }
-                        onDelete()
-                    } else {
-                        animate(
-                            initialValue = dragX,
-                            targetValue = 0f,
-                            animationSpec = tween(280, easing = FastOutSlowInEasing)
-                        ) { value, _ -> dragX = value }
-                    }
-                }
-            )
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
-        shape = RoundedCornerShape(14.dp),
-        colors = if (containerColor != null)
-            CardDefaults.cardColors(containerColor = containerColor)
-        else CardDefaults.cardColors()
-    ) {
-        Row(
-            Modifier.fillMaxWidth().background(rowTint)
-                .padding(start = 14.dp, end = 9.dp, top = 10.dp, bottom = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            if (checked) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            } else {
-                LivePingDot(ping)
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                if (config.locked) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(13.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Box(Modifier.weight(1f)) { MarqueeName(config.name, color = MaterialTheme.colorScheme.onSurface) }
-                    }
-                } else {
-                    MarqueeName(config.name, color = MaterialTheme.colorScheme.onSurface)
-                }
-                Text(
-                    if (config.locked) AnnotatedString(t("locked_config"))
-                    else scriptRuns("${config.address}:${config.port}", LexendFont),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isActive) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
-            }
-            Spacer(Modifier.width(3.dp))
-            PingChip(ping)
-            AnimatedVisibility(
-                visible = actionsOpen && !checked && !selectionMode,
-                enter = fadeIn(tween(220)) + expandHorizontally(
-                    tween(300, easing = FastOutSlowInEasing),
-                    expandFrom = Alignment.End
-                ),
-                exit = fadeOut(tween(150)) + shrinkHorizontally(
-                    tween(260, easing = FastOutSlowInEasing),
-                    shrinkTowards = Alignment.End
-                )
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box {
-                        Icon(Icons.Filled.Share, contentDescription = t("share"),
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clip(CircleShape).clickable { shareMenu = true }.padding(4.dp).size(21.dp))
-                        DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
-                            if (!config.locked) {
-                                CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
-                                    shareMenu = false
-                                    clipboard.setText(AnnotatedString(ConfigShare.toLink(config)))
-                                    android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                                CompactMenuItem(Icons.Filled.Share, t("share_app")) {
-                                    shareMenu = false
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, ConfigShare.toLink(config))
-                                    }
-                                    context.startActivity(Intent.createChooser(send, config.name))
-                                }
-                                CompactMenuItem(Icons.Filled.QrCode2, t("qr_share")) {
-                                    shareMenu = false
-                                    qrFor = ConfigShare.toLink(config)
-                                }
-                            }
-                            CompactMenuItem(Icons.Filled.InsertDriveFile, t("share_file")) {
-                                shareMenu = false
-                                onShareFile()
-                            }
-                        }
-                    }
-                    Icon(
-                        Icons.Filled.Layers,
-                        contentDescription = t("chain_through"),
-                        tint = if (config.chainId.isNotEmpty()) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clip(CircleShape).clickable { onChain() }
-                            .padding(4.dp).size(21.dp)
-                    )
-                    Icon(Icons.Filled.Edit, contentDescription = t("edit"),
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(CircleShape).clickable { onEdit() }.padding(4.dp).size(21.dp))
-                    Icon(Icons.Filled.Delete, contentDescription = t("delete"),
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.clip(CircleShape).clickable { onDelete() }.padding(4.dp).size(21.dp))
-                }
-            }
-            if (!checked && !selectionMode) {
-                Box(Modifier.size(29.dp), contentAlignment = Alignment.Center) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = swiping,
-                        enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
-                        exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
-                    ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = t("delete"),
-                            tint = Color.White,
-                            modifier = Modifier.size(21.dp)
-                        )
-                    }
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = !swiping,
-                        enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
-                        exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
-                    ) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = null,
-                            tint = if (actionsOpen) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(CircleShape)
-                                .clickable { onToggleActions() }
-                                .padding(4.dp).size(21.dp)
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SelectionActionBar(
-    count: Int,
-    onClose: () -> Unit,
-    onCopy: () -> Unit,
-    onShareApp: () -> Unit,
-    onShareFile: () -> Unit,
-    onDelete: () -> Unit
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    var shareMenu by remember { mutableStateOf(false) }
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(Icons.Filled.Close, contentDescription = t("cancel"),
-                tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.clip(CircleShape).clickable { onClose() }.padding(9.dp).size(26.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                "${localizeDigits("$count", lang)} ${t("selected")}",
-                style = MaterialTheme.typography.titleMedium,
-                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                modifier = Modifier.weight(1f)
-            )
-            Box {
-                Icon(Icons.Filled.Share, contentDescription = t("share"),
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.clip(CircleShape).clickable { shareMenu = true }.padding(9.dp).size(26.dp))
-                DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
-                    CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) { shareMenu = false; onCopy() }
-                    CompactMenuItem(Icons.Filled.Share, t("share_app")) { shareMenu = false; onShareApp() }
-                    CompactMenuItem(Icons.Filled.InsertDriveFile, t("share_file")) { shareMenu = false; onShareFile() }
-                }
-            }
-            Icon(Icons.Filled.Delete, contentDescription = t("delete"),
-                tint = MaterialTheme.colorScheme.error,
-                modifier = Modifier.clip(CircleShape).clickable { onDelete() }.padding(9.dp).size(26.dp))
-        }
-    }
-}
-
-private val PersianRange = Regex("[\\u0600-\\u06FF\\u0750-\\u077F\\uFB50-\\uFDFF\\uFE70-\\uFEFF]")
-
-internal fun scriptFont(text: String): FontFamily =
-    if (PersianRange.containsMatchIn(text)) VazirFont else LexendFont
-
-private fun isPersianChar(c: Char) =
-    c in '\u0600'..'\u06FF' || c in '\u0750'..'\u077F' ||
-            c in '\uFB50'..'\uFDFF' || c in '\uFE70'..'\uFEFF'
-
-private fun buzz(context: Context) {
-    android.util.Log.d("GhajarHaptic", "buzz() called")
-    runCatching {
-        val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            (context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE)
-                    as android.os.VibratorManager).defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
-        }
-        if (!vibrator.hasVibrator()) {
-            android.util.Log.w("GhajarHaptic", "device reports no vibrator")
-            return
-        }
-        val amplitude = if (vibrator.hasAmplitudeControl()) 255
-        else android.os.VibrationEffect.DEFAULT_AMPLITUDE
-        val effect = android.os.VibrationEffect.createOneShot(50, amplitude)
-        vibrator.cancel()
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            vibrator.vibrate(
-                effect,
-                android.os.VibrationAttributes.createForUsage(
-                    android.os.VibrationAttributes.USAGE_HARDWARE_FEEDBACK
-                )
-            )
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(
-                effect,
-                android.media.AudioAttributes.Builder()
-                    .setUsage(android.media.AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
-                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
-                    .build()
-            )
-        }
-    }
-}
-
-@Composable
-internal fun monoFont(): FontFamily =
-    if (LocalLang.current == Lang.FA) VazirFont else MonoFont
-
-@Composable
-internal fun monoLatinFont(): FontFamily =
-    if (LocalLang.current == Lang.FA) LexendFont else MonoFont
-
-@Composable
-internal fun monoText(text: String): AnnotatedString =
-    scriptRuns(text, monoLatinFont())
-
-@Composable
-internal fun accentText(text: String, vararg terms: String): AnnotatedString {
-    val base = mixedText(text)
-    val accent = MaterialTheme.colorScheme.primary
-    return buildAnnotatedString {
-        append(base)
-        for (term in terms) {
-            if (term.isEmpty()) continue
-            var i = text.indexOf(term)
-            while (i >= 0) {
-                addStyle(
-                    SpanStyle(color = accent, fontWeight = FontWeight.SemiBold),
-                    i,
-                    i + term.length
-                )
-                i = text.indexOf(term, i + term.length)
-            }
-        }
-    }
-}
-
-@Composable
-internal fun mixedText(text: String): AnnotatedString =
-    if (LocalLang.current == Lang.FA) scriptRuns(text, LexendFont) else AnnotatedString(text)
-
-private fun scriptOf(c: Char): Boolean? = when {
-    c in '\u06F0'..'\u06F9' -> true
-    c in '\u0660'..'\u0669' -> true
-    c.isLetter() -> isPersianChar(c)
-    else -> null
-}
-
-internal fun scriptRuns(text: String, latin: FontFamily): AnnotatedString = buildAnnotatedString {
-    if (text.isEmpty()) return@buildAnnotatedString
-    var persian = text.firstNotNullOfOrNull { scriptOf(it) } ?: false
-    var start = 0
-    for (i in text.indices) {
-        val p = scriptOf(text[i]) ?: continue
-        if (p != persian) {
-            withStyle(SpanStyle(fontFamily = if (persian) VazirFont else latin)) {
-                append(text.substring(start, i))
-            }
-            start = i
-            persian = p
-        }
-    }
-    withStyle(SpanStyle(fontFamily = if (persian) VazirFont else latin)) {
-        append(text.substring(start))
-    }
-}
-
-@Composable
-private fun MarqueeName(text: String, style: TextStyle? = null, color: Color = Color.Unspecified) {
-    var containerW by remember { mutableStateOf(0) }
-    var textW by remember { mutableStateOf(0) }
-    val scroll = remember { Animatable(0f) }
-    val density = LocalDensity.current
-    val ltr = LocalLayoutDirection.current == LayoutDirection.Ltr
-    val speed = with(density) { 30.dp.toPx() }
-    val overflow = (textW - containerW).coerceAtLeast(0)
-
-    LaunchedEffect(overflow, text, ltr) {
-        if (overflow <= 0) { scroll.snapTo(0f); return@LaunchedEffect }
-        val target = if (ltr) -overflow.toFloat() else overflow.toFloat()
-        val dur = ((overflow / speed) * 1000f).toInt().coerceIn(700, 7000)
-        while (true) {
-            scroll.snapTo(0f)
-            delay(1500)
-            scroll.animateTo(target, tween(dur, easing = LinearEasing))
-            delay(2000)
-            scroll.animateTo(0f, tween(dur, easing = LinearEasing))
-            delay(1500)
-        }
-    }
-
-    Box(
-        Modifier.fillMaxWidth().clipToBounds().onSizeChanged { containerW = it.width }
-    ) {
-        Text(
-            flagRuns(text, LexendFont),
-            inlineContent = flagInlineContent(text, style?.fontSize ?: 14.sp),
-            style = style ?: MaterialTheme.typography.titleSmall,
-            color = color,
-            fontSize = if (style == null) 14.sp else TextUnit.Unspecified,
-            maxLines = 1,
-            softWrap = false,
-            overflow = TextOverflow.Visible,
-            modifier = Modifier
-                .wrapContentWidth(align = Alignment.Start, unbounded = true)
-                .onSizeChanged { textW = it.width }
-                .graphicsLayer { translationX = scroll.value }
-        )
-    }
-}
-
-@Composable
-private fun LivePingDot(ping: PingResult?) {
-    val color = pingColor(ping)
-    val transition = rememberInfiniteTransition(label = "pingDot")
-    val ripple by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
-        label = "ripple"
-    )
-    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .size(24.dp)
-                .graphicsLayer {
-                    val sc = 0.40f + ripple * 0.60f
-                    scaleX = sc; scaleY = sc
-                    alpha = (1f - ripple) * 0.6f
-                }
-                .background(Brush.radialGradient(listOf(color, Color.Transparent)), CircleShape)
-        )
-        Box(
-            Modifier
-                .size(16.dp)
-                .background(Brush.radialGradient(listOf(color.copy(alpha = 0.40f), Color.Transparent)), CircleShape)
-        )
-        Box(Modifier.size(9.dp).clip(CircleShape).background(color))
-    }
-}
-
-@Composable
-private fun PingChip(ping: PingResult?) {
-    if (ping == null) return
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val target = pingColor(ping)
-    val color by animateColorAsState(target, tween(400), label = "pingChipTint")
-    val text = when (ping) {
-        is PingResult.Ok -> "${localizeDigits("${ping.ms}", lang)} ${t("unit_ms")}"
-        PingResult.Testing -> t("testing")
-        else -> t("delay_failed")
-    }
-    var shown by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { shown = true }
-    val appear by animateFloatAsState(
-        if (shown) 1f else 0f,
-        tween(320, easing = FastOutSlowInEasing),
-        label = "pingChipAppear"
-    )
-    Box(
-        Modifier.graphicsLayer {
-            alpha = appear
-            val sc = 0.85f + 0.15f * appear
-            scaleX = sc
-            scaleY = sc
-        }
-            .clip(RoundedCornerShape(8.dp))
-            .background(color.copy(alpha = 0.14f))
-            .border(1.dp, color.copy(alpha = 0.42f), RoundedCornerShape(8.dp))
-            .padding(horizontal = 7.dp, vertical = 4.dp)
-            .animateContentSize(tween(320, easing = FastOutSlowInEasing))
-    ) {
-        Crossfade(targetState = text, animationSpec = tween(300), label = "pingChipText") { s ->
-            Text(
-                s,
-                style = MaterialTheme.typography.labelSmall,
-                fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
-                fontWeight = FontWeight.SemiBold,
-                color = color,
-                maxLines = 1
-            )
-        }
-    }
-}
-
-@Composable
-private fun pingColor(ping: PingResult?): Color = when (ping) {
-    is PingResult.Ok -> when {
-        ping.ms <= 250 -> Color(0xFF2E9E44)
-        ping.ms <= 600 -> Color(0xFFF59E0B)
-        else -> Color(0xFFE53935)
-    }
-    PingResult.Failed -> if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
-        Color(0xFFBFBFBF) else Color(0xFF4A4A4A)
-    else -> MaterialTheme.colorScheme.onSurfaceVariant
-}
-
-@Composable
-private fun PingBadge(ping: PingResult?) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    when (ping) {
-        is PingResult.Ok -> Text("${localizeDigits("${ping.ms}", lang)} ${t("unit_ms")}", style = MaterialTheme.typography.bodySmall, fontFamily = if (lang == Lang.FA) VazirFont else LexendFont, color = pingColor(ping))
-        PingResult.Testing -> Text("â€¦", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        PingResult.Failed -> Text(t("delay_failed"), style = MaterialTheme.typography.bodySmall, color = pingColor(ping))
-        null -> {}
-    }
-}
-
-private data class AppEntry(
-    val pkg: String,
-    val label: String,
-    val icon: ImageBitmap
-)
-
-private fun perAppSummary(mode: PerAppMode, count: Int, lang: Lang): String = when (mode) {
-    PerAppMode.OFF -> Strings.get(lang, "per_app_off")
-    PerAppMode.ALLOWLIST -> localizeDigits("${Strings.get(lang, "per_app_allow")} Â· $count", lang)
-    PerAppMode.BLOCKLIST -> localizeDigits("${Strings.get(lang, "per_app_block")} Â· $count", lang)
-}
-
-@Composable
-private fun AppProxyScreen(
-    store: ConfigStore,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val context = LocalContext.current
-    val focus = LocalFocusManager.current
-    val mode by store.perAppMode.collectAsState()
-    val selected by store.perAppList.collectAsState()
-
-    var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
-    var query by remember { mutableStateOf("") }
-
-    LaunchedEffect(Unit) {
-        apps = withContext(Dispatchers.IO) {
-            val pm = context.packageManager
-            pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                .asSequence()
-                .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
-                .filter { it.packageName != context.packageName }
-                .map { ai ->
-                    AppEntry(
-                        pkg = ai.packageName,
-                        label = runCatching { pm.getApplicationLabel(ai).toString() }
-                            .getOrDefault(ai.packageName),
-                        icon = runCatching {
-                            pm.getApplicationIcon(ai).toBitmap(96, 96).asImageBitmap()
-                        }.getOrElse {
-                            android.graphics.Bitmap
-                                .createBitmap(1, 1, android.graphics.Bitmap.Config.ARGB_8888)
-                                .asImageBitmap()
-                        }
-                    )
-                }
-                .sortedBy { it.label.lowercase() }
-                .toList()
-        }
-    }
-
-    Column(
-        modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(
-            Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f), RoundedCornerShape(16.dp))
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            listOf(
-                PerAppMode.OFF to t("per_app_off"),
-                PerAppMode.ALLOWLIST to t("per_app_allow"),
-                PerAppMode.BLOCKLIST to t("per_app_block")
-            ).forEach { (value, label) ->
-                ModeSegment(
-                    label = label,
-                    active = mode == value,
-                    onClick = { store.setPerAppMode(value) },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-        }
-
-        if (mode == PerAppMode.OFF) {
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        Modifier.size(58.dp).clip(RoundedCornerShape(18.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Apps,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Text(
-                        t("per_app_off_hint"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-        } else {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                label = { Text(t("search_apps")) },
-                singleLine = true,
-                leadingIcon = {
-                    Icon(
-                        Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                },
-                trailingIcon = {
-                    if (query.isNotEmpty()) {
-                        Icon(
-                            Icons.Filled.Close,
-                            contentDescription = null,
-                            modifier = Modifier.clickable { query = ""; focus.clearFocus() }
-                        )
-                    }
-                },
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
-
-            val list = apps
-            if (list == null) {
-                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Text(
-                            t("loading_apps"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            } else {
-                val filtered = remember(list, query) {
-                    if (query.isBlank()) list
-                    else list.filter { it.label.contains(query, true) || it.pkg.contains(query, true) }
-                }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(
-                        localizeDigits("${filtered.size}", lang),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        localizeDigits("${selected.size}", lang) + " " + t("selected"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                LazyColumn(
-                    modifier = Modifier.fillMaxWidth().weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    items(filtered, key = { it.pkg }) { app ->
-                        val checked = app.pkg in selected
-                        val tint by animateColorAsState(
-                            targetValue = if (checked) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            label = "appRowTint"
-                        )
-                        val fill by animateFloatAsState(
-                            targetValue = if (checked) 1f else 0f,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            label = "appRowFill"
-                        )
-                        Row(
-                            Modifier.fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(tint.copy(alpha = 0.05f + 0.09f * fill))
-                                .border(
-                                    1.dp,
-                                    tint.copy(alpha = 0.16f + 0.34f * fill),
-                                    RoundedCornerShape(16.dp)
-                                )
-                                .clickable { store.togglePerApp(app.pkg) }
-                                .animateItem()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Image(
-                                bitmap = app.icon,
-                                contentDescription = null,
-                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(11.dp))
-                            )
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text(
-                                    app.label,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    fontFamily = scriptFont(app.label),
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                                Text(
-                                    app.pkg,
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-                            Spacer(Modifier.width(10.dp))
-                            SmoothCheckbox(checked = checked)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ModeSegment(
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val fill by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = tween(320, easing = FastOutSlowInEasing),
-        label = "modeSegFill"
-    )
-    val primary = MaterialTheme.colorScheme.primary
-    val idle = MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier
-            .clip(RoundedCornerShape(13.dp))
-            .background(primary.copy(alpha = 0.20f * fill))
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-            color = lerp(idle, primary, fill),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
-        )
-    }
-}
+YªçŠx-®éÜj×¢ëiºÚ+Š§j[h‘éÜ¢éí×;ïTèµ©hºÚn¶X§zÍ\XÚØYÙH™]™ÛÞ˜\‹˜\‚š[\Ü[™›ÚY˜\XÝ]š]Bš[\Ü[™›ÚY˜ÛÛ[ÛÛ^š[\Ü[™›ÚYÚYÙ]•Ø\Ýš[\Ü[™›ÚY˜ÛÛ[’[[š[\Ü[™›ÚY›™]•\šBš[\Ü[™›ÚY›™]•œ”Ù\šXÙBš[\Ü[™›ÚY›ÜË[™Bš[\Ü[™›ÚY˜XÝ]š]KÛÛ\Û™[XÝ]š]Bš[\Ü[™›ÚY˜XÝ]š]K˜ÛÛ\ÜÙK˜XÚÒ[™\‚š[\Ü[™›ÚY˜XÝ]š]K˜ÛÛ\ÜÙK”™YXÝ]™P˜XÚÒ[™\‚š[\Ü[™›ÚY˜XÝ]š]K˜ÛÛ\ÜÙKœ™[Y[X™\“][˜Ú\‘›ÜXÝ]š]T™\Ý[š[\Ü[™›ÚY˜XÝ]š]K˜ÛÛ\ÜÙKœÙ]ÛÛ[š[\Ü[™›ÚY˜XÝ]š]Kœ™\Ý[˜ÛÛ˜XÝXÝ]š]T™\Ý[ÛÛ˜XÝÂš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË˜\Ò[XYÙPš]X\š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]•Ú[™ÝÒ[œÙ]Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]˜\ÔY[™Õ˜[Y\Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]˜Ø[Ý[]Q[™Y[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]˜Ø[Ý[]TÝ\Y[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]š[YBš[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[^[Ý]\™XÝ[Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]›Ù™œÙ]š[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹[š[X]YÛÛ[š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^™›Û‘›ÛÙZYÚš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹[š[X]YÛÛ[˜[œÚ][Û”ØÛÜBš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹[š[X]Yš\ÚXš[]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹Ü›ÜÜÙ˜YBš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜[š[X]PÛÛ[Ú^™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹™^[™Üš^›Û[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹œÚš[šÒÜš^›Û[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜[š[X]PÛÛÜ\ÔÝ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K˜[š[X]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K˜[š[X]Q›Ø]\ÔÝ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K[š[X]X›Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K[š[X][Û•™XÝÜŒQš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K”Üš[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™KœÜš[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™KÙY[‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K‘˜\ÝÝ]ÛÝÒ[‘X\Ú[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K˜[š[X]Q›Ø]š[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™Kœ™[Y[X™\’[™š[š]U˜[œÚ][Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™Kš[™š[š]T™\X]X›Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K”™\X][ÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹™^[™™\XØ[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹™˜YR[‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹™˜YSÝ]š[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹œØØ[R[‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹œØØ[SÝ]š[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹œÚš[šÕ™\XØ[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹ÙÙ]\•Ú]š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹Ø[˜\Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›Ü™\”Ý›ÚÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹˜›Ü™\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]™Y˜][Z[”Ú^™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë“ØØ[ÛÛ[ÛÛÜ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË›\œš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜËÐ\™Ø‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË›[Z[˜[˜ÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^”Ü[”Ý[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^˜Z[[››Ý]YÝš[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^Ú]Ý[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[š]‘š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[š]‘Ù™œÙ]š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[š]’[Ú^™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹˜˜XÚÙÜ›Ý[™š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™Ù\Ý\™\Ë™]XÝ\Ù\Ý\™\Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™Ù\Ý\™\Ë“ÜšY[][Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™Ù\Ý\™\Ë™˜YÙØX›Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™Ù\Ý\™\Ëœ™[Y[X™\‘˜YÙØX›TÝ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹^œÙ[XÝ[Û‹”Ù[XÝ[ÛÛÛZ[™\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]Ü˜\ÛÛ[ÚYš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹‘^\š[Y[[›Ý[™][Û\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹˜ÛXÚØX›Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹˜ÛÛXš[™YÛXÚØX›Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹š[\˜XÝ[Û‹“]]X›R[\˜XÝ[Û”ÛÝ\˜ÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™Ù\Ý\™\Ë˜]ØZ]XXÚÙ\Ý\™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™Ù\Ý\™\Ë˜]ØZ]š\œÝÝÛ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™Ù\Ý\™\ËœØÜ›ÛžBš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™Ù\Ý\™\ËØZ]›Ü•\ÜØ[˜Ù[][Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹šÜš^›Û[ØÜ›Ûš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹š\ÔÞ\Ý[R[‘\šÕ[YBš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]\œ˜[™Ù[Y[š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]›Þš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]ÛÛ[[‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]ÛÛ[[”ØÛÜBš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]”Y[™Õ˜[Y\Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]”›ÝÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]”›ÝÔØÛÜBš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]™š[X^ZYÚš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]™š[X^Ú^™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]™š[X^ÚYš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]‘^\š[Y[[^[Ý]\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]‘›ÝÔ›ÝÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]šZYÚš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]œY[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]›˜]šYØ][Û˜\œÔY[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^žK“^žPÛÛ[[‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^žKš][\Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^žKœ™[Y[X™\“^žS\ÝÝ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹œYÙ\‹’Üš^›Û[YÙ\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹œYÙ\‹œ™[Y[X™\”YÙ\”Ý]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹”ØÜ›ÛÝ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹œ™[Y[X™\”ØÜ›ÛÝ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹œÚ\KÚ\˜ÛTÚ\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹œÚ\K”›Ý[™YÛÜ›™\”Ú\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹^˜\ÚXÕ^šY[š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹^’Ù^X›Ø\™XÝ[ÛœÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹^’Ù^X›Ø\™Ü[ÛœÂš[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[›ØÝ\ÓX[˜YÙ\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^š[œ]’[YPXÝ[Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹™\XØ[ØÜ›Ûš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹˜ÛÜ™K“[™X\‘X\Ú[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹’[XYÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]œÚ^™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK›^[Ý]ÛÛ[ØØ[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ™\ËœZ[\”™\ÛÝ\˜ÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^[››Ý]YÝš[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^™›Û‘›Û˜[Z[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^œÝ[K•^[YÛ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^•^Ý[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[š]œÜš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹œÛYR[•™\XØ[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹œÛYSÝ]™\XØ[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË’XÛÛœÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË˜]]ÛZ\œ›Ü™Y™š[Y\œ›ÝÐ˜XÚÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YYš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË˜]]ÛZ\œ›Ü™Y™š[Y\XÛBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y\Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YYÔ™\Üš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YZ[š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘]U\ØYÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘œÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœËœ›Ý[™Y’ÛYBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y’X‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y’[™›Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”[]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”X›XÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”˜Y\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”›Ý]\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•\›Z[˜[š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•[™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”™[[Ý™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y\œ›ÝÑÝÛØ\™š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y\œ›ÝÕ\Ø\™š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y]]Ü™[™]Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y›Ûš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÝÙ\”Ù][™ÜÓ™]Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YØ\™ÚYØ\™š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y“^Y\œÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y“[Ü™U™\š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y“YÚ[ÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YÛÛ˜\Ýš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘\šÓ[ÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YØ[˜Ù[š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YÚXÚÐÚ\˜ÛBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YÚ]œ›Û“Yš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YÛÜÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘Ü˜\XÑ\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ØÚY[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YÚXÚÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YÚ]œ›Û”šYÚš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘˜]›Üš]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y“™]ÛÜšÐÚXÚÂš[\Ü]‹˜Úš\Ø˜[™\Ëš^™K’^™TÝ]Bš[\Ü]‹˜Úš\Ø˜[™\Ëš^™K’^™U[š[\Ü]‹˜Úš\Ø˜[™\Ëš^™Kš^™QY™™XÝš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YÛÛ[ÛÜBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y’[œÙ\š]™Qš[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘Ü›Ý\Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y“ØÚÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•\ØYš[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[YÛÛ[\ÝBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘[]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘Y]š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”Ú\™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÚY[š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”™Yœ™\Úš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘^[™[Ü™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”Ù][™ÜÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÚÜ[™Ð˜YÂš[\Ü[™›ÚY“X[šY™\Ýš[\Ü[™›ÚY™Ü˜\XÜËš]X\š[\Ü[™›ÚY˜ÛÜ™K˜ÛÛ[ÛÛ^ÛÛ\]š[\Ü[™›ÚY˜ÛÛ\ÜÙKZKšY]Ú[\›Ü[™›ÚYšY]Âš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË‘š[\”]X[]Bš[\Ü[™›ÚY˜ÛÛ[ÛÛ^Ü˜\\‚š[\Ü[™›ÚY›Y™XÞXÛK“Y™XÞXÛSÝÛ™\‚š[\Ü[™›ÚY›Y™XÞXÛKœ™\X]Û“Y™XÞXÛBš[\Ü[™›ÚY˜Ø[Y\˜K˜ÛÜ™KØ[Y\˜TÙ[XÝÜ‚š[\Ü[™›ÚY˜Ø[Y\˜K˜ÛÜ™K’[XYÙP[˜[\Ú\Âš[\Ü[™›ÚY˜Ø[Y\˜K˜ÛÜ™K’[XYÙT›ÞBš[\Ü[™›ÚY˜Ø[Y\˜K˜ÛÜ™K”™]šY]Âš[\Ü[™›ÚY˜Ø[Y\˜K›Y™XÞXÛK”›ØÙ\ÜÐØ[Y\˜T›ÝšY\‚š[\Ü[™›ÚY˜Ø[Y\˜KšY]Ë”™]šY]ÕšY]Âš[\ÜÛÛK™ÛÛÙÛKžž[™Ë˜\˜ÛÙQ›Ü›X]š[\ÜÛÛK™ÛÛÙÛKžž[™Ëš[˜\žPš]X\š[\ÜÛÛK™ÛÛÙÛKžž[™Ë‘XÛÙR[\Bš[\ÜÛÛK™ÛÛÙÛKžž[™Ë“[Z[˜[˜ÙTÛÝ\˜ÙBš[\ÜÛÛK™ÛÛÙÛKžž[™Ë“][Q›Ü›X]™XY\‚š[\ÜÛÛK™ÛÛÙÛKžž[™Ë”[˜\–UU“[Z[˜[˜ÙTÛÝ\˜ÙBš[\ÜÛÛK™ÛÛÙÛKžž[™Ë˜ÛÛ[[Û‹’XœšYš[˜\š^™\‚š[\Ü˜]˜Kš[Ë‘š[Bš[\Ü˜]˜K][˜ÛÛ˜Ý\œ™[‘^XÝ]ÜœÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘Y]Ù™‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘\œ›Ü“Ý][™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘š[U\ØYš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘š[QÝÛ›ØYš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÙXÝ\š]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•š\ÚXš[]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•š\ÚXš[]SÙ™‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÙX\˜Úš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘[]TÝÙY\š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘[]Q›Ü™]™\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•[Y\“Ù™‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”\ÛÙL‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”\ÛÙTØØ[›™\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”Ù[XÝ[š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y‘\Ù[XÝš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÜYYš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÛX\ÞBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÜÜÑ\ÜÜÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•˜]™[^Ü™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•™[™[™Õ\š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y”ÝØ\™\š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•Ø\›š[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[šXÛÛœË™š[Y•ÚYšSÙ™‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë]Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[ËØ\™š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[ËØ\™Y˜][Âš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë’Üš^›Û[]šY\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë‘›ÜÝÛ“Y[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë‘›ÜÝÛ“Y[R][Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë‘^\š[Y[[X]\šX[Ð\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë’XÛÛ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë’XÛÛ]Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë“ØØ[^Ý[Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë“X]\šX[[YBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë“˜]šYØ][Û˜\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë“˜]šYØ][Û˜\’][Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë“Ý][™Y]Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë“Ý][™Y^šY[š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë”ØØY™›Ûš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë”ÝÚ]Úš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë•^š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë[\X[ÙÂš[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]šZYÚ[‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë•^]Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë•Ü\˜\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[ËÙ[\[YÛ™YÜ\˜\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë•\ÙÜ˜\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë™\šÐÛÛÜ”ØÚ[YBš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[Ë›YÚÛÛÜ”ØÚ[YBš[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YKÛÛ\ÜØX›Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YKÛÛ\ÜÚ][Û“ØØ[›ÝšY\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YK“][˜ÚYY™™XÝš[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YK‘\ÜÜØX›QY™™XÝš[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YK˜ÛÛXÝ\ÔÝ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YK˜ÛÛ\ÜÚ][Û“ØØ[Ù‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YK™\š]™YÝ]SÙ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YK™Ù]˜[YBš[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YK›]]X›TÝ]SX\Ù‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YK›]]X›TÝ]SÙ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YKœ™[Y[X™\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YKœ™[Y[X™\ÛÜ›Ý][™TØÛÜBš[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YKœÙ]˜[YBš[\Ü[™›ÚY˜ÛÛ\ÜÙKœ[[YKœÛ˜\ÚÝË”Û˜\ÚÝÝ]SX\š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[YÛ›Y[š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK“[ÙYšY\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K\ÝYÂš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™˜]Ë˜›\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™˜]Ë˜Û\š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™˜]Ë™˜]ÕÚ]ØXÚBš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™˜]Ë™˜]Ð™Z[™š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™˜]Ë˜Û\Ð›Ý[™Âš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜËœ\Úš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ù[ÛY]žK“Ù™œÙ]š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ù[ÛY]žK”™XÝš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ù[ÛY]žK”›Ý[™™XÝš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ù[ÛY]žKÛÜ›™\”˜Y]\Âš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ù[ÛY]žK”Ú^™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜËÛÛÜ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË•˜[œÙ›Ü›SÜšYÚ[‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË”Ý›ÚÙPØ\š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜËÛÛÜ‘š[\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË™Ü˜\XÜÓ^Y\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË”ÛÛYÛÛÜ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË™XÝÜ‹”]\œÙ\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË™˜]ÜØÛÜK”Ý›ÚÙBš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË™˜]ÜØÛÜK˜[œÛ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË”]š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË”]YX\Ý\™Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË™XÝÜ‹’[XYÙU™XÝÜ‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZKš[œ]œÚ[\‹œÚ[\’[œ]š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK›^[Ý]›Û”Ú^™PÚ[™ÙYš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK›^[Ý]›Û‘ÛØ˜[TÜÚ][Û™Yš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK›^[Ý]œÜÚ][Û’[”›ÛÝš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK›^[Ý]˜›Ý[™Ò[•Ú[™ÝÂš[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[Û\›Ø\™X[˜YÙ\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[[œÚ]Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZKš\XÙ™YY˜XÚË’\XÑ™YY˜XÚÕ\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[ÛÛ^š[\Ü[™›ÚY˜ÛÜ™K˜ÛÛ[‘š[T›ÝšY\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[\XÑ™YY˜XÚÂš[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[\šR[™\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[ÛÛ™šYÝ\˜][Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZKœ]›Ü›K“ØØ[^[Ý]\™XÝ[Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^š[œ]’Ù^X›Ø\™\Bš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^š[œ]”\ÜÝÛÜ™š\ÝX[˜[œÙ›Ü›X][Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^š[œ]•š\ÝX[˜[œÙ›Ü›X][Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK^œÝ[K•^Ý™\™›ÝÂš[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[š]“^[Ý]\™XÝ[Û‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[š]•^[š]š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[š]’[Ù™œÙ]š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK[š]™š[\Ü[™›ÚY˜ÛÛ\ÜÙKZKÚ[™ÝË‘X[ÙÂš[\Ü[™›ÚY˜ÛÜ™KšY]Ë•Ú[™ÝÐÛÛ\]š[\Ü[™›ÚY˜ÛÛ[œK”XÚØYÙSX[˜YÙ\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]”ÜXÙ\‚š[\Ü[™›ÚY˜ÛÛ\ÜÙK™›Ý[™][Û‹›^[Ý]ÚYš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[ËÚXÚØ›Þš[\Ü[™›ÚY˜ÛÛ\ÜÙK›X]\šX[ËÚ\˜Ý[\”›ÙÜ™\ÜÒ[™XØ]Ü‚š[\Ü[™›ÚY˜ÛÛ\ÜÙKZK™Ü˜\XÜË’[XYÙPš]X\š[\Ü[™›ÚY˜ÛÜ™K™Ü˜\XÜË™˜]ØX›KÐš]X\š[\Ü[™›ÚY›Y™XÞXÛK›Y™XÞXÛTØÛÜBš[\ÜÛÞ˜\˜ÛÜ™K‘ÛÞ˜\˜ÛÜ™Bš[\ÜÛÝ[ž˜ÛÜ›Ý][™\ËØ[˜Ù[][Û‘^Ù\[Û‚š[\ÜÛÝ[ž˜ÛÜ›Ý][™\ËÛÜ›Ý][™TØÛÜBš[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ë‘\Ü]Ú\œÂš[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ë’›Ø‚š[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ë™[^Bš[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ë™[œÝ\™PXÝ]™Bš[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ëš\ÐXÝ]™Bš[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ë™›ÝË˜ÛÛXÝš[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ë™›ÝË™š\œÝš[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ëš›Ú[[š[\ÜÛÝ[ž˜ÛÜ›Ý][™\Ë›][˜Úš[\ÜÛÝ[ž˜ÛÜ›Ý][™\ËœÞ[˜Ë”Ù[X\Ü™Bš[\ÜÛÝ[ž˜ÛÜ›Ý][™\ËœÞ[˜ËÚ]\›Z]š[\ÜÛÝ[ž˜ÛÜ›Ý][™\ËÚ]ÛÛ^š[\ÜÛÝ[ž˜ÛÜ›Ý][™\ËÚ][Y[Ý]Ü“[š[\Ü˜]˜K›™]•T“š[\Ü˜]˜K[YK“ØØ[]Bš[\ÜÛÝ[‹›X]œ›Ý[™š[\ÜÛÝ[‹›X]œÜ\š[\ÜÛÝ[‹›X]œ›Ý[™Ò[‚œš]˜]H˜[œ˜[™›YHHÛÛÜŠ‘ŽLPÐÍÊBœš]˜]H˜[Ü\Ú˜XÚÙÜ›Ý[™HÛÛÜŠ‘ŒÌPŒ‘JB‚œš]˜]H˜[Û™]YÚÛÛÜœÈHYÚÛÛÜ”ØÚ[YJˆš[X\žHHÛÛÜŠ‘ŒŽLÊKˆÛ”š[X\žHHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆš[X\žPÛÛZ[™\ˆHÛÛÜŠ‘‘QQQN
+KˆÛ”š[X\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒŒMŠKˆ[™\œÙTš[X\žHHÛÛÜŠ‘ŽLPÐÍÊKˆÙXÛÛ™\žHHÛÛÜŠ‘ŽNÌN
+KˆÛ”ÙXÛÛ™\žHHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆÙXÛÛ™\žPÛÛZ[™\ˆHÛÛÜŠ‘‘Œ‘MJKˆÛ”ÙXÛÛ™\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒMÌŒL‘ŠKˆ\X\žHHÛÛÜŠ‘ŒMÐÎNJKˆÛ•\X\žHHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆ\X\žPÛÛZ[™\ˆHÛÛÜŠ‘ÎQQÊKˆÛ•\X\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒÌÌÑŠKˆ˜XÚÙÜ›Ý[™HÛÛÜŠ‘‘QQŒÑJKˆÛ˜XÚÙÜ›Ý[™HÛÛÜŠ‘ŒLÌMÌŒ
+KˆÝ\™˜XÙHHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆÛ”Ý\™˜XÙHHÛÛÜŠ‘ŒLÌMÌŒ
+KˆÝ\™˜XÙU˜\šX[HÛÛÜŠ‘‘LQN
+KˆÛ”Ý\™˜XÙU˜\šX[HÛÛÜŠ‘MŒÍŠKˆÝ\™˜XÙU[HÛÛÜŠ‘ŒŽLÊKˆÝ\™˜XÙPœšYÚHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆÝ\™˜XÙQ[HHÛÛÜŠ‘‘Ñ‘PÊKˆÝ\™˜XÙPÛÛZ[™\“ÝÙ\ÝHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆÝ\™˜XÙPÛÛZ[™\“ÝÈHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆÝ\™˜XÙPÛÛZ[™\ˆHÛÛÜŠ‘‘‘‘Q‘ŠKˆÝ\™˜XÙPÛÛZ[™\’YÚHÛÛÜŠ‘‘ÑQ‘JKˆÝ\™˜XÙPÛÛZ[™\’YÚ\ÝHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆ[™\œÙTÝ\™˜XÙHHÛÛÜŠ‘ŒÌ‘LÐÊKˆ[™\œÙSÛ”Ý\™˜XÙHHÛÛÜŠ‘‘P‘ŒŽ
+Kˆ\œ›ÜˆHÛÛÜŠ‘ÌŒŠKˆÛ‘\œ›ÜˆHÛÛÜŠ‘‘‘‘‘‘‘ŠKˆ\œ›ÜÛÛZ[™\ˆHÛÛÜŠ‘‘‘‘QŠKˆÛ‘\œ›ÜÛÛZ[™\ˆHÛÛÜŠ‘LŠKˆÝ][™HHÛÛÜŠ‘ÌQŠKˆÝ][™U˜\šX[HÛÛÜŠ‘‘Ñ‘PÊKˆØÜš[HHÛÛÜŠ‘Œ
+BŠB‚œš]˜]H˜[Û™]\šÐÛÛÜœÈH\šÐÛÛÜ”ØÚ[YJˆš[X\žHHÛÛÜŠ‘ŽLPÐÍÊKˆÛ”š[X\žHHÛÛÜŠ‘ŒÌLŒŠKˆš[X\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒLÑŒÎJKˆÛ”š[X\žPÛÛZ[™\ˆHÛÛÜŠ‘‘‘LÑ‘ŠKˆÙXÛÛ™\žHHÛÛÜŠ‘‘PQJKˆÛ”ÙXÛÛ™\žHHÛÛÜŠ‘ŒLMŒŠKˆÙXÛÛ™\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒPÌÍ
+KˆÛ”ÙXÛÛ™\žPÛÛZ[™\ˆHÛÛÜŠ‘‘QL‘ŒŠKˆ˜XÚÙÜ›Ý[™HÛÛÜŠ‘ŒÌPŒ‘JKˆÛ˜XÚÙÜ›Ý[™HÛÛÜŠ‘‘M‘PQŒŠKˆÝ\™˜XÙHHÛÛÜŠ‘ŒLŒÍÊKˆÛ”Ý\™˜XÙHHÛÛÜŠ‘‘M‘PQŒŠKˆÝ\™˜XÙU˜\šX[HÛÛÜŠ‘ŒŒÌÍ
+KˆÛ”Ý\™˜XÙU˜\šX[HÛÛÜŠ‘LŒÎ
+KˆÝ\™˜XÙPœšYÚHÛÛÜŠ‘ŒLÌÍ
+KˆÝ\™˜XÙQ[HHÛÛÜŠ‘ŒŒLPŠKˆÝ\™˜XÙPÛÛZ[™\“ÝÙ\ÝHÛÛÜŠ‘ŒLŒPJKˆÝ\™˜XÙPÛÛZ[™\“ÝÈHÛÛÜŠ‘ŒLÌPLŽJKˆÝ\™˜XÙPÛÛZ[™\ˆHÛÛÜŠ‘ŒMŒQ‘JKˆÝ\™˜XÙPÛÛZ[™\’YÚHÛÛÜŠ‘ŒQLÍÊKˆÝ\™˜XÙPÛÛZ[™\’YÚ\ÝHÛÛÜŠ‘ŒŒÌÍ
+Kˆ\X\žHHÛÛÜŠ‘ŒŽÍÌ
+KˆÛ•\X\žHHÛÛÜŠ‘ŒÌ
+Kˆ\X\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒLÎMJKˆÛ•\X\žPÛÛZ[™\ˆHÛÛÜŠ‘ÍQŒQ‘
+Kˆ[™\œÙTš[X\žHHÛÛÜŠ‘ŒMMÑŠKˆÝ\™˜XÙU[HÛÛÜŠ‘ÐL‘ŠKˆ[™\œÙTÝ\™˜XÙHHÛÛÜŠ‘‘M‘PQŒŠKˆ[™\œÙSÛ”Ý\™˜XÙHHÛÛÜŠ‘ŒMŒQ‘JKˆ\œ›ÜˆHÛÛÜŠ‘‘‘ÐMÐJKˆÛ‘\œ›ÜˆHÛÛÜŠ‘ŒLLJKˆ\œ›ÜÛÛZ[™\ˆHÛÛÜŠ‘PLPLPJKˆÛ‘\œ›ÜÛÛZ[™\ˆHÛÛÜŠ‘‘‘‘QŠKˆÝ][™HHÛÛÜŠ‘ŒÎPÊKˆÝ][™U˜\šX[HÛÛÜŠ‘ŒŽÌ
+KˆØÜš[HHÛÛÜŠ‘Œ
+BŠB‚œš]˜]H˜[Û™][[ÛYÛÛÜœÈH\šÐÛÛÜ”ØÚ[YJˆš[X\žHHÛÛÜŠ‘ÐL‘ŠKˆÛ”š[X\žHHÛÛÜŠ‘ŒÌLŒŠKˆš[X\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒPŒŽM
+KˆÛ”š[X\žPÛÛZ[™\ˆHÛÛÜŠ‘‘‘LÑ‘ŠKˆÙXÛÛ™\žHHÛÛÜŠ‘ŽLÐMÐÎJKˆÛ”ÙXÛÛ™\žHHÛÛÜŠ‘ŒLMŒŠKˆÙXÛÛ™\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒLLMŒQŠKˆÛ”ÙXÛÛ™\žPÛÛZ[™\ˆHÛÛÜŠ‘‘QL‘ŒŠKˆ˜XÚÙÜ›Ý[™HÛÛÜŠ‘Œ
+KˆÛ˜XÚÙÜ›Ý[™HÛÛÜŠ‘‘M‘PQŒŠKˆÝ\™˜XÙHHÛÛÜŠ‘Œ
+KˆÛ”Ý\™˜XÙHHÛÛÜŠ‘‘M‘PQŒŠKˆÝ\™˜XÙU˜\šX[HÛÛÜŠ‘ŒLŒMŒQŠKˆÛ”Ý\™˜XÙU˜\šX[HÛÛÜŠ‘LŒÎ
+KˆÝ\™˜XÙPœšYÚHÛÛÜŠ‘ŒPLQŒJKˆÝ\™˜XÙQ[HHÛÛÜŠ‘Œ
+KˆÝ\™˜XÙPÛÛZ[™\“ÝÙ\ÝHÛÛÜŠ‘Œ
+KˆÝ\™˜XÙPÛÛZ[™\“ÝÈHÛÛÜŠ‘ŒÌL
+KˆÝ\™˜XÙPÛÛZ[™\ˆHÛÛÜŠ‘ŒŒLM
+KˆÝ\™˜XÙPÛÛZ[™\’YÚHÛÛÜŠ‘ŒŒLÌPŠKˆÝ\™˜XÙPÛÛZ[™\’YÚ\ÝHÛÛÜŠ‘ŒLŒMŒQŠKˆ\X\žHHÛÛÜŠ‘ŒÍQL‘ŠKˆÛ•\X\žHHÛÛÜŠ‘ŒÌ
+Kˆ\X\žPÛÛZ[™\ˆHÛÛÜŠ‘ŒLÌÌÊKˆÛ•\X\žPÛÛZ[™\ˆHÛÛÜŠ‘ÍQŒQ‘
+Kˆ[™\œÙTš[X\žHHÛÛÜŠ‘ŒMMÑŠKˆÝ\™˜XÙU[HÛÛÜŠ‘ÐL‘ŠKˆ[™\œÙTÝ\™˜XÙHHÛÛÜŠ‘‘M‘PQŒŠKˆ[™\œÙSÛ”Ý\™˜XÙHHÛÛÜŠ‘ŒŒLM
+Kˆ\œ›ÜˆHÛÛÜŠ‘‘‘ÐMÐJKˆÛ‘\œ›ÜˆHÛÛÜŠ‘ŒLLJKˆ\œ›ÜÛÛZ[™\ˆHÛÛÜŠ‘ŒÐLLL
+KˆÛ‘\œ›ÜÛÛZ[™\ˆHÛÛÜŠ‘‘‘‘QŠKˆÝ][™HHÛÛÜŠ‘ŒLÌÍ
+KˆÝ][™U˜\šX[HÛÛÜŠ‘ŒPŒŒLÌ
+KˆØÜš[HHÛÛÜŠ‘Œ
+BŠB‚œš]˜]H˜[\ÞX[ŽˆÛÛÜ‚ˆÛÛ\ÜØX›HÙ]
+
+HBˆYˆ
+X]\šX[[YK˜ÛÛÜ”ØÚ[YK˜˜XÚÙÜ›Ý[™›[Z[˜[˜ÙJ
+HYŠHÛÛÜŠ‘ŒÍQL‘ŠBˆ[ÙHÛÛÜŠ‘ŒMÐÎNJB‚œš]˜]H˜[\\]XNˆÛÛÜ‚ˆÛÛ\ÜØX›HÙ]
+
+HBˆYˆ
+X]\šX[[YK˜ÛÛÜ”ØÚ[YK˜˜XÚÙÜ›Ý[™›[Z[˜[˜ÙJ
+HYŠHÛÛÜŠ‘ŒQM‘‘ŠBˆ[ÙHÛÛÜŠ‘ŒÑNPŠB‚š[\›˜[˜[ØØ[[™ÈHÛÛ\ÜÚ][Û“ØØ[ÙˆÈ[™Ë‘SˆB‚œš]˜]HÛÛœÝ˜[QÑWÔÒÔHœš]˜]HÛÛœÝ˜[QÑWÔÔÒHBœš]˜]HÛÛœÝ˜[QÑWÒÓQHH‚œš]˜]HÛÛœÝ˜[QÑWÑP•QÈHÂœš]˜]HÛÛœÝ˜[QÑWÔÑUS‘ÔÈHœš]˜]HÛÛœÝ˜[QÑWÐÓÕS•HB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÝš[™ÜÑ›Š
+Nˆ
+Ýš[™ÊHOˆÝš[™ÈÂˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ™]\›ˆÈÝš[™ÜË™Ù]
+[™Ë]
+HBŸB‚‚š[\›˜[˜[ØØ[^™TÝ]HHÛÛ\ÜÚ][Û“ØØ[Ù^™TÝ]OÏˆÈ[B‚›Øš™XÝÚ[™ØÜšX™Pœ˜[™Â‚ˆÛÛœÝ˜[ÕP—ÓSQHH•Ú[™ØÜšX™H‚‚ˆ[ˆ\ÕÚ[™ØÜšX™JÝXŽˆÝXœØÜš\[ÛŠNˆ›ÛÛX[ˆÂˆ˜[ˆHÝX‹›˜[YKš[J
+Bˆ™]\›ˆ‹™\]X[ÊÕP—ÓSQKYÛ›Ü™PØ\ÙHHYJHˆ‹œÝ\ÕÚ]
+‰ÕP—ÓSQHH‹YÛ›Ü™PØ\ÙHHYJHˆ‹œÝ\ÕÚ]
+‰ÕP—ÓSQKH‹YÛ›Ü™PØ\ÙHHYJBˆB‚ˆ[ˆ\Ü^S˜[YJÝXŽˆÝXœØÜš\[Û‹[™Îˆ[™ÊNˆÝš[™ÈBˆYˆ
+[™ÈOH[™Ë‘H	‰ˆ\ÕÚ[™ØÜšX™JÝXŠJHÝš[™ÜË™Ù]
+[™ËÜ×Ý]HŠH[ÙHÝX‹›˜[YB‚ˆ[\›˜[˜[YÚÝÜÈH\ÝÙŠˆÛÛÜŠ‘ÌÑQŒŠKˆÛÛÜŠ‘‘‘L‘JKˆÛÛÜŠ‘Í‘QŽ
+Bˆ
+B‚ˆ[\›˜[˜[\šÔÝÜÈH\ÝÙŠˆÛÛÜŠ‘ŒPŒ‘MJKˆÛÛÜŠ‘ŒPŒÑPÊKˆÛÛÜŠ‘ŒPÍMŠBˆ
+B‚ˆ[\›˜[˜[[[ÛYÝÜÈH\ÝÙŠˆÛÛÜŠ‘ŒŒMLŒJKˆÛÛÜŠ‘ŒÌQŒ‘JKˆÛÛÜŠ‘ŒŽÎJBˆ
+B‚ˆ[\›˜[˜[YÚ›ÝÈHÛÛÜŠ‘NQ‘
+Bˆ[\›˜[˜[\šÔ›ÝÈHÛÛÜŠ‘ŒÌŒLÎ
+Bˆ[\›˜[˜[[[ÛY›ÝÈHÛÛÜŠ‘ŒÌM
+B‚ŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÚ[™ØÜšX™Q\šÊ
+Nˆ›ÛÛX[ˆBˆX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙK›[Z[˜[˜ÙJ
+HY‚‚ÛÛ\ÜØX›Bœš]˜]H[ˆÚ[™ØÜšX™P[[ÛY
+
+Nˆ›ÛÛX[ˆBˆX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙHOHÛÛÜŠ‘Œ
+B‚ÛÛ\ÜØX›Bœš]˜]H[ˆÚ[™ØÜšX™PØ\™œ\Ú
+
+Nˆœ\ÚHœ\Ú›[™X\‘Ü˜YY[
+ˆÚ[ˆÂˆÚ[™ØÜšX™P[[ÛY
+
+HOˆÚ[™ØÜšX™Pœ˜[™[[ÛYÝÜÂˆÚ[™ØÜšX™Q\šÊ
+HOˆÚ[™ØÜšX™Pœ˜[™‘\šÔÝÜÂˆ[ÙHOˆÚ[™ØÜšX™Pœ˜[™“YÚÝÜÂˆBŠB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÚ[™ØÜšX™T›ÝÐÛÛÜŠ
+NˆÛÛÜˆHÚ[ˆÂˆÚ[™ØÜšX™P[[ÛY
+
+HOˆÚ[™ØÜšX™Pœ˜[™[[ÛY›ÝÂˆÚ[™ØÜšX™Q\šÊ
+HOˆÚ[™ØÜšX™Pœ˜[™‘\šÔ›ÝÂˆ[ÙHOˆÚ[™ØÜšX™Pœ˜[™“YÚ›ÝÂŸB‚‚™]HÛ\ÜÈ[™[™ÐÛÛ™šYÒ[\Ü
+˜[ž]\Îˆž]P\œ˜^K˜[š[S˜[YNˆÝš[™ÏÈH[
+B‚›Øš™XÝ[\Ü\ÈÂˆš]˜]H˜[Ü[™[™ÈHÛÝ[ž˜ÛÜ›Ý][™\Ë™›ÝË“]]X›TÝ]Q›ÝÏ[™[™ÐÛÛ™šYÒ[\ÜÏŠ[
+Bˆ˜[[™[™ÎˆÛÝ[ž˜ÛÜ›Ý][™\Ë™›ÝË”Ý]Q›ÝÏ[™[™ÐÛÛ™šYÒ[\ÜÏˆHÜ[™[™Âˆ[ˆÙ™™\Šž]\Îˆž]P\œ˜^Kš[S˜[YNˆÝš[™ÏÈH[
+HÈÜ[™[™Ë˜[YHH[™[™ÐÛÛ™šYÒ[\Ü
+ž]\Ëš[S˜[YJHBˆ[ˆÛX\Š
+HÈÜ[™[™Ë˜[YHH[B‚ˆš]˜]H˜[ÜØØ[›™YHÛÝ[ž˜ÛÜ›Ý][™\Ë™›ÝË“]]X›TÝ]Q›ÝÏÝš[™ÏÏŠ[
+Bˆ˜[ØØ[›™YˆÛÝ[ž˜ÛÜ›Ý][™\Ë™›ÝË”Ý]Q›ÝÏÝš[™ÏÏˆHÜØØ[›™Yˆ[ˆÙ™™\”ØØ[Š^ˆÝš[™ÊHÈÜØØ[›™Y˜[YHH^Bˆ[ˆÛX\”ØØ[Š
+HÈÜØØ[›™Y˜[YHH[BŸB‚˜Û\ÜÈXZ[XÝ]š]HˆÛÛ\Û™[XÝ]š]J
+HÂ‚ˆš]˜]H]Z[š]˜\ˆÝÜ™NˆÛÛ™šYÔÝÜ™Bˆš]˜]H˜\ˆY\”\›Z\ÜÚ[ÛŽˆ
+
+
+HOˆ[š]
+OÈH[‚ˆš]˜]H˜[œ”\›Z\ÜÚ[ÛˆBˆ™YÚ\Ý\‘›ÜXÝ]š]T™\Ý[
+XÝ]š]T™\Ý[ÛÛ˜XÝË”Ý\XÝ]š]Q›Ü”™\Ý[
+
+JHÈ™\Ý[O‚ˆ˜[ÛÛ[X][ÛˆHY\”\›Z\ÜÚ[Û‚ˆY\”\›Z\ÜÚ[ÛˆH[ˆYˆ
+™\Ý[œ™\Ý[ÛÙHOHXÝ]š]K”‘TÕSÓÒÊHÝX\™YÛÛ›™XÝÈÛÛ[X][ÛËš[›ÚÙJ
+HBˆ[ÙHœ”Ý]KœÙ]\ØÛÛ›™XÝY
+
+BˆB‚ˆš]˜]H˜\ˆ[™[™ÐÛÛ›™XÝˆ
+
+
+HOˆ[š]
+OÈH[‚ˆš]˜]H˜[›ÝYšXØ][Û”\›Z\ÜÚ[ÛˆBˆ™YÚ\Ý\‘›ÜXÝ]š]T™\Ý[
+XÝ]š]T™\Ý[ÛÛ˜XÝË”™\]Y\Ý\›Z\ÜÚ[ÛŠ
+JHÂˆ[™[™ÐÛÛ›™XÝËš[›ÚÙJ
+Bˆ[™[™ÐÛÛ›™XÝH[ˆB‚ˆÝ™\œšYH[ˆÛÜ™X]JØ]™Y[œÝ[˜ÙTÝ]Nˆ[™OÊHÂˆÝ\\‹›ÛÜ™X]JØ]™Y[œÝ[˜ÙTÝ]JBˆÚ[™ÝÐÛÛ\]œÙ]XÛÜ‘š]ÔÞ\Ý[UÚ[™ÝÜÊÚ[™ÝË˜[ÙJBˆÝÜ™HHÛÛ™šYÔÝÜ™K™Ù]
+\XØ][ÛÛÛ^
+BˆÚZ˜\“˜]šYØ][Û\Ë›Ù™™\Š[[™Ù]Ýš[™Ñ^˜JÚZ˜\•ÚYÙ]›ÝšY\‹‘VWÑTÕSUSÓŠJBˆ\ØYÙTÝÜ™Kš[š]
+\XØ][ÛÛÛ^
+BˆœœšYÙKœ™YÚ\Ý\Š\XØ][ÛÛÛ^
+Bˆ[™R[\Ü[[
+[[
+BˆZÙPÛÛ›Û\‹˜š[™
+\ÊBˆØ]Ú[›™[
+
+BˆY™XÞXÛTØÛÜK›][˜ÚÂˆœ”Ý]KœÝ]K˜ÛÛXÝÈÈO‚ˆYˆ
+ÈOHÛÛ›™XÝ[Û‹‘TÐÓÓ“‘PÕQ	‰ˆRZÙPÛÛ›Û\‹˜XÝ]™JHÂˆ[^JL
+BˆYˆ
+œ”Ý]KœÝ]K˜[YHOHÛÛ›™XÝ[Û‹‘TÐÓÓ“‘PÕQ
+HØ\›J
+BˆBˆBˆBˆY™XÞXÛTØÛÜK›][˜Ú
+\Ü]Ú\œË‘Y˜][
+HÂˆÛÞ˜\˜ÛÜ™KœÙ]ÙÙÙ\ŠØš™XÝˆÛÞ˜\˜ÛÜ™K“ÙÙÙ\ˆÂˆÝ™\œšYH[ˆÙÊ[™NˆÝš[™ÏÊHÂˆ[™›ÚY][“ÙËšJ–˜^PÛÜ™H‹[™HÎˆˆŠBˆBˆJBˆÚ]ÛÛ^
+\Ü]Ú\œË“XZ[ŠHÈØ\›J
+HBˆBˆÝ\]]ÔÝÚ]Ú
+
+BˆY™XÞXÛTØÛÜK›][˜ÚÂˆÙXÝ\™TØÜ™Y[‹›Û‹˜ÛÛXÝÈÙXÝ\™HO‚ˆYˆ
+ÙXÝ\™JHÂˆÚ[™ÝËœÙ]›YÜÊˆ[™›ÚYšY]Ë•Ú[™ÝÓX[˜YÙ\‹“^[Ý]\˜[\Ë‘“Q×ÔÑPÕT‘Kˆ[™›ÚYšY]Ë•Ú[™ÝÓX[˜YÙ\‹“^[Ý]\˜[\Ë‘“Q×ÔÑPÕT‘Bˆ
+BˆH[ÙHÂˆÚ[™ÝË˜ÛX\‘›YÜÊ[™›ÚYšY]Ë•Ú[™ÝÓX[˜YÙ\‹“^[Ý]\˜[\Ë‘“Q×ÔÑPÕT‘JBˆBˆBˆBˆÙ]ÛÛ[Âˆ˜[[YS[ÙHžHÝÜ™K[YS[ÙK˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[\šÈHÚ[ˆ
+[YS[ÙJHÂˆ[YS[ÙK“QÒOˆ˜[ÙBˆ[YS[ÙK‘T’Ë[YS[ÙKSSÓQOˆYBˆ[ÙHOˆ\ÔÞ\Ý[R[‘\šÕ[YJ
+BˆBˆ˜[ÛÛ›Û\ˆHÚ[™ÝÐÛÛ\]™Ù][œÙ]ÐÛÛ›Û\ŠÚ[™ÝËÚ[™ÝË™XÛÜ•šY]ÊBˆ[™›ÚY˜ÛÛ\ÜÙKœ[[YK”ÚYQY™™XÝÂˆÛÛ›Û\‹š\Ð\X\˜[˜ÙSYÚÝ]\Ð˜\œÈHY\šÂˆÛÛ›Û\‹š\Ð\X\˜[˜ÙSYÚ˜]šYØ][Û˜\œÈHY\šÂˆÝ\™\ÜÊ‘T‘PÐUSÓˆŠBˆÚ[™ÝË›˜]šYØ][Û˜\ÛÛÜˆHYˆ
+\šÊH‘ŒÌPŒ‘KÒ[
+
+H[ÙH‘‘QQŒÑKÒ[
+
+BˆYˆ
+[™›ÚY›ÜËZ[•‘T”ÒSÓ‹”Ñ×ÒS•HŽJHÚ[™ÝËš\Ó˜]šYØ][Û˜\ÛÛ˜\Ý[™›Ü˜ÙYH˜[ÙBˆBˆ˜[[™ÈžHÝÜ™K›[™Ë˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[\™XÝ[ÛˆHYˆ
+[™ÈOH[™Ë‘JH^[Ý]\™XÝ[Û‹”[ÙH^[Ý]\™XÝ[Û‹“‚‚ˆ˜[Ý\ÝÛPXØÙ[žHÚZ˜\\X\˜[˜ÙK™Ù]
+\XØ][ÛÛÛ^
+K˜XØÙ[˜ÛÛXÝ\ÔÝ]J
+BˆX]\šX[[YJˆÛÛÜ”ØÚ[YHHÚZ˜\ÛÛÜ”ØÚ[YJYˆ
+Y\šÊHÛ™]YÚÛÛÜœÂˆ[ÙHYˆ
+[YS[ÙHOH[YS[ÙKSSÓQ
+HÛ™][[ÛYÛÛÜœÂˆ[ÙHÛ™]\šÐÛÛÜœËÝ\ÝÛPXØÙ[
+Kˆ\ÙÜ˜\HHYˆ
+[™ÈOH[™Ë‘JH˜^š\•\ÙÜ˜\H[ÙH^[™\ÙÜ˜\KˆÚ\\ÈHÚZ˜\”ÛÙÚ\\Âˆ
+HÂˆÛÛ\ÜÚ][Û“ØØ[›ÝšY\ŠˆØØ[[™È›ÝšY\È[™ËˆØØ[^[Ý]\™XÝ[Ûˆ›ÝšY\È\™XÝ[Û‚ˆ
+HÂˆØœÙ\™QÚZ˜\“ØØ][ÛŠ
+Bˆ˜\ˆÚÝÕÙ[ÛÛYHžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠYJHBˆ˜\ˆÝ\XZ[ˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜[[™[™ÓÝœˆžHÚZ˜\“Ü[•œœšYÙKœ[™[™Ë˜ÛÛXÝ\ÔÝ]J
+Bˆ][˜ÚYY™™XÝ
+[š]
+HÂˆY™XÞXÛKœ™\X]Û“Y™XÞXÛJ[™›ÚY›Y™XÞXÛK“Y™XÞXÛK”Ý]K”ÕT•Q
+HÂˆÚ[H
+YJHÂˆÚZ˜\“›ÝYšXØ][Û“[Ûš]Ü‹œ™Yœ™\Ú
+\XØ][ÛÛÛ^
+Bˆ[^JŒÌ
+BˆBˆBˆBˆ][˜ÚYY™™XÝ
+[š]
+HÂˆ[^JLL
+BˆÝ\XZ[ˆHYBˆBˆ›ÞÂˆYˆ
+Ý\XZ[ŠHÂˆÛÞ˜\\
+ÝÜ™HHÝÜ™KÛÛÛ›™XÝHŽ˜ÛÛ›™XÝËÛ‘\ØÛÛ›™XÝHŽ™\ØÛÛ›™XÝÛ”ÝÚ]ÚHŽœÝÚ]ÚËÛØ[˜Ù[XÚÈHŽ˜Ø[˜Ù[XÚÊBˆBˆ[š[X]Yš\ÚXš[]Jˆš\ÚX›HHÚÝÕÙ[ÛÛYKˆ^]H˜YSÝ]
+ÙY[Š
+JBˆ
+HÂˆÚZ˜\•Ù[ÛÛYTØÜ™Y[ŠÛ‘Û™HHÈÝ\XZ[ˆHYNÈÚÝÕÙ[ÛÛYHH˜[ÙHJBˆBˆ[™[™ÓÝœË›]È›Ùš[HO‚ˆ˜\ˆÝœ•\Ù\ˆžH™[Y[X™\Š›Ùš[JHÈ]]X›TÝ]SÙŠ›Ùš[K™[X™YY\Ù\›˜[YJHBˆ˜\ˆÝœ”\ÜÈžH™[Y[X™\Š›Ùš[JHÈ]]X›TÝ]SÙŠ›Ùš[K™[X™YY\ÜÝÛÜ™
+HBˆ˜\ˆÝœ”[™ÈžH™[Y[X™\Š›Ùš[JHÈ]]X›TÝ]SÙŠ¶+ö,H6+v)öa6*6,v,v,öã6o¶ã6a¶«ø )ˆŠHBˆ][˜ÚYY™™XÝ
+›Ùš[JHÂˆÝœ”[™ÈHÚ[ˆ
+˜[™\Ý[H[™Ù\‹œ[™Ê›Ùš[KšÜÝ›Ùš[KœÜÌ
+JHÂˆ\È[™Ô™\Ý[“ÚÈOˆ¶o¶ã6a¶«È6o¶ã6-6)ö,ˆ6)ö*¶-v)öaˆ	Ü™\Ý[›\ßH\È‚ˆ[ÙHOˆ¶o¶ã6a¶«È6o¶ã6-6)ö,ˆ6)ö*¶-v)öaˆ6a¶)öavb6`v`ˆ‚ˆBˆBˆ[\X[ÙÊˆÛ‘\ÛZ\ÜÔ™\]Y\ÝHÚZ˜\“Ü[•œœšYÙNŽ™\ÛZ\ÜËˆ]HHÈ^
+¶)ö`v,¶b6+öaˆÕ”ˆ6*6aÈ6`¶)ö+6)ö,HŠHKˆ^HÂˆÛÛ[[Š™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJL™
+JHÂˆ^
+‰Ü›Ùš[K›˜[Y_W‰Ü›Ùš[KšÜÝN‰Ü›Ùš[KœÜW‰Ýœ”[™ÈŠBˆYˆ
+›Ùš[K›™YYÐÜ™Y[X[ÊHÂˆÝ][™Y^šY[
+ˆ˜[YHHÝœ•\Ù\‹ˆÛ•˜[YPÚ[™ÙHHÈÝœ•\Ù\ˆH]KˆX™[HÈ^
+¶a¶)öaH6ªv)ö,v*6,vãŠHKˆÚ[™ÛS[™HHYBˆ
+BˆÝ][™Y^šY[
+ˆ˜[YHHÝœ”\ÜËˆÛ•˜[YPÚ[™ÙHHÈÝœ”\ÜÈH]KˆX™[HÈ^
+¶,vav,ˆ6.v*6b6,HŠHKˆÚ[™ÛS[™HHYKˆš\ÝX[˜[œÙ›Ü›X][ÛˆH\ÜÝÛÜ™š\ÝX[˜[œÙ›Ü›X][ÛŠ
+Bˆ
+BˆBˆBˆKˆ\ÛZ\ÜÐ]ÛˆHÂˆ^]ÛŠÛÛXÚÈHÚZ˜\“Ü[•œœšYÙNŽ™\ÛZ\ÜÊHÈ^
+¶)öa¶-v,v)ö`HŠHBˆKˆÛÛ™š\›P]ÛˆHÂˆ]ÛŠˆÛÛXÚÈHÈÛÛ›™XÝ[\ÜYÜ[•œŠ›Ùš[KÝœ•\Ù\‹Ýœ”\ÜÊHKˆ[˜X›YH\›Ùš[K›™YYÐÜ™Y[X[È
+Ýœ•\Ù\‹š\Ó›Ý›[šÊ
+H	‰ˆÝœ”\ÜËš\Ó›Ý›[šÊ
+JBˆ
+HÈ^
+¶)ö*¶-v)öaŠHBˆBˆ
+BˆBˆBˆBˆBˆBˆB‚ˆÝ™\œšYH[ˆÛ“™]Ò[[
+[[ˆ[[
+HÂˆÝ\\‹›Û“™]Ò[[
+[[
+BˆÙ][[
+[[
+BˆÚZ˜\“˜]šYØ][Û\Ë›Ù™™\Š[[™Ù]Ýš[™Ñ^˜JÚZ˜\•ÚYÙ]›ÝšY\‹‘VWÑTÕSUSÓŠJBˆ[™R[\Ü[[
+[[
+BˆB‚ˆš]˜]H[ˆ[™R[\Ü[[
+[[ˆ[[ÊHÂˆ[[Îˆ™]\›‚ˆ˜[\šHHÚ[ˆ
+[[˜XÝ[ÛŠHÂˆ[[PÕSÓ—Õ’QUÈOˆ[[™]Bˆ[[PÕSÓ—ÔÑS‘O‚ˆYˆ
+[™›ÚY›ÜËZ[•‘T”ÒSÓ‹”Ñ×ÒS•HÌÊBˆ[[™Ù]\˜Ù[X›Q^˜J[[‘VWÔÕ‘PSK[™›ÚY›™]•\šNŽ˜Û\ÜËš˜]˜JBˆ[ÙHÝ\™\ÜÊ‘T‘PÐUSÓˆŠH
+[[™Ù]\˜Ù[X›Q^˜J[[‘VWÔÕ‘PSJH\ÏÈ[™›ÚY›™]•\šJBˆ[ÙHOˆ[ˆHÎˆ™]\›‚ˆY™XÞXÛTØÛÜK›][˜ÚÂˆYˆ
+\šKœØÚ[YK™\]X[Êš\‹YJH\šKœØÚ[YK™\]X[Êš\\›ÞH‹YJJHÂˆÝÜ™K˜]ØZ]™XYJ
+Bˆ˜[[\ÜYHÚZ˜\ÛÛ\]Xš[]R[\Üœ\œÙQY\[šÊ\šKÔÝš[™Ê
+JBˆ˜[ÛÝ[HÝÜ™K˜Y[\ÜY
+[\ÜY
+BˆØ\Ý›XZÙU^
+ˆ\ÐXZ[XÝ]š]KˆYˆ
+ÛÝ[ˆ
+H‰ÛÝ[6o¶ã6ªv,v*6a¶+öã6,ö)ö,¶«ö)ö,H6*6aÈ6`¶)ö+6)ö,H6)ö-¶)ö`vaÈ6-6+Èˆ[ÙH¶)öã6aˆ6a6ã6a¶ªH6,vav,¶«ö,6)ö,vã6)ö+¶*¶-v)ö-vã6b6a¶)ö,ö)ö,¶«ö)ö,H6+ö)ö,v+È‹ˆØ\Ý“S‘ÕÓÓ‘Âˆ
+KœÚÝÊ
+Bˆ™]\›][˜ÚˆBˆ˜[
+ž]\Ë\Ü^S˜[YJHHÚ]ÛÛ^
+\Ü]Ú\œË’SÊHÂˆ˜[˜[YHH[Ø]Ú[™ÈÂˆÛÛ[™\ÛÛ™\‹œ]Y\žJ\šK\œ˜^SÙŠ[™›ÚYœ›ÝšY\‹“Ü[˜X›PÛÛ[[œË‘TÔVWÓSQJKˆ[[[
+OË\ÙHÈÝ\œÛÜˆO‚ˆYˆ
+Ý\œÛÜ‹›[Ý™UÑš\œÝ
+
+JHÝ\œÛÜ‹™Ù]Ýš[™Ê
+H[ÙH[ˆBˆK™Ù]Ü“[
+
+HÎˆ\šK›\Ý]ÙYÛY[ˆ[Ø]Ú[™ÈÂˆÛÛ[™\ÛÛ™\‹›Ü[’[œ]Ý™X[J\šJOË\ÙHÈ]œ™XYž]\Ê
+HBˆK™Ù]Ü“[
+
+HÈ˜[YBˆBˆYˆ
+ž]\ÈOH[	‰ˆž]\Ëš\Ó›Ý[\J
+JHÂˆ˜[\ÓÝœˆH\Ü^S˜[YOË™[™ÕÚ]
+‹›Ýœˆ‹YJHOHYHˆž]\ËÔÝš[™ÊÚ\œÙ]Ë•U—Î
+K˜ÛÛZ[œÊ™YÙ^
+ŠÚ[JW—ÊŠÛY[™[[ÝJWˆŠJBˆYˆ
+\ÓÝœŠHÂˆÚZ˜\“Ü[•œœšYÙK›Ù™™\Šž]\ÊK›Û‘˜Z[\™HÂˆØ\Ý›XZÙU^
+\ÐXZ[XÝ]š]K]›Y\ÜØYÙHÎˆ¶`v)öã6aÕ”ˆ6av.v*¶*6,H6a¶ã6,ö*ˆ‹Ø\Ý“S‘ÕÓÓ‘ÊKœÚÝÊ
+BˆBˆH[ÙH[\Ü\Ë›Ù™™\Šž]\Ë\Ü^S˜[YJBˆBˆBˆB‚ˆš]˜]H[ˆÛÛ›™XÝ[\ÜYÜ[•œŠ›Ùš[Nˆ[™[™ÓÜ[•œ’[\Ü\Ù\›˜[YNˆÝš[™Ë\ÜÝÛÜ™ˆÝš[™ÊHÂˆ˜[Ý\ˆ
+
+HOˆ[š]HÂˆY™XÞXÛTØÛÜK›][˜ÚÂˆÚZ˜\“Ü[•œœšYÙK˜ÛÛ›™XÝ
+\ÐXZ[XÝ]š]K›Ùš[K\Ù\›˜[YK\ÜÝÛÜ™
+Bˆ›Û”ÝXØÙ\ÜÈÈØ\Ý›XZÙU^
+\ÐXZ[XÝ]š]K¶)ö*¶-v)öaÕ”ˆ6(¶.¶)ö,ˆ6-6+È‹Ø\Ý“S‘ÕÔÒÔ•
+KœÚÝÊ
+HBˆ›Û‘˜Z[\™HÈØ\Ý›XZÙU^
+\ÐXZ[XÝ]š]K]›Y\ÜØYÙHÎˆ¶)ö*¶-v)öaÕ”ˆ6a¶)öavb6`v`ˆ6*6b6+È‹Ø\Ý“S‘ÕÓÓ‘ÊKœÚÝÊ
+HBˆBˆ[š]ˆBˆ˜[\›Z\ÜÚ[ÛˆHœ”Ù\šXÙKœ™\\™J\ÊBˆYˆ
+\›Z\ÜÚ[ÛˆOH[
+HÝ\
+
+Bˆ[ÙHÂˆY\”\›Z\ÜÚ[ÛˆHÝ\ˆœ”\›Z\ÜÚ[Û‹›][˜Ú
+\›Z\ÜÚ[ÛŠBˆBˆB‚ˆš]˜]H[ˆ][˜ÚÛÛ›™XÝ
+ÛÛ™šYÎˆ›ÞPÛÛ™šYÊHÂˆYˆ
+ÛÛ™šYËœ›ÝØÛÛš[J
+K™\]X[Ê›Ü[œˆ‹YJHÛÛ™šYËšYœÝ\ÕÚ]
+›ÝœŽˆŠJHÂˆ˜[Ý\HÂˆY™XÞXÛTØÛÜK›][˜ÚÂˆÚZ˜\“Ü[•œœšYÙK˜ÛÛ›™XÝØ]™Y
+\ÐXZ[XÝ]š]KÛÛ™šYÊBˆ›Û‘˜Z[\™HÂˆœ”Ý]KœÙ]\œ›ÜŠ]›Y\ÜØYÙHÎˆ¶)ö*¶-v)öaÕ”ˆ6(¶.¶)ö,ˆ6a¶-6+ÈŠBˆØ\Ý›XZÙU^
+\ÐXZ[XÝ]š]Kˆ]›Y\ÜØYÙHÎˆ¶)ö*¶-v)öaÕ”ˆ6(¶.¶)ö,ˆ6a¶-6+È‹Ø\Ý“S‘ÕÓÓ‘ÊKœÚÝÊ
+BˆBˆBˆ[š]ˆBˆ˜[\›Z\ÜÚ[ÛˆHœ”Ù\šXÙKœ™\\™J\ÊBˆYˆ
+\›Z\ÜÚ[ÛˆOH[
+HÝ\
+
+H[ÙHÂˆY\”\›Z\ÜÚ[ÛˆHÝ\ˆœ”\›Z\ÜÚ[Û‹›][˜Ú
+\›Z\ÜÚ[ÛŠBˆBˆ™]\›‚ˆBˆYˆ
+ÛÛ™šYË˜[ÝÒ[œÙXÝ\™H	‰ˆPÙ\[‹š\Õ˜[Y
+ÛÛ™šYËœ[›™YÙ\ÚLMŠH	‰‚ˆÛÛ™šYËœÙXÝ\š]Kš[J
+K›ÝÙ\˜Ø\ÙJ
+HOHÈ‚ˆ
+HÂˆœ”Ý]KœÙ]ÛÛ›™XÝ[™ÊÛÛ™šYËšY
+BˆY™XÞXÛTØÛÜK›][˜ÚÂˆ˜[[ˆHÙ\[‹™™]Ú
+ÛÛ™šYË˜Y™\ÜËÛÛ™šYËœÜÛÛ™šYËœÛšJBˆ˜[™XYHHYˆ
+[‹š\Ó[Ü›[šÊ
+JHÛÛ™šYÂˆ[ÙHÛÛ™šYË˜ÛÜJ[›™YÙ\ÚLMˆH[ŠK˜[ÛÈÈÝÜ™K\]J]
+HBˆ›ØÙYY][˜Ú
+™XYJBˆBˆ™]\›‚ˆBˆ›ØÙYY][˜Ú
+ÛÛ™šYÊBˆB‚ˆš]˜]H[ˆ›ØÙYY][˜Ú
+ÛÛ™šYÎˆ›ÞPÛÛ™šYÊHÂˆYˆ
+[™›ÚY›ÜËZ[•‘T”ÒSÓ‹”Ñ×ÒS•H[™›ÚY›ÜËZ[•‘T”ÒSÓ—ÐÓÑTË•TSRTÕH	‰‚ˆÚXÚÔÙ[”\›Z\ÜÚ[ÛŠ[™›ÚY“X[šY™\Ýœ\›Z\ÜÚ[Û‹”ÔÕÓ“ÕQ’PÐUSÓ”ÊHOBˆ[™›ÚY˜ÛÛ[œK”XÚØYÙSX[˜YÙ\‹”T“RTÔÒSÓ—ÑÔS•Qˆ
+HÂˆ[™[™ÐÛÛ›™XÝHÈ›ØÙYYÛÛ›™XÝ
+ÛÛ™šYÊHBˆ›ÝYšXØ][Û”\›Z\ÜÚ[Û‹›][˜Ú
+[™›ÚY“X[šY™\Ýœ\›Z\ÜÚ[Û‹”ÔÕÓ“ÕQ’PÐUSÓ”ÊBˆH[ÙHÂˆ›ØÙYYÛÛ›™XÝ
+ÛÛ™šYÊBˆBˆB‚ˆš]˜]H[ˆÛÛ›™XÝÊÛÛ™šYÎˆ›ÞPÛÛ™šYÊHÂˆ˜[ÈHœ”Ý]KœÝ]K˜[YBˆYˆ
+ÈOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘ÈÈOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ
+H™]\›‚‚ˆYˆ
+\ÝÜ™K˜]]ÔÙ[XÝ˜[YJHÂˆ][˜ÚÛÛ›™XÝ
+ÛÛ™šYÊBˆ™]\›‚ˆB‚ˆXÚÒ›ØË˜Ø[˜Ù[
+
+BˆXÚÒ›ØˆHY™XÞXÛTØÛÜK›][˜ÚÂˆœ”Ý]KœÙ]XÚÚ[™ÊYJBˆ˜[™\ÝHžHÂˆ]]ÔÙ[XÝÜŠ\XØ][ÛÛÛ^ÝÜ™JKœXÚÑ˜\Ý\Ý
+
+BˆHØ]Ú
+NˆØ[˜Ù[][Û‘^Ù\[ÛŠHÂˆœ”Ý]KœÙ]XÚÚ[™Ê˜[ÙJBˆ›ÝÈBˆHØ]Ú
+Nˆ^Ù\[ÛŠHÂˆ[ˆBˆ[œÝ\™PXÝ]™J
+Bˆ˜[ÚÜÙ[ˆH™\ÝÎˆÛÛ™šYÂˆYˆ
+ÚÜÙ[‹šYOHÛÛ™šYËšY
+HÝÜ™KœÙ]Ù[XÝYY
+ÚÜÙ[‹šY
+Bˆœ”Ý]KœÙ]XÚÚ[™Ê˜[ÙJBˆ][˜ÚÛÛ›™XÝ
+ÚÜÙ[ŠBˆBˆB‚ˆš]˜]H[ˆØ[˜Ù[XÚÊ
+HÂˆXÚÒ›ØË˜Ø[˜Ù[
+
+BˆXÚÒ›ØˆH[ˆœ”Ý]KœÙ]XÚÚ[™Ê˜[ÙJBˆB‚ˆš]˜]H[ˆØ]Ú[›™[
+
+HÂˆY™XÞXÛTØÛÜK›][˜ÚÂˆœ”Ý]KœÝ]K˜ÛÛXÝÈÝ]HO‚ˆ˜[Ü[•œˆHœ”Ý]K˜XÝ]™RY˜[YOËœÝ\ÕÚ]
+›ÝœŽˆŠHOHYBˆYˆ
+Ý]HOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ	‰ˆRZÙPÛÛ›Û\‹˜XÝ]™H	‰ˆ[Ü[•œŠHÂˆ[›™[X[˜ÚXÚÊ
+Bˆ˜Y\”[›™\‹œÝ\
+YJBˆ˜[YHœ”Ý]K˜XÝ]™RY˜[YBˆÝÜ™K˜ÛÛ™šYÜË˜[YK™š[™È]šYOHYOË›]ÂˆXYÔ[›™\‹œÝ\
+]ÝÜ™JBˆBˆH[ÙHYˆ
+Ý]HOHÛÛ›™XÝ[Û‹‘TÐÓÓ“‘PÕQ
+HÂˆ[›™[X[œ™\Ù]
+
+Bˆ˜Y\”[›™\‹œÝ\
+˜[ÙJBˆH[ÙHÂˆ[›™[X[œ™\Ù]
+
+BˆBˆBˆBˆB‚ˆš]˜]H[ˆŠÙ^NˆÝš[™ÊNˆÝš[™ÈHÝš[™ÜË™Ù]
+ÝÜ™K›[™Ë˜[YKÙ^JB‚‚ˆš]˜]H˜\ˆXÚÒ›ØŽˆ›ØÈH[ˆš]˜]H˜\ˆ]]ÔÝÚ]Ú›ØŽˆ›ØÈH[ˆš]˜]H˜[UU×ÔÕÒUÒÓTÈHŒÌˆš]˜]H˜[UU×ÔÕÒUÒÓPT‘ÒS—ÓTÈHˆš]˜]H˜[UU×ÔÕÒUÒÔ“Ð‘WÓTÈHWÌ‚ˆš]˜]H[ˆÝ\]]ÔÝÚ]Ú
+
+HÂˆYˆ
+]]ÔÝÚ]Ú›ØËš\ÐXÝ]™HOHYJH™]\›‚ˆ]]ÔÝÚ]Ú›ØˆHY™XÞXÛTØÛÜK›][˜ÚÂˆ˜[Ù[XÝÜˆH]]ÔÙ[XÝÜŠ\XØ][ÛÛÛ^ÝÜ™JBˆÚ[H
+\ÐXÝ]™JHÂˆ[^JUU×ÔÕÒUÒÓTÊBˆ˜[YÈH‘ÚZ˜\]]È‚ˆYˆ
+\ÝÜ™K˜]]ÔÙ[XÝ˜[YJHÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆÛX\ÛÛ›™XÝ\ÈÙ™ˆŠNÈÛÛ[YBˆBˆYˆ
+œ”Ý]KœÝ]K˜[YHOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ
+HÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆÝ]H\È	Õœ”Ý]KœÝ]K˜[Y_HŠNÈÛÛ[YBˆBˆYˆ
+œ”Ý]KœXÚÚ[™Ë˜[YJHÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆHXÚÈ\È[™XYH[›š[™ÈŠNÈÛÛ[YBˆB‚ˆ˜[XÝ]™RYHœ”Ý]K˜XÝ]™RY˜[YHÎˆÝÜ™KœÙ[XÝYY˜[YBˆYˆ
+XÝ]™RYOH[
+HÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆ›ÈXÝ]™HÛÛ™šYÈYŠNÈÛÛ[YBˆBˆYˆ
+XÝ]™RYœÝ\ÕÚ]
+›ÝœŽˆŠJHÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆÜ[•”ˆ›Ùš[HX[˜YÙ\È]ÈÝÛˆ[›™[ŠNÈÛÛ[YBˆBˆ˜[XÝ]™PÙ™ÈHÝÜ™K˜ÛÛ™šYÜË˜[YK™š[™È]šYOHXÝ]™RYBˆYˆ
+XÝ]™PÙ™ÏËœ›ÝØÛÛËš[J
+OË›ÝÙ\˜Ø\ÙJ
+H[ˆÙ]ÙŠÜˆ‹˜Y]\ˆŠJHÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆXÝ]™H\È	ØXÝ]™PÙ™ÏËœ›ÝØÛÛHŠNÈÛÛ[YBˆB‚ˆ˜[™\ÝH[Ø]Ú[™ÈÈÙ[XÝÜ‹œXÚÑ˜\Ý\Ý
+UU×ÔÕÒUÒÔ“Ð‘WÓTÊHBˆ›Û‘˜Z[\™HÈ[™›ÚY][“ÙËÊYËœ›Ø™H™]È‹]
+HBˆ™Ù]Ü“[
+
+BˆYˆ
+™\ÝOH[
+HÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆ›ÈÙ\™\ˆ™\ÜÛ™YÈH›Ø™HŠNÈÛÛ[YBˆB‚ˆ˜[™\Ý[ÈHÙ[XÝÜ‹œ™\Ý[Ë˜[YBˆ˜[™\Ý\ÈH
+™\Ý[ÖØ™\ÝšYH\ÏÈ[™Ô™\Ý[“ÚÊOË›\Âˆ˜[Ý\œ™[\ÈH
+™\Ý[ÖØXÝ]™RYH\ÏÈ[™Ô™\Ý[“ÚÊOË›\Âˆ[™›ÚY][“ÙË™
+ˆYËˆ˜XÝ]™OIØXÝ]™PÙ™ÏË›˜[Y_H	ØÝ\œ™[\ß[\È™\ÝIØ™\Ý›˜[Y_H	Ø™\Ý\ß[\È‚ˆ
+B‚ˆYˆ
+™\ÝšYOHXÝ]™RY
+HÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆ[™XYHÛˆH˜\Ý\ÝŠNÈÛÛ[YBˆBˆYˆ
+™\Ý\ÈOH[
+HÂˆ[™›ÚY][“ÙË™
+YËœÚÚ\ˆ™\Ý\È›È[Z[™ÈŠNÈÛÛ[YBˆBˆYˆ
+Ý\œ™[\ÈOH[	‰ˆÝ\œ™[\ÈH™\Ý\ÈUU×ÔÕÒUÒÓPT‘ÒS—ÓTÊHÂˆ[™›ÚY][“ÙË™
+ˆYËˆœÚÚ\ˆØZ[ˆ	ØÝ\œ™[\ÈH™\Ý\ß[\È[™\ˆX\™Ú[ˆ	UU×ÔÕÒUÒÓPT‘ÒS—ÓTÈ‚ˆ
+NÈÛÛ[YBˆB‚ˆ[™›ÚY][“ÙË™
+YË”ÕÒUÒS‘ÈÈ	Ø™\Ý›˜[Y_HŠBˆÝÜ™KœÙ]Ù[XÝYY
+™\ÝšY
+BˆÝÚ]ÚÊ™\Ý
+BˆBˆBˆB‚ˆš]˜]H[ˆÝX\™YÛÛ›™XÝ
+›ØÚÎˆ
+
+HOˆ[š]
+HÂˆžHÈ›ØÚÊ
+HBˆØ]Ú
+\œ›ÜŽˆ[šØYÙQ\œ›ÜŠHÂˆœ”Ý]KœÙ]\œ›ÜŠ¶aö,ö*¶aöe6)ö*¶-v)öa6*6)ö,v«ö,6)ö,vã6a¶-6+ö&È6a¶,ö+¶aöe6,ö)ö,¶«ö)ö,H6*6)È6«öb6-6ã6,v)È6a¶-v*6ªva‹ˆŠBˆHØ]Ú
+\œ›ÜŽˆ^Ù\[ÛŠHÂˆ[™›ÚY][“ÙË™J‘ÚZ˜\ÛÛ›™XÝ‹\œ›Ü‹š˜]˜PÛ\ÜËœÚ[\S˜[YJBˆœ”Ý]KœÙ]\œ›ÜŠ¶-6,vb6.H6)ö*¶-v)öa6a¶)öavb6`v`ˆ6*6b6+ö&È6av+6b6,ˆ”ˆ6b6*¶a¶.6ã6av)ö*ˆ6,ö,vb6ã6,È6,v)È6*6,v,v,öã6ªva‹ˆŠBˆBˆB‚ˆš]˜]H[ˆ›ØÙYYÛÛ›™XÝ
+ÛÛ™šYÎˆ›ÞPÛÛ™šYÊHÂˆÝX\™YÛÛ›™XÝÈ›ØÙYYÛÛ›™XÝÚXÚÙY
+ÛÛ™šYÊHBˆB‚ˆš]˜]H[ˆ›ØÙYYÛÛ›™XÝÚXÚÙY
+ÛÛ™šYÎˆ›ÞPÛÛ™šYÊHÂˆYˆ
+œ”Ý]KœÝ]K˜[YHOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ
+H™]\›‚ˆYˆ
+ÛÛ™šYËœ›ÝØÛÛOHšZÙ]ŒˆŠHÂˆ˜[˜^UØ\Õ\Hœ”Ý]KœÝ]K˜[YHOHÛÛ›™XÝ[Û‹‘TÐÓÓ“‘PÕQˆZÙPÛÛ›Û\‹˜ÛZ[JÛÛ™šYÊBˆYˆ
+˜^UØ\Õ\
+HÝ\Ù\šXÙJˆ[[
+\ËÛÞ˜\•œ”Ù\šXÙNŽ˜Û\ÜËš˜]˜JKœÙ]XÝ[ÛŠÛÞ˜\•œ”Ù\šXÙKPÕSÓ—ÔÕÔ
+Bˆ
+Bˆ˜[Ý\ZÙHHÂˆYˆ
+RZÙPÛÛ›Û\‹˜ÛÛ›™XÝ
+\ËÛÛ™šYÊJHÂˆØ\Ý›XZÙU^
+\ËŠšZÙ]Œ—Ø˜YØÛÛ™šYÈŠKØ\Ý“S‘ÕÓÓ‘ÊKœÚÝÊ
+Bˆœ”Ý]KœÙ]\ØÛÛ›™XÝY
+
+BˆBˆBˆ˜[ÛÛœÙ[H[Ø]Ú[™ÈÈœ”Ù\šXÙKœ™\\™J\ÊHK™Ù]Ü“[
+
+BˆYˆ
+ÛÛœÙ[OH[
+HÂˆY\”\›Z\ÜÚ[ÛˆHÝ\ZÙBˆœ”\›Z\ÜÚ[Û‹›][˜Ú
+ÛÛœÙ[
+BˆH[ÙHÝ\ZÙJ
+Bˆ™]\›‚ˆBˆYˆ
+ZÙPÛÛ›Û\‹˜XÝ]™JHZÙPÛÛ›Û\‹™\ØÛÛ›™XÝ
+\ÊBˆ˜[œÛÛˆHÛÛ™šYÐZ[\‹˜Z[
+ÛÛ™šYËÝÜ™K™œ˜YÛY[˜[YKÝÜ™KœÜ]›Ý][™Ë˜[YKÝÜ™KœÛšY™š[™Ë˜[YKÝÜ™KœÛšY™•\\Ë˜[YK]^HÝÜ™K›]^˜[YK]^ÛÛ˜Ý\œ™[˜ÞHHÝÜ™K›]^ÛÛ˜Ý\œ™[˜ÞK˜[YKY›ØÚÈHÝÜ™K˜Y›ØÚË˜[YK˜ZÙQœÈHÝÜ™K™˜ZÙQœË˜[YKˆ[˜Üž\YœÈHÝÜ™K™[˜Üž\YœË˜[YKˆÜ˜\ÙHHYˆ
+ÛÛ™šYËœ›ÝØÛÛOHÜˆˆ	‰ˆÛÛ™šYËÜ˜\ÙRYš\Ó›Ý[\J
+JBˆÝÜ™K˜ÛÛ™šYÜË˜[YK™š[™È]šYOHÛÛ™šYËÜ˜\ÙRYH[ÙH[ˆÚZ[˜\ÙHHYˆ
+ÛÛ™šYË˜ÚZ[’Yš\Ó›Ý[\J
+JBˆÝÜ™K˜ÛÛ™šYÜË˜[YK™š[™È]šYOHÛÛ™šYË˜ÚZ[’YH[ÙH[ˆÛš[Û”›Ý][™ÈHÝÜ™K›Ûš[Û”›Ý][™Ë˜[YKˆÛÜ™SÙÓ]™[HÝÜ™K˜ÛÜ™SÙÓ]™[˜[YJBˆœ”Ý]KœÙ]ÛÛ›™XÝ[™ÊÛÛ™šYËšY
+Bˆ˜[Y]\ˆHYˆ
+ÛÛ™šYËœ›ÝØÛÛOH˜Y]\ˆŠHY]\ÛÛ›Û\‹œÜXÊÛÛ™šYÊH[ÙHˆ‚ˆ˜[[[Hœ”Ù\šXÙKœ™\\™J\ÊBˆ˜[ÜˆHÚ[ˆÂˆÛÛ™šYËœ›ÝØÛÛOHÜˆˆO‚ˆÛÛ™šYËÜÛÝ[žH
+ÈŸˆ
+È
+Yˆ
+ÛÛ™šYËÜ•›ÝYÚœŠHŒHˆ[ÙHŒŠBˆÝÜ™K›Ûš[Û”›Ý][™Ë˜[YHOˆŸH‚ˆ[ÙHOˆ[ˆBˆYˆ
+[[OH[
+HÈY\”\›Z\ÜÚ[ÛˆHÈÝ\[›™[
+œÛÛ‹ÛÛ™šYË›˜[YKY]\‹ÜŠHNÈœ”\›Z\ÜÚ[Û‹›][˜Ú
+[[
+HBˆ[ÙHÝ\[›™[
+œÛÛ‹ÛÛ™šYË›˜[YKY]\‹ÜŠBˆB‚ˆš]˜]H[ˆÝ\[›™[
+ÛÛ™šYÒœÛÛŽˆÝš[™Ë˜[YNˆÝš[™ËY]\ŽˆÝš[™ËÜŽˆÝš[™ÏÊHÂˆÝX\™YÛÛ›™XÝÈ[™›ÚY˜ÛÜ™K˜ÛÛ[ÛÛ^ÛÛ\]œÝ\›Ü™YÜ›Ý[™Ù\šXÙJ\Ëˆ[[
+\ËÛÞ˜\•œ”Ù\šXÙNŽ˜Û\ÜËš˜]˜JBˆœ]^˜JÛÞ˜\•œ”Ù\šXÙK‘VWÐÓÓ‘’QËÛÛ™šYÒœÛÛŠBˆœ]^˜JÛÞ˜\•œ”Ù\šXÙK‘VWÓSQK˜[YJBˆœ]^˜JÛÞ˜\•œ”Ù\šXÙK‘VWÐQUT‹Y]\ŠBˆœ]^˜JÛÞ˜\•œ”Ù\šXÙK‘VWÕÔ‹ÜŠBˆœ]^˜JÛÞ˜\•œ”Ù\šXÙK‘VWÔÕÔÓP‘SÝš[™ÜË™Ù]
+ÝÜ™K›[™Ë˜[YK™\ØÛÛ›™XÝŠJBˆ
+HBˆB‚ˆš]˜]H[ˆÝ\›ØÚÓÛ›J
+HÂˆYˆ
+\ÝÜ™K˜Y›ØÚË˜[YH\ÝÜ™K˜›ØÚÕÚ[“Ù™‹˜[YJH™]\›‚ˆYˆ
+œ”Ù\šXÙKœ™\\™J\ÊHOH[
+H™]\›‚ˆ˜[œÛÛˆHÛÛ™šYÐZ[\‹˜Z[
+ˆ›ÞPÛÛ™šYÊ˜[YHH˜Y›ØÚÈ‹›ÝØÛÛH™œ™YYÛH‹Y™\ÜÈHŒLËŒŒŒH‹ÜHJKˆÜ]›Ý][™ÈHÝÜ™KœÜ]›Ý][™Ë˜[YKˆÛšY™š[™ÈHÝÜ™KœÛšY™š[™Ë˜[YKˆÛšY™•\\ÈHÝÜ™KœÛšY™•\\Ë˜[YKˆY›ØÚÈHYKˆ\™XÝÛ›HHYKˆ˜ZÙQœÈHÝÜ™K™˜ZÙQœË˜[YKˆ[˜Üž\YœÈHÝÜ™K™[˜Üž\YœË˜[YKˆÛÜ™SÙÓ]™[HÝÜ™K˜ÛÜ™SÙÓ]™[˜[YBˆ
+BˆÝ\[›™[
+œÛÛ‹Ýš[™ÜË™Ù]
+ÝÜ™K›[™Ë˜[YK˜Y›ØÚ×Û›ÝYˆŠKˆ‹[
+BˆB‚ˆš]˜]H[ˆ\ØÛÛ›™XÝ
+
+HÂˆYˆ
+œ”Ý]K˜XÝ]™RY˜[YOËœÝ\ÕÚ]
+›ÝœŽˆŠHOHYJHÂˆÚZ˜\“Ü[•œœšYÙK™\ØÛÛ›™XÝ
+\ÊBˆœ”Ý]KœÙ]\ØÛÛ›™XÝY
+
+Bˆ™]\›‚ˆBˆYˆ
+ZÙPÛÛ›Û\‹˜XÝ]™JHÂˆZÙPÛÛ›Û\‹™\ØÛÛ›™XÝ
+\ÊBˆœ”Ý]KœÙ]\ØÛÛ›™XÝY
+
+Bˆ™]\›‚ˆBˆÝ\Ù\šXÙJ[[
+\ËÛÞ˜\•œ”Ù\šXÙNŽ˜Û\ÜËš˜]˜JKœÙ]XÝ[ÛŠÛÞ˜\•œ”Ù\šXÙKPÕSÓ—ÔÕÔ
+JBˆB‚ˆš]˜]H[ˆÝÚ]ÚÊÛÛ™šYÎˆ›ÞPÛÛ™šYÊHÂˆ˜[ÈHœ”Ý]KœÝ]K˜[YBˆYˆ
+ÈOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ	‰ˆÈOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘ÊHÈ][˜ÚÛÛ›™XÝ
+ÛÛ™šYÊNÈ™]\›ˆBˆY™XÞXÛTØÛÜK›][˜ÚÂˆ\ØÛÛ›™XÝ
+
+BˆÚ][Y[Ý]Ü“[
+Œ
+HÂˆœ”Ý]KœÝ]K™š\œÝÈ]OHÛÛ›™XÝ[Û‹‘TÐÓÓ“‘PÕQ]OHÛÛ›™XÝ[Û‹‘T”“ÔˆBˆBˆYˆ
+œ”Ý]KœÝ]K˜[YHOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ
+Hœ”Ý]KœÙ]\ØÛÛ›™XÝY
+
+Bˆ[^J
+Bˆ][˜ÚÛÛ›™XÝ
+ÛÛ™šYÊBˆBˆB‚ˆš]˜]H[ˆØ\›J
+HÂˆYˆ
+ZÙPÛÛ›Û\‹˜XÝ]™JH™]\›‚ˆ˜[ÈHœ”Ý]KœÝ]K˜[YBˆYˆ
+ÈOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘ÈÈOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ
+H™]\›‚ˆ[Ø]Ú[™ÈÂˆÝ\Ù\šXÙJ[[
+\ËÛÞ˜\•œ”Ù\šXÙNŽ˜Û\ÜËš˜]˜JKœÙ]XÝ[ÛŠÛÞ˜\•œ”Ù\šXÙKPÕSÓ—ÕÐT“JJBˆBˆBŸB‚Ü[Š^\š[Y[[X]\šX[Ð\NŽ˜Û\ÜÊBÛÛ\ÜØX›Bœš]˜]H[ˆÛÞ˜\\
+ˆÝÜ™NˆÛÛ™šYÔÝÜ™KˆÛÛÛ›™XÝˆ
+›ÞPÛÛ™šYÊHOˆ[š]ˆÛ‘\ØÛÛ›™XÝˆ
+
+HOˆ[š]ˆÛ”ÝÚ]Úˆ
+›ÞPÛÛ™šYÊHOˆ[š]ˆÛØ[˜Ù[XÚÎˆ
+
+HOˆ[š]HßBŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[ØÛÜHH™[Y[X™\ÛÜ›Ý][™TØÛÜJ
+Bˆ˜[[YS[ÙHžHÝÜ™K[YS[ÙK˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[Y™™XÝ]™Q\šÈHÚ[ˆ
+[YS[ÙJHÂˆ[YS[ÙK“QÒOˆ˜[ÙBˆ[YS[ÙK‘T’Ë[YS[ÙKSSÓQOˆYBˆ[ÙHOˆ\ÔÞ\Ý[R[‘\šÕ[YJ
+BˆBˆ˜[YÙ\”Ý]HH™[Y[X™\”YÙ\”Ý]J[š]X[YÙHHQÑWÒÓQKYÙPÛÝ[HÈQÑWÐÓÕS•JBˆ˜[Ù][™ÜÔØÜ›ÛH™[Y[X™\”ØÜ›ÛÝ]J
+B‚ˆ˜\ˆÚÝÔXÚÙ\ˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÚÝÓX[X[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÚÝÔ›Ú™XÝÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÚÝÕÜ“›Ù\ÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÚÝÕÚ[™ØÜšX™HžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÚÝÔØØ[›™\ˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆY][™ÐÛÛ™šYÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙ›ÞPÛÛ™šYÏÏŠ[
+HBˆ˜[ÚYÙ]\Ý[˜][ÛˆžHÚZ˜\“˜]šYØ][Û\Ë™\Ý[˜][Û‹˜ÛÛXÝ\ÔÝ]J
+Bˆ][˜ÚYY™™XÝ
+ÚYÙ]\Ý[˜][ÛŠHÂˆYˆ
+ÚYÙ]\Ý[˜][ÛˆOHÚZ˜\•ÚYÙ]›ÝšY\‹‘TÕÔÑT•‘T”ÊHÂˆYÙ\”Ý]KœØÜ›ÛÔYÙJQÑWÒÓQJBˆÚÝÔXÚÙ\ˆHYBˆÚZ˜\“˜]šYØ][Û\Ë˜ÛÛœÝ[YJ
+BˆBˆBˆ˜[\]PÝHØØ[ÛÛ^˜Ý\œ™[ˆ˜[\]U\šHHØØ[\šR[™\‹˜Ý\œ™[ˆ˜\ˆ\]P]˜Z[X›HžH™[Y[X™\ˆÈ]]X›TÝ]SÙ\]PÚXÚÙ\‹”™\Ý[]˜Z[X›OÏŠ[
+HBˆ][˜ÚYY™™XÝ
+[š]
+HÂˆYˆ
+Þ\Ý[K˜Ý\œ™[[YSZ[\Ê
+HHÝÜ™K›\Ý\]PÚXÚÊ
+HH
+ˆŒ
+ˆŒ
+ˆL
+HÂˆ˜[™\ˆH[Ø]Ú[™ÈÂˆ\]PÝœXÚØYÙSX[˜YÙ\‹™Ù]XÚØYÙR[™›Ê\]PÝœXÚØYÙS˜[YK
+K™\œÚ[Û“˜[YBˆK™Ù]Ü“[
+
+HÎˆˆ‚ˆ˜[ˆH\]PÚXÚÙ\‹˜ÚXÚÊ™\ŠBˆÝÜ™K›X\šÕ\]PÚXÚÙY
+
+BˆYˆ
+ˆ\È\]PÚXÚÙ\‹”™\Ý[]˜Z[X›JH\]P]˜Z[X›HH‚ˆBˆBˆ\]P]˜Z[X›OË›]È\O‚ˆÛ\ÜÑX[ÙÊˆÛ‘\ÛZ\ÜÈHÈ\]P]˜Z[X›HH[Kˆ]HH
+\]WØ]˜Z[X›HŠK™›Ü›X]
+\™\œÚ[ÛŠKˆÛÛ™š\›SX™[H
+\]WÛ›ÝÈŠKˆ\ÛZ\ÜÓX™[H
+›]\ˆŠKˆÛÛÛ™š\›HHÂˆ[Ø]Ú[™ÈÈ\]U\šK›Ü[•\šJ\\›
+HBˆ\]P]˜Z[X›HH[ˆBˆ
+HßBˆBˆ˜\ˆ\ØYÙQ]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ\\]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÙÜÑ]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÝXš[]Q]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆX›Ý]]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ[YQ]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÛX[’\]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ™][Û‘]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ™]Ø]]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ™]Ø][™^žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠLJHBˆ˜\ˆÚXÚÒÜÝ]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÛÛÑ]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÛÛ›‘]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ™YœÑ]Z[žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ^ÜÛÛ™šYÜÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙ\Ý›ÞPÛÛ™šYÏÏŠ[
+HBˆ˜[ÛÜ[ÙHžHÝÜ™KœÛÜ[ÙK˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[Ù[XÝYYžHÝÜ™KœÙ[XÝYY˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[[™ÜÈH™[Y[X™\ˆÈ]]X›TÝ]SX\ÙÝš[™Ë[™Ô™\Ý[Š
+HB‚ˆ][˜ÚYY™™XÝ
+[š]
+HÂˆÝÜ™K˜]ØZ]™XYJ
+BˆÝÜ™KœÙYYY˜][Y]\’Y“™YYY
+
+BˆÚ[H
+YJHÂˆÝXœØÜš\[Û”™Yœ™\Ú\‹œ™Yœ™\ÚÝ[JÝÜ™JBˆ[^JÌ
+ˆŒ
+ˆL
+BˆBˆB‚ˆ˜[[\ÜÛÛ^HØØ[ÛÛ^˜Ý\œ™[ˆ˜[[™[™Ò[\ÜžH[\Ü\Ëœ[™[™Ë˜ÛÛXÝ\ÔÝ]J
+Bˆ˜\ˆ[\Ü™YYÔ\ÜÝÛÜ™žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ[\Ü\ÜÝÛÜ™žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠˆŠHBˆ˜\ˆ[\Ü\œ›ÜˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠˆŠHBˆ˜\ˆ[\Ü\ÞHžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHB‚ˆ][˜ÚYY™™XÝ
+[™[™Ò[\Ü
+HÂˆ˜[[\ÜH[™[™Ò[\ÜÎˆ™]\›][˜ÚYY™™XÝˆ˜[ž]\ÈH[\Ü˜ž]\Âˆ[\Ü\ÜÝÛÜ™Hˆ‚ˆ[\Ü\œ›ÜˆHˆ‚ˆ˜[™XYX›HHÚ]ÛÛ^
+\Ü]Ú\œË‘Y˜][
+HÈÚZ˜\’[\Ü[\Ëœ™XYX›U^
+ž]\ÊHBˆ˜[ÝXœØÜš\[Û•\›HÚZ˜\’[\Ü[\ËœÝXœØÜš\[Û•\›
+™XYX›JBˆYˆ
+ÝXœØÜš\[Û•\›OH[
+HÂˆ[\Ü\ÞHHYBˆžHÂˆ˜[™]ÚYHÝXœØÜš\[Û‘™]Ú\‹™™]Ú[
+ÝXœØÜš\[Û•\›
+BˆYˆ
+™]ÚY˜ÛÛ™šYÜËš\Ñ[\J
+JH›ÝÈ[YØ[\™Ý[Y[^Ù\[ÛŠ
+››×ØÛÛ™šYÜÈŠJBˆ˜[˜[YHH[Ø]Ú[™ÈÈT“
+ÝXœØÜš\[Û•\›
+KšÜÝK™Ù]Ü‘Y˜][
+”ÝXœØÜš\[ÛˆŠBˆ˜[[™›ÈH™]ÚY\Ù\’[™›ÂˆÝÜ™K\Ù\ÝXœØÜš\[ÛŠÝXœØÜš\[ÛŠ˜[YHH˜[YK\›HÝXœØÜš\[Û•\›ˆ\ÙYH[™›ÏË\ÙYÎˆÝ[H[™›ÏËÝ[Îˆ^\™HH[™›ÏË™^\™HÎˆˆ\Ý\]YHÞ\Ý[K˜Ý\œ™[[YSZ[\Ê
+JK™]ÚY˜ÛÛ™šYÜÊBˆ[™›ÚYÚYÙ]•Ø\Ý›XZÙU^
+[\ÜÛÛ^ˆ
+˜YYÜÝXˆŠK™›Ü›X]
+™]ÚY˜ÛÛ™šYÜËœÚ^™JK[™›ÚYÚYÙ]•Ø\Ý“S‘ÕÔÒÔ•
+KœÚÝÊ
+BˆHØ]Ú
+Nˆ^Ù\[ÛŠHÂˆ[™›ÚYÚYÙ]•Ø\Ý›XZÙU^
+[\ÜÛÛ^ˆ‰Ý
+™™]ÚÙ˜Z[YŠ_Nˆ	ÙK›Y\ÜØYÙK›Ü‘[\J
+_H‹[™›ÚYÚYÙ]•Ø\Ý“S‘ÕÓÓ‘ÊKœÚÝÊ
+BˆHš[˜[HÂˆ[\Ü\ÞHH˜[ÙBˆ[\Ü\Ë˜ÛX\Š
+BˆBˆ™]\›][˜ÚYY™™XÝˆBˆ˜[Z[ˆHÚ]ÛÛ^
+\Ü]Ú\œË‘Y˜][
+HÂˆ[Ø]Ú[™ÈÈÛÛ™šYÔ\œÙ\‹œ\œÙP[™J™XYX›K›Ü‘[\J
+JHBˆ™Ù]Ü‘Y˜][
+[\S\Ý
+
+JBˆBˆYˆ
+Z[‹š\Ó›Ý[\J
+JHÂˆ˜[YYHÝÜ™K˜Y[\ÜY
+Z[ŠBˆ[™›ÚYÚYÙ]•Ø\Ý›XZÙU^
+ˆ[\ÜÛÛ^
+š[\ÜÜÝXØÙ\ÜÈŠK™›Ü›X]
+YY
+Kˆ[™›ÚYÚYÙ]•Ø\Ý“S‘ÕÔÒÔ•ˆ
+KœÚÝÊ
+Bˆ[\Ü\Ë˜ÛX\Š
+Bˆ™]\›][˜ÚYY™™XÝˆBˆ[\Ü™YYÔ\ÜÝÛÜ™H[Ø]Ú[™ÈÈÛÛ™šYÑš[Kš\Ô\ÜÝÛÜ™›ÝXÝY
+ž]\ÊHK™Ù]Ü‘Y˜][
+˜[ÙJBˆYˆ
+Z[\Ü™YYÔ\ÜÝÛÜ™
+HÂˆ˜[ÛÛ™šYÜÈHÚ]ÛÛ^
+\Ü]Ú\œË‘Y˜][
+HÂˆ[Ø]Ú[™ÈÈÛÛ™šYÑš[K™XÛÙJ[\ÜÛÛ^ž]\Ë[
+HK™Ù]Ü“[
+
+BˆBˆYˆ
+ÛÛ™šYÜÈOH[
+HÂˆ˜[ˆHÝÜ™K˜Y[\ÜY
+ÛÛ™šYÜÊBˆ[™›ÚYÚYÙ]•Ø\Ý›XZÙU^
+[\ÜÛÛ^
+š[\ÜÜÝXØÙ\ÜÈŠK™›Ü›X]
+ŠK[™›ÚYÚYÙ]•Ø\Ý“S‘ÕÔÒÔ•
+KœÚÝÊ
+Bˆ[\Ü\Ë˜ÛX\Š
+BˆH[ÙHYˆ
+ÚZ˜\’[\Ü[\Ëš\Óœ
+[\Ü™š[S˜[YJJHÂˆ[™›ÚYÚYÙ]•Ø\Ý›XZÙU^
+[\ÜÛÛ^ˆ¶)öã6aˆ6`v)öã6a”•6`¶`va6ã6)È6`¶)öa6*6)ö+¶*¶-v)ö-vã™][Ù6+ö)ö,v+Ëˆ6a¶,ö+¶aöe6*6)ö,¶d6ªv)öa¶`vã6«Ëö,ö)ö*6,v)È6-v)ö+ö,H6ªva¶&È6+öb6,v,¶+öaˆ6`¶`va6o¶-6*¶ã6*6)öa¶ã6a¶avã8 #6-6b6+Ëˆ‹ˆ[™›ÚYÚYÙ]•Ø\Ý“S‘ÕÓÓ‘ÊKœÚÝÊ
+Bˆ[\Ü\Ë˜ÛX\Š
+BˆH[ÙHÂˆ[\Ü™YYÔ\ÜÝÛÜ™HYBˆBˆBˆB‚ˆYˆ
+[™[™Ò[\ÜOH[	‰ˆ[\Ü™YYÔ\ÜÝÛÜ™
+HÂˆÛ\ÜÑX[ÙÊˆÛ‘\ÛZ\ÜÈHÈYˆ
+Z[\Ü\ÞJH[\Ü\Ë˜ÛX\Š
+HKˆ]HH
+š[\ÜÝ]HŠKˆÛÛ™š\›SX™[H
+š[\ÜØ]ÛˆŠKˆ\ÛZ\ÜÓX™[H
+˜Ø[˜Ù[ŠKˆÛÛÛ™š\›HHÂˆ˜[ž]\ÈH[™[™Ò[\ÜË˜ž]\ÂˆYˆ
+ž]\ÈOH[	‰ˆZ[\Ü\ÞH	‰ˆ[\Ü\ÜÝÛÜ™š\Ó›Ý[\J
+JHÂˆ[\Ü\ÞHHYBˆØÛÜK›][˜ÚÂˆ˜[ÛÛ™šYÜÈHÚ]ÛÛ^
+\Ü]Ú\œË‘Y˜][
+HÂˆ[Ø]Ú[™ÈÈÛÛ™šYÑš[K™XÛÙJ[\ÜÛÛ^ž]\Ë[\Ü\ÜÝÛÜ™
+HBˆBˆ[\Ü\ÞHH˜[ÙBˆÛÛ™šYÜË›Û”ÝXØÙ\ÜÈÈ\ÝO‚ˆ˜[ˆHÝÜ™K˜Y[\ÜY
+\Ý
+Bˆ[™›ÚYÚYÙ]•Ø\Ý›XZÙU^
+[\ÜÛÛ^
+š[\ÜÜÝXØÙ\ÜÈŠK™›Ü›X]
+ŠK[™›ÚYÚYÙ]•Ø\Ý“S‘ÕÔÒÔ•
+KœÚÝÊ
+Bˆ[\Ü\Ë˜ÛX\Š
+Bˆ[\Ü™YYÔ\ÜÝÛÜ™H˜[ÙBˆK›Û‘˜Z[\™HÈHO‚ˆ[\Ü\œ›ÜˆHÚ[ˆ
+JHÂˆ\ÈÛÛ™šYÑš[K•Ü›Û™Ô\ÜÝÛÜ™Oˆ
+š[\ÜÝÜ›Û™×Ü\ÜÝÛÜ™ŠBˆ\ÈÛÛ™šYÑš[K‘›Ü™ZYÛ\Oˆ
+š[\ÜÙ›Ü™ZYÛ—Ø\ŠBˆ[ÙHOˆ
+š[\ÜØ˜YÙš[HŠBˆBˆBˆBˆBˆBˆ
+HÂˆ^
+
+š[\ÜÛ™YY×Ü\ÜÝÛÜ™ŠKÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[
+BˆÝ][™Y^šY[
+ˆ[\Ü\ÜÝÛÜ™È[\Ü\ÜÝÛÜ™H]È[\Ü\œ›ÜˆHˆˆKˆX™[HÈ^
+
+š[\ÜÜ\ÜÝÛÜ™ŠJHKˆÚ[™ÛS[™HHYKˆš\ÝX[˜[œÙ›Ü›X][ÛˆH\ÜÝÛÜ™š\ÝX[˜[œÙ›Ü›X][ÛŠ
+KˆÚ\HH›Ý[™YÛÜ›™\”Ú\JM™
+Kˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+Bˆ
+BˆYˆ
+[\Ü\œ›Ü‹š\Ó›Ý[\J
+JBˆ^
+[\Ü\œ›Ü‹ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK™\œ›Ü‹Ý[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[
+BˆBˆB‚ˆ˜\ˆÜÚÝX”ØÜ™Y[ˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜[YÙHHYÙ\”Ý]K˜Ý\œ™[YÙBˆ˜[Û”Ù][™ÜÕXˆHYÙHOHQÑWÔÑUS‘ÔÂˆ˜[ÝX”ØÜ™Y[“Ü[ˆH
+YÙHOHQÑWÔÔÒ	‰ˆÜÚÝX”ØÜ™Y[ŠH
+YÙHOHQÑWÒÓQH	‰ˆ
+ÚÝÔXÚÙ\ˆÚÝÓX[X[ÚÝÔ›Ú™XÝÈÚÝÕÜ“›Ù\ÈÚÝÕÚ[™ØÜšX™HÚÝÔØØ[›™\ˆ^ÜÛÛ™šYÜÈOH[
+JH
+Û”Ù][™ÜÕXˆ	‰ˆ
+\ØYÙQ]Z[\\]Z[ÙÜÑ]Z[ÝXš[]Q]Z[X›Ý]]Z[ÛX[’\]Z[[YQ]Z[ÛÛÑ]Z[ÛÛ›‘]Z[™YœÑ]Z[™][Û‘]Z[™]Ø]]Z[™]Ø][™^HÚXÚÒÜÝ]Z[
+JB‚ˆ˜[ØÜ™Y[’Ù^HHÚ[ˆÂˆYÙHOHQÑWÔÒÔOˆœÚÜ‚ˆYÙHOHQÑWÔÔÒOˆœÜÚ‚ˆYÙHOHQÑWÒÓQH	‰ˆ^ÜÛÛ™šYÜÈOH[Oˆ™^Ü‚ˆYÙHOHQÑWÒÓQH	‰ˆÚÝÓX[X[Oˆ›X[X[‚ˆYÙHOHQÑWÒÓQH	‰ˆÚÝÕÜ“›Ù\ÈOˆÜ››Ù\È‚ˆYÙHOHQÑWÒÓQH	‰ˆÚÝÔØØ[›™\ˆOˆœØØ[œ\ˆ‚ˆYÙHOHQÑWÒÓQH	‰ˆÚÝÕÚ[™ØÜšX™HOˆÚ[™ØÜšX™H‚ˆYÙHOHQÑWÒÓQH	‰ˆÚÝÔ›Ú™XÝÈOˆœ›Ú™XÝÈ‚ˆYÙHOHQÑWÒÓQH	‰ˆÚÝÔXÚÙ\ˆOˆœXÚÙ\ˆ‚ˆYÙHOHQÑWÒÓQHOˆ˜ÛÛ›™XÝ[Ûˆ‚ˆYÙHOHQÑWÑP•QÈOˆ™XYÙÙ\ˆ‚ˆÛ”Ù][™ÜÕXˆ	‰ˆ\ØYÙQ]Z[Oˆ\ØYÙH‚ˆÛ”Ù][™ÜÕXˆ	‰ˆ\\]Z[Oˆœ\˜\‚ˆÛ”Ù][™ÜÕXˆ	‰ˆÙÜÑ]Z[Oˆ›ÙÜÈ‚ˆÛ”Ù][™ÜÕXˆ	‰ˆÝXš[]Q]Z[OˆœÝXš[]H‚ˆÛ”Ù][™ÜÕXˆ	‰ˆX›Ý]]Z[Oˆ˜X›Ý]‚ˆÛ”Ù][™ÜÕXˆ	‰ˆ[YQ]Z[Oˆ[YH‚ˆÛ”Ù][™ÜÕXˆ	‰ˆÛX[’\]Z[Oˆ˜ÛX[š\‚ˆÛ”Ù][™ÜÕXˆ	‰ˆÚXÚÒÜÝ]Z[Oˆ˜ÚXÚÚÜÝ‚ˆÛ”Ù][™ÜÕXˆ	‰ˆ™]Ø][™^HOˆ›™]Ø]Û™H‚ˆÛ”Ù][™ÜÕXˆ	‰ˆ™]Ø]]Z[Oˆ›™]Ø]‚ˆÛ”Ù][™ÜÕXˆ	‰ˆ™][Û‘]Z[Oˆ›™][Ûˆ‚ˆÛ”Ù][™ÜÕXˆ	‰ˆÛÛÑ]Z[OˆÛÛÈ‚ˆÛ”Ù][™ÜÕXˆ	‰ˆÛÛ›‘]Z[Oˆ˜ÛÛ›™XÝ[Û—ÜÙ][™ÜÈ‚ˆÛ”Ù][™ÜÕXˆ	‰ˆ™YœÑ]Z[Oˆœ™Y™\™[˜Ù\È‚ˆ[ÙHOˆœÙ][™ÜÈ‚ˆB‚ˆ[ˆÜ
+
+HÂˆÚ[ˆÂˆ^ÜÛÛ™šYÜÈOH[Oˆ^ÜÛÛ™šYÜÈH[ˆÚÝÓX[X[OˆÈÚÝÓX[X[H˜[ÙNÈY][™ÐÛÛ™šYÈH[BˆÚÝÕÚ[™ØÜšX™HOˆÚÝÕÚ[™ØÜšX™HH˜[ÙBˆÚÝÔØØ[›™\ˆOˆÚÝÔØØ[›™\ˆH˜[ÙBˆÚÝÕÜ“›Ù\ÈOˆÚÝÕÜ“›Ù\ÈH˜[ÙBˆÚÝÔ›Ú™XÝÈOˆÚÝÔ›Ú™XÝÈH˜[ÙBˆÚÝÔXÚÙ\ˆOˆÚÝÔXÚÙ\ˆH˜[ÙBˆ\ØYÙQ]Z[Oˆ\ØYÙQ]Z[H˜[ÙBˆ\\]Z[Oˆ\\]Z[H˜[ÙBˆÙÜÑ]Z[OˆÙÜÑ]Z[H˜[ÙBˆÝXš[]Q]Z[OˆÝXš[]Q]Z[H˜[ÙBˆX›Ý]]Z[OˆX›Ý]]Z[H˜[ÙBˆ[YQ]Z[Oˆ[YQ]Z[H˜[ÙBˆÛX[’\]Z[OˆÛX[’\]Z[H˜[ÙBˆÚXÚÒÜÝ]Z[OˆÚXÚÒÜÝ]Z[H˜[ÙBˆ™]Ø][™^HOˆ™]Ø][™^HLBˆ™]Ø]]Z[Oˆ™]Ø]]Z[H˜[ÙBˆ™][Û‘]Z[Oˆ™][Û‘]Z[H˜[ÙBˆÛÛÑ]Z[OˆÛÛÑ]Z[H˜[ÙBˆÛÛ›‘]Z[OˆÛÛ›‘]Z[H˜[ÙBˆ™YœÑ]Z[Oˆ™YœÑ]Z[H˜[ÙBˆYÙHOHQÑWÔÔÒ	‰ˆÜÚÝX”ØÜ™Y[ˆOˆ[š]ˆYÙHOHQÑWÒÓQHOˆØÛÜK›][˜ÚÈYÙ\”Ý]K˜[š[X]TØÜ›ÛÔYÙJQÑWÒÓQJHBˆBˆB‚ˆ˜[Ø[‘ÛÐ˜XÚÈHÝX”ØÜ™Y[“Ü[ˆYÙHOHQÑWÒÓQBˆ˜\ˆ˜XÚÔ›ÙÜ™\ÜÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠŠHB‚ˆ™YXÝ]™P˜XÚÒ[™\Š[˜X›YHØ[‘ÛÐ˜XÚÊHÈ›ÙÜ™\ÜÈO‚ˆžHÂˆ›ÙÜ™\ÜË˜ÛÛXÝÈ]™[Oˆ˜XÚÔ›ÙÜ™\ÜÈH]™[œ›ÙÜ™\ÜÈBˆ˜XÚÔ›ÙÜ™\ÜÈH‚ˆÜ
+
+BˆHØ]Ú
+NˆØ[˜Ù[][Û‘^Ù\[ÛŠHÂˆ˜XÚÔ›ÙÜ™\ÜÈH‚ˆBˆB‚ˆ˜[ÛÛ[ØØ[HHYˆH˜XÚÔ›ÙÜ™\ÜÈ
+ˆŒ‚ˆ˜[ÛÛ[[HHYˆH˜XÚÔ›ÙÜ™\ÜÈ
+ˆŒY‚‚ˆ˜[Ü˜Y™ÈHX]\šX[[YK˜ÛÛÜ”ØÚ[YK˜˜XÚÙÜ›Ý[™ˆ˜[Ü˜Y\šÈHÜ˜Y™Ë›[Z[˜[˜ÙJ
+HY‚ˆ˜[Ü˜YY[H™[Y[X™\ŠÜ˜Y™ËÜ˜Y\šÊHÂˆYˆ
+Ü˜Y\šÊHœ\Ú™\XØ[Ü˜YY[
+ˆˆÈ\œ
+Ü˜Y™ËÛÛÜŠ‘‘P‘QJKŒL™ŠKˆYˆÈ\œ
+Ü˜Y™ËÛÛÜŠ‘‘P‘QJKŒYŠKˆYˆÈÜ˜Y™Âˆ
+H[ÙHÛÛYÛÛÜŠÜ˜Y™ÊBˆB‚ˆØØY™›Û
+ˆÛÛZ[™\ÛÛÜˆHÛÛÜ‹•˜[œÜ\™[ˆÛÛ[ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û˜XÚÙÜ›Ý[™ˆ[ÙYšY\ˆH[ÙYšY\‹˜˜XÚÙÜ›Ý[™
+Ü˜YY[
+KˆÜ˜\ˆHÂˆÛÛ[[ˆÂˆÙ[\[YÛ™YÜ\˜\Šˆ]HHÂˆYˆ
+ØÜ™Y[’Ù^HOH˜ÛÛ›™XÝ[ÛˆŠHÂˆÚZ˜\•ÛÜ™X\šÊ[ÙYšY\‹šZYÚ
+™
+KÚY
+M™
+JBˆH[ÙHÂˆ^
+ˆZ^Y^
+Ú[ˆ
+ØÜ™Y[’Ù^JHÂˆ›X[X[ˆOˆYˆ
+Y][™ÐÛÛ™šYÈOH[
+H
+™Y]ØÛÛ™šY×Ý]HŠH[ÙH
+˜YØÛÛ™šY×Ý]HŠBˆ™^ÜˆOˆ
+™^ÜÝ]HŠBˆœXÚÙ\ˆˆOˆ
+˜ÚÛÜÙWÜÙ\™\ˆŠBˆœ›Ú™XÝÈˆOˆ
+™œ™YWÜ›Ú™XÝÈŠBˆÜ››Ù\ÈˆOˆ
+Ü—Û›Ù\ÈŠBˆÚ[™ØÜšX™HˆOˆ
+Ü×Ý]HŠBˆœØØ[œ\ˆˆOˆ
+œØØ[—Ü\ˆŠBˆ\ØYÙHˆOˆ
+™]WÝ\ØYÙHŠBˆœ\˜\ˆOˆ
+œ\—Ø\ŠBˆ›ÙÜÈˆOˆ
+ž˜^WÛÙÜÈŠBˆœÝXš[]HˆOˆ
+œÝX—Ý]HŠBˆ˜X›Ý]ˆOˆ
+˜X›Ý]ŠBˆ[YHˆOˆ
+[YWÜÙ][™ÜÈŠBˆ˜ÛX[š\ˆOˆ
+œØØ[—Ý]HŠBˆ›™][ÛˆˆOˆ
+›™][Û—Ý]HŠBˆ›™]Ø]ˆOˆ
+›™]Ø]Ý]HŠBˆ˜ÚXÚÚÜÝˆOˆ
+˜Ú×Ý]HŠBˆ›™]Ø]Û™HˆOˆ
+™][Ûš]Ü‹Ø]YÛÜšY\Ë™Ù]Ü“[
+™]Ø][™^
+OËšÙ^HÎˆ›™]Ø]Ý]HŠBˆÛÛÈˆOˆ
+ÛÛÈŠBˆ˜ÛÛ›™XÝ[Û—ÜÙ][™ÜÈˆOˆ
+˜ÛÛ›™XÝ[Û—ÜÙ][™ÜÈŠBˆœ™Y™\™[˜Ù\ÈˆOˆ
+œ™Y™\™[˜Ù\ÈŠBˆœÚÜˆOˆ
+œÚÜŠBˆœÜÚˆOˆ
+œÜÚŠBˆ™XYÙÙ\ˆˆOˆ
+™XYÙÙ\—Ý]HŠBˆ[ÙHOˆ
+œÙ][™ÜÈŠBˆJKˆ›Û˜[Z[HH[Q›Ûˆ
+BˆBˆKˆ˜]šYØ][Û’XÛÛˆHÂˆÚ[ˆ
+ØÜ™Y[’Ù^JHÂˆ›X[X[ˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÚÝÓX[X[H˜[ÙNÈY][™ÐÛÛ™šYÈH[JHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ™^ÜˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈ^ÜÛÛ™šYÜÈH[JHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆœXÚÙ\ˆˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÚÝÔXÚÙ\ˆH˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆœ›Ú™XÝÈˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÚÝÔ›Ú™XÝÈH˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆÜ››Ù\ÈˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÚÝÕÜ“›Ù\ÈH˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆÚ[™ØÜšX™HˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÚÝÕÚ[™ØÜšX™HH˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆœØØ[œ\ˆˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÚÝÔØØ[›™\ˆH˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ\ØYÙHˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈ\ØYÙQ]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆœ\˜\ˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈ\\]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ›ÙÜÈˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÙÜÑ]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆœÝXš[]HˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÝXš[]Q]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ˜X›Ý]ˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈX›Ý]]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ[YHˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈ[YQ]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ˜ÛX[š\ˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÛX[’\]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ›™][ÛˆˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈ™][Û‘]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ›™]Ø]ˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈ™]Ø]]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ˜ÚXÚÚÜÝˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÚXÚÒÜÝ]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ›™]Ø]Û™HˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈ™]Ø][™^HLHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆÛÛÈˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÛÛÑ]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆ˜ÛÛ›™XÝ[Û—ÜÙ][™ÜÈˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈÛÛ›‘]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆœ™Y™\™[˜Ù\ÈˆOˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÈ™YœÑ]Z[H˜[ÙHJHÈXÛÛŠXÛÛœË]]ÓZ\œ›Ü™Y‘š[Y\œ›ÝÐ˜XÚËÛÛ[\ØÜš\[ÛˆH˜XÚÈŠHBˆBˆKˆXÝ[ÛœÈHÂˆ›Ý[˜ÙRXÛÛ]ÛŠÛÛXÚÈHÂˆÝÜ™KœÙ][YS[ÙJÚ[ˆ
+[YS[ÙJHÂˆ[YS[ÙK“QÒOˆ[YS[ÙK‘T’Âˆ[YS[ÙK‘T’ÈOˆ[YS[ÙKSSÓQˆ[YS[ÙKSSÓQOˆ[YS[ÙK“QÒˆ[ÙHOˆYˆ
+Y™™XÝ]™Q\šÊH[YS[ÙK“QÒ[ÙH[YS[ÙK‘T’ÂˆJBˆJHÂˆXÛÛŠˆÚ[ˆ
+[YS[ÙJHÂˆ[YS[ÙK“QÒOˆXÛÛœË‘š[Y“YÚ[ÙBˆ[YS[ÙKSSÓQOˆXÛÛœË‘š[YÛÛ˜\Ýˆ[YS[ÙK‘T’ÈOˆXÛÛœË‘š[Y‘\šÓ[ÙBˆ[ÙHOˆYˆ
+Y™™XÝ]™Q\šÊHXÛÛœË‘š[Y‘\šÓ[ÙH[ÙHXÛÛœË‘š[Y“YÚ[ÙBˆKˆÛÛ[\ØÜš\[ÛˆH•ÙÙÛH[YH‚ˆ
+BˆBˆBˆ
+BˆÚZ˜\“›ÝXÙP˜[›™\Š
+BˆBˆKˆ›ÝÛP˜\ˆHÂˆ˜]šYØ][Û˜\Šˆ[ÙYšY\ˆH[ÙYšY\‹œY[™ÊÜš^›Û[HL‹™™\XØ[H™
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JŽ™
+JKˆÛÛZ[™\ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙKˆÛ˜[[]˜][ÛˆHË™ˆ
+HÂˆ˜]šYØ][Û˜\’][JˆÙ[XÝYHYÙHOHQÑWÔÒÔˆÛÛXÚÈHÈØÛÜK›][˜ÚÈYÙ\”Ý]K˜[š[X]TØÜ›ÛÔYÙJQÑWÔÒÔ
+HHKˆXÛÛˆHÈXÛÛŠZ[\”™\ÛÝ\˜ÙJ‹™˜]ØX›KšX×Ü›ÞX[ÜÚÜ
+KÛÛ[\ØÜš\[ÛˆH[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JŽ™
+JHKˆX™[HÈ^
+
+œÚÜŠJHBˆ
+Bˆ˜]šYØ][Û˜\’][JˆÙ[XÝYHYÙHOHQÑWÔÔÒˆÛÛXÚÈHÈØÛÜK›][˜ÚÈYÙ\”Ý]K˜[š[X]TØÜ›ÛÔYÙJQÑWÔÔÒ
+HHKˆXÛÛˆHÈXÛÛŠZ[\”™\ÛÝ\˜ÙJ‹™˜]ØX›KšX×Ü›ÞX[Ý[›™[
+KÛÛ[\ØÜš\[ÛˆH[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JŽ™
+JHKˆX™[HÈ^
+
+œÜÚŠJHBˆ
+Bˆ˜]šYØ][Û˜\’][JˆÙ[XÝYHYÙHOHQÑWÒÓQKˆÛÛXÚÈHÂˆÚÝÔXÚÙ\ˆH˜[ÙNÈÚÝÓX[X[H˜[ÙNÈÚÝÔ›Ú™XÝÈH˜[ÙNÈÚÝÕÜ“›Ù\ÈH˜[ÙNÈÚÝÕÚ[™ØÜšX™HH˜[ÙNÈY][™ÐÛÛ™šYÈH[ˆØÛÜK›][˜ÚÈYÙ\”Ý]K˜[š[X]TØÜ›ÛÔYÙJQÑWÒÓQJHBˆKˆXÛÛˆHÈXÛÛŠZ[\”™\ÛÝ\˜ÙJ‹™˜]ØX›KšX×Ü›ÞX[ÚÛYJKÛÛ[\ØÜš\[ÛˆH[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JŽ™
+JHKˆX™[HÈ^
+
+šÛYHŠJHBˆ
+Bˆ˜]šYØ][Û˜\’][JˆÙ[XÝYHYÙHOHQÑWÑP•QËˆÛÛXÚÈHÈØÛÜK›][˜ÚÈYÙ\”Ý]K˜[š[X]TØÜ›ÛÔYÙJQÑWÑP•QÊHHKˆXÛÛˆHÈXÛÛŠZ[\”™\ÛÝ\˜ÙJ‹™˜]ØX›KšX×Ü›ÞX[ÝÛÛÊKÛÛ[\ØÜš\[ÛˆH[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JŽ™
+JHKˆX™[HÈ^
+
+™XYÙÙ\ˆŠJHBˆ
+Bˆ˜]šYØ][Û˜\’][JˆÙ[XÝYHYÙHOHQÑWÔÑUS‘ÔËˆÛÛXÚÈHÂˆ\ØYÙQ]Z[H˜[ÙBˆ\\]Z[H˜[ÙBˆÙÜÑ]Z[H˜[ÙBˆÝXš[]Q]Z[H˜[ÙBˆX›Ý]]Z[H˜[ÙBˆ[YQ]Z[H˜[ÙBˆÛX[’\]Z[H˜[ÙBˆ™][Û‘]Z[H˜[ÙBˆ™]Ø]]Z[H˜[ÙBˆ™]Ø][™^HLBˆÚXÚÒÜÝ]Z[H˜[ÙBˆÛÛÑ]Z[H˜[ÙBˆÛÛ›‘]Z[H˜[ÙBˆ™YœÑ]Z[H˜[ÙBˆØÛÜK›][˜ÚÈYÙ\”Ý]K˜[š[X]TØÜ›ÛÔYÙJQÑWÔÑUS‘ÔÊHBˆKˆXÛÛˆHÈXÛÛŠZ[\”™\ÛÝ\˜ÙJ‹™˜]ØX›KšX×Ü›ÞX[ÜÙ][™ÜÊKÛÛ[\ØÜš\[ÛˆH[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JŽ™
+JHKˆX™[HÈ^
+
+œÙ][™ÜÈŠJHBˆ
+BˆBˆBˆ
+HÈY[™ÈO‚ˆ˜[[YP›ÝÛHHÚ[™ÝÒ[œÙ]Ëš[YK˜\ÔY[™Õ˜[Y\Ê
+K˜Ø[Ý[]P›ÝÛTY[™Ê
+Bˆ˜[^[Ý]\ˆHØØ[^[Ý]\™XÝ[Û‹˜Ý\œ™[ˆÜš^›Û[YÙ\ŠˆÝ]HHYÙ\”Ý]Kˆ\Ù\”ØÜ›Û[˜X›YH\ÝX”ØÜ™Y[“Ü[‹ˆ[ÙYšY\ˆH[ÙYšY\‚ˆœY[™ÊˆÝ\HY[™Ë˜Ø[Ý[]TÝ\Y[™Ê^[Ý]\ŠKˆ[™HY[™Ë˜Ø[Ý[]Q[™Y[™Ê^[Ý]\ŠKˆÜHY[™Ë˜Ø[Ý[]UÜY[™Ê
+Kˆ›ÝÛHHX^ÙŠY[™Ë˜Ø[Ý[]P›ÝÛTY[™Ê
+K[YP›ÝÛJBˆ
+Bˆ™Ü˜\XÜÓ^Y\ˆÂˆØØ[VHÛÛ[ØØ[BˆØØ[VHHÛÛ[ØØ[Bˆ[HHÛÛ[[BˆBˆ
+HÈO‚ˆYˆ
+OHQÑWÔÒÔ
+HÂˆÚZ˜\”ÚÜØÜ™Y[ŠXÝ]™HHYÙ\”Ý]KœÙ]YYÙHOHQÑWÔÒÔ
+BˆH[ÙHYˆ
+OHQÑWÔÔÒ
+HÂˆÜÚØÜ™Y[ŠˆÝÜ™HHÜÚÝÜ™K™Ù]
+ØØ[ÛÛ^˜Ý\œ™[
+KˆÛ”ÝX”ØÜ™Y[Ú[™ÙHHÈÜÚÝX”ØÜ™Y[ˆH]Bˆ
+BˆH[ÙHYˆ
+OHQÑWÒÓQJHÂˆ˜[ÛÛ›’Ù^HHÚ[ˆÂˆ^ÜÛÛ™šYÜÈOH[Oˆ™^Ü‚ˆÚÝÓX[X[Oˆ›X[X[‚ˆÚÝÔØØ[›™\ˆOˆœØØ[œ\ˆ‚ˆÚÝÕÚ[™ØÜšX™HOˆÚ[™ØÜšX™H‚ˆÚÝÕÜ“›Ù\ÈOˆÜ››Ù\È‚ˆÚÝÔ›Ú™XÝÈOˆœ›Ú™XÝÈ‚ˆÚÝÔXÚÙ\ˆOˆœXÚÙ\ˆ‚ˆ[ÙHOˆ˜ÛÛ›™XÝ[Ûˆ‚ˆBˆ[š[X]YÛÛ[
+ˆ\™Ù]Ý]HHÛÛ›’Ù^Kˆ˜[œÚ][Û”ÜXÈHÂˆ
+ØØ[R[ŠÙY[ŠŒŒ
+K[š]X[ØØ[HHŽL™ŠH
+È˜YR[ŠÙY[ŠŒŒ
+JJHÙÙ]\•Ú]ˆ
+ØØ[SÝ]
+ÙY[ŠN
+K\™Ù]ØØ[HHŽL™ŠH
+È˜YSÝ]
+ÙY[ŠN
+JJBˆKˆX™[H˜ÛÛ›•Xˆ‚ˆ
+HÈÙ^HO‚ˆÚ[ˆ
+Ù^JHÂˆ™^ÜˆOˆ^ÜÛÛ™šYÔØÜ™Y[ŠˆÛÛ™šYÜÈH^ÜÛÛ™šYÜÈÎˆ[\S\Ý
+
+KˆÛØ[˜Ù[HÈ^ÜÛÛ™šYÜÈH[Bˆ
+Bˆ›X[X[ˆOˆX[X[ÛÛ™šYÔØÜ™Y[Šˆ^\Ý[™ÈHY][™ÐÛÛ™šYËˆÛ”Ø]™HHÈÙ™ÈO‚ˆYˆ
+Y][™ÐÛÛ™šYÈOH[
+HÝÜ™K\]JÙ™ÊH[ÙHÝÜ™K˜Y
+Ù™ÊBˆÚÝÓX[X[H˜[ÙNÈY][™ÐÛÛ™šYÈH[ˆKˆÛØ[˜Ù[HÈÚÝÓX[X[H˜[ÙNÈY][™ÐÛÛ™šYÈH[Bˆ
+BˆœXÚÙ\ˆˆOˆÛÛ™šYÔXÚÙ\”ØÜ™Y[ŠˆÝÜ™HHÝÜ™KˆÙ[XÝYYHÙ[XÝYYˆÛÜ[ÙHHÛÜ[ÙKˆ[™ÜÈH[™ÜËˆÛ”Ù[XÝHÈYO‚ˆÝÜ™KœÙ]Ù[XÝYY
+Y
+BˆÚÝÔXÚÙ\ˆH˜[ÙBˆ˜[ÝHœ”Ý]KœÝ]K˜[YBˆYˆ
+
+ÝOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQÝOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘ÊH	‰ˆYOHœ”Ý]K˜XÝ]™RY˜[YJHÂˆÝÜ™K˜ÛÛ™šYÜË˜[YK™š[™ÈÈOˆËšYOHYOË›]
+Û”ÝÚ]Ú
+BˆBˆKˆÛ‘Y]HÈY][™ÐÛÛ™šYÈH]ÈÚÝÓX[X[HYHKˆÛYX[X[HHÈÚÝÓX[X[HYHKˆÛ‘œ™YT›Ú™XÝÈHÈÚÝÔ›Ú™XÝÈHYHKˆÛ•Ú[™ØÜšX™HHÈÚÝÕÚ[™ØÜšX™HHYHKˆÛ”ØØ[”\ˆHÈÚÝÔØØ[›™\ˆHYHKˆÛ”Ú\™Qš[HHÈ^ÜÛÛ™šYÜÈH]Bˆ
+Bˆœ›Ú™XÝÈˆOˆœ™YT›Ú™XÝÔØÜ™Y[ŠˆÝÜ™HHÝÜ™KˆÛ“Ü[•ÜˆHÈÚÝÕÜ“›Ù\ÈHYHBˆ
+BˆÚ[™ØÜšX™HˆOˆÚ[™ØÜšX™TØÜ™Y[ŠÝÜ™HHÝÜ™JBˆœØØ[œ\ˆˆOˆ\”ØØ[›™\”ØÜ™Y[ŠˆÛ”™\Ý[HÈ^O‚ˆÚÝÔØØ[›™\ˆH˜[ÙBˆ[\Ü\Ë›Ù™™\”ØØ[Š^
+BˆBˆ
+BˆÜ››Ù\ÈˆOˆÜ“›Ù\ÔØÜ™Y[ŠÝÜ™HHÝÜ™JBˆ[ÙHOˆÛÛ›™XÝ[Û”ØÜ™Y[ŠˆÝÜ™HHÝÜ™KˆÙ[XÝYYHÙ[XÝYYˆÛ“Ü[”XÚÙ\ˆHÈÚÝÔXÚÙ\ˆHYHKˆÛÛÛ›™XÝHÛÛÛ›™XÝˆÛ‘\ØÛÛ›™XÝHÛ‘\ØÛÛ›™XÝˆÛØ[˜Ù[XÚÈHÛØ[˜Ù[XÚÂˆ
+BˆBˆBˆH[ÙHYˆ
+OHQÑWÑP•QÊHÂˆÛÛ™šYÑXYÙÙ\”ØÜ™Y[ŠˆÝÜ™HHÝÜ™KˆÛ”ÝÚ]ÚHÛ”ÝÚ]ÚˆXÝ]™HHYÙ\”Ý]KœÙ]YYÙHOHˆ	‰ˆ\YÙ\”Ý]Kš\ÔØÜ›Û[”›ÙÜ™\ÜÂˆ
+BˆH[ÙHÂˆ˜[Ù]Ù^HHÚ[ˆÂˆ\ØYÙQ]Z[Oˆ\ØYÙH‚ˆ\\]Z[Oˆœ\˜\‚ˆÙÜÑ]Z[Oˆ›ÙÜÈ‚ˆÝXš[]Q]Z[OˆœÝXš[]H‚ˆX›Ý]]Z[Oˆ˜X›Ý]‚ˆ[YQ]Z[Oˆ[YH‚ˆÛX[’\]Z[Oˆ˜ÛX[š\‚ˆÚXÚÒÜÝ]Z[Oˆ˜ÚXÚÚÜÝ‚ˆ™]Ø][™^HOˆ›™]Ø]Û™H‚ˆ™]Ø]]Z[Oˆ›™]Ø]‚ˆ™][Û‘]Z[Oˆ›™][Ûˆ‚ˆÛÛÑ]Z[OˆÛÛÈ‚ˆÛÛ›‘]Z[Oˆ˜ÛÛ›™XÝ[Û—ÜÙ][™ÜÈ‚ˆ™YœÑ]Z[Oˆœ™Y™\™[˜Ù\È‚ˆ[ÙHOˆœÙ][™ÜÈ‚ˆBˆ[š[X]YÛÛ[
+ˆ\™Ù]Ý]HHÙ]Ù^Kˆ˜[œÚ][Û”ÜXÈHÂˆYˆ
+Ù][™ÜÑ\
+\™Ù]Ý]JHˆÙ][™ÜÑ\
+[š]X[Ý]JJHÂˆÛYR[ÐÛÛZ[™\Š[š[X]YÛÛ[˜[œÚ][Û”ØÛÜK”ÛYQ\™XÝ[Û‹“YÙY[ŠL
+JHÙÙ]\•Ú]ˆÛYSÝ]ÙÛÛZ[™\Š[š[X]YÛÛ[˜[œÚ][Û”ØÛÜK”ÛYQ\™XÝ[Û‹“YÙY[ŠL
+JBˆH[ÙHÂˆÛYR[ÐÛÛZ[™\Š[š[X]YÛÛ[˜[œÚ][Û”ØÛÜK”ÛYQ\™XÝ[Û‹”šYÚÙY[ŠL
+JHÙÙ]\•Ú]ˆÛYSÝ]ÙÛÛZ[™\Š[š[X]YÛÛ[˜[œÚ][Û”ØÛÜK”ÛYQ\™XÝ[Û‹”šYÚÙY[ŠL
+JBˆBˆKˆX™[HœÙ]Xˆ‚ˆ
+HÈÙ^HO‚ˆÚ[ˆ
+Ù^JHÂˆ\ØYÙHˆOˆ]U\ØYÙTØÜ™Y[Š
+Bˆœ\˜\ˆOˆ\›ÞTØÜ™Y[ŠÝÜ™HHÝÜ™JBˆ›ÙÜÈˆOˆÙÜÔØÜ™Y[ŠÝÜ™HHÝÜ™JBˆœÝXš[]HˆOˆÝXš[]U\ÝØÜ™Y[ŠÝÜ™HHÝÜ™JBˆ˜X›Ý]ˆOˆX›Ý]ØÜ™Y[Š
+Bˆ[YHˆOˆ[YTÙ][™ÜÔØÜ™Y[ŠÝÜ™HHÝÜ™JBˆ˜ÛX[š\ˆOˆÛX[’\ØÜ™Y[Š
+Bˆ›™][ÛˆˆOˆ™][Ûš]Ü”ØÜ™Y[ŠÛ“Ü[Ø]YÛÜšY\ÈHÈ™]Ø]]Z[HYHJBˆ›™]Ø]ˆOˆ™]Ø]YÛÜšY\ÔØÜ™Y[ŠÛ“Ü[ˆHÈ™]Ø][™^H]JBˆ˜ÚXÚÚÜÝˆOˆÚXÚÒÜÝØÜ™Y[Š
+Bˆ›™]Ø]Û™HˆOˆ™]Ø]YÛÜžTØÜ™Y[Š[™^H™]Ø][™^
+BˆÛÛÈˆOˆÛÛÔØÜ™Y[ŠˆÝÜ™HHÝÜ™KˆÛ“Ü[ÚXÚÒÜÝHÈÚXÚÒÜÝ]Z[HYHKˆÛ“Ü[”ÝXš[]HHÈÝXš[]Q]Z[HYHKˆÛ“Ü[ÛX[’\HÈÛX[’\]Z[HYHBˆ
+Bˆ˜ÛÛ›™XÝ[Û—ÜÙ][™ÜÈˆOˆÛÛ›™XÝ[Û”Ù][™ÜÔØÜ™Y[ŠˆÝÜ™HHÝÜ™KˆÛ“Ü[”\\HÈ\\]Z[HYHKˆÛ“Ü[“ÙÜÈHÈÙÜÑ]Z[HYHBˆ
+Bˆœ™Y™\™[˜Ù\ÈˆOˆ™Y™\™[˜Ù\ÔØÜ™Y[ŠˆÝÜ™HHÝÜ™KˆÛ“Ü[•[YHHÈ[YQ]Z[HYHBˆ
+Bˆ[ÙHOˆÙ][™ÜÔØÜ™Y[ŠˆÝÜ™HHÝÜ™KˆØÜ›ÛÝ]HHÙ][™ÜÔØÜ›ÛˆÛ“Ü[•\ØYÙHHÈ\ØYÙQ]Z[HYHKˆÛ“Ü[•ÛÛÈHÈÛÛÑ]Z[HYHKˆÛ“Ü[ÛÛ›™XÝ[ÛˆHÈÛÛ›‘]Z[HYHKˆÛ“Ü[”™Y™\™[˜Ù\ÈHÈ™YœÑ]Z[HYHKˆÛ“Ü[X›Ý]HÈX›Ý]]Z[HYHKˆÛ“Ü[“™][ÛˆHÈ™][Û‘]Z[HYHBˆ
+BˆBˆBˆBˆBˆBŸB‚œš]˜]HÛÛœÝ˜[PÒÒS‘×ÓP‘SH—×ÜXÚÚ[™××È‚‚ÛÛ\ÜØX›B™[ˆÙXÝ\™UÚ[JXÝ]™Nˆ›ÛÛX[‹Ù^NˆÝš[™ÊHÂˆ\ÜÜØX›QY™™XÝ
+XÝ]™KÙ^JHÂˆYˆ
+XÝ]™JHÙXÝ\™TØÜ™Y[‹˜XÜ]Z\™JÙ^JBˆÛ‘\ÜÜÙHÈÙXÝ\™TØÜ™Y[‹œ™[X\ÙJÙ^JHBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÛÛ›™XÝ[Û”ØÜ™Y[ŠˆÝÜ™NˆÛÛ™šYÔÝÜ™KˆÙ[XÝYYˆÝš[™ÏËˆÛ“Ü[”XÚÙ\Žˆ
+
+HOˆ[š]ˆÛÛÛ›™XÝˆ
+›ÞPÛÛ™šYÊHOˆ[š]ˆÛ‘\ØÛÛ›™XÝˆ
+
+HOˆ[š]ˆÛØ[˜Ù[XÚÎˆ
+
+HOˆ[š]HßKˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‚ŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜[Žˆ
+Ýš[™ÊHOˆÝš[™ÈHÈØØ[^™QYÚ]Ê][™ÊHBˆ˜[ÛÛ™šYÜÈžHÝÜ™K˜ÛÛ™šYÜË˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[ÛÛ›ˆžHœ”Ý]KœÝ]K˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[XÝ]™PÙ™ÒYžHœ”Ý]K˜XÝ]™RY˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[XÚÚ[™ÈžHœ”Ý]KœXÚÚ[™Ë˜ÛÛXÝ\ÔÝ]J
+B‚ˆ˜[Z^YÜ˜[YHžHÝÜ™K›Z^YÜ˜ÛÛXÝ\ÔÝ]J
+Bˆ][˜ÚYY™™XÝ
+Z^YÜ˜[YJHÈZ^YÜ˜[YHHZ^YÜ˜[YHB‚ˆ][˜ÚYY™™XÝ
+XÝ]™PÙ™ÒYÛÛ™šYÜÊHÂˆ\ØYÙTÝÜ™K˜Ý\œ™[ÛÛ™šYÒÙ^HHÛÛ™šYÜË™š[™È]šYOHXÝ]™PÙ™ÒYOË›˜[YBˆB‚ˆ][˜ÚYY™™XÝ
+ÛÛ›ŠHÂˆ˜[Ù™ˆHÛÛ›ˆOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ	‰ˆÛÛ›ˆOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘ÂˆYˆ
+[™›ÚY›™]•˜Y™šXÔÝ]Ë™Ù]Ý[žž]\Ê
+HOH[™›ÚY›™]•˜Y™šXÔÝ]Ë•S”ÕTÔ•QÓÛ™Ê
+JBˆ™]\›][˜ÚYY™™XÝˆ\ØYÙTÝÜ™KœÞ[˜Ñ\™XÝ
+ˆ[™›ÚY›™]•˜Y™šXÔÝ]Ë™Ù]Ý[žž]\Ê
+Kˆ[™›ÚY›™]•˜Y™šXÔÝ]Ë™Ù]Ý[ž]\Ê
+KˆÙ™‚ˆ
+BˆYˆ
+[Ù™ŠH™]\›][˜ÚYY™™XÝˆÚ[H
+\ÐXÝ]™JHÂˆ[^JL
+Bˆ\ØYÙTÝÜ™KœÞ[˜Ñ\™XÝ
+ˆ[™›ÚY›™]•˜Y™šXÔÝ]Ë™Ù]Ý[žž]\Ê
+Kˆ[™›ÚY›™]•˜Y™šXÔÝ]Ë™Ù]Ý[ž]\Ê
+KˆYBˆ
+BˆBˆBˆ˜[\œ›ÜˆžHœ”Ý]K™\œ›Ü‹˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[ØÛÜHH™[Y[X™\ÛÜ›Ý][™TØÛÜJ
+B‚ˆ˜\ˆÝ[\žH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ
+HBˆ˜\ˆÝ[ÝÛˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ
+HBˆ˜\ˆ\ÜYYžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ
+HBˆ˜\ˆÝÛ”ÜYYžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ
+HBˆ˜\ˆ[^T™\Ý[žH™[Y[X™\ˆÈ]]X›TÝ]SÙÝš[™ÏÏŠ[
+HBˆ˜\ˆ[^T[›š[™ÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHB‚ˆ][˜ÚYY™™XÝ
+[š]
+HÂˆœœšYÙK˜ÛÝ[\œË˜ÛÛXÝÈÈO‚ˆÝ[\HËÝ[\ÈÝ[ÝÛˆHËÝ[ÝÛ‚ˆ\ÜYYHË\ÜYYÈÝÛ”ÜYYHË™ÝÛ”ÜYYˆBˆBˆ][˜ÚYY™™XÝ
+ÛÛ›ŠHÂˆYˆ
+ÛÛ›ˆOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ
+H[^T™\Ý[H[ˆB‚ˆ˜[Ù[XÝYÛÛ™šYÈHÛÛ™šYÜË™š[™È]šYOHÙ[XÝYYBˆ˜[ÛÛ›™XÝYHÛÛ›ˆOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQÛÛ›ˆOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘Â‚ˆ˜[^™TÝ]HH™[Y[X™\ˆÈ^™TÝ]J
+HBˆ›Þ
+[ÙYšY\‹™š[X^Ú^™J
+JHÂˆÛÛ\ÜÚ][Û“ØØ[›ÝšY\ŠØØ[^™TÝ]H›ÝšY\È^™TÝ]JHÂˆÛÛ[[Šˆ[ÙYšY\‹™š[X^Ú^™J
+KœY[™ÊM‹™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJM‹™
+Bˆ
+HÂˆÚZ˜\”Ù[XÝYÙ\™\Ø\™
+Ù[XÝYÛÛ™šYËÛÛ›‹Û“Ü[”XÚÙ\ŠB‚ˆ˜\ˆ”™\ÜÙYžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜[ÛÝÐXÝ]™HHXÛÛ›™XÝY	‰ˆÙ[XÝYÛÛ™šYÈOH[	‰ˆX”™\ÜÙYˆ˜[ÛÝÐ[HžH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+ÛÝÐXÝ]™JHYˆ[ÙH‹ˆ[š[X][Û”ÜXÈHÙY[ŠÌ
+KˆX™[H™ÛÝÐ[H‚ˆ
+Bˆ›Þ
+ˆ[ÙYšY\‚ˆ™š[X^ÚY
+
+BˆšZYÚ
+™
+BˆœÚ[\’[œ]
+[š]
+HÂˆ]ØZ]XXÚÙ\Ý\™HÂˆ]ØZ]š\œÝÝÛŠ™\]Z\™U[˜ÛÛœÝ[YYH˜[ÙJBˆ”™\ÜÙYHYBˆØZ]›Ü•\ÜØ[˜Ù[][ÛŠ
+Bˆ”™\ÜÙYH˜[ÙBˆBˆBˆ
+HÂˆ˜[™]Ù™›[™HH™[Y[X™\’[\›™]Ù™›[™J
+Bˆ˜[[]™HžH[›™[X[˜[]™K˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[XY[›™[HÛÛ›ˆOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕQ	‰ˆ[]™HOH˜[ÙBˆ˜[Ý]U[žH[š[X]PÛÛÜ\ÔÝ]JˆÚ[ˆÂˆ™]Ù™›[™HXY[›™[OˆÛÛÜŠ‘‘LLÐÊBˆÛÛ›ˆOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘ÈOˆÛÛÜŠ‘‘‘NM
+BˆÛÛ›™XÝYOˆ\Ü™Y[‚ˆ[ÙHOˆX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆKˆÙY[ŠL
+KˆX™[H˜ÛÛ›•[‚ˆ
+Bˆ˜[[˜X›YHÛÛ›™XÝYÙ[XÝYÛÛ™šYÈOH[ˆ˜[™\ÜÈžH[š[X]Q›Ø]\ÔÝ]JˆYˆ
+”™\ÜÙY	‰ˆ[˜X›Y
+HŽMÙˆ[ÙHY‹ˆÙY[ŠMX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[H˜ÛÛ›”™\ÜÈ‚ˆ
+Bˆ›Þ
+ˆ[ÙYšY\‹›X]Ú\™[Ú^™J
+Bˆ™Ü˜\XÜÓ^Y\ˆÈØØ[VH™\ÜÎÈØØ[VHH™\ÜÈBˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JŒ™
+JBˆ˜˜XÚÙÜ›Ý[™
+ˆœ\ÚšÜš^›Û[Ü˜YY[
+ˆ\ÝÙŠˆÝ]U[˜ÛÜJ[HHŒNŠKˆÝ]U[˜ÛÜJ[HHŒÌŠKˆÝ]U[˜ÛÜJ[HHŒNŠBˆ
+Bˆ
+Bˆ
+Bˆ˜›Ü™\ŠK‹™Ý]U[˜ÛÜJ[HHÌŠK›Ý[™YÛÜ›™\”Ú\JŒ™
+JBˆ\ÝYÊ™ÚZ˜\—ØÛÛ›™XÝŠBˆ˜ÛXÚØX›J[˜X›YH[˜X›YXÚÚ[™ÊHÂˆÚ[ˆÂˆXÚÚ[™ÈOˆÛØ[˜Ù[XÚÊ
+BˆÛÛ›™XÝYOˆÛ‘\ØÛÛ›™XÝ
+
+Bˆ[ÙHOˆÙ[XÝYÛÛ™šYÏË›]ÈÛÛÛ›™XÝ
+]
+HBˆBˆKˆÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\‚ˆ
+HÂˆÛÛ›™XÝÝÙY\
+ˆÛÛÜˆHÝ]U[ˆXÝ]™HHÛÛ›ˆOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘Ëˆ[ÙYšY\ˆH[ÙYšY\‹›X]Ú\™[Ú^™J
+Bˆ
+Bˆ[š[X]YÛÛ[
+ˆ\™Ù]Ý]HHYˆ
+XÚÚ[™ÊHPÒÒS‘×ÓP‘S[ÙHÛÛ›‹›˜[YKˆ˜[œÚ][Û”ÜXÈHÂˆ
+ÛYR[•™\XØ[JÙY[ŠÍX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊJHÈ]ÈˆH
+Âˆ˜YR[ŠÙY[ŠÍ
+JJHÙÙ]\•Ú]ˆ
+ÛYSÝ]™\XØ[JÙY[ŠÍX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊJHÈZ]ÈˆH
+Âˆ˜YSÝ]
+ÙY[ŠŒ
+JJBˆKˆX™[H˜ÛÛ›“X™[‹ˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^Ú^™J
+Bˆ
+HÈÙ^HO‚ˆ˜[\ÔXÚÚ[™ÈHÙ^HOHPÒÒS‘×ÓP‘Sˆ˜[Ü[›š[™ÈH\ÔXÚÚ[™ÈÙ^HOHÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘Ë›˜[YBˆ˜[Ü[ˆžH™[Y[X™\’[™š[š]U˜[œÚ][ÛŠX™[H˜ÛÛ›”Ü[ˆŠBˆ˜[š[X]Q›Ø]
+ˆ[š]X[˜[YHH‹ˆ\™Ù]˜[YHHÍŒ‹ˆ[š[X][Û”ÜXÈH[™š[š]T™\X]X›JˆÙY[ŠLX\Ú[™ÈH[™X\‘X\Ú[™ÊKˆ™\X][ÙK”™\Ý\ˆ
+KˆX™[H˜ÛÛ›”Ü[[™ÛH‚ˆ
+Bˆ›ÝÊˆ[Ù}Ó¾õ¶‰žËkºwµçHX^[™\ÈHBˆ
+BˆBˆÜXÙ\Š[ÙYšY\‹ÚY
+L‹™
+JBˆÛÛ[[Š[ÙYšY\‹ÙZYÚ
+YŠK™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ™
+JHÂˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆXÛÛŠˆXÛÛœË‘š[Y“ØÚËˆÛÛ[\ØÜš\[ÛˆH[ˆ[H\Ü™Y[‹ˆ[ÙYšY\ˆH[ÙYšY\‹œÚ^™JM™
+Bˆ
+BˆÜXÙ\Š[ÙYšY\‹ÚY
+K™
+JBˆ^
+ˆ
+šXWÝœˆŠKˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[YY][KˆÛÛÜˆH\Ü™Y[‹ˆX^[™\ÈHKˆÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Âˆ
+BˆBˆ^
+ˆ›Ü›X]ž]\Ê˜[™ÙUœ‹[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K]S\™ÙKˆ›ÛÙZYÚH›ÛÙZYÚ›ÛˆÛÛÜˆH\Ü™Y[‹ˆX^[™\ÈHBˆ
+BˆBˆBˆBˆB‚ˆYˆ
+˜\œËš\Ñ[\J
+JHÂˆ^
+
+››×Ù]WÜ˜[™ÙHŠKÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][KˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[
+BˆH[ÙHÂˆ˜\ˆÚ\š\ÚX›HžH™[Y[X™\Š[ÙKœ›ÛQ]KÑ]JHÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ][˜ÚYY™™XÝ
+[ÙKœ›ÛQ]KÑ]JHÈÚ\š\ÚX›HHYHBˆ[š[X]Yš\ÚXš[]Jˆš\ÚX›HHÚ\š\ÚX›Kˆ[\ˆH˜YR[ŠÙY[ŠÌ
+JH
+ÈØØ[R[ŠÙY[ŠÌ
+K[š]X[ØØ[HHŽL™ŠBˆ
+HÂˆ\ØYÙP˜\Ú\
+˜\œÊBˆBˆB‚ˆ˜[˜[™ÙYH™[Y[X™\ŠZ[PÙ™ËÝ\›PÙ™Ë˜\œËÝ\›S[ÙJHÂˆ\ØYÙTÝÜ™K˜ÛÛ™šYÕÝ[Ô˜[™ÙJZ[PÙ™ËÝ\›PÙ™Ë˜\œËÝ\›S[ÙJBˆBˆ˜[\™XÝH˜[™ÙY™š\œÝÜ“[È]™š\œÝOH\ØYÙTÝÜ™K‘T‘PÕÒÑVHOËœÙXÛÛ™ˆÎˆÛ™Ð\œ˜^SÙŠ
+Bˆ˜[\ÛÛ™šYÈH˜[™ÙY™š[\ˆÈ]™š\œÝOH\ØYÙTÝÜ™K‘T‘PÕÒÑVHBˆ˜[Ü˜[™H\™XÝÌH
+È\™XÝÌWH
+È\ÛÛ™šYËœÝ[SÙˆÈ]œÙXÛÛ™ÌH
+È]œÙXÛÛ™ÌWHB‚ˆYˆ
+Ü˜[™ˆ
+HÂˆÙ][™ÜÑÜ›Ý\
+
+\ØYÙWØžWØÛÛ™šYÈŠJHÂˆ\ØYÙTÚ\™T›ÝÊˆ˜[YHH
+\ØYÙWÙ\™XÝŠKˆž]\ÈH\™XÝÌH
+È\™XÝÌWKˆÜ˜[™HÜ˜[™ˆ[H\™XÝ˜\ÛÛÜ‹ˆ[™ÈH[™Âˆ
+Bˆ\ÛÛ™šYËZÙJ
+K™›Ü‘XXÚ[™^YÈK
+˜[YKŠHO‚ˆ\ØYÙTÚ\™T›ÝÊˆ˜[YHH˜[YKˆž]\ÈH–ÌH
+È–ÌWKˆÜ˜[™HÜ˜[™ˆ[HÙ\™\”[]VÚH	HÙ\™\”[]KœÚ^™WKˆ[™ÈH[™Âˆ
+BˆBˆBˆBˆBŸB‚œš]˜]H˜[\™XÝ˜\ÛÛÜˆHÛÛÜŠ‘ŽNMMŠB‚œš]˜]H˜[Ù\™\”[]HH\ÝÙŠˆÛÛÜŠ‘‘‘NM
+KÛÛÜŠ‘‘‘ÌJKÛÛÜŠ‘‘P‘QJKˆÛÛÜŠ‘‘‘‘
+KÛÛÜŠ‘‘‘ÐMŠKÛÛÜŠ‘ŽP‘NPŠBŠB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ˜[œÙ™\•[JˆXÛÛŽˆ[XYÙU™XÝÜ‹ˆX™[ˆÝš[™Ëˆž]\ÎˆÛ™Ëˆ[ˆÛÛÜ‹ˆ[™Îˆ[™Ëˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‚ŠHÂˆ˜[\ÈH›Ü›X]ž]\Ô\Êž]\Ë[™ÊBˆÛÛ[[Šˆ[ÙYšY\‹˜Û\
+›Ý[™YÛÜ›™\”Ú\JM‹™
+JBˆ˜˜XÚÙÜ›Ý[™
+[˜ÛÜJ[HHŒLŠJBˆœY[™ÊÜš^›Û[HM™™\XØ[HL‹™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ‹™
+Bˆ
+HÂˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆXÛÛŠXÛÛ‹ÛÛ[\ØÜš\[ÛˆH[[H[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JMK™
+JBˆÜXÙ\Š[ÙYšY\‹ÚY
+‹™
+JBˆ^
+ˆX™[ˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[YY][KˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆX^[™\ÈHKˆÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Âˆ
+BˆBˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[›ÝÛJHÂˆ^
+ˆ\Ë™š\œÝˆÝ[HHX]\šX[[YK\ÙÜ˜\KšXY[™TÛX[ˆ›ÛÙZYÚH›ÛÙZYÚ›ÛˆX^[™\ÈHBˆ
+BˆÜXÙ\Š[ÙYšY\‹ÚY
+™
+JBˆ^
+ˆ\ËœÙXÛÛ™ˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[YY][KˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ[ÙYšY\ˆH[ÙYšY\‹œY[™Ê›ÝÛHHË™
+Bˆ
+BˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ˜[™ÙPÙ[
+ˆX™[ˆÝš[™Ëˆ]Nˆ˜]˜K[YK“ØØ[]KˆÝ\Žˆ[ˆ[™Îˆ[™ËˆÛ‘]Nˆ
+
+HOˆ[š]ˆÛ’Ý\Žˆ
+[
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‚ŠHÂˆ˜\ˆÜ[ˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆÛÛ[[Šˆ[ÙYšY\‹œY[™ÊÜš^›Û[HL‹™™\XØ[HK™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJË™
+Bˆ
+HÂˆ^
+ˆZ^Y^
+X™[
+KˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[ÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆX^[™\ÈHBˆ
+Bˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆ^
+ˆØØ[^™QYÚ]Ê‰Ù]KžYX\ŸKÉÙ]K›[Û˜[Y_KÉÙ]K™^SÙ“[ÛH‹[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆ›Û˜[Z[HHYˆ
+[™ÈOH[™Ë‘JH˜^š\‘›Û[ÙH^[™›Ûˆ›ÛÙZYÚH›ÛÙZYÚ”Ù[ZP›ÛˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆX^[™\ÈHKˆÛÙÜ˜\H˜[ÙKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+›Ý[™YÛÜ›™\”Ú\J‹™
+JK˜ÛXÚØX›HÈÛ‘]J
+HBˆœY[™ÊÜš^›Û[H‹™™\XØ[H‹™
+Bˆ
+BˆÜXÙ\Š[ÙYšY\‹ÚY
+‹™
+JBˆ›ÞÂˆ^
+ˆØØ[^™QYÚ]ÊÝš[™Ë™›Ü›X]
+˜]˜K][“ØØ[K•TË‰L™Œ‹Ý\ŠK[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆ›Û˜[Z[HHYˆ
+[™ÈOH[™Ë‘JH˜^š\‘›Û[ÙH^[™›Ûˆ›ÛÙZYÚH›ÛÙZYÚ”Ù[ZP›ÛˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆX^[™\ÈHKˆÛÙÜ˜\H˜[ÙKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+›Ý[™YÛÜ›™\”Ú\J‹™
+JK˜ÛXÚØX›HÈÜ[ˆHYHBˆœY[™ÊÜš^›Û[H‹™™\XØ[H‹™
+Bˆ
+Bˆ›ÜÝÛ“Y[Jˆ^[™YHÜ[‹ˆÛ‘\ÛZ\ÜÔ™\]Y\ÝHÈÜ[ˆH˜[ÙHKˆÙ™œÙ]HÙ™œÙ]
+™™
+KˆÚ\HH›Ý[™YÛÜ›™\”Ú\JM‹™
+KˆÛÛZ[™\ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙU˜\šX[ˆ›Ü™\ˆH›Ü™\”Ý›ÚÙJK™X]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK˜ÛÜJ[HHŒÍYŠJBˆ
+HÂˆ
+‹ŒŒÊK™›Ü‘XXÚÈO‚ˆ›ÜÝÛ“Y[R][Jˆ^HÂˆ^
+ˆØØ[^™QYÚ]ÊÝš[™Ë™›Ü›X]
+˜]˜K][“ØØ[K•TË‰L™Œ‹
+K[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][Kˆ›Û˜[Z[HHYˆ
+[™ÈOH[™Ë‘JH˜^š\‘›Û[ÙH^[™›Ûˆ
+BˆKˆ˜Z[[™ÒXÛÛˆHÂˆYˆ
+OHÝ\ŠHXÛÛŠˆXÛÛœË‘š[YÚXÚËÛÛ[\ØÜš\[ÛˆH[ˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹œÚ^™JN™
+Bˆ
+BˆKˆÛÛ[Y[™ÈHY[™Õ˜[Y\ÊÜš^›Û[HM™
+Kˆ[ÙYšY\ˆH[ÙYšY\‹šZYÚ
+Î™
+KˆÛÛXÚÈHÈÛ’Ý\Š
+NÈÜ[ˆH˜[ÙHBˆ
+BˆBˆBˆBˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ\ØYÙTÚ\™T›ÝÊˆ˜[YNˆÝš[™Ëˆž]\ÎˆÛ™ËˆÜ˜[™ˆÛ™Ëˆ[ˆÛÛÜ‹ˆ[™Îˆ[™ÂŠHÂˆ˜[œ˜XÈHYˆ
+Ü˜[™ˆ
+H
+ž]\ËÑ›Ø]
+
+HÈÜ˜[™Ñ›Ø]
+
+JK˜ÛÙ\˜ÙR[Š‹YŠH[ÙH‚ˆ˜[ÚYžH[š[X]Q›Ø]\ÔÝ]Jœ˜XËÙY[ŠL
+KX™[H\ØYÙTÚ\™HŠBˆÛÛ[[Š™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJK™
+JHÂˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆ^
+ˆ›YÔ[œÊ˜[YK^[™›Û
+Kˆ[›[™PÛÛ[H›YÒ[›[™PÛÛ[
+˜[YKX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][K™›ÛÚ^™JKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][KˆX^[™\ÈHKˆÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Ëˆ[ÙYšY\ˆH[ÙYšY\‹ÙZYÚ
+YŠBˆ
+BˆÜXÙ\Š[ÙYšY\‹ÚY
+L™
+JBˆ^
+ˆ›Ü›X]ž]\Êž]\Ë[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ
+BˆBˆ›Þ
+ˆ[ÙYšY\‹™š[X^ÚY
+
+KšZYÚ
+‹™
+K˜Û\
+›Ý[™YÛÜ›™\”Ú\JË™
+JBˆ˜˜XÚÙÜ›Ý[™
+X]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[˜ÛÜJ[HHŒM™ŠJBˆ
+HÂˆ›Þ
+ˆ[ÙYšY\‹™š[X^ÚY
+ÚY
+K™š[X^ZYÚ
+
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JË™
+JBˆ˜˜XÚÙÜ›Ý[™
+[
+Bˆ
+BˆBˆBŸB‚œš]˜]H[ˆÚÝÑ]TXÚÙ\ŠÛÛ^ˆÛÛ^[š]X[ˆØØ[]KÛ”XÚÙYˆ
+ØØ[]JHOˆ[š]
+HÂˆ[™›ÚY˜\‘]TXÚÙ\‘X[ÙÊˆÛÛ^ˆÈËYX\‹[Û^HOˆÛ”XÚÙY
+ØØ[]K›ÙŠYX\‹[Û
+ÈK^JJHKˆ[š]X[žYX\‹[š]X[›[Û˜[YHHK[š]X[™^SÙ“[Ûˆ
+KœÚÝÊ
+BŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ\ØYÙP˜\Ú\
+˜\œÎˆ\Ý\ØYÙTÝÜ™K˜\ŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜[X^˜[H
+˜\œË›X^Ù“Ü“[È]Ý[HÎˆ
+K˜ÛÙ\˜ÙP]X\Ý
+S
+Bˆ˜[š[X\žHHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ˜[˜XÚÈHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙU˜\šX[ˆ˜[X™[]™\žHH
+˜\œËœÚ^™HÈŠK˜ÛÙ\˜ÙP]X\Ý
+JBˆ˜\ˆ›ØÝ\ÙYžH™[Y[X™\ˆÈ]]X›TÝ]SÙ[ÏŠ[
+HB‚ˆ˜[[š[RÙ^HH™[Y[X™\Š˜\œÊHÈ˜\œËš\ÚÛÙJ
+HBˆ˜\ˆ\X\™YžH™[Y[X™\Š[š[RÙ^JHÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ][˜ÚYY™™XÝ
+[š[RÙ^JHÈ\X\™YHYHB‚ˆØ\™
+ˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+KˆÚ\HH›Ý[™YÛÜ›™\”Ú\JŒ™
+KˆÛÛÜœÈHØ\™Y˜][Ë˜Ø\™ÛÛÜœÊÛÛZ[™\ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙU˜\šX[
+Bˆ
+HÂˆÛÛ[[Š[ÙYšY\‹™š[X^ÚY
+
+KœY[™ÊM‹™
+K™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ‹™
+JHÂˆ˜[ˆH›ØÝ\ÙYˆ[š[X]Yš\ÚXš[]Jˆš\ÚX›HHˆOH[	‰ˆˆ[ˆ˜\œËš[™XÙ\Ëˆ[\ˆH^[™™\XØ[JÙY[ŠŒŒ
+JH
+È˜YR[ŠÙY[ŠŒŒ
+JKˆ^]HÚš[šÕ™\XØ[JÙY[ŠN
+JH
+È˜YSÝ]
+ÙY[ŠML
+JBˆ
+HÂˆ˜[˜\ˆH˜\œÖÙˆÎˆBˆØ\™
+ˆÚ\HH›Ý[™YÛÜ›™\”Ú\JL‹™
+KˆÛÛÜœÈHØ\™Y˜][Ë˜Ø\™ÛÛÜœÊÛÛZ[™\ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žPÛÛZ[™\ŠBˆ
+HÂˆÛÛ[[Š[ÙYšY\‹œY[™ÊÜš^›Û[HL‹™™\XØ[H™
+JHÂˆ^
+ØØ[^™QYÚ]Ê˜\‹›X™[[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[YY][KˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”š[X\žPÛÛZ[™\ŠBˆ^
+‰Ý
+™ÝÛ›ØYŠ_H	Ù›Ü›X]ž]\Ê˜\‹™ÝÛ‹[™Ê_H	Ý
+\ØYŠ_H	Ù›Ü›X]ž]\Ê˜\‹\[™Ê_H‹ˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”š[X\žPÛÛZ[™\ŠBˆBˆBˆBˆYˆ
+ˆOH[
+HÂˆ^
+
+œXZ×Ü\—Ø˜\ˆŠK™›Ü›X]
+›Ü›X]ž]\ÊX^˜[[™ÊJKˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[ÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[
+BˆB‚ˆ˜\ˆ›ÝÕÚYžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠJHBˆÛÛ\ÜÚ][Û“ØØ[›ÝšY\ŠØØ[^[Ý]\™XÝ[Ûˆ›ÝšY\È^[Ý]\™XÝ[Û‹“ŠHÂˆ›ÝÊˆ[ÙYšY\‚ˆ™š[X^ÚY
+
+BˆšZYÚ
+M™
+Bˆ›Û”Ú^™PÚ[™ÙYÈ›ÝÕÚYH]ÚYBˆœÚ[\’[œ]
+˜\œËœÚ^™JHÂˆ]ØZ]Ú[\‘]™[ØÛÜHÂˆÚ[H
+YJHÂˆ˜[ÝÛˆH]ØZ]š\œÝÝÛŠ
+Bˆ[ˆY]
+ˆ›Ø]
+Nˆ[Bˆ
+
+È›ÝÕÚY
+H
+ˆ˜\œËœÚ^™JKÒ[
+
+K˜ÛÙ\˜ÙR[Š˜\œË›\Ý[™^
+Bˆ›ØÝ\ÙYHY]
+ÝÛ‹œÜÚ][Û‹ž
+BˆÈÂˆ˜[]™[H]ØZ]Ú[\‘]™[
+
+Bˆ˜[ÜÈH]™[˜Ú[™Ù\Ë™š\œÝ
+
+KœÜÚ][Û‚ˆ›ØÝ\ÙYHY]
+ÜËž
+BˆHÚ[H
+]™[˜Ú[™Ù\Ë˜[žHÈ]œ™\ÜÙYJBˆ›ØÝ\ÙYH[ˆBˆBˆKˆÜš^›Û[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJË™
+Kˆ™\XØ[[YÛ›Y[H[YÛ›Y[›ÝÛBˆ
+HÂˆ˜\œË™›Ü‘XXÚ[™^YÈK˜\ˆO‚ˆ˜[œ˜XÈH
+˜\‹Ý[Ñ›Ø]
+
+HÈX^˜[
+K˜ÛÙ\˜ÙR[Š‹YŠBˆ˜[\Ñ›ØÝ\ÙYH›ØÝ\ÙYOHBˆ˜[\™Ù]œ˜XÈHYˆ
+˜\‹Ý[ˆ	‰ˆ\X\™Y
+Hœ˜XË˜ÛÙ\˜ÙP]X\Ý
+ŒÙŠH[ÙH‚ˆ˜[[š[X]Yœ˜XÈžH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHH\™Ù]œ˜XËˆ[š[X][Û”ÜXÈHÙY[Š\˜][Û“Z[\ÈHŒ
+KˆX™[H˜˜\ˆ‚ˆ
+Bˆ˜[›ØÝ\ÐÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žPÛÛZ[™\‚ˆ˜[˜\ÛÛÜˆžH[š[X]PÛÛÜ\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+\Ñ›ØÝ\ÙY
+H›ØÝ\ÐÛÛÜˆ[ÙHš[X\žKˆ[š[X][Û”ÜXÈHÙY[ŠN
+KˆX™[H˜˜\ÛÛÜˆ‚ˆ
+Bˆ˜[˜\”ØØ[HžH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+\Ñ›ØÝ\ÙY
+HKŒL™ˆ[ÙHY‹ˆ[š[X][Û”ÜXÈHÙY[ŠN
+KˆX™[H˜˜\”ØØ[H‚ˆ
+Bˆ›Þ
+ˆ[ÙYšY\‹ÙZYÚ
+YŠK™š[X^ZYÚ
+
+KˆÛÛ[[YÛ›Y[H[YÛ›Y[›ÝÛPÙ[\‚ˆ
+HÂˆ›Þ
+ˆ[ÙYšY\‹™š[X^ÚY
+
+K™š[X^ZYÚ
+
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JÜÝ\H™Ü[™H™
+JBˆ˜˜XÚÙÜ›Ý[™
+˜XÚË˜ÛÜJ[HHŠJBˆ
+BˆYˆ
+[š[X]Yœ˜XÈˆŠHÂˆ›Þ
+ˆ[ÙYšY\‹™š[X^ÚY
+
+K™š[X^ZYÚ
+[š[X]Yœ˜XÊBˆ™Ü˜\XÜÓ^Y\ˆÂˆØØ[VH˜\”ØØ[NÈØØ[VHHY‚ˆ˜[œÙ›Ü›SÜšYÚ[ˆH˜[œÙ›Ü›SÜšYÚ[ŠY‹YŠBˆBˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JÜÝ\H™Ü[™H™
+JBˆ˜˜XÚÙÜ›Ý[™
+˜\ÛÛÜŠBˆ
+BˆBˆBˆBˆB‚ˆ›ÝÊ[ÙYšY\‹™š[X^ÚY
+
+KÜš^›Û[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJË™
+JHÂˆ˜\œË™›Ü‘XXÚ[™^YÈK˜\ˆO‚ˆ›Þ
+[ÙYšY\‹ÙZYÚ
+YŠKÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\ŠHÂˆYˆ
+H	HX™[]™\žHOH
+HÂˆ^
+ˆØØ[^™QYÚ]Ê˜\‹œÚÜ[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[ÛX[ˆX^[™\ÈHKˆÛÙÜ˜\H˜[ÙKˆÝ™\™›ÝÈH^Ý™\™›ÝË•š\ÚX›KˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ
+BˆBˆBˆBˆBˆBˆBˆBŸB‚Ü[Š^\š[Y[[^[Ý]\NŽ˜Û\ÜÊBÛÛ\ÜØX›Bœš]˜]H[ˆÛšY™•\TÙ[XÝÜŠÙ[XÝYˆÙ]Ýš[™Ï‹Û•ÙÙÛNˆ
+Ýš[™ÊHOˆ[š]
+HÂˆ˜[\\ÈH\ÝÙŠš‹È‹œ]ZXÈ‹™˜ZÙYœÈ‹™˜ZÙYœÊÛÝ\œÈŠBˆ›ÝÔ›ÝÊˆÜš^›Û[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ™
+Bˆ
+HÂˆ\\Ë™›Ü‘XXÚÈ\HO‚ˆ˜[ÛˆH\H[ˆÙ[XÝYˆ˜[™ÈžH[š[X]PÛÛÜ\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+ÛŠHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙU˜\šX[ˆ[š[X][Û”ÜXÈHÙY[ŠŒ
+KX™[H˜Ú\™È‚ˆ
+Bˆ˜[™ÈžH[š[X]PÛÛÜ\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+ÛŠHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”š[X\žBˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ[š[X][Û”ÜXÈHÙY[ŠŒ
+KX™[H˜Ú\™È‚ˆ
+Bˆ›Þ
+ˆ[ÙYšY\‚ˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JL
+JBˆ˜˜XÚÙÜ›Ý[™
+™ÊBˆ˜ÛXÚØX›HÈÛ•ÙÙÛJ\JHBˆœY[™ÊÜš^›Û[HM™™\XØ[H™
+Bˆ
+HÂˆ^
+\KÛÛÜˆH™ËÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[\™ÙJBˆBˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÙ][™Ô›ÝÊˆ]NˆÝš[™ËˆÝX]NˆÝš[™ËˆÚXÚÙYˆ›ÛÛX[‹ˆÛÚXÚÙYÚ[™ÙNˆ
+›ÛÛX[ŠHOˆ[š]ˆ[˜X›Yˆ›ÛÛX[ˆHYBŠHÂˆ›ÝÊˆ[ÙYšY\‹™š[X^ÚY
+
+Kˆ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[Bˆ
+HÂˆÛÛ[[Š[ÙYšY\‹ÙZYÚ
+YŠJHÂˆ^
+Z^Y^
+]JKÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙS\™ÙJBˆ^
+Z^Y^
+ÝX]JKÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[
+BˆBˆÜXÙ\Š[ÙYšY\‹ÚY
+M‹™
+JBˆÝÚ]Ú
+ÚXÚÙYHÚXÚÙYÛÚXÚÙYÚ[™ÙHHÛÚXÚÙYÚ[™ÙK[˜X›YH[˜X›Y
+BˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÛØ™TÝ[SÜ[ÛŠˆX™[ˆÝš[™ËˆÙ[XÝYˆ›ÛÛX[‹ˆÛÛXÚÎˆ
+
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‚ŠHÂˆ˜[›Ü™\ˆHYˆ
+Ù[XÝY
+HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Ý][™K˜ÛÜJ[HHŠBˆ˜[™ÈHYˆ
+Ù[XÝY
+HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK˜ÛÜJ[HHŒL™ŠBˆ[ÙHÛÛÜ‹•˜[œÜ\™[ˆ›Þ
+ˆ[ÙYšY\‚ˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JM™
+JBˆ˜˜XÚÙÜ›Ý[™
+™ÊBˆ˜›Ü™\Š›Ü™\”Ý›ÚÙJYˆ
+Ù[XÝY
+HKK™[ÙHK™›Ü™\ŠK›Ý[™YÛÜ›™\”Ú\JM™
+JBˆ˜ÛXÚØX›HÈÛÛXÚÊ
+HBˆœY[™Ê™\XØ[HL‹™
+KˆÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\‚ˆ
+HÂˆ^
+ˆX™[ˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][Kˆ›ÛÙZYÚHYˆ
+Ù[XÝY
+H›ÛÙZYÚ”Ù[ZP›Û[ÙH›ÛÙZYÚ“›Ü›X[ˆÛÛÜˆHYˆ
+Ù[XÝY
+HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žH[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙBˆ
+BˆBŸB‚œš]˜]H[ˆ[ÙYšY\‹œ™\ÜÐ›Ý[˜ÙJˆØØ[Nˆ[š[X]X›O›Ø][š[X][Û•™XÝÜŒQ‹ˆØÛÜNˆÛÜ›Ý][™TØÛÜBŠNˆ[ÙYšY\ˆH\Âˆ™Ü˜\XÜÓ^Y\ˆÈØØ[VHØØ[K˜[YNÈØØ[VHHØØ[K˜[YHBˆœÚ[\’[œ]
+[š]
+HÂˆ]ØZ]XXÚÙ\Ý\™HÂˆ]ØZ]š\œÝÝÛŠ™\]Z\™U[˜ÛÛœÝ[YYH˜[ÙJBˆØÛÜK›][˜ÚÂˆØØ[K˜[š[X]UÊŽMÙ‹Üš[™Ê[\[™Ô˜][ÈHÜš[™Ë‘[\[™Ô˜][Ó›Ð›Ý[˜ÞKÝY™›™\ÜÈHÜš[™Ë”ÝY™›™\ÜÓYY][JJBˆBˆØZ]›Ü•\ÜØ[˜Ù[][ÛŠ
+BˆØÛÜK›][˜ÚÂˆØØ[K˜[š[X]UÊˆY‹ˆÜš[™Ê[\[™Ô˜][ÈHÜš[™Ë‘[\[™Ô˜][Ó›Ð›Ý[˜ÞKÝY™›™\ÜÈHÜš[™Ë”ÝY™›™\ÜÓYY][SÝÊBˆ
+BˆBˆBˆB‚ÛÛ\ÜØX›Bœš]˜]H[ˆš[]ÛŠˆÛÛXÚÎˆ
+
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‹ˆ[˜X›Yˆ›ÛÛX[ˆHYKˆ›Ü™\•ÚYˆHKK™ˆZ[’ZYÚˆH™ˆÛÛ[Y[™ÎˆY[™Õ˜[Y\ÈHY[™Õ˜[Y\ÊÜš^›Û[HŒ™™\XØ[HL‹™
+KˆXØÙ[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆÛÛ[ˆÛÛ\ÜØX›H›ÝÔØÛÜKŠ
+HOˆ[š]ŠHÂˆ˜[š[X\žHHXØÙ[ˆ˜[Û”š[X\žHHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”š[X\žBˆ˜[\ØX›YHš[X\žK˜ÛÜJ[HHŒÍYŠBˆ˜[Ú\HH›Ý[™YÛÜ›™\”Ú\JŒ‹™
+Bˆ˜[^™TÝ]HHØØ[^™TÝ]K˜Ý\œ™[ˆ˜[Ý\™˜XÙPÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙB‚ˆ˜[[\˜XÝ[ÛˆH™[Y[X™\ˆÈ]]X›R[\˜XÝ[Û”ÛÝ\˜ÙJ
+HBˆ˜\ˆÙ[\ˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠÙ™œÙ]–™\›ÊHBˆ˜\ˆÞˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ[Ú^™K–™\›ÊHBˆ˜\ˆ™\ÜÙYžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHB‚ˆ˜[ØØ[HžH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+™\ÜÙY
+HŽNˆ[ÙHY‹ˆ[š[X][Û”ÜXÈHÜš[™Ê[\[™Ô˜][ÈHÜš[™Ë‘[\[™Ô˜][Ó›Ð›Ý[˜ÞKÝY™›™\ÜÈHÜš[™Ë”ÝY™›™\ÜÓYY][JKˆX™[H™š[ØØ[H‚ˆ
+Bˆ˜[X^ˆH™[Y[X™\ŠÙ[\‹ÞŠHÂˆ˜[HX^ÙŠÙ[\‹žÞ‹ÚYHÙ[\‹ž
+Bˆ˜[HHX^ÙŠÙ[\‹žKÞ‹šZYÚHÙ[\‹žJBˆÜ\
+
+ˆ
+ÈH
+ˆJBˆBˆ˜[˜Y]\ÈžH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+™\ÜÙY
+HX^ˆ[ÙH‹ˆ[š[X][Û”ÜXÈHÙY[Š\˜][Û“Z[\ÈHYˆ
+™\ÜÙY
+HML[ÙHÌ
+KˆX™[H™š[˜Y]\È‚ˆ
+Bˆ˜[š[œ˜XÈHYˆ
+X^ˆˆŠH
+˜Y]\ÈÈX^ŠK˜ÛÙ\˜ÙR[Š‹YŠH[ÙH‚ˆ˜[ÛÛ[ÛÛÜˆH\œ
+Yˆ
+[˜X›Y
+Hš[X\žH[ÙH\ØX›YÛ”š[X\žKš[œ˜XÊB‚ˆ›Þ
+ˆ[ÙYšY\‚ˆ™Ü˜\XÜÓ^Y\ˆÈØØ[VHØØ[NÈØØ[VHHØØ[HBˆ[ŠÚZ˜\”ÛÙÝ\™˜XÙJÚ\K[˜X›Y
+JBˆ˜Û\
+Ú\JBˆ[ŠˆYˆ
+^™TÝ]HOH[
+H[ÙYšY\‹š^™QY™™XÝ
+^™TÝ]JHÂˆ›\”˜Y]\ÈHL™ˆ˜XÚÙÜ›Ý[™ÛÛÜˆHÝ\™˜XÙPÛÛÜ‚ˆ[ÈH\ÝÙŠ^™U[
+Ý\™˜XÙPÛÛÜ‹˜ÛÜJ[HHŒÌŠJJBˆ›Ú\ÙQ˜XÝÜˆH‚ˆH[ÙH[ÙYšY\‚ˆ
+Bˆ™˜]Ð™Z[™ÂˆYˆ
+˜Y]\ÈˆYŠH˜]ÐÚ\˜ÛJÛÛÜˆHš[X\žK˜Y]\ÈH˜Y]\ËÙ[\ˆHÙ[\ŠBˆBˆ˜›Ü™\Š›Ü™\”Ý›ÚÙJË™Yˆ
+[˜X›Y
+Hš[X\žK˜ÛÜJ[HHŒŒ™ŠH[ÙH\ØX›Y˜ÛÜJ[HHŒÙŠJKÚ\JBˆ™Y˜][Z[”Ú^™JZ[•ÚYHM‹™Z[’ZYÚHZ[’ZYÚ
+Bˆ›Û”Ú^™PÚ[™ÙYÈÞˆH]BˆœÚ[\’[œ]
+[˜X›Y
+HÂˆYˆ
+Y[˜X›Y
+H™]\›Ú[\’[œ]ˆ]ØZ]XXÚÙ\Ý\™HÂˆ˜[ÝÛˆH]ØZ]š\œÝÝÛŠ™\]Z\™U[˜ÛÛœÝ[YYH˜[ÙJBˆÙ[\ˆHÝÛ‹œÜÚ][Û‚ˆ™\ÜÙYHYBˆØZ]›Ü•\ÜØ[˜Ù[][ÛŠ
+Bˆ™\ÜÙYH˜[ÙBˆBˆBˆ˜ÛXÚØX›J[\˜XÝ[Û”ÛÝ\˜ÙHH[\˜XÝ[Û‹[™XØ][ÛˆH[[˜X›YH[˜X›Y›ÛHH[™›ÚY˜ÛÛ\ÜÙKZKœÙ[X[XÜË”›ÛK]ÛŠHÈÛÛXÚÊ
+HKˆÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\‚ˆ
+HÂˆÛÛ\ÜÚ][Û“ØØ[›ÝšY\ŠØØ[ÛÛ[ÛÛÜˆ›ÝšY\ÈÛÛ[ÛÛÜŠHÂˆ›ÝÊˆ[ÙYšY\‹œY[™ÊÛÛ[Y[™ÊKˆÜš^›Û[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[Ù[\‹ˆ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[KˆÛÛ[HÛÛ[ˆ
+BˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ›Ý[˜ÙP]ÛŠˆÛÛXÚÎˆ
+
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‹ˆ[˜X›Yˆ›ÛÛX[ˆHYKˆÛÛ[ˆÛÛ\ÜØX›H›ÝÔØÛÜKŠ
+HOˆ[š]ŠHHš[]ÛŠÛÛXÚË[ÙYšY\‹[˜X›Y›Ü™\•ÚYH‹™ÛÛ[HÛÛ[
+B‚ÛÛ\ÜØX›Bœš]˜]H[ˆ›Ý[˜ÙSÝ][™Y]ÛŠˆÛÛXÚÎˆ
+
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‹ˆ[˜X›Yˆ›ÛÛX[ˆHYKˆZ[’ZYÚˆH™ˆÛÛ[Y[™ÎˆY[™Õ˜[Y\ÈHY[™Õ˜[Y\ÊÜš^›Û[HŒ™™\XØ[HL‹™
+KˆXØÙ[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆÛÛ[ˆÛÛ\ÜØX›H›ÝÔØÛÜKŠ
+HOˆ[š]ŠHHš[]ÛŠÛÛXÚË[ÙYšY\‹[˜X›Y›Ü™\•ÚYHKK™ˆZ[’ZYÚHZ[’ZYÚÛÛ[Y[™ÈHÛÛ[Y[™ËXØÙ[HXØÙ[ÛÛ[HÛÛ[
+B‚ÛÛ\ÜØX›Bœš]˜]H[ˆ›Ý[˜ÙU^]ÛŠˆÛÛXÚÎˆ
+
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‹ˆ[˜X›Yˆ›ÛÛX[ˆHYKˆÛÛ[ˆÛÛ\ÜØX›H›ÝÔØÛÜKŠ
+HOˆ[š]ŠHHš[]ÛŠˆÛÛXÚË[ÙYšY\‹[˜X›Yˆ›Ü™\•ÚYHKK™ˆZ[’ZYÚH™ˆÛÛ[Y[™ÈHY[™Õ˜[Y\ÊÜš^›Û[HM™™\XØ[H™
+KˆÛÛ[HÛÛ[ŠB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ›Ý[˜ÙRXÛÛ]ÛŠˆÛÛXÚÎˆ
+
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‹ˆ[˜X›Yˆ›ÛÛX[ˆHYKˆÛÛ[ˆÛÛ\ÜØX›H
+
+HOˆ[š]ŠHÂˆ˜[ØØ[HH™[Y[X™\ˆÈ[š[X]X›JYŠHBˆ˜[ØÛÜHH™[Y[X™\ÛÜ›Ý][™TØÛÜJ
+BˆXÛÛ]ÛŠˆÛÛXÚÈHÛÛXÚËˆ[˜X›YH[˜X›Yˆ[ÙYšY\ˆH[ÙYšY\‹œ™\ÜÐ›Ý[˜ÙJØØ[KØÛÜJBˆ[ŠÚZ˜\”ÛÙÝ\™˜XÙJ›Ý[™YÛÜ›™\”Ú\JM‹™
+K[˜X›Y
+JKˆÛÛ[HÛÛ[ˆ
+BŸB‚œš]˜]H[ˆ[™Ô˜[šÊˆ[™Ô™\Ý[ÊNˆ[HÚ[ˆ
+
+HÂˆ\È[™Ô™\Ý[“ÚÈOˆ›\Âˆ[™Ô™\Ý[•\Ý[™ÈOˆWÌÌˆ[Oˆ—ÌÌˆ[™Ô™\Ý[‘˜Z[YOˆ×ÌÌŸB‚œš]˜]H[ˆÝ]\Õ^
+ÛÛ›ŽˆÛÛ›™XÝ[Û‹\œ›ÜŽˆÝš[™ÏË[™Îˆ[™ÊNˆÝš[™ÈHÚ[ˆ
+ÛÛ›ŠHÂˆÛÛ›™XÝ[Û‹‘TÐÓÓ“‘PÕQOˆÝš[™ÜË™Ù]
+[™ËœÝ]\×Ù\ØÛÛ›™XÝYŠBˆÛÛ›™XÝ[Û‹ÓÓ“‘PÕS‘ÈOˆÝš[™ÜË™Ù]
+[™ËœÝ]\×ØÛÛ›™XÝ[™ÈŠBˆÛÛ›™XÝ[Û‹ÓÓ“‘PÕQOˆÝš[™ÜË™Ù]
+[™ËœÝ]\×ØÛÛ›™XÝYŠBˆÛÛ›™XÝ[Û‹‘T”“ÔˆOˆØØ[^™QYÚ]Ê‰ÔÝš[™ÜË™Ù]
+[™ËœÝ]\×Ù\œ›ÜˆŠ_Nˆ	Ù\œ›ÜˆÎˆˆŸH‹[™ÊBŸB‚œš]˜]H[ˆ›Ü›X]ž]\Êž]\ÎˆÛ™Ë[™Îˆ[™ÊNˆÝš[™ÈÂˆ˜[[š]ˆÝš[™Âˆ˜[[NˆÝš[™ÂˆÚ[ˆÂˆž]\ÈLOˆÈ[HH‰ž]\ÈŽÈ[š]HÝš[™ÜË™Ù]
+[™Ë[š]ØˆŠHBˆž]\ÈL
+ˆLOˆÈ[HH‰KŒYˆ‹™›Ü›X]
+ž]\ÈÈLŒ
+NÈ[š]HÝš[™ÜË™Ù]
+[™Ë[š]ÚØˆŠHBˆž]\ÈL
+ˆL
+ˆLOˆÈ[HH‰KŒYˆ‹™›Ü›X]
+ž]\ÈÈ
+LŒ
+ˆL
+JNÈ[š]HÝš[™ÜË™Ù]
+[™Ë[š]ÛXˆŠHBˆ[ÙHOˆÈ[HH‰KŒ™ˆ‹™›Ü›X]
+ž]\ÈÈ
+LŒ
+ˆL
+ˆL
+JNÈ[š]HÝš[™ÜË™Ù]
+[™Ë[š]ÙØˆŠHBˆBˆ™]\›ˆ—LŒIÛØØ[^™QYÚ]Ê[K[™Ê_WLŒÈ	[š]‚ŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÜYY^
+ž]\ÎˆÛ™ÊHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜[\ÈH›Ü›X]ž]\Ô\Êž]\Ë[™ÊBˆ^
+ˆZ[[››Ý]YÝš[™ÈÂˆ\[™
+—LŒIÜ\Ë™š\œÝWLŒÈŠBˆÚ]Ý[JÜ[”Ý[J›ÛÚ^™HHL‹œÜ
+JHÂˆ\[™
+\ËœÙXÛÛ™
+È
+[š]Ü\—ÜÙXÈŠJBˆBˆKˆÝ[HHX]\šX[[YK\ÙÜ˜\K]SYY][KˆX^[™\ÈHBˆ
+BŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÝ]›Þ
+ˆÜYYˆÛ™ËˆÝ[ˆÛ™ËˆXÛÛŽˆ[XYÙU™XÝÜ‹ˆÛÛÜŽˆÛÛÜ‹ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‚ŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜[\ÈH›Ü›X]ž]\Ô\ÊÜYY[™ÊBˆ˜[Ý\™˜XÙPÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙBˆ˜[\Ñ\šÈHX]\šX[[YK˜ÛÛÜ”ØÚ[YK˜˜XÚÙÜ›Ý[™›[Z[˜[˜ÙJ
+HY‚ˆ˜[XØÙ[HYˆ
+\Ñ\šÊHÛÛÜˆ[ÙH\œ
+ÛÛÜ‹ÛÛÜ‹›XÚË™ŠBˆ˜[^™TÝ]HHØØ[^™TÝ]K˜Ý\œ™[ˆÛÛ[[Šˆ[ÙYšY\‚ˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JM™
+JBˆ[ŠˆYˆ
+^™TÝ]HOH[
+H[ÙYšY\‹š^™QY™™XÝ
+^™TÝ]JHÂˆ›\”˜Y]\ÈHL™ˆ˜XÚÙÜ›Ý[™ÛÛÜˆHÝ\™˜XÙPÛÛÜ‚ˆ[ÈH\ÝÙŠ^™U[
+Ý\™˜XÙPÛÛÜ‹˜ÛÜJ[HHŒÌŠJJBˆ›Ú\ÙQ˜XÝÜˆH‚ˆH[ÙH[ÙYšY\‹˜˜XÚÙÜ›Ý[™
+Ý\™˜XÙPÛÛÜ‹˜ÛÜJ[HHYˆ
+\Ñ\šÊHMYˆ[ÙHÍYŠJBˆ
+Bˆ˜˜XÚÙÜ›Ý[™
+XØÙ[˜ÛÜJ[HHYˆ
+\Ñ\šÊHŒL™ˆ[ÙHŒLŠJBˆ˜›Ü™\Š›Ü™\”Ý›ÚÙJK™XØÙ[˜ÛÜJ[HHYˆ
+\Ñ\šÊHÍYˆ[ÙHMYŠJK›Ý[™YÛÜ›™\”Ú\JM™
+JBˆœY[™ÊÜš^›Û[HL™™\XØ[H‹™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ‹™
+Bˆ
+HÂˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆXÛÛŠXÛÛ‹ÛÛ[\ØÜš\[ÛˆH[[HXØÙ[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JLË™
+JBˆÜXÙ\Š[ÙYšY\‹ÚY
+™
+JBˆ^
+ˆ—LŒIÜ\Ë™š\œÝWLŒÈ	Ü\ËœÙXÛÛ™IÝ
+[š]Ü\—ÜÙXÈŠ_H‹ˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHXØÙ[ˆX^[™\ÈHBˆ
+BˆBˆ^
+ˆ›Ü›X]ž]\ÊÝ[[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[ÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆX^[™\ÈHBˆ
+BˆBŸB‚œš]˜]H[ˆ›Ü›X]ž]\Ô\Êž]\ÎˆÛ™Ë[™Îˆ[™ÊNˆZ\Ýš[™ËÝš[™ÏˆÂˆ˜[[š]ˆÝš[™Âˆ˜[[NˆÝš[™ÂˆÚ[ˆÂˆž]\ÈLOˆÈ[HH‰ž]\ÈŽÈ[š]HÝš[™ÜË™Ù]
+[™Ë[š]ØˆŠHBˆž]\ÈL
+ˆLOˆÈ[HH‰KŒYˆ‹™›Ü›X]
+ž]\ÈÈLŒ
+NÈ[š]HÝš[™ÜË™Ù]
+[™Ë[š]ÚØˆŠHBˆž]\ÈL
+ˆL
+ˆLOˆÈ[HH‰KŒYˆ‹™›Ü›X]
+ž]\ÈÈ
+LŒ
+ˆL
+JNÈ[š]HÝš[™ÜË™Ù]
+[™Ë[š]ÛXˆŠHBˆ[ÙHOˆÈ[HH‰KŒ™ˆ‹™›Ü›X]
+ž]\ÈÈ
+LŒ
+ˆL
+ˆL
+JNÈ[š]HÝš[™ÜË™Ù]
+[™Ë[š]ÙØˆŠHBˆBˆ™]\›ˆØØ[^™QYÚ]Ê[K[™ÊHÈ[š]ŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÝXœØÜš\[Û’XY\ŠˆÝXŽˆÝXœØÜš\[Û‹ˆ\ÓÜ[Žˆ›ÛÛX[‹ˆÛ•ÙÙÛNˆ
+
+HOˆ[š]ˆÛ”™Yœ™\Úˆ
+
+HOˆ[š]ˆÛ”™[˜[YNˆ
+Ýš[™ÊHOˆ[š]ˆÛ”™[[Ý™Nˆ
+
+HOˆ[š]ˆÛ”™[[Ý™U[YYÝ]ˆ
+
+HOˆ[š]ˆ[YYÝ]ÛÝ[ˆ[ˆÛ”[™Îˆ
+
+HOˆ[š]ˆ[™Ú[™Îˆ›ÛÛX[‹ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‚ŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜[ÛÛ^HØØ[ÛÛ^˜Ý\œ™[ˆ˜[Û\›Ø\™HØØ[Û\›Ø\™X[˜YÙ\‹˜Ý\œ™[ˆ˜\ˆ™[˜[Z[™ÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆÚ\™SY[HžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ˜Y˜[YHžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠÝX‹›˜[YJHB‚ˆYˆ
+™[˜[Z[™ÊHÂˆÛ\ÜÑX[ÙÊˆÛ‘\ÛZ\ÜÈHÈ™[˜[Z[™ÈH˜[ÙHKˆ]HH
+™Y]ÜÝX—Û˜[YHŠKˆÛÛ™š\›SX™[H
+œØ]™HŠKˆ\ÛZ\ÜÓX™[H
+˜Ø[˜Ù[ŠKˆÛÛÛ™š\›HHÂˆ˜[›HH˜Y˜[YKš[J
+BˆYˆ
+›Kš\Ó›Ý[\J
+JHÛ”™[˜[YJ›JBˆ™[˜[Z[™ÈH˜[ÙBˆBˆ
+HÂˆÝ][™Y^šY[
+ˆ˜[YHH˜Y˜[YKˆÛ•˜[YPÚ[™ÙHHÈ˜Y˜[YHH]KˆÚ[™ÛS[™HHYKˆÚ\HH›Ý[™YÛÜ›™\”Ú\JM™
+Kˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+Bˆ
+BˆBˆB‚ˆ˜[ÜÈHÚ[™ØÜšX™Pœ˜[™š\ÕÚ[™ØÜšX™JÝXŠBˆ˜[œ˜[™œ\ÚHYˆ
+ÜÊHÚ[™ØÜšX™PØ\™œ\Ú
+
+H[ÙH[‚ˆØ\™
+ˆ[ÙYšY\ˆH[ÙYšY\‹˜\X\“Û˜ÙJ
+K™š[X^ÚY
+
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JM‹™
+JBˆ˜ÛXÚØX›HÈÛ•ÙÙÛJ
+HKˆÚ\HH›Ý[™YÛÜ›™\”Ú\JM‹™
+KˆÛÛÜœÈHØ\™Y˜][Ë˜Ø\™ÛÛÜœÊˆÛÛZ[™\ÛÛÜˆHYˆ
+ÜÊHÛÛÜ‹•˜[œÜ\™[ˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÙXÛÛ™\žPÛÛZ[™\‚ˆ
+Bˆ
+HÂˆÛÛ[[Šˆ[ÙYšY\‹™š[X^ÚY
+
+Bˆ[ŠYˆ
+œ˜[™œ\ÚOH[
+H[ÙYšY\‹˜˜XÚÙÜ›Ý[™
+œ˜[™œ\Ú
+H[ÙH[ÙYšY\ŠBˆœY[™ÊÝ\HM™[™H‹™ÜHL‹™›ÝÛHHL‹™
+Bˆ
+HÂˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆ˜[Ú]œ›ÛˆžH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+Z\ÓÜ[ŠHˆ[ÙHYˆ
+ÜÊHNˆ[ÙHL‹ˆ[š[X][Û”ÜXÈHÙY[ŠÍŒX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[HœÝXÚ]œ›Ûˆ‚ˆ
+BˆYˆ
+ÜÊHÂˆ[XYÙJˆZ[\ˆHZ[\”™\ÛÝ\˜ÙJ‹™˜]ØX›KÚ[™ØÜšX™JKˆÛÛ[\ØÜš\[ÛˆH[ˆÛÛ[ØØ[HHÛÛ[ØØ[K‘š]ˆ[ÙYšY\ˆH[ÙYšY\‹œY[™Ê[™HË™
+KœÚ^™J™
+Bˆ™Ü˜\XÜÓ^Y\ˆÈ›Ý][Û–ˆHÚ]œ›ÛˆBˆ
+BˆH[ÙHÂˆXÛÛŠˆXÛÛœË‘š[YÚ]œ›Û”šYÚˆÛÛ[\ØÜš\[ÛˆH[ˆ[ÙYšY\ˆH[ÙYšY\‹œY[™Ê[™HË™
+K™Ü˜\XÜÓ^Y\ˆÈ›Ý][Û–ˆHÚ]œ›ÛˆBˆ
+BˆBˆ›Þ
+[ÙYšY\‹ÙZYÚ
+YŠJHÂˆX\œ]YYS˜[YJˆÚ[™ØÜšX™Pœ˜[™™\Ü^S˜[YJÝX‹[™ÊKˆX]\šX[[YK\ÙÜ˜\K]TÛX[ˆ
+BˆBˆ›ÞÂˆXÛÛŠXÛÛœË‘š[Y”Ú\™KÛÛ[\ØÜš\[ÛˆH
+œÚ\™HŠK[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+›Ý[™YÛÜ›™\”Ú\JL
+JK˜ÛXÚØX›HÈÚ\™SY[HHYHKœY[™ÊË™
+KœÚ^™JŒK™
+JBˆ›ÜÝÛ“Y[J^[™YHÚ\™SY[KÛ‘\ÛZ\ÜÔ™\]Y\ÝHÈÚ\™SY[HH˜[ÙHJHÂˆÛÛ\XÝY[R][JXÛÛœË‘š[YÛÛ[ÛÜK
+œÚ\™WØÛ\›Ø\™ŠJHÂˆÚ\™SY[HH˜[ÙBˆÛ\›Ø\™œÙ]^
+[››Ý]YÝš[™ÊÝX‹\›
+JBˆ[™›ÚYÚYÙ]•Ø\Ý›XZÙU^
+ÛÛ^
+˜ÛÜYYŠK[™›ÚYÚYÙ]•Ø\Ý“S‘ÕÔÒÔ•
+KœÚÝÊ
+BˆBˆÛÛ\XÝY[R][JXÛÛœË‘š[Y”Ú\™K
+œÚ\™WØ\ŠJHÂˆÚ\™SY[HH˜[ÙBˆ˜[Ù[™H[[
+[[PÕSÓ—ÔÑS‘
+K˜\HÂˆ\HH^ÜZ[ˆ‚ˆ]^˜J[[‘VWÕVÝX‹\›
+BˆBˆÛÛ^œÝ\XÝ]š]J[[˜Ü™X]PÚÛÜÙ\ŠÙ[™ÝX‹›˜[YJJBˆBˆBˆBˆYˆ
+[™Ú[™ÊHÂˆÚ\˜Ý[\”›ÙÜ™\ÜÒ[™XØ]ÜŠˆÝ›ÚÙUÚYH‹™ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹œY[™ÊË™
+KœÚ^™JŒK™
+Bˆ
+BˆH[ÙHÂˆXÛÛŠXÛÛœË‘š[Y”ÜYYÛÛ[\ØÜš\[ÛˆH
+\ÝØ[ŠK[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+›Ý[™YÛÜ›™\”Ú\JL
+JK˜ÛXÚØX›HÈÛ”[™Ê
+HKœY[™ÊË™
+KœÚ^™JŒK™
+JBˆBˆXÛÛŠXÛÛœË‘š[Y‘Y]ÛÛ[\ØÜš\[ÛˆH
+™Y]ÜÝX—Û˜[YHŠK[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+›Ý[™YÛÜ›™\”Ú\JL
+JK˜ÛXÚØX›HÈ˜Y˜[YHHÝX‹›˜[YNÈ™[˜[Z[™ÈHYHKœY[™ÊË™
+KœÚ^™JŒK™
+JBˆXÛÛŠXÛÛœË‘š[Y”™Yœ™\ÚÛÛ[\ØÜš\[ÛˆH
+œ™Yœ™\ÚŠK[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+›Ý[™YÛÜ›™\”Ú\JL
+JK˜ÛXÚØX›HÈÛ”™Yœ™\Ú
+
+HKœY[™ÊË™
+KœÚ^™JŒK™
+JBˆ›ÞÂˆ˜\ˆÝX”\™ÙSY[HžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆXÛÛŠXÛÛœË‘š[Y‘[]KÛÛ[\ØÜš\[ÛˆH
+œ™[[Ý™HŠK[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+›Ý[™YÛÜ›™\”Ú\JL
+JBˆ˜ÛXÚØX›HÈÝX”\™ÙSY[HHYHKœY[™ÊË™
+KœÚ^™JŒK™
+JBˆ›ÜÝÛ“Y[Jˆ^[™YHÝX”\™ÙSY[KˆÛ‘\ÛZ\ÜÔ™\]Y\ÝHÈÝX”\™ÙSY[HH˜[ÙHKˆÙ™œÙ]HÙ™œÙ]
+™™
+KˆÚ\HH›Ý[™YÛÜ›™\”Ú\JM‹™
+KˆÛÛZ[™\ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙU˜\šX[ˆ›Ü™\ˆH›Ü™\”Ý›ÚÙJK™X]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK˜ÛÜJ[HHŒÍYŠJBˆ
+HÂˆ›ÜÝÛ“Y[R][Jˆ^HÈ^
+
+™[]WØ[ØÛÛ™šYÜÈŠKÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][JHKˆXY[™ÒXÛÛˆHÂˆXÛÛŠXÛÛœË‘š[Y‘[]Q›Ü™]™\‹ÛÛ[\ØÜš\[ÛˆH[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JN™
+JBˆKˆÛÛ[Y[™ÈHY[™Õ˜[Y\ÊÜš^›Û[HM™
+Kˆ[ÙYšY\ˆH[ÙYšY\‹šZYÚ
+™
+KˆÛÛXÚÈHÈÝX”\™ÙSY[HH˜[ÙNÈÛ”™[[Ý™J
+HBˆ
+Bˆ›ÜÝÛ“Y[R][Jˆ^HÈ^
+
+™[]WÝ[YYÛÝ]ŠKÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][JHKˆXY[™ÒXÛÛˆHÂˆXÛÛŠXÛÛœË‘š[Y•[Y\“Ù™‹ÛÛ[\ØÜš\[ÛˆH[[ÙYšY\ˆH[ÙYšY\‹œÚ^™JN™
+JBˆKˆ[˜X›YH[YYÝ]ÛÝ[ˆˆÛÛ[Y[™ÈHY[™Õ˜[Y\ÊÜš^›Û[HM™
+Kˆ[ÙYšY\ˆH[ÙYšY\‹šZYÚ
+™
+KˆÛÛXÚÈHÈÝX”\™ÙSY[HH˜[ÙNÈÛ”™[[Ý™U[YYÝ]
+
+HBˆ
+BˆBˆBˆBˆYˆ
+ÝX‹Ý[ˆ
+HÂˆÜXÙ\Š[ÙYšY\‹šZYÚ
+‹™
+JBˆ\ØYÙP˜\Š\ÙYHÝX‹\ÙYÝ[HÝX‹Ý[
+BˆBˆ˜[][ÝHH][ÝPÚ\ÊÝX‹[™ÊBˆYˆ
+][ÝKš\Ó›Ý[\J
+JHÂˆÜXÙ\Š[ÙYšY\‹šZYÚ
+Ë™
+JBˆ›ÝÊÜš^›Û[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ‹™
+JHÂˆ][ÝK™›Ü‘XXÚÈ
+X™[]™[
+HO‚ˆ][ÝPÚ\
+X™[]™[
+BˆBˆBˆBˆBˆBŸB‚œš]˜]H[ˆ][ÝPÚ\ÊÝXŽˆÝXœØÜš\[Û‹[™Îˆ[™ÊNˆ\ÝZ\Ýš[™Ë[ˆÂˆYˆ
+ÝX‹Ý[H	‰ˆÝX‹™^\™HH
+H™]\›ˆ[\S\Ý
+
+Bˆ˜[\ÈH]]X›S\ÝÙZ\Ýš[™Ë[Š
+BˆYˆ
+ÝX‹Ý[ˆ
+HÂˆ˜[™[XZ[š[™ÈH
+ÝX‹Ý[HÝX‹\ÙY
+K˜ÛÙ\˜ÙP]X\Ý
+
+Bˆ˜[œ˜XÈH™[XZ[š[™ËÑ›Ø]
+
+HÈÝX‹Ý[ˆ˜[]™[HÚ[ˆÂˆœ˜XÈHŒLˆOˆ‚ˆœ˜XÈHŒÌˆOˆBˆ[ÙHOˆˆBˆ\Ë˜Y
+ˆ‰Ù›Ü›X]ž]\Ê™[XZ[š[™Ë[™Ê_H	ÔÝš[™ÜË™Ù]
+[™Ë›ÙˆŠ_Hˆ
+Âˆ‰Ù›Ü›X]ž]\ÊÝX‹Ý[[™Ê_H	ÔÝš[™ÜË™Ù]
+[™Ë›YŠ_HˆÈ]™[ˆ
+BˆBˆYˆ
+ÝX‹™^\™Hˆ
+HÂˆ˜[^\ÓYH
+ÝX‹™^\™H
+ˆLHÞ\Ý[K˜Ý\œ™[[YSZ[\Ê
+JHÈ—ÍÌˆYˆ
+^\ÓYH
+HÂˆ˜[]™[HÚ[ˆÂˆ^\ÓYHSOˆ‚ˆ^\ÓYHÓOˆBˆ[ÙHOˆˆBˆ\Ë˜Y
+ˆ‰ÔÝš[™ÜË™Ù]
+[™Ë™^\™\×Ú[ˆŠ_Hˆ
+Âˆ‰ÛØØ[^™QYÚ]Ê‰^\ÓY‹[™Ê_IÔÝš[™ÜË™Ù]
+[™Ë[š]Ù^\ÈŠ_HˆÈ]™[ˆ
+BˆBˆBˆ™]\›ˆ\ÂŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ][ÝPÚ\
+X™[ˆÝš[™Ë]™[ˆ[
+HÂˆ˜[XØÙ[HÚ[ˆ
+]™[
+HÂˆˆOˆÛÛÜŠ‘‘MLÎLÍJBˆHOˆÛÛÜŠ‘‘NQLŠBˆ[ÙHOˆX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆBˆ^
+ˆZ^Y^
+X™[
+KˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[ÛX[ˆÛÛÜˆHXØÙ[ˆX^[™\ÈHKˆ[ÙYšY\ˆH[ÙYšY\‚ˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JK™
+JBˆ˜˜XÚÙÜ›Ý[™
+XØÙ[˜ÛÜJ[HHŒLŠJBˆ˜›Ü™\ŠK™XØÙ[˜ÛÜJ[HHŒŽŠK›Ý[™YÛÜ›™\”Ú\JK™
+JBˆœY[™ÊÜš^›Û[HK™™\XØ[H™
+Bˆ
+BŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ\ØYÙP˜\Š\ÙYˆÛ™ËÝ[ˆÛ™ÊHÂˆ˜[™[XZ[š[™ÈH
+Ý[H\ÙY
+K˜ÛÙ\˜ÙP]X\Ý
+
+Bˆ˜[œ˜XÈHYˆ
+Ý[ˆ
+H
+™[XZ[š[™ËÑ›Ø]
+
+HÈÝ[
+K˜ÛÙ\˜ÙR[Š‹YŠH[ÙH‚ˆ˜[˜\ÛÛÜˆHÚ[ˆÂˆœ˜XÈHŒLˆOˆÛÛÜŠ‘‘MLÎLÍJBˆœ˜XÈHŒÌˆOˆÛÛÜŠ‘‘NQLŠBˆ[ÙHOˆX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆBˆ›Þ
+ˆ[ÙYšY\‚ˆ™š[X^ÚY
+
+BˆšZYÚ
+‹™
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JL
+JBˆ˜˜XÚÙÜ›Ý[™
+X]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙU˜\šX[
+Bˆ
+HÂˆYˆ
+œ˜XÈˆŠHÂˆ›Þ
+ˆ[ÙYšY\‚ˆ™š[X^ÚY
+œ˜XÊBˆ™š[X^ZYÚ
+
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JL
+JBˆ˜˜XÚÙÜ›Ý[™
+˜\ÛÛÜŠBˆ
+BˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÚZ[”XÚÙ\‘X[ÙÊˆÝÜ™NˆÛÛ™šYÔÝÜ™KˆÛÛ™šYÎˆ›ÞPÛÛ™šYËˆÛ‘\ÛZ\ÜÎˆ
+
+HOˆ[š]ŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[ÛÛ™šYÜÈžHÝÜ™K˜ÛÛ™šYÜË˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[Ü[ÛœÈHÛÛ™šYÜË™š[\ˆÈ]šYOHÛÛ™šYËšY	‰ˆ]œ›ÝØÛÛOHÜˆˆB‚ˆX[ÙÊÛ‘\ÛZ\ÜÔ™\]Y\ÝHÛ‘\ÛZ\ÜÊHÂˆØ\™
+ˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+KˆÚ\HH›Ý[™YÛÜ›™\”Ú\J™
+KˆÛÛÜœÈHØ\™Y˜][Ë˜Ø\™ÛÛÜœÊˆÛÛZ[™\ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœÝ\™˜XÙKˆÛÛ[ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙBˆ
+Kˆ›Ü™\ˆH›Ü™\”Ý›ÚÙJK™X]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK˜ÛÜJ[HHŒÌŠJBˆ
+HÂˆÛÛ[[Šˆ[ÙYšY\‹™š[X^ÚY
+
+KœY[™ÊM‹™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJL‹™
+Bˆ
+HÂˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆXÛÛŠˆXÛÛœË‘š[Y“^Y\œËˆÛÛ[\ØÜš\[ÛˆH[ˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹œÚ^™JŒ™
+Bˆ
+BˆÜXÙ\Š[ÙYšY\‹ÚY
+™
+JBˆ^
+ˆ
+˜ÚZ[—Ý›ÝYÚŠKˆÝ[HHX]\šX[[YK\ÙÜ˜\K]SYY][Kˆ›ÛÙZYÚH›ÛÙZYÚ›ÛˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ
+BˆBˆ^
+ˆ
+˜ÚZ[—Ú[ŠKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ
+B‚ˆÜÛÝ[žQÜ›Ý\
+
+˜ÚZ[—ØØ\œšY\ˆŠJHÂˆ^žPÛÛ[[Šˆ[ÙYšY\ˆH[ÙYšY\‹šZYÚ[ŠX^HÌŒ™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ‹™
+Bˆ
+HÂˆ][JÙ^HH˜ÚZ[‹[›Û™HŠHÂˆÚZ[“Ü[Û”›ÝÊˆX™[H
+˜ÚZ[—Û›Û™HŠKˆÙ[XÝYHÛÛ™šYË˜ÚZ[’Yš\Ñ[\J
+KˆÛÛXÚÈHÂˆÝÜ™K\]JÛÛ™šYË˜ÛÜJÚZ[’YHˆŠJBˆXYÔ[›™\‹˜ÛX\ŠÛÛ™šYËšY
+BˆÛ‘\ÛZ\ÜÊ
+BˆBˆ
+BˆBˆ][\ÊÜ[ÛœËÙ^HHÈ]šYJHÈÜ[ÛˆO‚ˆÚZ[“Ü[Û”›ÝÊˆX™[HÜ[Û‹›˜[YKˆÙ[XÝYHÛÛ™šYË˜ÚZ[’YOHÜ[Û‹šYˆÛÛXÚÈHÂˆÝÜ™K\]JÛÛ™šYË˜ÛÜJÚZ[’YHÜ[Û‹šY
+JBˆXYÔ[›™\‹˜ÛX\ŠÛÛ™šYËšY
+BˆÛ‘\ÛZ\ÜÊ
+BˆBˆ
+BˆBˆBˆB‚ˆ›Ý[˜ÙU^]ÛŠÛÛXÚÈHÛ‘\ÛZ\ÜË[ÙYšY\ˆH[ÙYšY\‹˜[YÛŠ[YÛ›Y[‘[™
+JHÂˆ^
+
+˜Ø[˜Ù[ŠJBˆBˆBˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÚZ[“Ü[Û”›ÝÊˆX™[ˆÝš[™ËˆÙ[XÝYˆ›ÛÛX[‹ˆÛÛXÚÎˆ
+
+HOˆ[š]ŠHÂˆ˜[[žH[š[X]PÛÛÜ\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+Ù[XÝY
+HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ[š[X][Û”ÜXÈHÙY[ŠÌX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[H˜ÚZ[”›ÝÕ[‚ˆ
+Bˆ˜[š[žH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+Ù[XÝY
+HYˆ[ÙH‹ˆ[š[X][Û”ÜXÈHÙY[ŠÌX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[H˜ÚZ[”›ÝÑš[‚ˆ
+Bˆ›ÝÊˆ[ÙYšY\‹™š[X^ÚY
+
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JM™
+JBˆ˜˜XÚÙÜ›Ý[™
+[˜ÛÜJ[HHŒYˆ
+ÈŒYˆ
+ˆš[
+JBˆ˜›Ü™\ŠK™[˜ÛÜJ[HHŒM™ˆ
+ÈŒÍ™ˆ
+ˆš[
+K›Ý[™YÛÜ›™\”Ú\JM™
+JBˆ˜ÛXÚØX›HÈÛÛXÚÊ
+HBˆœY[™ÊÜš^›Û[HL‹™™\XØ[HL™
+Kˆ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[Bˆ
+HÂˆ^
+ˆ›YÔ[œÊX™[Yˆ
+ØØ[[™Ë˜Ý\œ™[OH[™Ë‘JH˜^š\‘›Û[ÙH^[™›Û
+Kˆ[›[™PÛÛ[H›YÒ[›[™PÛÛ[
+ˆX™[ˆX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][K™›ÛÚ^™Bˆ
+KˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][KˆX^[™\ÈHKˆÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Ëˆ[ÙYšY\ˆH[ÙYšY\‹ÙZYÚ
+YŠBˆ
+BˆÛ[ÛÝÚXÚØ›Þ
+ÚXÚÙYHÙ[XÝY
+BˆBŸB‚Ü[Š^\š[Y[[›Ý[™][Û\NŽ˜Û\ÜÊBÛÛ\ÜØX›Bœš]˜]H[ˆ\‘X[ÙÊ[šÎˆÝš[™Ë]NˆÝš[™ËÛ‘\ÛZ\ÜÎˆ
+
+HOˆ[š]
+HÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[ÛÛ^HØØ[ÛÛ^˜Ý\œ™[ˆ˜[XØÙ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ˜[\™ÈHÛÛÜŠ‘ŒLMŒŠBˆ˜[\‘™ÈH\œ
+ÛÛÜ‹•Ú]KXØÙ[Œ™ŠBˆ˜[›\H™[Y[X™\Š[šË\™Ë\‘™ÊHÂˆÛÛ™šYÔÚ\™Kœ\š]X\
+[šË\šÐÛÛÜˆH\‘™ËÐ\™ØŠ
+KYÚÛÛÜˆH\™ËÐ\™ØŠ
+JBˆB‚ˆ˜[[ÙUˆH™[Y[X™\’[™š[š]U˜[œÚ][ÛŠX™[Hœ\”[ÙHŠBˆ˜[Ý›ÚÙP[HžH[ÙU‹˜[š[X]Q›Ø]
+ˆ[š]X[˜[YHHŒŒ™‹ˆ\™Ù]˜[YHHMY‹ˆ[š[X][Û”ÜXÈH[™š[š]T™\X]X›JˆÙY[ŠLX\Ú[™ÈH[™X\‘X\Ú[™ÊKˆ™\X][ÙHH™\X][ÙK”™]™\œÙBˆ
+KˆX™[Hœ\”Ý›ÚÙH‚ˆ
+B‚ˆ[ˆÚ\™R[XYÙJ
+HÂˆ˜[[XYÙHH›\Îˆ™]\›‚ˆ[Ø]Ú[™ÈÂˆ˜[\ˆHš[JÛÛ^˜ØXÚQ\‹œÚ\™YŠK˜\HÈZÙ\œÊ
+HBˆ˜[š[HHš[J\‹™ÚZ˜\œ‹\\‹œ™ÈŠBˆš[K›Ý]]Ý™X[J
+K\ÙHÈ[XYÙK˜ÛÛ\™\ÜÊš]X\ÛÛ\™\ÜÑ›Ü›X]”‘ËL]
+HBˆ˜[\šHHš[T›ÝšY\‹™Ù]\šQ›Ü‘š[JˆÛÛ^ÛÛ^œXÚØYÙS˜[YH
+È‹™š[\›ÝšY\ˆ‹š[Bˆ
+Bˆ˜[Ù[™H[[
+[[PÕSÓ—ÔÑS‘
+K˜\HÂˆ\HHš[XYÙKÜ™È‚ˆ]^˜J[[‘VWÔÕ‘PSK\šJBˆY›YÜÊ[[‘“Q×ÑÔS•Ô‘PQÕT’WÔT“RTÔÒSÓŠBˆBˆÛÛ^œÝ\XÝ]š]J[[˜Ü™X]PÚÛÜÙ\ŠÙ[™]JJBˆBˆB‚ˆÛ\ÜÑX[ÙÊˆÛ‘\ÛZ\ÜÈHÛ‘\ÛZ\ÜËˆ]HH
+œ\—Ý]HŠKˆÛÛ™š\›SX™[HYˆ
+›\OH[
+H
+˜Ø[˜Ù[ŠH[ÙH
+œÚ\™HŠKˆ\ÛZ\ÜÓX™[HYˆ
+›\OH[
+H[[ÙH
+˜Ø[˜Ù[ŠKˆÛÛÛ™š\›HHÈYˆ
+›\OH[
+HÛ‘\ÛZ\ÜÊ
+H[ÙHÚ\™R[XYÙJ
+HBˆ
+HÂˆYˆ
+›\OH[
+HÂˆ^
+ˆZ^Y^
+
+œ\—ÝÛ×ÛÛ™ÈŠJKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][KˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK™\œ›Ü‚ˆ
+BˆH[ÙHÂˆ^
+ˆZ^Y^
+]JKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆX^[™\ÈHKˆÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Ëˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+Kˆ^[YÛˆH^[YÛ‹Ù[\‚ˆ
+Bˆ›Þ
+[ÙYšY\‹™š[X^ÚY
+
+KÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\ŠHÂˆ›Þ
+ˆ[ÙYšY\‹œÚ^™J™
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JN™
+JBˆ˜˜XÚÙÜ›Ý[™
+\™ÊBˆ˜›Ü™\ŠˆK™ˆXØÙ[˜ÛÜJ[HHÝ›ÚÙP[JKˆ›Ý[™YÛÜ›™\”Ú\JN™
+Bˆ
+BˆœY[™ÊL‹™
+Bˆ
+HÂˆ[XYÙJˆš]X\H›\˜\Ò[XYÙPš]X\
+
+KˆÛÛ[\ØÜš\[ÛˆH[ˆš[\”]X[]HHš[\”]X[]K“›Û™Kˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^Ú^™J
+Bˆ
+BˆBˆBˆ^
+ˆZ^Y^
+
+œ\—Ú[ŠJKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ^[YÛˆH^[YÛ‹Ù[\‹ˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+Bˆ
+BˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ\”ØØ[›™\”ØÜ™Y[ŠÛ”™\Ý[ˆ
+Ýš[™ÊHOˆ[š]
+HÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[ÛÛ^HØØ[ÛÛ^˜Ý\œ™[ˆ˜[Y™XÞXÛSÝÛ™\ˆH™[Y[X™\ŠÛÛ^
+HÂˆÙ[™\˜]TÙ\]Y[˜ÙJÛÛ^
+HÈ
+]\ÏÈÛÛ^Ü˜\\ŠOË˜˜\ÙPÛÛ^Bˆ™š[\’\Ò[œÝ[˜ÙOY™XÞXÛSÝÛ™\Š
+Bˆ™š\œÝÜ“[
+
+BˆB‚ˆ˜\ˆÜ˜[YžH™[Y[X™\ˆÂˆ]]X›TÝ]SÙŠˆÛÛ^ÛÛ\]˜ÚXÚÔÙ[”\›Z\ÜÚ[ÛŠÛÛ^X[šY™\Ýœ\›Z\ÜÚ[Û‹ÐSQTJHOBˆXÚØYÙSX[˜YÙ\‹”T“RTÔÒSÓ—ÑÔS•Qˆ
+BˆBˆ˜[\›S][˜Ú\ˆH™[Y[X™\“][˜Ú\‘›ÜXÝ]š]T™\Ý[
+ˆXÝ]š]T™\Ý[ÛÛ˜XÝË”™\]Y\Ý\›Z\ÜÚ[ÛŠ
+Bˆ
+HÈÜ˜[YH]B‚ˆ][˜ÚYY™™XÝ
+[š]
+HÂˆYˆ
+YÜ˜[Y
+H\›S][˜Ú\‹›][˜Ú
+X[šY™\Ýœ\›Z\ÜÚ[Û‹ÐSQTJBˆB‚ˆÛÛ[[Š[ÙYšY\‹™š[X^Ú^™J
+JHÂˆYˆ
+YÜ˜[Y
+HÂˆÛÛ[[Šˆ[ÙYšY\‹™š[X^Ú^™J
+KœY[™ÊŽ™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[Ù[\‹ˆÜš^›Û[[YÛ›Y[H[YÛ›Y[Ù[\’Üš^›Û[Bˆ
+HÂˆXÛÛŠˆXÛÛœË‘š[Y”\ÛÙTØØ[›™\‹ˆÛÛ[\ØÜš\[ÛˆH[ˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ[ÙYšY\ˆH[ÙYšY\‹œÚ^™J‹™
+Bˆ
+BˆÜXÙ\Š[ÙYšY\‹šZYÚ
+M™
+JBˆ^
+ˆZ^Y^
+
+˜Ø[Y\˜WÛ™YYYŠJKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][Kˆ^[YÛˆH^[YÛ‹Ù[\‚ˆ
+BˆÜXÙ\Š[ÙYšY\‹šZYÚ
+M‹™
+JBˆ›Ý[˜ÙSÝ][™Y]ÛŠÛÛXÚÈHÈ\›S][˜Ú\‹›][˜Ú
+X[šY™\Ýœ\›Z\ÜÚ[Û‹ÐSQTJHJHÂˆ^
+
+˜Ø[Y\˜WÙÜ˜[ŠJBˆBˆBˆ™]\›ÛÛ[[‚ˆB‚ˆ˜\ˆ[™YžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHB‚ˆ›Þ
+ˆ[ÙYšY\‹ÙZYÚ
+YŠK™š[X^ÚY
+
+KœY[™ÊM‹™
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JŒ‹™
+JKˆÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\‚ˆ
+HÂˆ[™›ÚYšY]Êˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^Ú^™J
+Kˆ˜XÝÜžHHÈÝO‚ˆ˜[šY]ÈH™]šY]ÕšY]ÊÝ
+K˜\HÂˆØØ[U\HH™]šY]ÕšY]Ë”ØØ[U\K‘’SÐÑS•T‚ˆ[\[Y[][Û“[ÙHH™]šY]ÕšY]Ë’[\[Y[][Û“[ÙKÓÓTUP“BˆBˆ[™›ÚY][“ÙË™
+‘ÚZ˜\”\ˆ‹™˜XÝÜžNˆÜ™X][™È™]šY]ÕšY]ÈŠBˆ˜[›ÝšY\‘]\™HH›ØÙ\ÜÐØ[Y\˜T›ÝšY\‹™Ù][œÝ[˜ÙJÝ
+Bˆ›ÝšY\‘]\™K˜Y\Ý[™\ŠÂˆ[Ø]Ú[™ÈÂˆ˜[›ÝšY\ˆH›ÝšY\‘]\™K™Ù]
+
+Bˆ[™›ÚY][“ÙË™
+‘ÚZ˜\”\ˆ‹œ›ÝšY\ˆ™XYKÝÛ™\IY™XÞXÛSÝÛ™\ˆŠBˆ˜[™]šY]ÈH™]šY]ËZ[\Š
+K˜Z[
+
+K˜[ÛÈÂˆ]œÙ]Ý\™˜XÙT›ÝšY\ŠšY]ËœÝ\™˜XÙT›ÝšY\ŠBˆBˆ˜[[˜[\Ú\ÈH[XYÙP[˜[\Ú\ËZ[\Š
+BˆœÙ]˜XÚÜ™\ÜÝ\™TÝ˜]YÞJ[XYÙP[˜[\Ú\Ë”ÕUQÖWÒÑQTÓÓ“WÓUTÕ
+Bˆ˜Z[
+
+Bˆ˜[™XY\ˆH][Q›Ü›X]™XY\Š
+K˜\HÂˆÙ][ÊˆX\ÙŠˆXÛÙR[\K”ÔÔÒP“WÑ“Ô“PUÈÈ\ÝÙŠ˜\˜ÛÙQ›Ü›X]”T—ÐÓÑJKˆXÛÙR[\K•–WÒT‘TˆÈYBˆ
+Bˆ
+BˆBˆ[˜[\Ú\ËœÙ][˜[^™\Š^XÝ]ÜœË›™]ÔÚ[™ÛU™XY^XÝ]ÜŠ
+JHÈ›ÞHO‚ˆYˆ
+Z[™Y
+HÂˆXÛÙT\Š›ÞK™XY\ŠOË›]È^O‚ˆ[™YHYBˆšY]ËœÜÝÈÛ”™\Ý[
+^
+HBˆBˆBˆ›ÞK˜ÛÜÙJ
+BˆBˆYˆ
+Y™XÞXÛSÝÛ™\ˆOH[
+HÂˆ[™›ÚY][“ÙË™J‘ÚZ˜\”\ˆ‹››ÈY™XÞXÛSÝÛ™\ˆ›Ý[™HØ[››Ýš[™ŠBˆH[ÙHÂˆ›ÝšY\‹[˜š[™[
+
+Bˆ›ÝšY\‹˜š[™ÓY™XÞXÛJˆY™XÞXÛSÝÛ™\‹ˆØ[Y\˜TÙ[XÝÜ‹‘QUSÐPÒ×ÐÐSQTKˆ™]šY]Ëˆ[˜[\Ú\Âˆ
+Bˆ[™›ÚY][“ÙË™
+‘ÚZ˜\”\ˆ‹˜Ø[Y\˜H›Ý[™ŠBˆBˆK›Û‘˜Z[\™HÂˆ[™›ÚY][“ÙË™J‘ÚZ˜\”\ˆ‹˜Ø[Y\˜HÙ]\˜Z[Y‹]
+BˆBˆKÛÛ^ÛÛ\]™Ù]XZ[‘^XÝ]ÜŠÝ
+JBˆšY]ÂˆBˆ
+Bˆ›Þ
+ˆ[ÙYšY\‹œÚ^™JŒM™
+Bˆ˜›Ü™\Š‹™X]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK›Ý[™YÛÜ›™\”Ú\JN™
+JBˆ
+BˆB‚ˆ^
+ˆZ^Y^
+
+œØØ[—Ü\—Ú[ŠJKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ^[YÛˆH^[YÛ‹Ù[\‹ˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+KœY[™ÊÜš^›Û[H™™\XØ[HM™
+Bˆ
+BˆBŸB‚œš]˜]H[ˆXÛÙT\Š›ÞNˆ[XYÙT›ÞK™XY\Žˆ][Q›Ü›X]™XY\ŠNˆÝš[™ÏÈÂˆ˜[Y™™\ˆH›ÞKœ[™\ÖÌK˜Y™™\‚ˆ˜[]HHž]P\œ˜^JY™™\‹œ™[XZ[š[™Ê
+JK˜[ÛÈÈY™™\‹™Ù]
+]
+HBˆ˜[ÛÝ\˜ÙHH[˜\–UU“[Z[˜[˜ÙTÛÝ\˜ÙJˆ]K›ÞKœ[™\ÖÌKœ›ÝÔÝšYK›ÞKšZYÚˆ›ÞKÚY›ÞKšZYÚ˜[ÙBˆ
+Bˆ˜[][\HÈÜ˜Îˆ[Z[˜[˜ÙTÛÝ\˜ÙHO‚ˆ[Ø]Ú[™ÈÈ™XY\‹™XÛÙUÚ]Ý]Jš[˜\žPš]X\
+XœšYš[˜\š^™\ŠÜ˜ÊJJK^Bˆ™Ù]Ü“[
+
+BˆBˆ™XY\‹œ™\Ù]
+
+Bˆ™]\›ˆ][\
+ÛÝ\˜ÙJHÎˆ[ˆÂˆ™XY\‹œ™\Ù]
+
+Bˆ][\
+ÛÝ\˜ÙKš[™\
+
+JBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÛÛ™šYÔ›ÝÊˆÛÛ™šYÎˆ›ÞPÛÛ™šYËˆ\ÔÙ[XÝYˆ›ÛÛX[‹ˆ\ÐXÝ]™Nˆ›ÛÛX[‹ˆ[™Îˆ[™Ô™\Ý[ËˆÙ[XÝ[Û“[ÙNˆ›ÛÛX[‹ˆ\ÐÚXÚÙYˆ
+
+HOˆ›ÛÛX[‹ˆÛÛXÚÎˆ
+
+HOˆ[š]ˆÛ“Û™Ô™\ÜÎˆ
+
+HOˆ[š]ˆÛ‘Y]ˆ
+
+HOˆ[š]ˆÛ‘[]Nˆ
+
+HOˆ[š]ˆÛ”Ú\™Qš[Nˆ
+
+HOˆ[š]ˆÛÚZ[Žˆ
+
+HOˆ[š]ˆXÝ[ÛœÓÜ[Žˆ›ÛÛX[‹ˆÛ•ÙÙÛPXÝ[ÛœÎˆ
+
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‹ˆ\X\Žˆ›ÛÛX[ˆHYKˆÛÛZ[™\ÛÛÜŽˆÛÛÜÈH[ŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜[ÛÛ^HØØ[ÛÛ^˜Ý\œ™[ˆ˜[Û\›Ø\™HØØ[Û\›Ø\™X[˜YÙ\‹˜Ý\œ™[ˆ˜\ˆÚ\™SY[HžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ˜\ˆ\‘›ÜˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙÝš[™ÏÏŠ[
+HBˆ˜[ÚXÚÙYžH™[Y[X™\ˆÈ\š]™YÝ]SÙˆÈ\ÐÚXÚÙY
+
+HHBˆ˜[\ÓÜ[•œˆHÛÛ™šYËœ›ÝØÛÛ™\]X[Ê›Ü[œˆ‹YJHÛÛ™šYËšYœÝ\ÕÚ]
+›ÝœŽˆŠB‚ˆ\‘›ÜË›]È[šÈO‚ˆ\‘X[ÙÊ[šÈH[šË]HHÛÛ™šYË›˜[YKÛ‘\ÛZ\ÜÈHÈ\‘›ÜˆH[JBˆB‚ˆ˜[YÚYÚžH[š[X]PÛÛÜ\ÔÝ]Jˆ\™Ù]˜[YHHÚ[ˆÂˆÚXÚÙY\ÔÙ[XÝYOˆX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žPÛÛZ[™\‚ˆÛÛZ[™\ÛÛÜˆOH[OˆÛÛZ[™\ÛÛÜ‚ˆ[ÙHOˆÛÛÜ‹•˜[œÜ\™[ˆKˆ[š[X][Û”ÜXÈHÙY[ŠŒŒ
+KˆX™[Hœ›ÝÒYÚYÚ‚ˆ
+B‚ˆ˜[ÝÚ\T™YHÛÛÜŠ‘‘LLÐÊBˆ˜\ˆ›ÝÕÚYžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠJHBˆ˜\ˆ˜YÖžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠŠHBˆ˜[˜YÑ[˜X›YH\Ù[XÝ[Û“[ÙH	‰ˆXÚXÚÙY‚ˆ˜[ÝÚ\[™ÈH˜YÖM™‚ˆ˜[\XÜÈHØØ[\XÑ™YY˜XÚË˜Ý\œ™[‚ˆ][˜ÚYY™™XÝ
+ÝÚ\[™ÊHÂˆYˆ
+ÝÚ\[™ÊHÂˆ[Ø]Ú[™ÈÈ\XÜËœ\™›Ü›R\XÑ™YY˜XÚÊ\XÑ™YY˜XÚÕ\K“Û™Ô™\ÜÊHBˆ^žŠÛÛ^
+BˆBˆBˆ][˜ÚYY™™XÝ
+˜YÑ[˜X›Y
+HÂˆYˆ
+Y˜YÑ[˜X›Y
+H˜YÖH‚ˆB‚ˆ˜[›ÝÕ[žH[š[X]PÛÛÜ\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+ÝÚ\[™ÊHÝÚ\T™Y[ÙHYÚYÚˆ[š[X][Û”ÜXÈHÙY[ŠŒX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[Hœ›ÝÕ[‚ˆ
+B‚ˆØ\™
+ˆ[ÙYšY\ˆH
+Yˆ
+\X\ŠH[ÙYšY\‹˜\X\“Û˜ÙJ
+H[ÙH[ÙYšY\ŠBˆ™š[X^ÚY
+
+Bˆ›Û”Ú^™PÚ[™ÙYÈ›ÝÕÚYH]ÚYBˆ›Ù™œÙ]È[Ù™œÙ]
+˜YÖœ›Ý[™Ò[
+
+K
+HBˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JM™
+JBˆ™˜YÙØX›JˆÜšY[][ÛˆHÜšY[][Û‹’Üš^›Û[ˆ[˜X›YH˜YÑ[˜X›YˆÝ]HH™[Y[X™\‘˜YÙØX›TÝ]HÈ[HO‚ˆ˜YÖH
+˜YÖ
+È[JK˜ÛÙ\˜ÙR[Š\›ÝÕÚYÑ›Ø]
+
+KŠBˆKˆÛ‘˜YÔÝÜYHÂˆYˆ
+Y˜YÖH›ÝÕÚY
+ˆ
+YˆÈÙŠJHÂˆ[Ø]Ú[™ÈÈ\XÜËœ\™›Ü›R\XÑ™YY˜XÚÊ\XÑ™YY˜XÚÕ\K“Û™Ô™\ÜÊHBˆ^žŠÛÛ^
+Bˆ[š[X]Jˆ[š]X[˜[YHH˜YÖˆ\™Ù]˜[YHH\›ÝÕÚYÑ›Ø]
+
+Kˆ[š[X][Û”ÜXÈHÙY[ŠŒX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊBˆ
+HÈ˜[YKÈOˆ˜YÖH˜[YHBˆÛ‘[]J
+BˆH[ÙHÂˆ[š[X]Jˆ[š]X[˜[YHH˜YÖˆ\™Ù]˜[YHH‹ˆ[š[X][Û”ÜXÈHÙY[ŠŽX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊBˆ
+HÈ˜[YKÈOˆ˜YÖH˜[YHBˆBˆBˆ
+Bˆ˜ÛÛXš[™YÛXÚØX›JÛÛXÚÈHÛÛXÚËÛ“Û™ÐÛXÚÈHÛ“Û™Ô™\ÜÊKˆÚ\HH›Ý[™YÛÜ›™\”Ú\JM™
+KˆÛÛÜœÈHYˆ
+ÛÛZ[™\ÛÛÜˆOH[
+BˆØ\™Y˜][Ë˜Ø\™ÛÛÜœÊÛÛZ[™\ÛÛÜˆHÛÛZ[™\ÛÛÜŠBˆ[ÙHØ\™Y˜][Ë˜Ø\™ÛÛÜœÊ
+Bˆ
+HÂˆ›ÝÊˆ[ÙYšY\‹™š[X^ÚY
+
+K˜˜XÚÙÜ›Ý[™
+›ÝÕ[
+BˆœY[™ÊÝ\HM™[™HK™ÜHL™›ÝÛHHL™
+Kˆ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[Bˆ
+HÂˆYˆ
+ÚXÚÙY
+HÂˆXÛÛŠXÛÛœË‘š[YÚXÚÐÚ\˜ÛKÛÛ[\ØÜš\[ÛˆH[ˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK[ÙYšY\ˆH[ÙYšY\‹œÚ^™JŒ‹™
+JBˆH[ÙHÂˆ]™T[™ÑÝ
+[™ÊBˆBˆÜXÙ\Š[ÙYšY\‹ÚY
+L™
+JBˆÛÛ[[Š[ÙYšY\‹ÙZYÚ
+YŠJHÂˆYˆ
+ÛÛ™šYË›ØÚÙY
+HÂˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆXÛÛŠXÛÛœË‘š[Y“ØÚËÛÛ[\ØÜš\[ÛˆH[[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK[ÙYšY\ˆH[ÙYšY\‹œÚ^™JLË™
+JBˆÜXÙ\Š[ÙYšY\‹ÚY
+™
+JBˆ›Þ
+[ÙYšY\‹ÙZYÚ
+YŠJHÈX\œ]YYS˜[YJÛÛ™šYË›˜[YKÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙJHBˆBˆH[ÙHÂˆX\œ]YYS˜[YJÛÛ™šYË›˜[YKÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙJBˆBˆ^
+ˆYˆ
+\ÓÜ[•œŠHØÜš\[œÊ“Ü[•”ˆ0­È	ØÛÛ™šYË˜Y™\ÜßN‰ØÛÛ™šYËœÜH‹^[™›Û
+Bˆ[ÙHYˆ
+ÛÛ™šYË›ØÚÙY
+H[››Ý]YÝš[™Ê
+›ØÚÙYØÛÛ™šYÈŠJBˆ[ÙHØÜš\[œÊ‰ØÛÛ™šYË˜Y™\ÜßN‰ØÛÛ™šYËœÜH‹^[™›Û
+KˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHYˆ
+\ÐXÝ]™JHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆX^[™\ÈHKÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Âˆ
+BˆBˆÜXÙ\Š[ÙYšY\‹ÚY
+Ë™
+JBˆ[™ÐÚ\
+[™ÊBˆ[š[X]Yš\ÚXš[]Jˆš\ÚX›HHXÝ[ÛœÓÜ[ˆ	‰ˆXÚXÚÙY	‰ˆ\Ù[XÝ[Û“[ÙKˆ[\ˆH˜YR[ŠÙY[ŠŒŒ
+JH
+È^[™Üš^›Û[JˆÙY[ŠÌX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆ^[™œ›ÛHH[YÛ›Y[‘[™ˆ
+Kˆ^]H˜YSÝ]
+ÙY[ŠML
+JH
+ÈÚš[šÒÜš^›Û[JˆÙY[ŠŒX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆÚš[šÕÝØ\™ÈH[YÛ›Y[‘[™ˆ
+Bˆ
+HÂˆ›ÝÊ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆYˆ
+Z\ÓÜ[•œŠH›ÞÂˆXÛÛŠXÛÛœË‘š[Y”Ú\™KÛÛ[\ØÜš\[ÛˆH
+œÚ\™HŠKˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+Ú\˜ÛTÚ\JK˜ÛXÚØX›HÈÚ\™SY[HHYHKœY[™Ê™
+KœÚ^™JŒK™
+JBˆ›ÜÝÛ“Y[J^[™YHÚ\™SY[KÛ‘\ÛZ\ÜÔ™\]Y\ÝHÈÚ\™SY[HH˜[ÙHJHÂˆYˆ
+XÛÛ™šYË›ØÚÙY
+HÂˆÛÛ\XÝY[R][JXÛÛœË‘š[YÛÛ[ÛÜK
+œÚ\™WØÛ\›Ø\™ŠJHÂˆÚ\™SY[HH˜[ÙBˆÛ\›Ø\™œÙ]^
+[››Ý]YÝš[™ÊÛÛ™šYÔÚ\™KÓ[šÊÛÛ™šYÊJJBˆ[™›ÚYÚYÙ]•Ø\Ý›XZÙU^
+ÛÛ^
+˜ÛÜYYŠK[™›ÚYÚYÙ]•Ø\Ý“S‘ÕÔÒÔ•
+KœÚÝÊ
+BˆBˆÛÛ\XÝY[R][JXÛÛœË‘š[Y”Ú\™K
+œÚ\™WØ\ŠJHÂˆÚ\™SY[HH˜[ÙBˆ˜[Ù[™H[[
+[[PÕSÓ—ÔÑS‘
+K˜\HÂˆ\HH^ÜZ[ˆ‚ˆ]^˜J[[‘VWÕVÛÛ™šYÔÚ\™KÓ[šÊÛÛ™šYÊJBˆBˆÛÛ^œÝ\XÝ]š]J[[˜Ü™X]PÚÛÜÙ\ŠÙ[™ÛÛ™šYË›˜[YJJBˆBˆÛÛ\XÝY[R][JXÛÛœË‘š[Y”\ÛÙL‹
+œ\—ÜÚ\™HŠJHÂˆÚ\™SY[HH˜[ÙBˆ\‘›ÜˆHÛÛ™šYÔÚ\™KÓ[šÊÛÛ™šYÊBˆBˆBˆÛÛ\XÝY[R][JXÛÛœË‘š[Y’[œÙ\š]™Qš[K
+œÚ\™WÙš[HŠJHÂˆÚ\™SY[HH˜[ÙBˆÛ”Ú\™Qš[J
+BˆBˆBˆBˆYˆ
+Z\ÓÜ[•œŠHXÛÛŠˆXÛÛœË‘š[Y“^Y\œËˆÛÛ[\ØÜš\[ÛˆH
+˜ÚZ[—Ý›ÝYÚŠKˆ[HYˆ
+ÛÛ™šYË˜ÚZ[’Yš\Ó›Ý[\J
+JHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+Ú\˜ÛTÚ\JK˜ÛXÚØX›HÈÛÚZ[Š
+HBˆœY[™Ê™
+KœÚ^™JŒK™
+Bˆ
+BˆYˆ
+Z\ÓÜ[•œŠHXÛÛŠXÛÛœË‘š[Y‘Y]ÛÛ[\ØÜš\[ÛˆH
+™Y]ŠKˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+Ú\˜ÛTÚ\JK˜ÛXÚØX›HÈÛ‘Y]
+
+HKœY[™Ê™
+KœÚ^™JŒK™
+JBˆXÛÛŠXÛÛœË‘š[Y‘[]KÛÛ[\ØÜš\[ÛˆH
+™[]HŠKˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YK™\œ›Ü‹ˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+Ú\˜ÛTÚ\JK˜ÛXÚØX›HÈÛ‘[]J
+HKœY[™Ê™
+KœÚ^™JŒK™
+JBˆBˆBˆYˆ
+XÚXÚÙY	‰ˆ\Ù[XÝ[Û“[ÙJHÂˆ›Þ
+[ÙYšY\‹œÚ^™JŽK™
+KÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\ŠHÂˆ[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹[š[X]Yš\ÚXš[]Jˆš\ÚX›HHÝÚ\[™Ëˆ[\ˆH˜YR[ŠÙY[ŠML
+JH
+ÈØØ[R[ŠÙY[ŠN
+K[š]X[ØØ[HHYŠKˆ^]H˜YSÝ]
+ÙY[ŠML
+JH
+ÈØØ[SÝ]
+ÙY[ŠN
+K\™Ù]ØØ[HHYŠBˆ
+HÂˆXÛÛŠˆXÛÛœË‘š[Y‘[]KˆÛÛ[\ØÜš\[ÛˆH
+™[]HŠKˆ[HÛÛÜ‹•Ú]Kˆ[ÙYšY\ˆH[ÙYšY\‹œÚ^™JŒK™
+Bˆ
+BˆBˆ[™›ÚY˜ÛÛ\ÜÙK˜[š[X][Û‹[š[X]Yš\ÚXš[]Jˆš\ÚX›HH\ÝÚ\[™Ëˆ[\ˆH˜YR[ŠÙY[ŠML
+JH
+ÈØØ[R[ŠÙY[ŠN
+K[š]X[ØØ[HHYŠKˆ^]H˜YSÝ]
+ÙY[ŠML
+JH
+ÈØØ[SÝ]
+ÙY[ŠN
+K\™Ù]ØØ[HHYŠBˆ
+HÂˆXÛÛŠˆXÛÛœË‘š[Y“[Ü™U™\ˆÛÛ[\ØÜš\[ÛˆH[ˆ[HYˆ
+XÝ[ÛœÓÜ[ŠHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+Ú\˜ÛTÚ\JBˆ˜ÛXÚØX›HÈÛ•ÙÙÛPXÝ[ÛœÊ
+HBˆœY[™Ê™
+KœÚ^™JŒK™
+Bˆ
+BˆBˆBˆBˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆÙ[XÝ[ÛXÝ[Û˜\ŠˆÛÝ[ˆ[ˆÛÛÜÙNˆ
+
+HOˆ[š]ˆÛÛÜNˆ
+
+HOˆ[š]ˆÛ”Ú\™P\ˆ
+
+HOˆ[š]ˆÛ”Ú\™Qš[Nˆ
+
+HOˆ[š]ˆÛ‘[]Nˆ
+
+HOˆ[š]ŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜\ˆÚ\™SY[HžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆØ\™
+ˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+KˆÚ\HH›Ý[™YÛÜ›™\”Ú\JM‹™
+KˆÛÛÜœÈHØ\™Y˜][Ë˜Ø\™ÛÛÜœÊÛÛZ[™\ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žPÛÛZ[™\ŠBˆ
+HÂˆ›ÝÊˆ[ÙYšY\‹™š[X^ÚY
+
+KœY[™ÊÜš^›Û[HL™™\XØ[HL™
+Kˆ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[Bˆ
+HÂˆXÛÛŠXÛÛœË‘š[YÛÜÙKÛÛ[\ØÜš\[ÛˆH
+˜Ø[˜Ù[ŠKˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”š[X\žPÛÛZ[™\‹ˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+Ú\˜ÛTÚ\JK˜ÛXÚØX›HÈÛÛÜÙJ
+HKœY[™ÊK™
+KœÚ^™J‹™
+JBˆÜXÙ\Š[ÙYšY\‹ÚY
+™
+JBˆ^
+ˆ‰ÛØØ[^™QYÚ]Ê‰ÛÝ[‹[™Ê_H	Ý
+œÙ[XÝYŠ_H‹ˆÝ[HHX]\šX[[YK\ÙÜ˜\K]SYY][KˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”š[X\žPÛÛZ[™\‹ˆ[ÙYšY\ˆH[ÙYšY\‹ÙZYÚ
+YŠBˆ
+Bˆ›ÞÂˆXÛÛŠXÛÛœË‘š[Y”Ú\™KÛÛ[\ØÜš\[ÛˆH
+œÚ\™HŠKˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”š[X\žPÛÛZ[™\‹ˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+Ú\˜ÛTÚ\JK˜ÛXÚØX›HÈÚ\™SY[HHYHKœY[™ÊK™
+KœÚ^™J‹™
+JBˆ›ÜÝÛ“Y[J^[™YHÚ\™SY[KÛ‘\ÛZ\ÜÔ™\]Y\ÝHÈÚ\™SY[HH˜[ÙHJHÂˆÛÛ\XÝY[R][JXÛÛœË‘š[YÛÛ[ÛÜK
+œÚ\™WØÛ\›Ø\™ŠJHÈÚ\™SY[HH˜[ÙNÈÛÛÜJ
+HBˆÛÛ\XÝY[R][JXÛÛœË‘š[Y”Ú\™K
+œÚ\™WØ\ŠJHÈÚ\™SY[HH˜[ÙNÈÛ”Ú\™P\
+
+HBˆÛÛ\XÝY[R][JXÛÛœË‘š[Y’[œÙ\š]™Qš[K
+œÚ\™WÙš[HŠJHÈÚ\™SY[HH˜[ÙNÈÛ”Ú\™Qš[J
+HBˆBˆBˆXÛÛŠXÛÛœË‘š[Y‘[]KÛÛ[\ØÜš\[ÛˆH
+™[]HŠKˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YK™\œ›Ü‹ˆ[ÙYšY\ˆH[ÙYšY\‹˜Û\
+Ú\˜ÛTÚ\JK˜ÛXÚØX›HÈÛ‘[]J
+HKœY[™ÊK™
+KœÚ^™J‹™
+JBˆBˆBŸB‚œš]˜]H˜[\œÚX[”˜[™ÙHH™YÙ^
+–×LŒWL‘‘—LÍLWLÍÑ—QLWQ‘‘—Q‘MÌWQ‘Q‘—HŠB‚š[\›˜[[ˆØÜš\›Û
+^ˆÝš[™ÊNˆ›Û˜[Z[HBˆYˆ
+\œÚX[”˜[™ÙK˜ÛÛZ[œÓX]Ú[Š^
+JH˜^š\‘›Û[ÙH^[™›Û‚œš]˜]H[ˆ\Ô\œÚX[Ú\ŠÎˆÚ\ŠHBˆÈ[ˆ	×LŒ	Ë‹‰×L‘‘‰ÈÈ[ˆ	×LÍL	Ë‹‰×LÍÑ‰ÈˆÈ[ˆ	×QL	Ë‹‰×Q‘‘‰ÈÈ[ˆ	×Q‘MÌ	Ë‹‰×Q‘Q‘‰Â‚œš]˜]H[ˆ^žŠÛÛ^ˆÛÛ^
+HÂˆ[™›ÚY][“ÙË™
+‘ÚZ˜\’\XÈ‹˜^žŠ
+HØ[YŠBˆ[Ø]Ú[™ÈÂˆ˜[šXœ˜]ÜˆHYˆ
+[™›ÚY›ÜËZ[•‘T”ÒSÓ‹”Ñ×ÒS•H[™›ÚY›ÜËZ[•‘T”ÒSÓ—ÐÓÑTË”ÊHÂˆ
+ÛÛ^™Ù]Þ\Ý[TÙ\šXÙJÛÛ^•’P”UÔ—ÓPSQÑT—ÔÑT•’PÑJBˆ\È[™›ÚY›ÜË•šXœ˜]Ü“X[˜YÙ\ŠK™Y˜][šXœ˜]Ü‚ˆH[ÙHÂˆÝ\™\ÜÊ‘T‘PÐUSÓˆŠBˆÛÛ^™Ù]Þ\Ý[TÙ\šXÙJÛÛ^•’P”UÔ—ÔÑT•’PÑJH\È[™›ÚY›ÜË•šXœ˜]Ü‚ˆBˆYˆ
+]šXœ˜]Ü‹š\ÕšXœ˜]ÜŠ
+JHÂˆ[™›ÚY][“ÙËÊ‘ÚZ˜\’\XÈ‹™]šXÙH™\ÜÈ›ÈšXœ˜]ÜˆŠBˆ™]\›‚ˆBˆ˜[[\]YHHYˆ
+šXœ˜]Ü‹š\Ð[\]YPÛÛ›Û
+
+JHMBˆ[ÙH[™›ÚY›ÜË•šXœ˜][Û‘Y™™XÝ‘QUSÐSTUQBˆ˜[Y™™XÝH[™›ÚY›ÜË•šXœ˜][Û‘Y™™XÝ˜Ü™X]SÛ™TÚÝ
+L[\]YJBˆšXœ˜]Ü‹˜Ø[˜Ù[
+
+BˆYˆ
+[™›ÚY›ÜËZ[•‘T”ÒSÓ‹”Ñ×ÒS•H[™›ÚY›ÜËZ[•‘T”ÒSÓ—ÐÓÑTË•TSRTÕJHÂˆšXœ˜]Ü‹šXœ˜]JˆY™™XÝˆ[™›ÚY›ÜË•šXœ˜][Û]šX]\Ë˜Ü™X]Q›Ü•\ØYÙJˆ[™›ÚY›ÜË•šXœ˜][Û]šX]\Ë•TÐQÑWÒT‘ÐT‘WÑ‘QQPÒÂˆ
+Bˆ
+BˆH[ÙHÂˆÝ\™\ÜÊ‘T‘PÐUSÓˆŠBˆšXœ˜]Ü‹šXœ˜]JˆY™™XÝˆ[™›ÚY›YYXK]Y[Ð]šX]\ËZ[\Š
+BˆœÙ]\ØYÙJ[™›ÚY›YYXK]Y[Ð]šX]\Ë•TÐQÑWÐTÔÒTÕSÑWÔÓÓ’Q’PÐUSÓŠBˆœÙ]ÛÛ[\J[™›ÚY›YYXK]Y[Ð]šX]\ËÓÓ•S•ÕTWÔÓÓ’Q’PÐUSÓŠBˆ˜Z[
+
+Bˆ
+BˆBˆBŸB‚ÛÛ\ÜØX›Bš[\›˜[[ˆ[Û›Ñ›Û
+
+Nˆ›Û˜[Z[HBˆYˆ
+ØØ[[™Ë˜Ý\œ™[OH[™Ë‘JH˜^š\‘›Û[ÙH[Û›Ñ›Û‚ÛÛ\ÜØX›Bš[\›˜[[ˆ[Û›Ó][‘›Û
+
+Nˆ›Û˜[Z[HBˆYˆ
+ØØ[[™Ë˜Ý\œ™[OH[™Ë‘JH^[™›Û[ÙH[Û›Ñ›Û‚ÛÛ\ÜØX›Bš[\›˜[[ˆ[Û›Õ^
+^ˆÝš[™ÊNˆ[››Ý]YÝš[™ÈBˆØÜš\[œÊ^[Û›Ó][‘›Û
+
+JB‚ÛÛ\ÜØX›Bš[\›˜[[ˆXØÙ[^
+^ˆÝš[™Ë˜\˜\™È\›\ÎˆÝš[™ÊNˆ[››Ý]YÝš[™ÈÂˆ˜[˜\ÙHHZ^Y^
+^
+Bˆ˜[XØÙ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ™]\›ˆZ[[››Ý]YÝš[™ÈÂˆ\[™
+˜\ÙJBˆ›Üˆ
+\›H[ˆ\›\ÊHÂˆYˆ
+\›Kš\Ñ[\J
+JHÛÛ[YBˆ˜\ˆHH^š[™^ÙŠ\›JBˆÚ[H
+HH
+HÂˆYÝ[JˆÜ[”Ý[JÛÛÜˆHXØÙ[›ÛÙZYÚH›ÛÙZYÚ”Ù[ZP›Û
+KˆKˆH
+È\›K›[™Ýˆ
+BˆHH^š[™^ÙŠ\›KH
+È\›K›[™Ý
+BˆBˆBˆBŸB‚ÛÛ\ÜØX›Bš[\›˜[[ˆZ^Y^
+^ˆÝš[™ÊNˆ[››Ý]YÝš[™ÈBˆYˆ
+ØØ[[™Ë˜Ý\œ™[OH[™Ë‘JHØÜš\[œÊ^^[™›Û
+H[ÙH[››Ý]YÝš[™Ê^
+B‚œš]˜]H[ˆØÜš\ÙŠÎˆÚ\ŠNˆ›ÛÛX[ÈHÚ[ˆÂˆÈ[ˆ	×L‘Œ	Ë‹‰×L‘ŽIÈOˆYBˆÈ[ˆ	×LŒ	Ë‹‰×LŽIÈOˆYBˆËš\Ó]\Š
+HOˆ\Ô\œÚX[Ú\ŠÊBˆ[ÙHOˆ[ŸB‚š[\›˜[[ˆØÜš\[œÊ^ˆÝš[™Ë][Žˆ›Û˜[Z[JNˆ[››Ý]YÝš[™ÈHZ[[››Ý]YÝš[™ÈÂˆYˆ
+^š\Ñ[\J
+JH™]\›Z[[››Ý]YÝš[™Âˆ˜\ˆ\œÚX[ˆH^™š\œÝ›Ý[Ù“Ü“[ÈØÜš\ÙŠ]
+HHÎˆ˜[ÙBˆ˜\ˆÝ\Hˆ›Üˆ
+H[ˆ^š[™XÙ\ÊHÂˆ˜[HØÜš\ÙŠ^ÚWJHÎˆÛÛ[YBˆYˆ
+OH\œÚX[ŠHÂˆÚ]Ý[JÜ[”Ý[J›Û˜[Z[HHYˆ
+\œÚX[ŠH˜^š\‘›Û[ÙH][ŠJHÂˆ\[™
+^œÝXœÝš[™ÊÝ\JJBˆBˆÝ\HBˆ\œÚX[ˆHˆBˆBˆÚ]Ý[JÜ[”Ý[J›Û˜[Z[HHYˆ
+\œÚX[ŠH˜^š\‘›Û[ÙH][ŠJHÂˆ\[™
+^œÝXœÝš[™ÊÝ\
+JBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆX\œ]YYS˜[YJ^ˆÝš[™ËÝ[Nˆ^Ý[OÈH[ÛÛÜŽˆÛÛÜˆHÛÛÜ‹•[œÜXÚYšYY
+HÂˆ˜\ˆÛÛZ[™\•ÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ
+HBˆ˜\ˆ^ÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ
+HBˆ˜[ØÜ›ÛH™[Y[X™\ˆÈ[š[X]X›JŠHBˆ˜[[œÚ]HHØØ[[œÚ]K˜Ý\œ™[ˆ˜[ˆHØØ[^[Ý]\™XÝ[Û‹˜Ý\œ™[OH^[Ý]\™XÝ[Û‹“‚ˆ˜[ÜYYHÚ]
+[œÚ]JHÈÌ™Ô
+
+HBˆ˜[Ý™\™›ÝÈH
+^ÈHÛÛZ[™\•ÊK˜ÛÙ\˜ÙP]X\Ý
+
+B‚ˆ][˜ÚYY™™XÝ
+Ý™\™›ÝË^ŠHÂˆYˆ
+Ý™\™›ÝÈH
+HÈØÜ›ÛœÛ˜\ÊŠNÈ™]\›][˜ÚYY™™XÝBˆ˜[\™Ù]HYˆ
+ŠH[Ý™\™›ÝËÑ›Ø]
+
+H[ÙHÝ™\™›ÝËÑ›Ø]
+
+Bˆ˜[\ˆH
+
+Ý™\™›ÝÈÈÜYY
+H
+ˆLŠKÒ[
+
+K˜ÛÙ\˜ÙR[ŠÌÌ
+BˆÚ[H
+YJHÂˆØÜ›ÛœÛ˜\ÊŠBˆ[^JML
+BˆØÜ›Û˜[š[X]UÊ\™Ù]ÙY[Š\‹X\Ú[™ÈH[™X\‘X\Ú[™ÊJBˆ[^JŒ
+BˆØÜ›Û˜[š[X]UÊ‹ÙY[Š\‹X\Ú[™ÈH[™X\‘X\Ú[™ÊJBˆ[^JML
+BˆBˆB‚ˆ›Þ
+ˆ[ÙYšY\‹™š[X^ÚY
+
+K˜Û\Ð›Ý[™Ê
+K›Û”Ú^™PÚ[™ÙYÈÛÛZ[™\•ÈH]ÚYBˆ
+HÂˆ^
+ˆ›YÔ[œÊ^^[™›Û
+Kˆ[›[™PÛÛ[H›YÒ[›[™PÛÛ[
+^Ý[OË™›ÛÚ^™HÎˆMœÜ
+KˆÝ[HHÝ[HÎˆX]\šX[[YK\ÙÜ˜\K]TÛX[ˆÛÛÜˆHÛÛÜ‹ˆ›ÛÚ^™HHYˆ
+Ý[HOH[
+HMœÜ[ÙH^[š]•[œÜXÚYšYYˆX^[™\ÈHKˆÛÙÜ˜\H˜[ÙKˆÝ™\™›ÝÈH^Ý™\™›ÝË•š\ÚX›Kˆ[ÙYšY\ˆH[ÙYšY\‚ˆÜ˜\ÛÛ[ÚY
+[YÛˆH[YÛ›Y[”Ý\[˜›Ý[™YHYJBˆ›Û”Ú^™PÚ[™ÙYÈ^ÈH]ÚYBˆ™Ü˜\XÜÓ^Y\ˆÈ˜[œÛ][Û–HØÜ›Û˜[YHBˆ
+BˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ]™T[™ÑÝ
+[™Îˆ[™Ô™\Ý[ÊHÂˆ˜[ÛÛÜˆH[™ÐÛÛÜŠ[™ÊBˆ˜[˜[œÚ][ÛˆH™[Y[X™\’[™š[š]U˜[œÚ][ÛŠX™[Hœ[™ÑÝŠBˆ˜[š\HžH˜[œÚ][Û‹˜[š[X]Q›Ø]
+ˆ[š]X[˜[YHH‹ˆ\™Ù]˜[YHHY‹ˆ[š[X][Û”ÜXÈH[™š[š]T™\X]X›JÙY[ŠMÌX\Ú[™ÈH[™X\‘X\Ú[™ÊJKˆX™[Hœš\H‚ˆ
+Bˆ›Þ
+[ÙYšY\‹œÚ^™J™
+KÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\ŠHÂˆ›Þ
+ˆ[ÙYšY\‚ˆœÚ^™J™
+Bˆ™Ü˜\XÜÓ^Y\ˆÂˆ˜[ØÈHˆ
+Èš\H
+ˆŒ‚ˆØØ[VHØÎÈØØ[VHHØÂˆ[HH
+YˆHš\JH
+ˆ™‚ˆBˆ˜˜XÚÙÜ›Ý[™
+œ\Úœ˜YX[Ü˜YY[
+\ÝÙŠÛÛÜ‹ÛÛÜ‹•˜[œÜ\™[
+JKÚ\˜ÛTÚ\JBˆ
+Bˆ›Þ
+ˆ[ÙYšY\‚ˆœÚ^™JM‹™
+Bˆ˜˜XÚÙÜ›Ý[™
+œ\Úœ˜YX[Ü˜YY[
+\ÝÙŠÛÛÜ‹˜ÛÜJ[HHŠKÛÛÜ‹•˜[œÜ\™[
+JKÚ\˜ÛTÚ\JBˆ
+Bˆ›Þ
+[ÙYšY\‹œÚ^™JK™
+K˜Û\
+Ú\˜ÛTÚ\JK˜˜XÚÙÜ›Ý[™
+ÛÛÜŠJBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ[™ÐÚ\
+[™Îˆ[™Ô™\Ý[ÊHÂˆYˆ
+[™ÈOH[
+H™]\›‚ˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜[\™Ù]H[™ÐÛÛÜŠ[™ÊBˆ˜[ÛÛÜˆžH[š[X]PÛÛÜ\ÔÝ]J\™Ù]ÙY[Š
+KX™[Hœ[™ÐÚ\[ŠBˆ˜[^HÚ[ˆ
+[™ÊHÂˆ\È[™Ô™\Ý[“ÚÈOˆ‰ÛØØ[^™QYÚ]Ê‰Ü[™Ë›\ßH‹[™Ê_H	Ý
+[š]Û\ÈŠ_H‚ˆ[™Ô™\Ý[•\Ý[™ÈOˆ
+\Ý[™ÈŠBˆ[ÙHOˆ
+™[^WÙ˜Z[YŠBˆBˆ˜\ˆÚÝÛˆžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠ˜[ÙJHBˆ][˜ÚYY™™XÝ
+[š]
+HÈÚÝÛˆHYHBˆ˜[\X\ˆžH[š[X]Q›Ø]\ÔÝ]JˆYˆ
+ÚÝÛŠHYˆ[ÙH‹ˆÙY[ŠÌŒX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[Hœ[™ÐÚ\\X\ˆ‚ˆ
+Bˆ›Þ
+ˆ[ÙYšY\‹™Ü˜\XÜÓ^Y\ˆÂˆ[HH\X\‚ˆ˜[ØÈHŽYˆ
+ÈŒMYˆ
+ˆ\X\‚ˆØØ[VHØÂˆØØ[VHHØÂˆBˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\J™
+JBˆ˜˜XÚÙÜ›Ý[™
+ÛÛÜ‹˜ÛÜJ[HHŒMŠJBˆ˜›Ü™\ŠK™ÛÛÜ‹˜ÛÜJ[HH™ŠK›Ý[™YÛÜ›™\”Ú\J™
+JBˆœY[™ÊÜš^›Û[HË™™\XØ[H™
+Bˆ˜[š[X]PÛÛ[Ú^™JÙY[ŠÌŒX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊJBˆ
+HÂˆÜ›ÜÜÙ˜YJ\™Ù]Ý]HH^[š[X][Û”ÜXÈHÙY[ŠÌ
+KX™[Hœ[™ÐÚ\^ŠHÈÈO‚ˆ^
+ˆËˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[ÛX[ˆ›Û˜[Z[HHYˆ
+[™ÈOH[™Ë‘JH˜^š\‘›Û[ÙH^[™›Ûˆ›ÛÙZYÚH›ÛÙZYÚ”Ù[ZP›ÛˆÛÛÜˆHÛÛÜ‹ˆX^[™\ÈHBˆ
+BˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ[™ÐÛÛÜŠ[™Îˆ[™Ô™\Ý[ÊNˆÛÛÜˆHÚ[ˆ
+[™ÊHÂˆ\È[™Ô™\Ý[“ÚÈOˆÚ[ˆÂˆ[™Ë›\ÈHLOˆÛÛÜŠ‘Œ‘NQM
+Bˆ[™Ë›\ÈHŒOˆÛÛÜŠ‘‘NQLŠBˆ[ÙHOˆÛÛÜŠ‘‘MLÎLÍJBˆBˆ[™Ô™\Ý[‘˜Z[YOˆYˆ
+X]\šX[[YK˜ÛÛÜ”ØÚ[YK˜˜XÚÙÜ›Ý[™›[Z[˜[˜ÙJ
+HYŠBˆÛÛÜŠ‘‘‘‘ŠH[ÙHÛÛÜŠ‘MMJBˆ[ÙHOˆX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ[™Ð˜YÙJ[™Îˆ[™Ô™\Ý[ÊHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆÚ[ˆ
+[™ÊHÂˆ\È[™Ô™\Ý[“ÚÈOˆ^
+‰ÛØØ[^™QYÚ]Ê‰Ü[™Ë›\ßH‹[™Ê_H	Ý
+[š]Û\ÈŠ_H‹Ý[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[›Û˜[Z[HHYˆ
+[™ÈOH[™Ë‘JH˜^š\‘›Û[ÙH^[™›ÛÛÛÜˆH[™ÐÛÛÜŠ[™ÊJBˆ[™Ô™\Ý[•\Ý[™ÈOˆ^
+¸ )ˆ‹Ý[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[
+Bˆ[™Ô™\Ý[‘˜Z[YOˆ^
+
+™[^WÙ˜Z[YŠKÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ÛÛÜˆH[™ÐÛÛÜŠ[™ÊJBˆ[OˆßBˆBŸB‚œš]˜]H]HÛ\ÜÈ\[žJˆ˜[ÙÎˆÝš[™Ëˆ˜[X™[ˆÝš[™Ëˆ˜[XÛÛŽˆ[XYÙPš]X\ŠB‚œš]˜]H[ˆ\\Ý[[X\žJ[ÙNˆ\\[ÙKÛÝ[ˆ[[™Îˆ[™ÊNˆÝš[™ÈHÚ[ˆ
+[ÙJHÂˆ\\[ÙK“Ñ‘ˆOˆÝš[™ÜË™Ù]
+[™Ëœ\—Ø\ÛÙ™ˆŠBˆ\\[ÙKSÕÓTÕOˆØØ[^™QYÚ]Ê‰ÔÝš[™ÜË™Ù]
+[™Ëœ\—Ø\Ø[ÝÈŠ_H0­È	ÛÝ[‹[™ÊBˆ\\[ÙK“ÐÒÓTÕOˆØØ[^™QYÚ]Ê‰ÔÝš[™ÜË™Ù]
+[™Ëœ\—Ø\Ø›ØÚÈŠ_H0­È	ÛÝ[‹[™ÊBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ\›ÞTØÜ™Y[ŠˆÝÜ™NˆÛÛ™šYÔÝÜ™Kˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‚ŠHÂˆ˜[HÝš[™ÜÑ›Š
+Bˆ˜[[™ÈHØØ[[™Ë˜Ý\œ™[ˆ˜[ÛÛ^HØØ[ÛÛ^˜Ý\œ™[ˆ˜[›ØÝ\ÈHØØ[›ØÝ\ÓX[˜YÙ\‹˜Ý\œ™[ˆ˜[[ÙHžHÝÜ™Kœ\\[ÙK˜ÛÛXÝ\ÔÝ]J
+Bˆ˜[Ù[XÝYžHÝÜ™Kœ\\\Ý˜ÛÛXÝ\ÔÝ]J
+B‚ˆ˜\ˆ\ÈžH™[Y[X™\ˆÈ]]X›TÝ]SÙ\Ý\[žOÏŠ[
+HBˆ˜\ˆ]Y\žHžH™[Y[X™\ˆÈ]]X›TÝ]SÙŠˆŠHB‚ˆ][˜ÚYY™™XÝ
+[š]
+HÂˆ\ÈHÚ]ÛÛ^
+\Ü]Ú\œË’SÊHÂˆ˜[HHÛÛ^œXÚØYÙSX[˜YÙ\‚ˆK™Ù][œÝ[Y\XØ][ÛœÊXÚØYÙSX[˜YÙ\‹‘ÑUÓQUWÑUJBˆ˜\ÔÙ\]Y[˜ÙJ
+Bˆ™š[\ˆÈK™Ù]][˜Ú[[›Ü”XÚØYÙJ]œXÚØYÙS˜[YJHOH[Bˆ™š[\ˆÈ]œXÚØYÙS˜[YHOHÛÛ^œXÚØYÙS˜[YHBˆ›X\ÈZHO‚ˆ\[žJˆÙÈHZKœXÚØYÙS˜[YKˆX™[H[Ø]Ú[™ÈÈK™Ù]\XØ][Û“X™[
+ZJKÔÝš[™Ê
+HBˆ™Ù]Ü‘Y˜][
+ZKœXÚØYÙS˜[YJKˆXÛÛˆH[Ø]Ú[™ÈÂˆK™Ù]\XØ][Û’XÛÛŠZJKÐš]X\
+M‹MŠK˜\Ò[XYÙPš]X\
+
+BˆK™Ù]Ü‘[ÙHÂˆ[™›ÚY™Ü˜\XÜËš]X\ˆ˜Ü™X]Pš]X\
+KK[™›ÚY™Ü˜\XÜËš]X\ÛÛ™šYËT‘Ð—Î
+Bˆ˜\Ò[XYÙPš]X\
+
+BˆBˆ
+BˆBˆœÛÜYžHÈ]›X™[›ÝÙ\˜Ø\ÙJ
+HBˆÓ\Ý
+
+BˆBˆB‚ˆÛÛ[[Šˆ[ÙYšY\‹™š[X^Ú^™J
+KœY[™ÊM‹™
+Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJL‹™
+Bˆ
+HÂˆ›ÝÊˆ[ÙYšY\‹™š[X^ÚY
+
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JM‹™
+JBˆ˜˜XÚÙÜ›Ý[™
+X]\šX[[YK˜ÛÛÜ”ØÚ[YKœÙXÛÛ™\žPÛÛZ[™\‹˜ÛÜJ[HHMYŠJBˆ˜›Ü™\ŠK™X]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK˜ÛÜJ[HHŒŽŠK›Ý[™YÛÜ›™\”Ú\JM‹™
+JBˆœY[™Ê™
+KˆÜš^›Û[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ™
+Bˆ
+HÂˆ\ÝÙŠˆ\\[ÙK“Ñ‘ˆÈ
+œ\—Ø\ÛÙ™ˆŠKˆ\\[ÙKSÕÓTÕÈ
+œ\—Ø\Ø[ÝÈŠKˆ\\[ÙK“ÐÒÓTÕÈ
+œ\—Ø\Ø›ØÚÈŠBˆ
+K™›Ü‘XXÚÈ
+˜[YKX™[
+HO‚ˆ[ÙTÙYÛY[
+ˆX™[HX™[ˆXÝ]™HH[ÙHOH˜[YKˆÛÛXÚÈHÈÝÜ™KœÙ]\\[ÙJ˜[YJHKˆ[ÙYšY\ˆH[ÙYšY\‹ÙZYÚ
+YŠBˆ
+BˆBˆB‚ˆYˆ
+[ÙHOH\\[ÙK“Ñ‘ŠHÂˆ›Þ
+[ÙYšY\‹™š[X^ÚY
+
+KÙZYÚ
+YŠKÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\ŠHÂˆÛÛ[[ŠˆÜš^›Û[[YÛ›Y[H[YÛ›Y[Ù[\’Üš^›Û[Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJL‹™
+Bˆ
+HÂˆ›Þ
+ˆ[ÙYšY\‹œÚ^™JN™
+K˜Û\
+›Ý[™YÛÜ›™\”Ú\JN™
+JBˆ˜˜XÚÙÜ›Ý[™
+X]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žK˜ÛÜJ[HHŒMŠJKˆÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\‚ˆ
+HÂˆXÛÛŠˆXÛÛœË‘š[Y\ËˆÛÛ[\ØÜš\[ÛˆH[ˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žKˆ[ÙYšY\ˆH[ÙYšY\‹œÚ^™J‹™
+Bˆ
+BˆBˆ^
+ˆ
+œ\—Ø\ÛÙ™—Ú[ŠKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ^[YÛˆH^[YÛ‹Ù[\‚ˆ
+BˆBˆBˆH[ÙHÂˆÝ][™Y^šY[
+ˆ˜[YHH]Y\žKˆÛ•˜[YPÚ[™ÙHHÈ]Y\žHH]KˆX™[HÈ^
+
+œÙX\˜ÚØ\ÈŠJHKˆÚ[™ÛS[™HHYKˆXY[™ÒXÛÛˆHÂˆXÛÛŠˆXÛÛœË‘š[Y”ÙX\˜ÚˆÛÛ[\ØÜš\[ÛˆH[ˆ[HX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ
+BˆKˆ˜Z[[™ÒXÛÛˆHÂˆYˆ
+]Y\žKš\Ó›Ý[\J
+JHÂˆXÛÛŠˆXÛÛœË‘š[YÛÜÙKˆÛÛ[\ØÜš\[ÛˆH[ˆ[ÙYšY\ˆH[ÙYšY\‹˜ÛXÚØX›HÈ]Y\žHHˆŽÈ›ØÝ\Ë˜ÛX\‘›ØÝ\Ê
+HBˆ
+BˆBˆKˆÙ^X›Ø\™Ü[ÛœÈHÙ^X›Ø\™Ü[ÛœÊ[YPXÝ[ÛˆH[YPXÝ[Û‹‘Û™JKˆÙ^X›Ø\™XÝ[ÛœÈHÙ^X›Ø\™XÝ[ÛœÊÛ‘Û™HHÈ›ØÝ\Ë˜ÛX\‘›ØÝ\Ê
+HJKˆÚ\HH›Ý[™YÛÜ›™\”Ú\JM‹™
+Kˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+Bˆ
+B‚ˆ˜[\ÝH\ÂˆYˆ
+\ÝOH[
+HÂˆ›Þ
+[ÙYšY\‹™š[X^ÚY
+
+KÙZYÚ
+YŠKÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\ŠHÂˆÛÛ[[ŠˆÜš^›Û[[YÛ›Y[H[YÛ›Y[Ù[\’Üš^›Û[Kˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJL‹™
+Bˆ
+HÂˆÚ\˜Ý[\”›ÙÜ™\ÜÒ[™XØ]ÜŠÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žJBˆ^
+ˆ
+›ØY[™×Ø\ÈŠKˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙTÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ
+BˆBˆBˆH[ÙHÂˆ˜[š[\™YH™[Y[X™\Š\Ý]Y\žJHÂˆYˆ
+]Y\žKš\Ð›[šÊ
+JH\Ýˆ[ÙH\Ý™š[\ˆÈ]›X™[˜ÛÛZ[œÊ]Y\žKYJH]œÙË˜ÛÛZ[œÊ]Y\žKYJHBˆBˆ›ÝÊ[ÙYšY\‹™š[X^ÚY
+
+K™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[JHÂˆ^
+ˆØØ[^™QYÚ]Ê‰Ùš[\™YœÚ^™_H‹[™ÊKˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[YY][Kˆ›Û˜[Z[HHYˆ
+[™ÈOH[™Ë‘JH˜^š\‘›Û[ÙH^[™›Ûˆ›ÛÙZYÚH›ÛÙZYÚ”Ù[ZP›ÛˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ
+BˆÜXÙ\Š[ÙYšY\‹ÙZYÚ
+YŠJBˆ^
+ˆØØ[^™QYÚ]Ê‰ÜÙ[XÝYœÚ^™_H‹[™ÊH
+Èˆˆ
+È
+œÙ[XÝYŠKˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[YY][KˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ
+BˆBˆ^žPÛÛ[[Šˆ[ÙYšY\ˆH[ÙYšY\‹™š[X^ÚY
+
+KÙZYÚ
+YŠKˆ™\XØ[\œ˜[™Ù[Y[H\œ˜[™Ù[Y[œÜXÙYžJ™
+Bˆ
+HÂˆ][\Êš[\™YÙ^HHÈ]œÙÈJHÈ\O‚ˆ˜[ÚXÚÙYH\œÙÈ[ˆÙ[XÝYˆ˜[[žH[š[X]PÛÛÜ\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+ÚXÚÙY
+HX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ[ÙHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ[š[X][Û”ÜXÈHÙY[ŠÌX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[H˜\›ÝÕ[‚ˆ
+Bˆ˜[š[žH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+ÚXÚÙY
+HYˆ[ÙH‹ˆ[š[X][Û”ÜXÈHÙY[ŠÌX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[H˜\›ÝÑš[‚ˆ
+Bˆ›ÝÊˆ[ÙYšY\‹™š[X^ÚY
+
+Bˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JM‹™
+JBˆ˜˜XÚÙÜ›Ý[™
+[˜ÛÜJ[HHŒYˆ
+ÈŒYˆ
+ˆš[
+JBˆ˜›Ü™\ŠˆK™ˆ[˜ÛÜJ[HHŒM™ˆ
+ÈŒÍˆ
+ˆš[
+Kˆ›Ý[™YÛÜ›™\”Ú\JM‹™
+Bˆ
+Bˆ˜ÛXÚØX›HÈÝÜ™KÙÙÛT\\
+\œÙÊHBˆ˜[š[X]R][J
+BˆœY[™ÊÜš^›Û[HL‹™™\XØ[HL™
+Kˆ™\XØ[[YÛ›Y[H[YÛ›Y[Ù[\•™\XØ[Bˆ
+HÂˆ[XYÙJˆš]X\H\šXÛÛ‹ˆÛÛ[\ØÜš\[ÛˆH[ˆ[ÙYšY\ˆH[ÙYšY\‹œÚ^™JÎ™
+K˜Û\
+›Ý[™YÛÜ›™\”Ú\JLK™
+JBˆ
+BˆÜXÙ\Š[ÙYšY\‹ÚY
+L‹™
+JBˆÛÛ[[Š[ÙYšY\‹ÙZYÚ
+YŠJHÂˆ^
+ˆ\›X™[ˆÝ[HHX]\šX[[YK\ÙÜ˜\K˜›ÙSYY][Kˆ›Û˜[Z[HHØÜš\›Û
+\›X™[
+KˆX^[™\ÈHKˆÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Âˆ
+Bˆ^
+ˆ\œÙËˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[ÛX[ˆÛÛÜˆHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆX^[™\ÈHKˆÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Âˆ
+BˆBˆÜXÙ\Š[ÙYšY\‹ÚY
+L™
+JBˆÛ[ÛÝÚXÚØ›Þ
+ÚXÚÙYHÚXÚÙY
+BˆBˆBˆBˆBˆBˆBŸB‚ÛÛ\ÜØX›Bœš]˜]H[ˆ[ÙTÙYÛY[
+ˆX™[ˆÝš[™ËˆXÝ]™Nˆ›ÛÛX[‹ˆÛÛXÚÎˆ
+
+HOˆ[š]ˆ[ÙYšY\Žˆ[ÙYšY\ˆH[ÙYšY\‚ŠHÂˆ˜[š[žH[š[X]Q›Ø]\ÔÝ]Jˆ\™Ù]˜[YHHYˆ
+XÝ]™JHYˆ[ÙH‹ˆ[š[X][Û”ÜXÈHÙY[ŠÌŒX\Ú[™ÈH˜\ÝÝ]ÛÝÒ[‘X\Ú[™ÊKˆX™[H›[ÙTÙYÑš[‚ˆ
+Bˆ˜[š[X\žHHX]\šX[[YK˜ÛÛÜ”ØÚ[YKœš[X\žBˆ˜[YHHX]\šX[[YK˜ÛÛÜ”ØÚ[YK›Û”Ý\™˜XÙU˜\šX[ˆ›Þ
+ˆ[ÙYšY\‚ˆ˜Û\
+›Ý[™YÛÜ›™\”Ú\JLË™
+JBˆ˜˜XÚÙÜ›Ý[™
+š[X\žK˜ÛÜJ[HHŒŒˆ
+ˆš[
+JBˆ˜ÛXÚØX›HÈÛÛXÚÊ
+HBˆœY[™Ê™\XØ[HL™
+KˆÛÛ[[YÛ›Y[H[YÛ›Y[Ù[\‚ˆ
+HÂˆ^
+ˆX™[ˆÝ[HHX]\šX[[YK\ÙÜ˜\K›X™[\™ÙKˆ›ÛÙZYÚHYˆ
+XÝ]™JH›ÛÙZYÚ›Û[ÙH›ÛÙZYÚ“›Ü›X[ˆÛÛÜˆH\œ
+YKš[X\žKš[
+KˆX^[™\ÈHKˆÝ™\™›ÝÈH^Ý™\™›ÝË‘[\Ú\Âˆ
+BˆBŸB

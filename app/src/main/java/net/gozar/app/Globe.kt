@@ -426,20 +426,24 @@ fun EarthSection(modifier: Modifier = Modifier) {
 
     val spinY = remember { Animatable(0f) }
     val tiltX = remember { Animatable(0f) }
-    var firstFly by remember { mutableStateOf(true) }
     LaunchedEffect(geo.location) {
         if (!hasLocation) return@LaunchedEffect
         val targetSpin = nearestAngle(-Math.toRadians(loc.lon).toFloat(), spinY.value)
         val targetTilt = Math.toRadians(loc.lat).toFloat().coerceIn(-1.35f, 1.35f)
-        if (firstFly) {
-            firstFly = false
-            spinY.snapTo(targetSpin)
-            tiltX.snapTo(targetTilt)
-        } else {
-            coroutineScope {
-                launch { spinY.animateTo(targetSpin, tween(550, easing = FastOutSlowInEasing)) }
-                launch { tiltX.animateTo(targetTilt, tween(550, easing = FastOutSlowInEasing)) }
-            }
+        coroutineScope {
+            launch { spinY.animateTo(targetSpin, tween(850, easing = FastOutSlowInEasing)) }
+            launch { tiltX.animateTo(targetTilt, tween(850, easing = FastOutSlowInEasing)) }
+        }
+    }
+    // Keep the globe visibly moving while the real exit IP is being resolved.
+    // This effect is cancelled before the country fly-to animation starts.
+    LaunchedEffect(hasLocation, geo.loading, conn) {
+        if (hasLocation || !(geo.loading || conn == Connection.CONNECTING || conn == Connection.CONNECTED)) {
+            return@LaunchedEffect
+        }
+        while (true) {
+            spinY.snapTo(spinY.value + 0.0105f)
+            delay(32)
         }
     }
     val inf = rememberInfiniteTransition(label = "globe")
@@ -449,7 +453,9 @@ fun EarthSection(modifier: Modifier = Modifier) {
         label = "ringT"
     )
 
-    var appeared by remember { mutableStateOf(false) }
+    // Start opaque. A lightweight sphere is drawn until the first rasterized
+    // frame is ready, so a cold render can never leave a blank hole.
+    var appeared by remember { mutableStateOf(true) }
     val introAlpha by animateFloatAsState(if (appeared) 1f else 0f, tween(550), label = "introA")
     val introScale by animateFloatAsState(if (appeared) 1f else 0.96f, tween(550, easing = FastOutSlowInEasing), label = "introS")
 
@@ -534,7 +540,6 @@ fun EarthSection(modifier: Modifier = Modifier) {
                         front[0] = back
                         frameImage = img[back]
                         renderedSpin = s; renderedTilt = t
-                        appeared = true
                     }
             }
 
@@ -561,6 +566,11 @@ fun EarthSection(modifier: Modifier = Modifier) {
                             }
                         }
                 ) {
+                    val placeholderAlpha by animateFloatAsState(
+                        targetValue = if (renderedSpin.isNaN()) 1f else 0f,
+                        animationSpec = tween(220),
+                        label = "globePlaceholder"
+                    )
                     Canvas(Modifier.fillMaxSize()) {
                         val halo = haloColor
                         val rr = rad * 1.30f
@@ -576,6 +586,28 @@ fun EarthSection(modifier: Modifier = Modifier) {
                                 center = Offset(cx, cy), radius = rr
                             ),
                             radius = rr, center = Offset(cx, cy)
+                        )
+                    }
+                    if (placeholderAlpha > 0f) Canvas(Modifier.fillMaxSize()) {
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = if (isDark) listOf(
+                                    Color(0xFF315D92), Color(0xFF102844), Color(0xFF07111F)
+                                ) else listOf(
+                                    Color(0xFFB9D9F2), Color(0xFF6E9DC7), Color(0xFF315D86)
+                                ),
+                                center = Offset(cx - rad * .22f, cy - rad * .25f),
+                                radius = rad * 1.20f
+                            ),
+                            radius = rad,
+                            center = Offset(cx, cy),
+                            alpha = placeholderAlpha
+                        )
+                        drawCircle(
+                            color = badgeTarget.copy(alpha = .28f * placeholderAlpha),
+                            radius = rad,
+                            center = Offset(cx, cy),
+                            style = Stroke(width = 1.4.dp.toPx())
                         )
                     }
                     Canvas(Modifier.fillMaxSize()) {

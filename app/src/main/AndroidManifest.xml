@@ -65,6 +65,9 @@
                 <data android:pathPattern=".*\\..*\\..*\\..*\\.grt" />
                 <data android:pathPattern=".*\\.ovpn" />
                 <data android:pathPattern=".*\\..*\\.ovpn" />
+                <data android:pathPattern=".*\\.npvt" />
+                <data android:pathPattern=".*\\..*\\.npvt" />
+                <data android:pathPattern=".*\\..*\\..*\\.npvt" />
             </intent-filter>
             <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.VIEW" />
@@ -118,6 +121,14 @@
                 android:name="android.service.quicksettings.ACTIVE_TILE"
                 android:value="false" />
         </service>
+        <receiver android:name=".GhajarSmallWidgetProvider" android:exported="false" android:label="قاجار VPN · اتصال سریع">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/ghajar_widget_small_info" />
+        </receiver>
+        <receiver android:name=".GhajarControlWidgetProvider" android:exported="false" android:label="قاجار VPN · مرکز فرمان">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/ghajar_widget_control_info" />
+        </receiver>
     </application>
 
 </manifest>
