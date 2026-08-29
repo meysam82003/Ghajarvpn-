@@ -1,6 +1,6 @@
 package net.gozar.app
 
-import android.net.Uri
+import java.net.URI
 
 internal object GhajarImportRules {
     fun isNpvt(name: String?): Boolean = name?.trim()?.endsWith(".npvt", ignoreCase = true) == true
@@ -16,7 +16,7 @@ internal object GhajarImportRules {
     fun subscriptionUrl(text: String?): String? {
         val value = text?.trim()?.takeIf { it.isNotEmpty() && !it.contains('\n') && !it.contains('\r') }
             ?: return null
-        val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
+        val uri = runCatching { URI(value) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase() !in setOf("https", "http") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
         return value
     }

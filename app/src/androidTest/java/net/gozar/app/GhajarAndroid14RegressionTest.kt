@@ -7,7 +7,6 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
-import androidx.compose.ui.test.assertExists
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
@@ -45,7 +44,6 @@ class GhajarAndroid14RegressionTest {
                 compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
                     .fetchSemanticsNodes().isNotEmpty()
             }
-            compose.onNodeWithTag("ghajar_welcome_poster").assertExists()
             screenshot(context, "cold-welcome")
 
             val packageManager = context.packageManager
