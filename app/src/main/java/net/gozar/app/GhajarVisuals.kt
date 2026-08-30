@@ -1,8 +1,6 @@
 package net.gozar.app
 
 import android.content.Context
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.background
@@ -26,8 +24,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.platform.testTag
 
@@ -63,48 +59,53 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
     val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
-    var selectedName by rememberSaveable { mutableStateOf<String?>(null) }
+    // Complete the tiny preference lookup during the first composition. Deferring
+    // this selection to an IO effect produced a blank frame on cold starts.
+    val selectedName = rememberSaveable { GhajarWelcomeAssets.reserve(context) }
     var closed by remember { mutableStateOf(false) }
-    var entered by remember { mutableStateOf(false) }
     val finish by rememberUpdatedState(onDone)
-    val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(400), label = "welcome-reveal")
-    val selected = GhajarWelcomeAssets.posters.firstOrNull { it.name == selectedName }
+    val selected = remember(selectedName) {
+        GhajarWelcomeAssets.posters.firstOrNull { it.name == selectedName }
+            ?: GhajarWelcomeAssets.posters.firstOrNull()
+    }
     fun close() {
         if (closed) return
         closed = true
         prefs.edit().putBoolean("soft_intro_seen", true).apply()
         finish()
     }
-    LaunchedEffect(Unit) {
-        if (selectedName == null) selectedName = withContext(Dispatchers.IO) {
-            GhajarWelcomeAssets.reserve(context)
-        }
-    }
-    LaunchedEffect(selectedName) {
-        if (selectedName != null) {
-            entered = true
-            if (returning) { delay(1800); close() }
-        }
+    // Auto-close only after the poster is actually composed (slow emulators must not lose the welcome).
+    LaunchedEffect(returning, selected) {
+        if (returning && selected != null) { delay(1800); close() }
     }
     val backdrop = if (selected?.dark != false) Color(0xFF061226) else Color(0xFFEAF1FB)
-    Column(Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        if (selected != null) Image(painterResource(selected.resourceId),
-            contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
-            contentScale = ContentScale.Fit,
-            modifier = Modifier.weight(1f).fillMaxWidth().testTag("ghajar_welcome_poster")
-                .clickable(onClick = ::close).graphicsLayer { alpha = reveal })
-        else Spacer(Modifier.weight(1f))
-        if (!returning) Surface(color = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
+    // Tag the stable full-screen welcome root, not the Image semantics node. On Android 14
+    // the image semantics can be merged while the artwork is decoding, which made CI flaky.
+    Box(Modifier.fillMaxSize().background(backdrop).clickable(onClick = ::close)
+        .testTag("ghajar_welcome_poster")) {
+        selected?.let { poster ->
+            // The cropped backdrop fills unusual aspect ratios while the fitted
+            // foreground preserves every part of the complete 9:16 artwork.
+            Image(painterResource(poster.resourceId), contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = .42f })
+            Image(painterResource(poster.resourceId),
+                contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 1f })
+        }
+        if (!returning) {
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()
+                .padding(horizontal = 18.dp, vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("تصویر معرفی • وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود",
-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 6.dp))
-                Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(20.dp), enabled = selected != null) {
-                    Text("ورود به قاجار VPN")
+                Surface(color = Color(0xCC061226), shape = RoundedCornerShape(22.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text("وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود",
+                            style = MaterialTheme.typography.labelSmall, color = Color.White,
+                            textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 7.dp))
+                        Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                            shape = RoundedCornerShape(18.dp)) { Text("ورود به قاجار VPN") }
+                    }
                 }
             }
         }

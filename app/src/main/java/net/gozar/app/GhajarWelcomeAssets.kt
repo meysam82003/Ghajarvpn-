@@ -46,8 +46,9 @@ internal object GhajarWelcomeAssets {
         val prefs = context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE)
         val pick = requireNotNull(GhajarWelcomeRotation.next(posters.map { it.name },
             prefs.getStringSet("seen_in_cycle", emptySet()).orEmpty(), prefs.getString("last_name", null)))
-        // Called on IO; commit together so a process restart retains rotation.
-        prefs.edit().putStringSet("seen_in_cycle", pick.seen).putString("last_name", pick.name).commit()
+        // The poster must be available for the first frame; rotation persistence
+        // can finish asynchronously without delaying launch rendering.
+        prefs.edit().putStringSet("seen_in_cycle", pick.seen).putString("last_name", pick.name).apply()
         return pick.name
     }
 }

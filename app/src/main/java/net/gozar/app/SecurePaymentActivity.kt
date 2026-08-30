@@ -54,11 +54,7 @@ class SecurePaymentActivity : Activity() {
             checkoutUrl.host.equals("t.me", true) &&
             checkoutUrl.userInfo == null
         ) {
-            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("ghajar_pay", checkoutUrl.toString()))
-            Toast.makeText(this, "لینک پرداخت تلگرام کپی شد؛ آن را در تلگرام ارسال کن و به قاجار VPN برگرد.", Toast.LENGTH_LONG).show()
-            setResult(RESULT_OK)
-            finish()
+            showTelegramHandoff(checkoutUrl)
             return
         }
         initialHost = checkoutUrl?.host
@@ -248,6 +244,73 @@ class SecurePaymentActivity : Activity() {
         intent.setPackage(resolved.activityInfo.packageName)
         runCatching { startActivity(intent) }
         return true
+    }
+
+    /** Keep checkout visibly inside Ghajar until the user explicitly opens
+     * Telegram or returns. Immediate finish looked like an application crash. */
+    private fun showTelegramHandoff(uri: Uri) {
+        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("ghajar_pay", uri.toString()))
+
+        fun action(label: String, filled: Boolean, click: () -> Unit) = TextView(this).apply {
+            text = label
+            gravity = Gravity.CENTER
+            textSize = 16f
+            setTextColor(if (filled) Color.rgb(7, 27, 46) else Color.WHITE)
+            background = android.graphics.drawable.GradientDrawable().apply {
+                cornerRadius = dp(18).toFloat()
+                if (filled) setColor(Color.rgb(214, 180, 95)) else {
+                    setColor(Color.TRANSPARENT)
+                    setStroke(dp(1), Color.rgb(214, 180, 95))
+                }
+            }
+            setOnClickListener { click() }
+        }
+
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            setBackgroundColor(Color.rgb(7, 27, 46))
+            setPadding(dp(22), dp(28), dp(22), dp(22))
+            addView(ImageView(this@SecurePaymentActivity).apply {
+                setImageResource(R.mipmap.ic_launcher)
+                contentDescription = "نشان قاجار وی پی ان"
+            }, LinearLayout.LayoutParams(dp(92), dp(92)))
+            addView(TextView(this@SecurePaymentActivity).apply {
+                text = "ادامهٔ پرداخت در تلگرام"
+                gravity = Gravity.CENTER
+                textSize = 23f
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(20), 0, dp(10))
+            }, LinearLayout.LayoutParams(-1, -2))
+            addView(TextView(this@SecurePaymentActivity).apply {
+                text = "فاکتور روی گوشی ذخیره شده و لینک هم کپی شده است. تلگرام را باز کن، پرداخت را انجام بده و سپس برای بررسی به قاجار برگرد. دوباره پرداخت نکن."
+                gravity = Gravity.CENTER
+                textSize = 15f
+                setTextColor(Color.rgb(230, 224, 212))
+                setPadding(0, 0, 0, dp(26))
+            }, LinearLayout.LayoutParams(-1, -2))
+            addView(action("باز کردن تلگرام", true) {
+                val launch = Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
+                runCatching { startActivity(launch) }.onFailure {
+                    Toast.makeText(this@SecurePaymentActivity,
+                        "تلگرام در دسترس نیست؛ لینک کپی شده است.", Toast.LENGTH_LONG).show()
+                }
+            }, LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(10) })
+            addView(action("بازگشت و بررسی پرداخت", false) {
+                setResult(RESULT_OK)
+                finish()
+            }, LinearLayout.LayoutParams(-1, dp(52)))
+        }
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or
+                androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+            view.setPadding(dp(22) + bars.left, dp(28) + bars.top,
+                dp(22) + bars.right, dp(22) + bars.bottom)
+            insets
+        }
+        setContentView(content)
+        androidx.core.view.ViewCompat.requestApplyInsets(content)
     }
 
     private fun finishWithError(message: String) {

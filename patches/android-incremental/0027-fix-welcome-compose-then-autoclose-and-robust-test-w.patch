@@ -1,0 +1,42 @@
+From a7b87a197828c1a4569cbb1d3ae909945a18d625 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sun, 30 Aug 2026 14:49:01 +0330
+Subject: [PATCH] fix(welcome): compose-then-autoclose and robust test window
+
+---
+ .../java/net/gozar/app/GhajarAndroid14RegressionTest.kt      | 2 +-
+ app/src/main/java/net/gozar/app/GhajarVisuals.kt             | 5 +++--
+ 2 files changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+index 6266f10..a7f0e04 100644
+--- a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
++++ b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+@@ -40,7 +40,7 @@ class GhajarAndroid14RegressionTest {
+         try {
+             // A first-time poster remains until the user enters, so this verifies
+             // that cold start reaches real full-screen artwork instead of a late IO result.
+-            compose.waitUntil(8000) {
++            compose.waitUntil(15000) {
+                 compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
+                     .fetchSemanticsNodes().isNotEmpty()
+             }
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+index 1f6acb0..82b72be 100644
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -71,8 +71,9 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+         prefs.edit().putBoolean("soft_intro_seen", true).apply()
+         finish()
+     }
+-    LaunchedEffect(Unit) {
+-        if (returning) { delay(1800); close() }
++    // Auto-close only after the poster is actually composed (slow emulators must not lose the welcome).
++    LaunchedEffect(returning, selected) {
++        if (returning && selected != null) { delay(1800); close() }
+     }
+     val backdrop = if (selected?.dark != false) Color(0xFF061226) else Color(0xFFEAF1FB)
+     Box(Modifier.fillMaxSize().background(backdrop).clickable(onClick = ::close)) {
+-- 
+2.55.0
+

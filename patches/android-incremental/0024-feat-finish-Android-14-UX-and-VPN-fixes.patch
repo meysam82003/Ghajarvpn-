@@ -1,0 +1,2511 @@
+From ae0a314dd34a2d35634e760016a8817f95658aae Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Sat, 29 Aug 2026 17:44:23 -0400
+Subject: [PATCH] feat: finish Android 14 UX and VPN fixes
+
+---
+ .../app/GhajarAndroid14RegressionTest.kt      |  43 ++++
+ app/src/main/AndroidManifest.xml              |  11 +
+ .../main/java/net/gozar/app/ConfigStore.kt    |   8 +
+ app/src/main/java/net/gozar/app/DotGlobe.kt   |  83 ++++---
+ .../java/net/gozar/app/GhajarAppearance.kt    |  33 ++-
+ .../java/net/gozar/app/GhajarCheckoutCards.kt |  51 ++--
+ .../java/net/gozar/app/GhajarImportRules.kt   |  23 ++
+ .../main/java/net/gozar/app/GhajarLocation.kt |   8 +-
+ .../java/net/gozar/app/GhajarOpenVpnBridge.kt | 139 +++++++++++
+ .../java/net/gozar/app/GhajarShopScreen.kt    |  59 +++--
+ .../main/java/net/gozar/app/GhajarVisuals.kt  |  61 +++--
+ .../java/net/gozar/app/GhajarWelcomeAssets.kt |   5 +-
+ .../net/gozar/app/GhajarWidgetProvider.kt     | 198 ++++++++++++++++
+ app/src/main/java/net/gozar/app/Globe.kt      |  56 ++++-
+ .../java/net/gozar/app/Gozarapplication.kt    |  10 +
+ .../main/java/net/gozar/app/MainActivity.kt   | 223 ++++++++++++++++--
+ .../main/java/net/gozar/app/Qstileservice.kt  |  43 ++--
+ .../net/gozar/app/SecurePaymentActivity.kt    |  73 +++++-
+ app/src/main/java/net/gozar/app/SpeedTest.kt  |  51 +++-
+ .../main/java/net/gozar/app/StabilityTest.kt  |  14 +-
+ app/src/main/java/net/gozar/app/Strings.kt    |   6 +
+ .../net/gozar/app/Subscriptionrefresher.kt    |  57 +++--
+ .../java/net/gozar/app/VpnConnectionStore.kt  |  64 +++++
+ app/src/main/java/net/gozar/app/VpnState.kt   |  36 ++-
+ app/src/main/java/net/gozar/app/Vpnbridge.kt  |  13 +-
+ .../res/drawable/ghajar_launch_background.xml |  13 +
+ .../res/drawable/ghajar_widget_background.xml |   7 +
+ .../res/drawable/ghajar_widget_button.xml     |   7 +
+ .../main/res/layout/ghajar_widget_control.xml |  27 +++
+ .../main/res/layout/ghajar_widget_small.xml   |  20 ++
+ app/src/main/res/values-v31/themes.xml        |  13 +
+ app/src/main/res/values/themes.xml            |   9 +-
+ app/src/main/res/values/widget_styles.xml     |  15 ++
+ .../res/xml/ghajar_widget_control_info.xml    |   5 +
+ .../main/res/xml/ghajar_widget_small_info.xml |   5 +
+ .../net/gozar/app/GhajarImportRulesTest.kt    |  18 ++
+ .../java/net/gozar/app/SpeedTestRulesTest.kt  |  16 ++
+ .../blinkt/openvpn/core/OpenVPNService.java   |  26 +-
+ 38 files changed, 1333 insertions(+), 216 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarImportRules.kt
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarWidgetProvider.kt
+ create mode 100644 app/src/main/java/net/gozar/app/VpnConnectionStore.kt
+ create mode 100644 app/src/main/res/drawable/ghajar_launch_background.xml
+ create mode 100644 app/src/main/res/drawable/ghajar_widget_background.xml
+ create mode 100644 app/src/main/res/drawable/ghajar_widget_button.xml
+ create mode 100644 app/src/main/res/layout/ghajar_widget_control.xml
+ create mode 100644 app/src/main/res/layout/ghajar_widget_small.xml
+ create mode 100644 app/src/main/res/values-v31/themes.xml
+ create mode 100644 app/src/main/res/values/widget_styles.xml
+ create mode 100644 app/src/main/res/xml/ghajar_widget_control_info.xml
+ create mode 100644 app/src/main/res/xml/ghajar_widget_small_info.xml
+ create mode 100644 app/src/test/java/net/gozar/app/GhajarImportRulesTest.kt
+ create mode 100644 app/src/test/java/net/gozar/app/SpeedTestRulesTest.kt
+
+diff --git a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+index 455c6f7..d0ddc56 100644
+--- a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
++++ b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+@@ -1,9 +1,13 @@
+ package net.gozar.app
+ 
++import android.appwidget.AppWidgetManager
++import android.content.ComponentName
+ import android.content.Context
+ import android.content.Intent
++import android.content.pm.PackageManager
+ import android.graphics.Bitmap
+ import android.os.Build
++import androidx.compose.ui.test.assertExists
+ import androidx.compose.ui.test.junit4.createEmptyComposeRule
+ import androidx.compose.ui.test.onNodeWithTag
+ import androidx.compose.ui.test.performClick
+@@ -28,6 +32,45 @@ import java.util.concurrent.Executors
+ class GhajarAndroid14RegressionTest {
+     @get:Rule val compose = createEmptyComposeRule()
+ 
++    @Test fun coldLaunchShowsWelcomeAndRegistersHomeWidgets() {
++        assumeTrue(Build.VERSION.SDK_INT >= 34)
++        val context = InstrumentationRegistry.getInstrumentation().targetContext
++        context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE).edit().clear().commit()
++
++        val scenario = ActivityScenario.launch(MainActivity::class.java)
++        try {
++            // A first-time poster remains until the user enters, so this verifies
++            // that cold start reaches real full-screen artwork instead of a late IO result.
++            compose.waitUntil(8000) {
++                compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
++                    .fetchSemanticsNodes().isNotEmpty()
++            }
++            compose.onNodeWithTag("ghajar_welcome_poster").assertExists()
++            screenshot(context, "cold-welcome")
++
++            val packageManager = context.packageManager
++            assertEquals(
++                ComponentName(context, MainActivity::class.java),
++                packageManager.getLaunchIntentForPackage(context.packageName)?.component
++            )
++            listOf(
++                GhajarSmallWidgetProvider::class.java,
++                GhajarControlWidgetProvider::class.java
++            ).forEach { receiver ->
++                val info = packageManager.getReceiverInfo(
++                    ComponentName(context, receiver),
++                    PackageManager.GET_META_DATA
++                )
++                assertTrue(
++                    "Missing app-widget metadata for ${receiver.simpleName}",
++                    info.metaData?.getInt(AppWidgetManager.META_DATA_APPWIDGET_PROVIDER, 0) != 0
++                )
++            }
++        } finally {
++            scenario.close()
++        }
++    }
++
+     @Test fun connectDisconnectReconnectAndRecreateOnAndroid14() {
+         assumeTrue(Build.VERSION.SDK_INT >= 34)
+         // Grant VPN consent only on the disposable CI emulator, never a personal device.
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index c2a96db..bf8ed78 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -65,6 +65,9 @@
+                 <data android:pathPattern=".*\\..*\\..*\\..*\\.grt" />
+                 <data android:pathPattern=".*\\.ovpn" />
+                 <data android:pathPattern=".*\\..*\\.ovpn" />
++                <data android:pathPattern=".*\\.npvt" />
++                <data android:pathPattern=".*\\..*\\.npvt" />
++                <data android:pathPattern=".*\\..*\\..*\\.npvt" />
+             </intent-filter>
+             <intent-filter android:label="@string/app_name">
+                 <action android:name="android.intent.action.VIEW" />
+@@ -118,6 +121,14 @@
+                 android:name="android.service.quicksettings.ACTIVE_TILE"
+                 android:value="false" />
+         </service>
++        <receiver android:name=".GhajarSmallWidgetProvider" android:exported="false" android:label="قاجار VPN · اتصال سریع">
++            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
++            <meta-data android:name="android.appwidget.provider" android:resource="@xml/ghajar_widget_small_info" />
++        </receiver>
++        <receiver android:name=".GhajarControlWidgetProvider" android:exported="false" android:label="قاجار VPN · مرکز فرمان">
++            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
++            <meta-data android:name="android.appwidget.provider" android:resource="@xml/ghajar_widget_control_info" />
++        </receiver>
+     </application>
+ 
+ </manifest>
+diff --git a/app/src/main/java/net/gozar/app/ConfigStore.kt b/app/src/main/java/net/gozar/app/ConfigStore.kt
+index cbaae73..51f6dd4 100644
+--- a/app/src/main/java/net/gozar/app/ConfigStore.kt
++++ b/app/src/main/java/net/gozar/app/ConfigStore.kt
+@@ -549,6 +549,14 @@ class ConfigStore private constructor(context: Context) {
+         prefs.edit().putStringSet(KEY_EXPANDED_SUBS, cur).apply()
+     }
+ 
++    fun expandSubscriptions(ids: Collection<String>) {
++        if (ids.isEmpty()) return
++        val expanded = _expandedSubs.value + ids
++        if (expanded == _expandedSubs.value) return
++        _expandedSubs.value = expanded
++        prefs.edit().putStringSet(KEY_EXPANDED_SUBS, expanded).apply()
++    }
++
+     fun lastUpdateCheck(): Long = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+ 
+     fun markUpdateChecked() {
+diff --git a/app/src/main/java/net/gozar/app/DotGlobe.kt b/app/src/main/java/net/gozar/app/DotGlobe.kt
+index 51877ef..ff26a90 100644
+--- a/app/src/main/java/net/gozar/app/DotGlobe.kt
++++ b/app/src/main/java/net/gozar/app/DotGlobe.kt
+@@ -352,7 +352,7 @@ internal fun IpLocatorContent(
+     val shell = lerp(shellTint, mix, shellK)
+     val shadow = lerp(shellTint, mix, shadowK)
+ 
+-    Column(
++    Row(
+         Modifier
+             .then(flagBackdrop(l.countryCode))
+             .background(shell.copy(alpha = veil))
+@@ -375,43 +375,60 @@ internal fun IpLocatorContent(
+                 end = (13f * scale).dp,
+                 top = (7f * scale).dp,
+                 bottom = (8f * scale).dp
+-            )
++            ),
++        verticalAlignment = Alignment.CenterVertically
+     ) {
+-        Row(verticalAlignment = Alignment.CenterVertically) {
+-            IpLocatorDot(live, scale)
++        Box(
++            Modifier
++                .size((38f * scale).dp)
++                .clip(RoundedCornerShape((11f * scale).dp))
++                .background(onShell.copy(alpha = .11f))
++                .border(
++                    (1.1f * scale).dp,
++                    live.copy(alpha = .72f),
++                    RoundedCornerShape((11f * scale).dp)
++                ),
++            contentAlignment = Alignment.Center
++        ) {
++            CountryFlag(l.countryCode, height = (20f * scale).dp)
++        }
++        Column(Modifier.padding(start = (8f * scale).dp)) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                IpLocatorDot(live, scale)
++                Text(
++                    if (lang == Lang.FA) { if (connected) "IP خروجی اتصال" else "IP اینترنت" }
++                    else if (connected) "Connection exit IP" else "Internet IP",
++                    color = live,
++                    fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
++                    fontWeight = FontWeight.Bold,
++                    fontSize = (10f * scale).sp,
++                    lineHeight = (14f * scale).sp,
++                    maxLines = 1
++                )
++            }
+             Text(
+-                if (lang == Lang.FA) { if (connected) "IP خروجی اتصال" else "IP اینترنت" }
+-                else if (connected) "Connection exit IP" else "Internet IP",
+-                color = live,
+-                fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
++                l.ip,
++                color = onShell,
++                fontFamily = LexendFont,
+                 fontWeight = FontWeight.Bold,
+-                fontSize = (10f * scale).sp,
++                fontSize = (13.5f * scale).sp,
++                lineHeight = (19f * scale).sp,
++                letterSpacing = 0.2.sp,
++                maxLines = 1,
++                modifier = Modifier.padding(start = (7f * scale).dp)
++            )
++            Text(
++                mixedText("${l.country} · ${l.city}".trim().trimEnd('·').trim()),
++                color = onShell.copy(alpha = 0.82f),
++                fontFamily = LexendFont,
++                fontWeight = FontWeight.SemiBold,
++                fontSize = (9.5f * scale).sp,
+                 lineHeight = (14f * scale).sp,
+-                maxLines = 1
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis,
++                modifier = Modifier.padding(top = (2f * scale).dp, start = (7f * scale).dp)
+             )
+         }
+-        Text(
+-            l.ip,
+-            color = onShell,
+-            fontFamily = LexendFont,
+-            fontWeight = FontWeight.Bold,
+-            fontSize = (13.5f * scale).sp,
+-            lineHeight = (19f * scale).sp,
+-            letterSpacing = 0.2.sp,
+-            maxLines = 1,
+-            modifier = Modifier.padding(start = (7f * scale).dp)
+-        )
+-        Text(
+-            mixedText("${GhajarLocationRules.flag(l.countryCode)} ${l.country} · ${l.city}".trim().trimEnd('·').trim()),
+-            color = onShell.copy(alpha = 0.82f),
+-            fontFamily = LexendFont,
+-            fontWeight = FontWeight.SemiBold,
+-            fontSize = (9.5f * scale).sp,
+-            lineHeight = (14f * scale).sp,
+-            maxLines = 1,
+-            overflow = TextOverflow.Ellipsis,
+-            modifier = Modifier.padding(top = (2f * scale).dp, start = (7f * scale).dp)
+-        )
+     }
+ }
+ 
+@@ -767,4 +784,4 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
+             }
+         }
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarAppearance.kt b/app/src/main/java/net/gozar/app/GhajarAppearance.kt
+index a2b5b6f..be9babe 100644
+--- a/app/src/main/java/net/gozar/app/GhajarAppearance.kt
++++ b/app/src/main/java/net/gozar/app/GhajarAppearance.kt
+@@ -88,10 +88,35 @@ internal fun ghajarColorScheme(base: ColorScheme, hex: String?): ColorScheme {
+     val onAccent = if (ghajarContrast(accent, Color.White) >= ghajarContrast(accent, Color.Black)) Color.White else Color.Black
+     val dark = base.background.luminance() < .5f
+     val container = lerp(selected, if (dark) Color.Black else Color.White, if (dark) .72f else .86f)
+-    return base.copy(primary = accent, onPrimary = onAccent, primaryContainer = container,
+-        onPrimaryContainer = legibleAccent(selected, container), secondary = accent,
+-        onSecondary = onAccent, secondaryContainer = container,
+-        onSecondaryContainer = legibleAccent(selected, container), surfaceTint = selected)
++    val tertiary = lerp(accent, if (dark) Color.White else Color.Black, .18f)
++    val background = lerp(base.background, selected, if (dark) .085f else .035f)
++    val surface = lerp(base.surface, selected, if (dark) .070f else .025f)
++    val surfaceVariant = lerp(base.surfaceVariant, selected, if (dark) .14f else .075f)
++    val surfaceLow = lerp(base.surfaceContainerLow, selected, if (dark) .075f else .030f)
++    val surfaceMid = lerp(base.surfaceContainer, selected, if (dark) .095f else .045f)
++    val surfaceHigh = lerp(base.surfaceContainerHigh, selected, if (dark) .12f else .060f)
++    val outline = lerp(base.outline, selected, if (dark) .18f else .13f)
++    return base.copy(
++        primary = accent,
++        onPrimary = onAccent,
++        primaryContainer = container,
++        onPrimaryContainer = legibleAccent(selected, container),
++        secondary = accent,
++        onSecondary = onAccent,
++        secondaryContainer = container,
++        onSecondaryContainer = legibleAccent(selected, container),
++        tertiary = tertiary,
++        onTertiary = if (ghajarContrast(tertiary, Color.White) >= ghajarContrast(tertiary, Color.Black)) Color.White else Color.Black,
++        background = background,
++        surface = surface,
++        surfaceVariant = surfaceVariant,
++        surfaceContainerLow = surfaceLow,
++        surfaceContainer = surfaceMid,
++        surfaceContainerHigh = surfaceHigh,
++        outline = outline,
++        outlineVariant = lerp(base.outlineVariant, selected, if (dark) .12f else .08f),
++        surfaceTint = selected
++    )
+ }
+ 
+ @Composable
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+index e2dcbe5..fe66d76 100644
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+@@ -15,6 +15,7 @@ import androidx.compose.material3.*
+ import androidx.compose.runtime.*
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.asImageBitmap
+@@ -56,40 +57,42 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
+     fun copy(value: String, label: String) { clipboard.setText(AnnotatedString(value)); copied = "$label کپی شد" }
+     val money = remember { NumberFormat.getIntegerInstance(Locale("fa", "IR")) }
+     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+-        Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp, color = Color(0xFF082F2B)) {
++        val cardShape = RoundedCornerShape(24.dp)
++        Surface(modifier = Modifier.fillMaxWidth(), shape = cardShape, shadowElevation = 3.dp,
++            color = Color(0xFF082F2B)) {
+             Box {
+                 Image(painterResource(R.drawable.ghajar_payment_frame), contentDescription = null,
+-                    modifier = Modifier.matchParentSize(), contentScale = ContentScale.FillWidth,
+-                    alignment = Alignment.TopCenter)
++                    modifier = Modifier.matchParentSize().clip(cardShape), contentScale = ContentScale.Crop,
++                    alignment = Alignment.Center)
+                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
+                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                     Text("خزانهٔ قاجار", color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold,
+                         modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 36.dp))
+-                Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
+-                Row(verticalAlignment = Alignment.CenterVertically) {
+-                    Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
+-                        Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+-                    IconButton(onClick = { copy(payment.cardNumber.orEmpty(), "شماره کارت") }, enabled = !payment.cardNumber.isNullOrBlank()) {
+-                        Icon(Icons.Filled.ContentCopy, "کپی شماره کارت", tint = Color(0xFFE8C975))
++                    Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
++                    Row(verticalAlignment = Alignment.CenterVertically) {
++                        Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
++                            Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
++                        IconButton(onClick = { copy(payment.cardNumber.orEmpty(), "شماره کارت") }, enabled = !payment.cardNumber.isNullOrBlank()) {
++                            Icon(Icons.Filled.ContentCopy, "کپی شماره کارت", tint = Color(0xFFE8C975))
++                        }
+                     }
+-                }
+-                Row(verticalAlignment = Alignment.CenterVertically) {
+-                    Text(payment.cardHolder.orEmpty(), Modifier.weight(1f), color = Color.White)
+-                    IconButton(onClick = { copy(payment.cardHolder.orEmpty(), "نام صاحب کارت") }) {
+-                        Icon(Icons.Filled.ContentCopy, "کپی نام صاحب کارت", tint = Color(0xFFE8C975))
++                    Row(verticalAlignment = Alignment.CenterVertically) {
++                        Text(payment.cardHolder.orEmpty(), Modifier.weight(1f), color = Color.White)
++                        IconButton(onClick = { copy(payment.cardHolder.orEmpty(), "نام صاحب کارت") }) {
++                            Icon(Icons.Filled.ContentCopy, "کپی نام صاحب کارت", tint = Color(0xFFE8C975))
++                        }
+                     }
+-                }
+-                HorizontalDivider(color = Color.White.copy(alpha = .16f))
+-                Row(verticalAlignment = Alignment.CenterVertically) {
+-                    Text("مبلغ دقیق: ${money.format(payment.amount)} تومان", Modifier.weight(1f), color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold)
+-                    IconButton(onClick = { copy(payment.amount.toString(), "مبلغ تومان") }) {
+-                        Icon(Icons.Filled.ContentCopy, "کپی مبلغ تومان", tint = Color(0xFFE8C975))
++                    HorizontalDivider(color = Color.White.copy(alpha = .16f))
++                    Row(verticalAlignment = Alignment.CenterVertically) {
++                        Text("مبلغ دقیق: ${money.format(payment.amount)} تومان", Modifier.weight(1f), color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold)
++                        IconButton(onClick = { copy(payment.amount.toString(), "مبلغ تومان") }) {
++                            Icon(Icons.Filled.ContentCopy, "کپی مبلغ تومان", tint = Color(0xFFE8C975))
++                        }
++                    }
++                    TextButton(onClick = { copy(payment.amountRial.toString(), "مبلغ ریال") }) {
++                        Text("${money.format(payment.amountRial)} ریال • کپی", color = Color.White)
+                     }
+                 }
+-                TextButton(onClick = { copy(payment.amountRial.toString(), "مبلغ ریال") }) {
+-                    Text("${money.format(payment.amountRial)} ریال • کپی", color = Color.White)
+-                }
+-            }
+             }
+         }
+         copied?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
+diff --git a/app/src/main/java/net/gozar/app/GhajarImportRules.kt b/app/src/main/java/net/gozar/app/GhajarImportRules.kt
+new file mode 100644
+index 0000000..43de9c3
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarImportRules.kt
+@@ -0,0 +1,23 @@
++package net.gozar.app
++
++import android.net.Uri
++
++internal object GhajarImportRules {
++    fun isNpvt(name: String?): Boolean = name?.trim()?.endsWith(".npvt", ignoreCase = true) == true
++
++    fun readableText(bytes: ByteArray): String? {
++        if (bytes.isEmpty() || bytes.size > 8 * 1024 * 1024 || bytes.any { it == 0.toByte() }) return null
++        return runCatching { bytes.toString(Charsets.UTF_8).trimStart('\uFEFF').trim() }
++            .getOrNull()?.takeIf { it.isNotBlank() }
++    }
++
++    /** A text file containing exactly one HTTP(S) URL is a subscription import,
++     * not a raw proxy configuration. Embedded credentials are rejected. */
++    fun subscriptionUrl(text: String?): String? {
++        val value = text?.trim()?.takeIf { it.isNotEmpty() && !it.contains('\n') && !it.contains('\r') }
++            ?: return null
++        val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
++        if (uri.scheme?.lowercase() !in setOf("https", "http") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
++        return value
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarLocation.kt b/app/src/main/java/net/gozar/app/GhajarLocation.kt
+index d1da293..0bab732 100644
+--- a/app/src/main/java/net/gozar/app/GhajarLocation.kt
++++ b/app/src/main/java/net/gozar/app/GhajarLocation.kt
+@@ -122,7 +122,13 @@ private fun currentLocationSession(): GhajarLocationSession {
+     val id by VpnState.activeId.collectAsState()
+     val at by VpnState.connectedAt.collectAsState()
+     val locked by ConfigStore.get(LocalContext.current).killSwitch.collectAsState()
+-    return GhajarLocationSession(connection, id, at, locked, IkeController.active)
++    return GhajarLocationSession(
++        connection,
++        id,
++        at,
++        locked,
++        IkeController.active || id?.startsWith("ovpn:") == true
++    )
+ }
+ 
+ /** One lifecycle owner, shared by all four home styles. No stale result survives a reconnect. */
+diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+index d462a91..6af05d6 100644
+--- a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
++++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+@@ -2,14 +2,21 @@ package net.gozar.app
+ 
+ import android.app.NotificationChannel
+ import android.app.NotificationManager
++import android.content.ComponentName
+ import android.content.Context
++import android.content.Intent
++import android.content.ServiceConnection
+ import android.os.Build
++import android.os.IBinder
+ import de.blinkt.openvpn.VpnProfile
+ import de.blinkt.openvpn.core.ConfigParser as OvpnConfigParser
++import de.blinkt.openvpn.core.ConnectionStatus
++import de.blinkt.openvpn.core.IOpenVPNServiceInternal
+ import de.blinkt.openvpn.core.OpenVPNService
+ import de.blinkt.openvpn.core.ProfileManager
+ import de.blinkt.openvpn.core.StatusListener
+ import de.blinkt.openvpn.core.VPNLaunchHelper
++import de.blinkt.openvpn.core.VpnStatus
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+@@ -30,11 +37,47 @@ object GhajarOpenVpnBridge {
+     private val _pending = MutableStateFlow<PendingOpenVpnImport?>(null)
+     val pending = _pending.asStateFlow()
+     private var statusListener: StatusListener? = null
++    private var stateListener: VpnStatus.StateListener? = null
+ 
+     fun initialize(context: Context) {
+         if (statusListener == null) {
+             statusListener = StatusListener().also { it.init(context.applicationContext) }
+         }
++        if (stateListener == null) {
++            val app = context.applicationContext
++            stateListener = object : VpnStatus.StateListener {
++                override fun updateState(state: String?, logmessage: String?, localizedResId: Int,
++                    level: ConnectionStatus?, intent: Intent?) {
++                    val id = activeId(app) ?: return
++                    when (level) {
++                        ConnectionStatus.LEVEL_CONNECTED -> {
++                            if (VpnState.activeId.value != id) VpnState.setConnecting(id)
++                            VpnState.setConnected()
++                        }
++                        ConnectionStatus.LEVEL_AUTH_FAILED ->
++                            VpnState.setError("نام کاربری یا رمز عبور OVPN پذیرفته نشد.")
++                        ConnectionStatus.LEVEL_NOTCONNECTED -> {
++                            clearActive(app)
++                            if (VpnState.activeId.value?.startsWith("ovpn:") == true) VpnState.setDisconnected()
++                        }
++                        ConnectionStatus.LEVEL_START,
++                        ConnectionStatus.LEVEL_CONNECTING_SERVER_REPLIED,
++                        ConnectionStatus.LEVEL_CONNECTING_NO_SERVER_REPLY_YET,
++                        ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT ->
++                            if (VpnState.activeId.value != id) VpnState.setConnecting(id)
++                        else -> Unit
++                    }
++                }
++
++                override fun setConnectedVPN(uuid: String?) {
++                    if (uuid.isNullOrBlank()) return
++                    val expected = "ovpn:$uuid"
++                    if (activeId(app) == expected && VpnState.activeId.value != expected) {
++                        VpnState.setConnecting(expected)
++                    }
++                }
++            }.also(VpnStatus::addStateListener)
++        }
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+             context.getSystemService(NotificationManager::class.java).createNotificationChannels(
+                 listOf(
+@@ -87,14 +130,110 @@ object GhajarOpenVpnBridge {
+             manager.addProfile(profile)
+             ProfileManager.saveProfile(context.applicationContext, profile)
+             manager.saveProfileList(context.applicationContext)
++            syncSavedProfiles(context.applicationContext, ConfigStore.get(context.applicationContext))
++            val active = "ovpn:${profile.getUUIDString()}"
++            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
++                .putString(KEY_ACTIVE_ID, active).putString(KEY_ACTIVE_NAME, pending.name).commit()
++            VpnState.setConnecting(active)
+             VPNLaunchHelper.startOpenVpn(profile, context.applicationContext, "Ghajarvpn user request", true)
+             _pending.value = null
+         }
+     }
+ 
++    suspend fun connectSaved(context: Context, config: ProxyConfig): Result<Unit> = withContext(Dispatchers.IO) {
++        runCatching {
++            val uuid = config.id.removePrefix("ovpn:")
++            require(uuid.isNotBlank() && uuid != config.id) { "پروفایل OVPN معتبر نیست" }
++            val app = context.applicationContext
++            val profile = ProfileManager.get(app, uuid)
++                ?: throw IllegalArgumentException("پروفایل OVPN پیدا نشد؛ فایل را دوباره وارد کن")
++            require(profile.needUserPWInput(null, null) == 0) {
++                "اطلاعات ورود OVPN ذخیره نشده؛ فایل را دوباره وارد کن"
++            }
++            val active = "ovpn:${profile.getUUIDString()}"
++            app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
++                .putString(KEY_ACTIVE_ID, active)
++                .putString(KEY_ACTIVE_NAME, BrandConfig.sanitizePublicText(profile.name))
++                .commit()
++            VpnState.setConnecting(active)
++            VPNLaunchHelper.startOpenVpn(profile, app, "Ghajarvpn saved profile", true)
++        }
++    }
++
++    suspend fun syncSavedProfiles(context: Context, store: ConfigStore): Int = withContext(Dispatchers.IO) {
++        store.awaitReady()
++        val app = context.applicationContext
++        val manager = ProfileManager.getInstance(app)
++        manager.refreshVPNList(app)
++        val existing = store.configs.value.mapTo(hashSetOf()) { it.id }
++        val missing = manager.profiles.mapNotNull { profile ->
++            val id = "ovpn:${profile.getUUIDString()}"
++            if (id in existing) return@mapNotNull null
++            val connection = profile.mConnections.firstOrNull()
++            ProxyConfig(
++                name = BrandConfig.sanitizePublicText(profile.name).ifBlank { "سرویس OVPN قاجار" },
++                protocol = "openvpn",
++                address = connection?.mServerName.orEmpty().ifBlank { "OVPN" },
++                port = connection?.mServerPort?.toIntOrNull() ?: 1194,
++                uuid = profile.getUUIDString(),
++                network = "openvpn",
++                source = ConfigSource.PERSONAL,
++                id = id
++            )
++        }
++        if (missing.isNotEmpty()) store.addImported(missing)
++        missing.size
++    }
++
++    fun removeSaved(context: Context, config: ProxyConfig): Boolean = runCatching {
++        val uuid = config.id.removePrefix("ovpn:")
++        require(uuid.isNotBlank() && uuid != config.id)
++        val app = context.applicationContext
++        val profile = ProfileManager.get(app, uuid) ?: return@runCatching false
++        if (activeId(app) == config.id) disconnect(app)
++        ProfileManager.getInstance(app).removeProfile(app, profile)
++        true
++    }.getOrDefault(false)
++
++    fun activeName(context: Context): String? =
++        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ACTIVE_NAME, null)
++
++    fun disconnect(context: Context): Boolean {
++        val app = context.applicationContext
++        val connection = object : ServiceConnection {
++            override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
++                runCatching { IOpenVPNServiceInternal.Stub.asInterface(service).stopVPN(false) }
++                runCatching { app.unbindService(this) }
++                clearActive(app)
++                VpnState.setDisconnected()
++            }
++            override fun onServiceDisconnected(name: ComponentName?) = Unit
++        }
++        val bound = runCatching {
++            app.bindService(Intent(app, OpenVPNService::class.java).setAction(OpenVPNService.START_SERVICE),
++                connection, Context.BIND_AUTO_CREATE)
++        }.getOrDefault(false)
++        if (!bound) {
++            clearActive(app)
++            VpnState.setDisconnected()
++        }
++        return bound
++    }
++
++    private fun activeId(context: Context): String? =
++        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_ACTIVE_ID, null)
++
++    private fun clearActive(context: Context) {
++        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply()
++    }
++
+     private fun parse(raw: String): VpnProfile {
+         val parser = OvpnConfigParser()
+         parser.parseConfig(StringReader(raw))
+         return parser.convertProfile()
+     }
++
++    private const val PREFS = "ghajar_ovpn_state"
++    private const val KEY_ACTIVE_ID = "active_id"
++    private const val KEY_ACTIVE_NAME = "active_name"
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index 09d9386..68bbf03 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -771,32 +771,47 @@ private fun <T> NullableFilterRow(allLabel: String, items: List<T>, selected: T?
+ 
+ @Composable
+ private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
+-    var details by remember(product.id) { mutableStateOf(false) }
+-    Card(onClick = { details = true }, enabled = enabled,
+-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+-        shape = RoundedCornerShape(22.dp), elevation = CardDefaults.cardElevation(1.dp),
++    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
++        shape = RoundedCornerShape(24.dp), elevation = CardDefaults.cardElevation(2.dp),
++        border = BorderStroke(1.dp, Color(0x66D6B45F)),
+         modifier = Modifier.fillMaxWidth()) {
+-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+-            Icon(Icons.Filled.Shield, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+-                Text(product.name, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+-                Text(listOfNotNull(product.trafficGb?.let { "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ" },
+-                    product.days?.let { "$it روز" }).joinToString("  •  "),
+-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+-                Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
+-                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
++        Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
++            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
++                Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0x1FD6B45F)),
++                    contentAlignment = Alignment.Center) {
++                    Icon(Icons.Filled.Shield, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(27.dp))
++                }
++                Column(Modifier.weight(1f)) {
++                    Text(product.name, style = MaterialTheme.typography.titleMedium,
++                        fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
++                    Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" }
++                        ?: "قیمت در دسترس نیست", color = MaterialTheme.colorScheme.primary,
++                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
++                }
++            }
++            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
++                product.trafficGb?.let {
++                    Text("${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ",
++                        modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp))
++                            .padding(horizontal = 10.dp, vertical = 6.dp),
++                        style = MaterialTheme.typography.labelLarge)
++                }
++                product.days?.let {
++                    Text("$it روز", modifier = Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp))
++                        .padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
++                }
++            }
++            Text(product.description.ifBlank { "سرویس آمادهٔ اتصال؛ مشخصات از پنل فروش دریافت شده است." },
++                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
++                maxLines = 3, overflow = TextOverflow.Ellipsis)
++            Button(onClick = onBuy, enabled = enabled && product.price != null,
++                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp)) {
++                Icon(Icons.Filled.ShoppingCart, null, modifier = Modifier.size(19.dp))
++                Spacer(Modifier.width(8.dp))
++                Text("انتخاب این سرویس")
+             }
+-            Icon(Icons.Filled.OpenInNew, "مشاهدهٔ محصول", modifier = Modifier.size(20.dp))
+         }
+     }
+-    if (details) AlertDialog(onDismissRequest = { details = false },
+-        title = { Text(product.name) },
+-        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+-            Text(product.price?.let { "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست", fontWeight = FontWeight.Bold)
+-            Text(product.description.ifBlank { "توضیح بیشتری از پنل ارسال نشده است." })
+-        } },
+-        confirmButton = { Button(onClick = { details = false; onBuy() }, enabled = enabled && product.price != null) { Text("انتخاب و ادامه") } },
+-        dismissButton = { TextButton(onClick = { details = false }) { Text("بازگشت") } })
+ }
+ 
+ @Composable
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+index cc52da3..1f6acb0 100644
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -1,8 +1,6 @@
+ package net.gozar.app
+ 
+ import android.content.Context
+-import androidx.compose.animation.core.animateFloatAsState
+-import androidx.compose.animation.core.tween
+ import androidx.compose.foundation.Image
+ import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.background
+@@ -26,8 +24,6 @@ import androidx.compose.ui.semantics.semantics
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import kotlinx.coroutines.delay
+-import kotlinx.coroutines.Dispatchers
+-import kotlinx.coroutines.withContext
+ import androidx.compose.runtime.saveable.rememberSaveable
+ import androidx.compose.ui.platform.testTag
+ 
+@@ -63,11 +59,11 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+     val context = LocalContext.current
+     val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
+     val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
+-    var selectedName by rememberSaveable { mutableStateOf<String?>(null) }
++    // Complete the tiny preference lookup during the first composition. Deferring
++    // this selection to an IO effect produced a blank frame on cold starts.
++    val selectedName = rememberSaveable { GhajarWelcomeAssets.reserve(context) }
+     var closed by remember { mutableStateOf(false) }
+-    var entered by remember { mutableStateOf(false) }
+     val finish by rememberUpdatedState(onDone)
+-    val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(400), label = "welcome-reveal")
+     val selected = GhajarWelcomeAssets.posters.firstOrNull { it.name == selectedName }
+     fun close() {
+         if (closed) return
+@@ -76,35 +72,34 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+         finish()
+     }
+     LaunchedEffect(Unit) {
+-        if (selectedName == null) selectedName = withContext(Dispatchers.IO) {
+-            GhajarWelcomeAssets.reserve(context)
+-        }
+-    }
+-    LaunchedEffect(selectedName) {
+-        if (selectedName != null) {
+-            entered = true
+-            if (returning) { delay(1800); close() }
+-        }
++        if (returning) { delay(1800); close() }
+     }
+     val backdrop = if (selected?.dark != false) Color(0xFF061226) else Color(0xFFEAF1FB)
+-    Column(Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
+-        horizontalAlignment = Alignment.CenterHorizontally) {
+-        if (selected != null) Image(painterResource(selected.resourceId),
+-            contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
+-            contentScale = ContentScale.Fit,
+-            modifier = Modifier.weight(1f).fillMaxWidth().testTag("ghajar_welcome_poster")
+-                .clickable(onClick = ::close).graphicsLayer { alpha = reveal })
+-        else Spacer(Modifier.weight(1f))
+-        if (!returning) Surface(color = MaterialTheme.colorScheme.surface,
+-            shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
+-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp),
++    Box(Modifier.fillMaxSize().background(backdrop).clickable(onClick = ::close)) {
++        selected?.let { poster ->
++            // The cropped backdrop fills unusual aspect ratios while the fitted
++            // foreground preserves every part of the complete 9:16 artwork.
++            Image(painterResource(poster.resourceId), contentDescription = null,
++                contentScale = ContentScale.Crop,
++                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = .42f })
++            Image(painterResource(poster.resourceId),
++                contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
++                contentScale = ContentScale.Fit,
++                modifier = Modifier.fillMaxSize().testTag("ghajar_welcome_poster")
++                    .graphicsLayer { alpha = 1f })
++        }
++        if (!returning) {
++            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()
++                .padding(horizontal = 18.dp, vertical = 14.dp),
+                 horizontalAlignment = Alignment.CenterHorizontally) {
+-                Text("تصویر معرفی • وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود",
+-                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                    textAlign = TextAlign.Center, modifier = Modifier.padding(vertical = 6.dp))
+-                Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+-                    shape = RoundedCornerShape(20.dp), enabled = selected != null) {
+-                    Text("ورود به قاجار VPN")
++                Surface(color = Color(0xCC061226), shape = RoundedCornerShape(22.dp)) {
++                    Column(Modifier.fillMaxWidth().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
++                        Text("وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود",
++                            style = MaterialTheme.typography.labelSmall, color = Color.White,
++                            textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 7.dp))
++                        Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
++                            shape = RoundedCornerShape(18.dp)) { Text("ورود به قاجار VPN") }
++                    }
+                 }
+             }
+         }
+diff --git a/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt b/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
+index 5e284be..d867413 100644
+--- a/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
++++ b/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
+@@ -46,8 +46,9 @@ internal object GhajarWelcomeAssets {
+         val prefs = context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE)
+         val pick = requireNotNull(GhajarWelcomeRotation.next(posters.map { it.name },
+             prefs.getStringSet("seen_in_cycle", emptySet()).orEmpty(), prefs.getString("last_name", null)))
+-        // Called on IO; commit together so a process restart retains rotation.
+-        prefs.edit().putStringSet("seen_in_cycle", pick.seen).putString("last_name", pick.name).commit()
++        // The poster must be available for the first frame; rotation persistence
++        // can finish asynchronously without delaying launch rendering.
++        prefs.edit().putStringSet("seen_in_cycle", pick.seen).putString("last_name", pick.name).apply()
+         return pick.name
+     }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarWidgetProvider.kt b/app/src/main/java/net/gozar/app/GhajarWidgetProvider.kt
+new file mode 100644
+index 0000000..cef4942
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarWidgetProvider.kt
+@@ -0,0 +1,198 @@
++package net.gozar.app
++
++import android.app.PendingIntent
++import android.appwidget.AppWidgetManager
++import android.appwidget.AppWidgetProvider
++import android.content.ComponentName
++import android.content.Context
++import android.content.Intent
++import android.net.VpnService
++import android.widget.RemoteViews
++import androidx.core.content.ContextCompat
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++internal object GhajarNavigationBus {
++    private val _destination = MutableStateFlow<String?>(null)
++    val destination = _destination
++    fun offer(value: String?) { if (!value.isNullOrBlank()) _destination.value = value }
++    fun consume() { _destination.value = null }
++}
++
++abstract class GhajarWidgetProvider : AppWidgetProvider() {
++    protected abstract val layoutId: Int
++
++    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
++        ids.forEach { render(context, manager, it, layoutId, javaClass) }
++    }
++
++    override fun onReceive(context: Context, intent: Intent) {
++        super.onReceive(context, intent)
++        if (intent.action !in ACTIONS) return
++        val pending = goAsync()
++        WIDGET_SCOPE.launch {
++            try {
++                val message = when (intent.action) {
++                    ACTION_TOGGLE -> toggle(context.applicationContext)
++                    ACTION_PING -> ping(context.applicationContext)
++                    ACTION_REFRESH -> refresh(context.applicationContext)
++                    else -> null
++                }
++                if (message != null) context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
++                    .edit().putString(KEY_MESSAGE, message).apply()
++                updateEveryWidget(context.applicationContext)
++            } finally { pending.finish() }
++        }
++    }
++
++    companion object {
++        private val WIDGET_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
++        private const val PREFS = "ghajar_widget"
++        private const val KEY_MESSAGE = "message"
++        private const val ACTION_TOGGLE = "net.gozar.app.widget.TOGGLE"
++        private const val ACTION_PING = "net.gozar.app.widget.PING"
++        private const val ACTION_REFRESH = "net.gozar.app.widget.REFRESH"
++        private val ACTIONS = setOf(ACTION_TOGGLE, ACTION_PING, ACTION_REFRESH)
++        const val EXTRA_DESTINATION = "net.gozar.app.widget.DESTINATION"
++        const val DEST_SERVERS = "servers"
++
++        private suspend fun toggle(context: Context): String {
++            VpnState.initialize(context)
++            val snapshot = VpnConnectionStore.read(context)
++            val store = ConfigStore.get(context)
++            store.awaitReady()
++            if (snapshot.state == Connection.CONNECTED || snapshot.state == Connection.CONNECTING) {
++                when {
++                    snapshot.activeId?.startsWith("ovpn:") == true -> GhajarOpenVpnBridge.disconnect(context)
++                    store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2" ->
++                        IkeController.disconnect(context)
++                    else -> context.startService(Intent(context, GozarVpnService::class.java)
++                        .setAction(GozarVpnService.ACTION_STOP))
++                }
++                VpnState.setDisconnected()
++                return "قطع شد"
++            }
++            val id = store.selectedId.value
++            val config = store.configs.value.firstOrNull { it.id == id }
++                ?: return "ابتدا سرور را انتخاب کن"
++            if (VpnService.prepare(context) != null) return "برای مجوز، برنامه را باز کن"
++            if (config.protocol == "openvpn" || config.id.startsWith("ovpn:")) {
++                return GhajarOpenVpnBridge.connectSaved(context, config).fold(
++                    onSuccess = { "در حال اتصال OVPN…" },
++                    onFailure = { it.message ?: "اتصال OVPN شروع نشد" }
++                )
++            }
++            if (config.protocol == "ikev2") {
++                IkeController.bind(context)
++                IkeController.claim(config)
++                return if (IkeController.connect(context, config)) "در حال اتصال…" else "اتصال شروع نشد"
++            }
++            val json = ConfigBuilder.build(config, store.fragment.value, store.splitRouting.value,
++                store.sniffing.value, store.sniffTypes.value, adBlock = store.adBlock.value,
++                fakeDns = store.fakeDns.value, encryptedDns = store.encryptedDns.value,
++                onionRouting = store.onionRouting.value, coreLogLevel = store.coreLogLevel.value)
++            VpnState.setConnecting(config.id)
++            val intent = Intent(context, GozarVpnService::class.java)
++                .putExtra(GozarVpnService.EXTRA_CONFIG, json)
++                .putExtra(GozarVpnService.EXTRA_AETHER, AetherSpec.from(config)?.toJson())
++                .putExtra(GozarVpnService.EXTRA_TOR, if (config.protocol == "tor")
++                    config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null)
++                .putExtra(GozarVpnService.EXTRA_NAME, config.name)
++                .putExtra(GozarVpnService.EXTRA_STOP_LABEL, "قطع اتصال")
++            return runCatching { ContextCompat.startForegroundService(context, intent); "در حال اتصال…" }
++                .getOrElse { VpnState.setDisconnected(); "اتصال شروع نشد" }
++        }
++
++        private suspend fun ping(context: Context): String {
++            val store = ConfigStore.get(context)
++            store.awaitReady()
++            val active = VpnConnectionStore.read(context).activeId
++            val config = store.configs.value.firstOrNull { it.id == active }
++                ?: store.configs.value.firstOrNull { it.id == store.selectedId.value }
++                ?: return "سروری انتخاب نشده"
++            val result = withContext(Dispatchers.IO) {
++                if (config.protocol.equals("ikev2", true)) Pinger.pingIke(config.address)
++                else Pinger.ping(config.address, config.port, 3500)
++            }
++            return when (result) {
++                is PingResult.Ok -> "پینگ ${result.ms} ms"
++                else -> "پینگ ناموفق"
++            }
++        }
++
++        private suspend fun refresh(context: Context): String {
++            val store = ConfigStore.get(context)
++            store.awaitReady()
++            val summary = SubscriptionRefresher.refreshAll(store)
++            return if (summary.failed == 0) "${summary.configs} کانفیگ بروزرسانی شد"
++            else "${summary.updated}/${summary.attempted} ساب بروزرسانی شد"
++        }
++
++        private fun render(context: Context, manager: AppWidgetManager, id: Int,
++            layout: Int, provider: Class<*>) {
++            val snapshot = VpnConnectionStore.read(context)
++            val store = ConfigStore.get(context)
++            val selected = store.configs.value.firstOrNull { it.id == (snapshot.activeId ?: store.selectedId.value) }
++            val status = when (snapshot.state) {
++                Connection.CONNECTED -> "متصل"
++                Connection.CONNECTING -> "در حال اتصال…"
++                Connection.ERROR -> "خطای اتصال"
++                else -> "قطع"
++            }
++            val views = RemoteViews(context.packageName, layout)
++            views.setTextViewText(R.id.widget_status, status)
++            views.setTextViewText(R.id.widget_server,
++                selected?.name?.let(BrandConfig::sanitizePublicText)
++                    ?: GhajarOpenVpnBridge.activeName(context) ?: "انتخاب سرور")
++            views.setTextViewText(R.id.widget_connect,
++                if (snapshot.state in setOf(Connection.CONNECTED, Connection.CONNECTING)) "قطع" else "وصل")
++            views.setTextViewText(R.id.widget_message,
++                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_MESSAGE, "آماده") ?: "آماده")
++            views.setOnClickPendingIntent(R.id.widget_connect, broadcast(context, provider, id, ACTION_TOGGLE))
++            if (layout == R.layout.ghajar_widget_control) {
++                views.setOnClickPendingIntent(R.id.widget_ping, broadcast(context, provider, id, ACTION_PING))
++                views.setOnClickPendingIntent(R.id.widget_refresh, broadcast(context, provider, id, ACTION_REFRESH))
++                views.setOnClickPendingIntent(R.id.widget_servers, openApp(context, id, DEST_SERVERS))
++            }
++            views.setOnClickPendingIntent(R.id.widget_root, openApp(context, id, null))
++            manager.updateAppWidget(id, views)
++        }
++
++        private fun broadcast(context: Context, provider: Class<*>, id: Int, action: String): PendingIntent {
++            val intent = Intent(context, provider).setAction(action)
++                .putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, id)
++            return PendingIntent.getBroadcast(context, id * 10 + action.hashCode(), intent,
++                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
++        }
++
++        private fun openApp(context: Context, id: Int, destination: String?): PendingIntent {
++            val intent = Intent(context, MainActivity::class.java)
++                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
++                .putExtra(EXTRA_DESTINATION, destination)
++            return PendingIntent.getActivity(context, id * 100 + (destination?.hashCode() ?: 0), intent,
++                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
++        }
++
++        fun updateEveryWidget(context: Context) {
++            val manager = AppWidgetManager.getInstance(context)
++            listOf(GhajarSmallWidgetProvider::class.java to R.layout.ghajar_widget_small,
++                GhajarControlWidgetProvider::class.java to R.layout.ghajar_widget_control).forEach { (provider, layout) ->
++                manager.getAppWidgetIds(ComponentName(context, provider)).forEach {
++                    render(context, manager, it, layout, provider)
++                }
++            }
++        }
++    }
++}
++
++class GhajarSmallWidgetProvider : GhajarWidgetProvider() {
++    override val layoutId: Int = R.layout.ghajar_widget_small
++}
++
++class GhajarControlWidgetProvider : GhajarWidgetProvider() {
++    override val layoutId: Int = R.layout.ghajar_widget_control
++}
+diff --git a/app/src/main/java/net/gozar/app/Globe.kt b/app/src/main/java/net/gozar/app/Globe.kt
+index 7df8718..ad9c988 100644
+--- a/app/src/main/java/net/gozar/app/Globe.kt
++++ b/app/src/main/java/net/gozar/app/Globe.kt
+@@ -426,20 +426,24 @@ fun EarthSection(modifier: Modifier = Modifier) {
+ 
+     val spinY = remember { Animatable(0f) }
+     val tiltX = remember { Animatable(0f) }
+-    var firstFly by remember { mutableStateOf(true) }
+     LaunchedEffect(geo.location) {
+         if (!hasLocation) return@LaunchedEffect
+         val targetSpin = nearestAngle(-Math.toRadians(loc.lon).toFloat(), spinY.value)
+         val targetTilt = Math.toRadians(loc.lat).toFloat().coerceIn(-1.35f, 1.35f)
+-        if (firstFly) {
+-            firstFly = false
+-            spinY.snapTo(targetSpin)
+-            tiltX.snapTo(targetTilt)
+-        } else {
+-            coroutineScope {
+-                launch { spinY.animateTo(targetSpin, tween(550, easing = FastOutSlowInEasing)) }
+-                launch { tiltX.animateTo(targetTilt, tween(550, easing = FastOutSlowInEasing)) }
+-            }
++        coroutineScope {
++            launch { spinY.animateTo(targetSpin, tween(850, easing = FastOutSlowInEasing)) }
++            launch { tiltX.animateTo(targetTilt, tween(850, easing = FastOutSlowInEasing)) }
++        }
++    }
++    // Keep the globe visibly moving while the real exit IP is being resolved.
++    // This effect is cancelled before the country fly-to animation starts.
++    LaunchedEffect(hasLocation, geo.loading, conn) {
++        if (hasLocation || !(geo.loading || conn == Connection.CONNECTING || conn == Connection.CONNECTED)) {
++            return@LaunchedEffect
++        }
++        while (true) {
++            spinY.snapTo(spinY.value + 0.0105f)
++            delay(32)
+         }
+     }
+     val inf = rememberInfiniteTransition(label = "globe")
+@@ -449,7 +453,9 @@ fun EarthSection(modifier: Modifier = Modifier) {
+         label = "ringT"
+     )
+ 
+-    var appeared by remember { mutableStateOf(false) }
++    // Start opaque. A lightweight sphere is drawn until the first rasterized
++    // frame is ready, so a cold render can never leave a blank hole.
++    var appeared by remember { mutableStateOf(true) }
+     val introAlpha by animateFloatAsState(if (appeared) 1f else 0f, tween(550), label = "introA")
+     val introScale by animateFloatAsState(if (appeared) 1f else 0.96f, tween(550, easing = FastOutSlowInEasing), label = "introS")
+ 
+@@ -534,7 +540,6 @@ fun EarthSection(modifier: Modifier = Modifier) {
+                         front[0] = back
+                         frameImage = img[back]
+                         renderedSpin = s; renderedTilt = t
+-                        appeared = true
+                     }
+             }
+ 
+@@ -561,6 +566,11 @@ fun EarthSection(modifier: Modifier = Modifier) {
+                             }
+                         }
+                 ) {
++                    val placeholderAlpha by animateFloatAsState(
++                        targetValue = if (renderedSpin.isNaN()) 1f else 0f,
++                        animationSpec = tween(220),
++                        label = "globePlaceholder"
++                    )
+                     Canvas(Modifier.fillMaxSize()) {
+                         val halo = haloColor
+                         val rr = rad * 1.30f
+@@ -578,6 +588,28 @@ fun EarthSection(modifier: Modifier = Modifier) {
+                             radius = rr, center = Offset(cx, cy)
+                         )
+                     }
++                    if (placeholderAlpha > 0f) Canvas(Modifier.fillMaxSize()) {
++                        drawCircle(
++                            brush = Brush.radialGradient(
++                                colors = if (isDark) listOf(
++                                    Color(0xFF315D92), Color(0xFF102844), Color(0xFF07111F)
++                                ) else listOf(
++                                    Color(0xFFB9D9F2), Color(0xFF6E9DC7), Color(0xFF315D86)
++                                ),
++                                center = Offset(cx - rad * .22f, cy - rad * .25f),
++                                radius = rad * 1.20f
++                            ),
++                            radius = rad,
++                            center = Offset(cx, cy),
++                            alpha = placeholderAlpha
++                        )
++                        drawCircle(
++                            color = badgeTarget.copy(alpha = .28f * placeholderAlpha),
++                            radius = rad,
++                            center = Offset(cx, cy),
++                            style = Stroke(width = 1.4.dp.toPx())
++                        )
++                    }
+                     Canvas(Modifier.fillMaxSize()) {
+                         val prev = fadeFrom
+                         val dst = IntSize(sidePx.roundToInt(), sidePx.roundToInt())
+diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+index 0627b01..c1c1c21 100644
+--- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
++++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+@@ -1,6 +1,7 @@
+ package net.gozar.app
+ 
+ import android.app.Activity
++import android.app.Application
+ import android.os.Bundle
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+@@ -16,8 +17,17 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+ 
+     override fun onCreate() {
+         super.onCreate()
++        VpnState.initialize(this)
+         GhajarNotificationMonitor.initialize(this)
+         GhajarOpenVpnBridge.initialize(this)
++        if (Application.getProcessName() == packageName) scope.launch {
++            runCatching {
++                GhajarOpenVpnBridge.syncSavedProfiles(
++                    this@GozarApplication,
++                    ConfigStore.get(this@GozarApplication)
++                )
++            }
++        }
+ 
+         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+             override fun onActivityStarted(activity: Activity) {
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 0da0450..53157e5 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -556,10 +556,12 @@ private fun windscribeRowColor(): Color = when {
+ }
+ 
+ 
++data class PendingConfigImport(val bytes: ByteArray, val fileName: String? = null)
++
+ object ImportBus {
+-    private val _pending = kotlinx.coroutines.flow.MutableStateFlow<ByteArray?>(null)
+-    val pending: kotlinx.coroutines.flow.StateFlow<ByteArray?> = _pending
+-    fun offer(bytes: ByteArray) { _pending.value = bytes }
++    private val _pending = kotlinx.coroutines.flow.MutableStateFlow<PendingConfigImport?>(null)
++    val pending: kotlinx.coroutines.flow.StateFlow<PendingConfigImport?> = _pending
++    fun offer(bytes: ByteArray, fileName: String? = null) { _pending.value = PendingConfigImport(bytes, fileName) }
+     fun clear() { _pending.value = null }
+ 
+     private val _scanned = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+@@ -591,7 +593,9 @@ class MainActivity : ComponentActivity() {
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
++        WindowCompat.setDecorFitsSystemWindows(window, false)
+         store = ConfigStore.get(applicationContext)
++        GhajarNavigationBus.offer(intent.getStringExtra(GhajarWidgetProvider.EXTRA_DESTINATION))
+         UsageStore.init(applicationContext)
+         VpnBridge.register(applicationContext)
+         handleImportIntent(intent)
+@@ -735,6 +739,7 @@ class MainActivity : ComponentActivity() {
+     override fun onNewIntent(intent: Intent) {
+         super.onNewIntent(intent)
+         setIntent(intent)
++        GhajarNavigationBus.offer(intent.getStringExtra(GhajarWidgetProvider.EXTRA_DESTINATION))
+         handleImportIntent(intent)
+     }
+ 
+@@ -760,19 +765,25 @@ class MainActivity : ComponentActivity() {
+                 ).show()
+                 return@launch
+             }
+-            val bytes = withContext(Dispatchers.IO) {
++            val (bytes, displayName) = withContext(Dispatchers.IO) {
++                val name = runCatching {
++                    contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
++                        null, null, null)?.use { cursor ->
++                        if (cursor.moveToFirst()) cursor.getString(0) else null
++                    }
++                }.getOrNull() ?: uri.lastPathSegment
+                 runCatching {
+                     contentResolver.openInputStream(uri)?.use { it.readBytes() }
+-                }.getOrNull()
++                }.getOrNull() to name
+             }
+             if (bytes != null && bytes.isNotEmpty()) {
+-                val isOvpn = uri.lastPathSegment?.endsWith(".ovpn", true) == true ||
++                val isOvpn = displayName?.endsWith(".ovpn", true) == true ||
+                     bytes.toString(Charsets.UTF_8).contains(Regex("(?im)^\\s*(client|remote)\\b"))
+                 if (isOvpn) {
+                     GhajarOpenVpnBridge.offer(bytes).onFailure {
+                         Toast.makeText(this@MainActivity, it.message ?: "فایل OVPN معتبر نیست", Toast.LENGTH_LONG).show()
+                     }
+-                } else ImportBus.offer(bytes)
++                } else ImportBus.offer(bytes, displayName)
+             }
+         }
+     }
+@@ -795,6 +806,25 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun launchConnect(config: ProxyConfig) {
++        if (config.protocol.trim().equals("openvpn", true) || config.id.startsWith("ovpn:")) {
++            val start = {
++                lifecycleScope.launch {
++                    GhajarOpenVpnBridge.connectSaved(this@MainActivity, config)
++                        .onFailure {
++                            VpnState.setError(it.message ?: "اتصال OVPN آغاز نشد")
++                            Toast.makeText(this@MainActivity,
++                                it.message ?: "اتصال OVPN آغاز نشد", Toast.LENGTH_LONG).show()
++                        }
++                }
++                Unit
++            }
++            val permission = VpnService.prepare(this)
++            if (permission == null) start() else {
++                afterPermission = start
++                vpnPermission.launch(permission)
++            }
++            return
++        }
+         if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
+             config.security.trim().lowercase() == "tls"
+         ) {
+@@ -859,7 +889,8 @@ class MainActivity : ComponentActivity() {
+     private fun watchTunnel() {
+         lifecycleScope.launch {
+             VpnState.state.collect { state ->
+-                if (state == Connection.CONNECTED && !IkeController.active) {
++                val openVpn = VpnState.activeId.value?.startsWith("ovpn:") == true
++                if (state == Connection.CONNECTED && !IkeController.active && !openVpn) {
+                     TunnelHealth.check()
+                     RadarRunner.start(true)
+                     val id = VpnState.activeId.value
+@@ -906,6 +937,9 @@ class MainActivity : ComponentActivity() {
+                 if (activeId == null) {
+                     android.util.Log.d(tag, "skip: no active config id"); continue
+                 }
++                if (activeId.startsWith("ovpn:")) {
++                    android.util.Log.d(tag, "skip: OpenVPN profile manages its own tunnel"); continue
++                }
+                 val activeCfg = store.configs.value.find { it.id == activeId }
+                 if (activeCfg?.protocol?.trim()?.lowercase() in setOf("tor", "aether")) {
+                     android.util.Log.d(tag, "skip: active is ${activeCfg?.protocol}"); continue
+@@ -1032,6 +1066,11 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun disconnect() {
++        if (VpnState.activeId.value?.startsWith("ovpn:") == true) {
++            GhajarOpenVpnBridge.disconnect(this)
++            VpnState.setDisconnected()
++            return
++        }
+         if (IkeController.active) {
+             IkeController.disconnect(this)
+             VpnState.setDisconnected()
+@@ -1091,6 +1130,14 @@ private fun GozarApp(
+     var showWindscribe by remember { mutableStateOf(false) }
+     var showScanner by remember { mutableStateOf(false) }
+     var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
++    val widgetDestination by GhajarNavigationBus.destination.collectAsState()
++    LaunchedEffect(widgetDestination) {
++        if (widgetDestination == GhajarWidgetProvider.DEST_SERVERS) {
++            pagerState.scrollToPage(PAGE_HOME)
++            showPicker = true
++            GhajarNavigationBus.consume()
++        }
++    }
+     val updateCtx = LocalContext.current
+     val updateUri = LocalUriHandler.current
+     var updateAvailable by remember { mutableStateOf<UpdateChecker.Result.Available?>(null) }
+@@ -1152,11 +1199,35 @@ private fun GozarApp(
+     var importBusy by remember { mutableStateOf(false) }
+ 
+     LaunchedEffect(pendingImport) {
+-        val bytes = pendingImport ?: return@LaunchedEffect
++        val import = pendingImport ?: return@LaunchedEffect
++        val bytes = import.bytes
+         importPassword = ""
+         importError = ""
++        val readable = withContext(Dispatchers.Default) { GhajarImportRules.readableText(bytes) }
++        val subscriptionUrl = GhajarImportRules.subscriptionUrl(readable)
++        if (subscriptionUrl != null) {
++            importBusy = true
++            try {
++                val fetched = SubscriptionFetcher.fetchFull(subscriptionUrl)
++                if (fetched.configs.isEmpty()) throw IllegalArgumentException(t("no_configs"))
++                val name = runCatching { URL(subscriptionUrl).host }.getOrDefault("Subscription")
++                val info = fetched.userInfo
++                store.upsertSubscription(Subscription(name = name, url = subscriptionUrl,
++                    used = info?.used ?: 0, total = info?.total ?: 0, expire = info?.expire ?: 0,
++                    lastUpdated = System.currentTimeMillis()), fetched.configs)
++                android.widget.Toast.makeText(importContext,
++                    t("added_sub").format(fetched.configs.size), android.widget.Toast.LENGTH_SHORT).show()
++            } catch (e: Exception) {
++                android.widget.Toast.makeText(importContext,
++                    "${t("fetch_failed")}: ${e.message.orEmpty()}", android.widget.Toast.LENGTH_LONG).show()
++            } finally {
++                importBusy = false
++                ImportBus.clear()
++            }
++            return@LaunchedEffect
++        }
+         val plain = withContext(Dispatchers.Default) {
+-            runCatching { ConfigParser.parseBundle(String(bytes, Charsets.UTF_8)) }
++            runCatching { ConfigParser.parseBundle(readable.orEmpty()) }
+                 .getOrDefault(emptyList())
+         }
+         if (plain.isNotEmpty()) {
+@@ -1177,6 +1248,11 @@ private fun GozarApp(
+                 val n = store.addImported(configs)
+                 android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
+                 ImportBus.clear()
++            } else if (GhajarImportRules.isNpvt(import.fileName)) {
++                android.widget.Toast.makeText(importContext,
++                    "این فایل NPVT قفل یا قالب اختصاصی NetMod دارد. نسخهٔ بازِ کانفیگ/ساب را صادر کن؛ دورزدن قفل پشتیبانی نمی‌شود.",
++                    android.widget.Toast.LENGTH_LONG).show()
++                ImportBus.clear()
+             } else {
+                 importNeedsPassword = true
+             }
+@@ -1190,7 +1266,7 @@ private fun GozarApp(
+             confirmLabel = t("import_button"),
+             dismissLabel = t("cancel"),
+             onConfirm = {
+-                val bytes = pendingImport
++                val bytes = pendingImport?.bytes
+                 if (bytes != null && !importBusy && importPassword.isNotEmpty()) {
+                     importBusy = true
+                     scope.launch {
+@@ -1955,7 +2031,38 @@ private fun ConfigPickerScreen(
+                         pickerContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                     }.getOrNull()
+                 }
+-                if (bytes != null && bytes.isNotEmpty()) ImportBus.offer(bytes)
++                if (bytes != null && bytes.isNotEmpty()) {
++                    val name = runCatching {
++                        pickerContext.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
++                            null, null, null)?.use { cursor ->
++                            if (cursor.moveToFirst()) cursor.getString(0) else null
++                        }
++                    }.getOrNull() ?: uri.lastPathSegment
++                    val isOpenVpn = name?.endsWith(".ovpn", true) == true ||
++                        bytes.toString(Charsets.UTF_8).contains(Regex("(?im)^\\s*(client|remote)\\b"))
++                    if (isOpenVpn) {
++                        GhajarOpenVpnBridge.offer(bytes).onFailure {
++                            android.widget.Toast.makeText(
++                                pickerContext,
++                                it.message ?: "فایل OVPN معتبر نیست",
++                                android.widget.Toast.LENGTH_LONG
++                            ).show()
++                        }
++                    } else ImportBus.offer(bytes, name)
++                }
++            }
++        }
++    }
++    val openVpnPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
++        if (uri != null) pickerScope.launch {
++            val bytes = withContext(Dispatchers.IO) {
++                runCatching { pickerContext.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
++            }
++            if (!bytes.isNullOrEmpty()) {
++                GhajarOpenVpnBridge.offer(bytes).onFailure {
++                    android.widget.Toast.makeText(pickerContext,
++                        it.message ?: "فایل OVPN معتبر نیست", android.widget.Toast.LENGTH_LONG).show()
++                }
+             }
+         }
+     }
+@@ -1964,6 +2071,7 @@ private fun ConfigPickerScreen(
+     var addBusy by remember { mutableStateOf(false) }
+     var addDone by remember { mutableStateOf("") }
+     var testAllState by remember { mutableStateOf(0) }
++    var refreshAllState by remember { mutableStateOf(0) }
+     var addMenu by remember { mutableStateOf(false) }
+     var sortMenu by remember { mutableStateOf(false) }
+     var purgeMenu by remember { mutableStateOf(false) }
+@@ -1977,6 +2085,12 @@ private fun ConfigPickerScreen(
+     val expandedSubs by store.expandedSubs.collectAsState()
+     val scope = rememberCoroutineScope()
+ 
++    // Every visit starts with the saved subscription groups visible. A user may
++    // still collapse any group during the current visit.
++    LaunchedEffect(subscriptions.map { it.id }) {
++        store.expandSubscriptions(subscriptions.map { it.id })
++    }
++
+     val context = LocalContext.current
+     val haptic = LocalHapticFeedback.current
+     val selected = remember { mutableStateMapOf<String, Boolean>() }
+@@ -2075,6 +2189,10 @@ private fun ConfigPickerScreen(
+         selectionMode = selected.isNotEmpty()
+     }
+     fun clearSel() { selected.clear(); selectionMode = false }
++    fun removeSavedOpenVpn(ids: Set<String>) {
++        configs.asSequence().filter { it.id in ids && it.id.startsWith("ovpn:") }
++            .forEach { GhajarOpenVpnBridge.removeSaved(context, it) }
++    }
+ 
+     BackHandler(enabled = selectionMode) { clearSel() }
+ 
+@@ -2101,6 +2219,7 @@ private fun ConfigPickerScreen(
+     }
+     LaunchedEffect(addDone) { if (addDone.isNotEmpty()) { delay(3000); addDone = "" } }
+     LaunchedEffect(testAllState) { if (testAllState == 2) { delay(2500); testAllState = 0 } }
++    LaunchedEffect(refreshAllState) { if (refreshAllState == 2) { delay(2500); refreshAllState = 0 } }
+ 
+     fun doAdd(raw: String) {
+         val text = raw.trim()
+@@ -2185,6 +2304,8 @@ private fun ConfigPickerScreen(
+             },
+             onManual = { addMenu = false; onAddManually() },
+             onImport = { addMenu = false; filePicker.launch(arrayOf("*/*")) },
++            onImportOpenVpn = { addMenu = false; openVpnPicker.launch(arrayOf(
++                "application/x-openvpn-profile", "text/plain", "application/octet-stream", "*/*")) },
+             onProjects = { addMenu = false; onFreeProjects() },
+             onWindscribe = { addMenu = false; onWindscribe() },
+             onScanQr = { addMenu = false; onScanQr() }
+@@ -2202,14 +2323,16 @@ private fun ConfigPickerScreen(
+                             val jobs = snapshot.map { cfg ->
+                                 launch {
+                                     sem.withPermit {
+-                                        pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") {
+-                                            Pinger.pingIke(cfg.address)
+-                                        } else {
++                                        pings[cfg.id] = when (cfg.protocol.trim().lowercase()) {
++                                            "ikev2" -> Pinger.pingIke(cfg.address)
++                                            "openvpn" -> Pinger.ping(cfg.address, cfg.port, 3500)
++                                            else -> {
+                                             val ms = withContext(Dispatchers.IO) {
+                                                 Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg))
+                                             }
+                                             if (ms >= 0) PingResult.Ok(ms.toInt())
+                                             else PingResult.Failed
++                                            }
+                                         }
+                                     }
+                                 }
+@@ -2236,6 +2359,32 @@ private fun ConfigPickerScreen(
+                 )
+             }
+ 
++            BounceOutlinedButton(
++                onClick = {
++                    if (refreshAllState == 0 && subscriptions.isNotEmpty()) {
++                        refreshAllState = 1
++                        scope.launch {
++                            val summary = SubscriptionRefresher.refreshAll(store)
++                            subStatus = if (summary.failed == 0) {
++                                n("${t("refresh_all_done")}: ${summary.configs}")
++                            } else {
++                                n("${summary.updated}/${summary.attempted} · ${t("fetch_failed")}: ${summary.failed}")
++                            }
++                            refreshAllState = 2
++                        }
++                    }
++                },
++                enabled = refreshAllState != 1 && subscriptions.isNotEmpty(),
++                minHeight = 42.dp,
++                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
++                modifier = Modifier.weight(1f).height(42.dp)
++            ) {
++                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
++                Spacer(Modifier.width(6.dp))
++                Text(if (refreshAllState == 1) t("fetching_sub") else t("refresh_all"),
++                    maxLines = 1, overflow = TextOverflow.Ellipsis)
++            }
++
+             Box {
+                 BounceOutlinedButton(
+                     onClick = { purgeMenu = true },
+@@ -2526,6 +2675,7 @@ private fun ConfigPickerScreen(
+                         onRemoveTimedOut = {
+                             val dead = subConfigs.filter { pings[it.id] == PingResult.Failed }
+                                 .map { it.id }.toSet()
++                            removeSavedOpenVpn(dead)
+                             store.deleteConfigsByIds(dead)
+                             dead.forEach { pings.remove(it); selected.remove(it) }
+                             addDone = n(t("deleted_n").format(dead.size))
+@@ -2540,9 +2690,10 @@ private fun ConfigPickerScreen(
+                                     subConfigs.map { cfg ->
+                                         launch {
+                                             sem.withPermit {
+-                                                pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") {
+-                                                    Pinger.pingIke(cfg.address)
+-                                                } else {
++                                                pings[cfg.id] = when (cfg.protocol.trim().lowercase()) {
++                                                    "ikev2" -> Pinger.pingIke(cfg.address)
++                                                    "openvpn" -> Pinger.ping(cfg.address, cfg.port, 3500)
++                                                    else -> {
+                                                     val ms = withContext(Dispatchers.IO) {
+                                                         Gozarcore.measureDelay(
+                                                             ConfigBuilder.buildForTest(cfg)
+@@ -2550,6 +2701,7 @@ private fun ConfigPickerScreen(
+                                                     }
+                                                     if (ms >= 0) PingResult.Ok(ms.toInt())
+                                                     else PingResult.Failed
++                                                    }
+                                                 }
+                                             }
+                                         }
+@@ -2573,7 +2725,10 @@ private fun ConfigPickerScreen(
+                             onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
+                             onLongPress = { beginPaint(cfg.id) },
+                             onEdit = { onEdit(cfg) },
+-                            onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
++                            onDelete = {
++                                if (cfg.id.startsWith("ovpn:")) GhajarOpenVpnBridge.removeSaved(context, cfg)
++                                store.delete(cfg.id); pings.remove(cfg.id)
++                            },
+                             onShareFile = { onShareFile(listOf(cfg)) },
+                             onChain = { chainFor = cfg },
+                             actionsOpen = openActionsId == cfg.id,
+@@ -2635,7 +2790,10 @@ private fun ConfigPickerScreen(
+                         onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
+                         onLongPress = { beginPaint(cfg.id) },
+                         onEdit = { onEdit(cfg) },
+-                        onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
++                        onDelete = {
++                            if (cfg.id.startsWith("ovpn:")) GhajarOpenVpnBridge.removeSaved(context, cfg)
++                            store.delete(cfg.id); pings.remove(cfg.id)
++                        },
+                         onShareFile = { onShareFile(listOf(cfg)) },
+                         onChain = { chainFor = cfg },
+                         actionsOpen = openActionsId == cfg.id,
+@@ -2698,6 +2856,7 @@ private fun ConfigPickerScreen(
+             dismissLabel = t("cancel"),
+             destructive = true,
+             onConfirm = {
++                removeSavedOpenVpn(manual)
+                 store.deleteConfigsByIds(manual)
+                 manual.forEach { pings.remove(it); selected.remove(it) }
+                 addDone = n(t("deleted_n").format(manual.size))
+@@ -2720,6 +2879,7 @@ private fun ConfigPickerScreen(
+             dismissLabel = t("cancel"),
+             destructive = true,
+             onConfirm = {
++                removeSavedOpenVpn(dupes)
+                 store.deleteConfigsByIds(dupes)
+                 dupes.forEach { pings.remove(it); selected.remove(it) }
+                 addDone = n(t("deleted_n").format(dupes.size))
+@@ -2741,6 +2901,7 @@ private fun ConfigPickerScreen(
+             destructive = true,
+             onConfirm = {
+                 val removed = configs.size
++                removeSavedOpenVpn(configs.mapTo(linkedSetOf()) { it.id })
+                 store.deleteAllConfigs()
+                 selected.clear()
+                 selectionMode = false
+@@ -2765,6 +2926,7 @@ private fun ConfigPickerScreen(
+             confirmLabel = t("delete"),
+             destructive = true,
+             onConfirm = {
++                removeSavedOpenVpn(dead)
+                 store.deleteConfigsByIds(dead)
+                 dead.forEach { pings.remove(it); selected.remove(it) }
+                 addDone = n(t("deleted_n").format(dead.size))
+@@ -2787,7 +2949,11 @@ private fun ConfigPickerScreen(
+             destructive = true,
+             onConfirm = {
+                 configs.filter { selected.containsKey(it.id) }
+-                    .forEach { store.delete(it.id); pings.remove(it.id) }
++                    .forEach {
++                        if (it.id.startsWith("ovpn:")) GhajarOpenVpnBridge.removeSaved(context, it)
++                        store.delete(it.id)
++                        pings.remove(it.id)
++                    }
+                 clearSel()
+                 confirmDelete = false
+             }
+@@ -3207,6 +3373,7 @@ private fun AddServerPanel(
+     onPaste: () -> Unit,
+     onManual: () -> Unit,
+     onImport: () -> Unit,
++    onImportOpenVpn: () -> Unit,
+     onProjects: () -> Unit,
+     onWindscribe: () -> Unit,
+     onScanQr: () -> Unit,
+@@ -3274,6 +3441,8 @@ private fun AddServerPanel(
+                             Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f)
+                         )
+                     }
++                    AddTile(Icons.Filled.Security, t("import_ovpn"), onImportOpenVpn, Modifier.fillMaxWidth(),
++                        accent = Color(0xFFD6B45F))
+                     AddTile(
+                         Icons.Filled.Shield, t("ws_title"), onWindscribe, Modifier.fillMaxWidth()
+                     )
+@@ -6983,7 +7152,7 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
+         dlLive = 0.0; ulLive = 0.0; livePing = 0.0
+         phase = StabilityTest.Phase.PING
+         val testJson =
+-            if (cfg != null && cfg.protocol.trim().lowercase() != "ikev2")
++            if (cfg != null && cfg.protocol.trim().lowercase() !in setOf("ikev2", "openvpn"))
+                 ConfigBuilder.buildForTest(cfg)
+             else ConfigBuilder.buildForTestDirect()
+         testJob = scope.launch {
+@@ -9377,6 +9546,7 @@ private fun ConfigRow(
+     var shareMenu by remember { mutableStateOf(false) }
+     var qrFor by remember { mutableStateOf<String?>(null) }
+     val checked by remember { derivedStateOf { isChecked() } }
++    val isOpenVpn = config.protocol.equals("openvpn", true) || config.id.startsWith("ovpn:")
+ 
+     qrFor?.let { link ->
+         QrDialog(link = link, title = config.name, onDismiss = { qrFor = null })
+@@ -9476,7 +9646,8 @@ private fun ConfigRow(
+                     MarqueeName(config.name, color = MaterialTheme.colorScheme.onSurface)
+                 }
+                 Text(
+-                    if (config.locked) AnnotatedString(t("locked_config"))
++                    if (isOpenVpn) scriptRuns("OpenVPN · ${config.address}:${config.port}", LexendFont)
++                    else if (config.locked) AnnotatedString(t("locked_config"))
+                     else scriptRuns("${config.address}:${config.port}", LexendFont),
+                     style = MaterialTheme.typography.bodySmall,
+                     color = if (isActive) MaterialTheme.colorScheme.primary
+@@ -9498,7 +9669,7 @@ private fun ConfigRow(
+                 )
+             ) {
+                 Row(verticalAlignment = Alignment.CenterVertically) {
+-                    Box {
++                    if (!isOpenVpn) Box {
+                         Icon(Icons.Filled.Share, contentDescription = t("share"),
+                             tint = MaterialTheme.colorScheme.primary,
+                             modifier = Modifier.clip(CircleShape).clickable { shareMenu = true }.padding(4.dp).size(21.dp))
+@@ -9528,7 +9699,7 @@ private fun ConfigRow(
+                             }
+                         }
+                     }
+-                    Icon(
++                    if (!isOpenVpn) Icon(
+                         Icons.Filled.Layers,
+                         contentDescription = t("chain_through"),
+                         tint = if (config.chainId.isNotEmpty()) MaterialTheme.colorScheme.primary
+@@ -9536,7 +9707,7 @@ private fun ConfigRow(
+                         modifier = Modifier.clip(CircleShape).clickable { onChain() }
+                             .padding(4.dp).size(21.dp)
+                     )
+-                    Icon(Icons.Filled.Edit, contentDescription = t("edit"),
++                    if (!isOpenVpn) Icon(Icons.Filled.Edit, contentDescription = t("edit"),
+                         tint = MaterialTheme.colorScheme.primary,
+                         modifier = Modifier.clip(CircleShape).clickable { onEdit() }.padding(4.dp).size(21.dp))
+                     Icon(Icons.Filled.Delete, contentDescription = t("delete"),
+diff --git a/app/src/main/java/net/gozar/app/Qstileservice.kt b/app/src/main/java/net/gozar/app/Qstileservice.kt
+index 6436627..c4c160b 100644
+--- a/app/src/main/java/net/gozar/app/Qstileservice.kt
++++ b/app/src/main/java/net/gozar/app/Qstileservice.kt
+@@ -1,8 +1,6 @@
+ package net.gozar.app
+ 
+-import android.app.ActivityManager
+ import android.app.PendingIntent
+-import android.content.Context
+ import android.content.Intent
+ import android.graphics.drawable.Icon
+ import android.net.VpnService
+@@ -23,6 +21,7 @@ class QsTileService : TileService() {
+ 
+     override fun onCreate() {
+         super.onCreate()
++        VpnState.initialize(applicationContext)
+         VpnBridge.register(applicationContext)
+     }
+ 
+@@ -70,12 +69,23 @@ class QsTileService : TileService() {
+         }
+     }
+ 
+-    private fun startTunnel() {
++    private suspend fun startTunnel() {
+         val store = ConfigStore.get(applicationContext)
+         val selectedId = store.selectedId.value
+         val config = store.configs.value.firstOrNull { it.id == selectedId }
+         if (config == null) { openApp(); return }
+         if (VpnService.prepare(this) != null) { openApp(); return }
++        if (config.protocol.equals("openvpn", true) || config.id.startsWith("ovpn:")) {
++            GhajarOpenVpnBridge.connectSaved(applicationContext, config)
++                .onFailure { VpnState.setError(it.message ?: "OVPN failed"); openApp() }
++            return
++        }
++        if (config.protocol.equals("ikev2", true)) {
++            IkeController.bind(applicationContext)
++            IkeController.claim(config)
++            if (!IkeController.connect(applicationContext, config)) openApp()
++            return
++        }
+         val json = ConfigBuilder.build(
+             config, store.fragment.value, store.splitRouting.value,
+             store.sniffing.value, store.sniffTypes.value,
+@@ -101,6 +111,18 @@ class QsTileService : TileService() {
+     }
+ 
+     private fun stopTunnel() {
++        val snapshot = VpnConnectionStore.read(applicationContext)
++        if (snapshot.activeId?.startsWith("ovpn:") == true) {
++            GhajarOpenVpnBridge.disconnect(applicationContext)
++            VpnState.setDisconnected()
++            return
++        }
++        val store = ConfigStore.get(applicationContext)
++        if (IkeController.active || store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2") {
++            IkeController.disconnect(applicationContext)
++            VpnState.setDisconnected()
++            return
++        }
+         runCatching {
+             startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
+         }
+@@ -123,19 +145,10 @@ class QsTileService : TileService() {
+     }
+ 
+     private fun activeNow(): Boolean {
+-        val s = VpnState.state.value
+-        if (s == Connection.CONNECTED || s == Connection.CONNECTING) return true
+-        return isServiceRunning()
++        val state = VpnConnectionStore.read(applicationContext).state
++        return state == Connection.CONNECTED || state == Connection.CONNECTING
+     }
+ 
+-    private fun isServiceRunning(): Boolean = runCatching {
+-        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+-        @Suppress("DEPRECATION")
+-        am.getRunningServices(Int.MAX_VALUE).any {
+-            it.service.className == GozarVpnService::class.java.name
+-        }
+-    }.getOrDefault(false)
+-
+     private fun render() {
+         val tile = qsTile ?: return
+         val active = activeNow()
+@@ -147,7 +160,7 @@ class QsTileService : TileService() {
+         }
+         tile.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+         tile.label = Strings.get(lang, "app_title")
+-        val status = when (VpnState.state.value) {
++        val status = when (VpnConnectionStore.read(applicationContext).state) {
+             Connection.CONNECTING -> Strings.get(lang, "status_connecting")
+             Connection.ERROR -> Strings.get(lang, "status_error")
+             Connection.CONNECTED -> Strings.get(lang, "status_connected")
+diff --git a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+index 3667565..660e47e 100644
+--- a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
++++ b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+@@ -54,11 +54,7 @@ class SecurePaymentActivity : Activity() {
+             checkoutUrl.host.equals("t.me", true) &&
+             checkoutUrl.userInfo == null
+         ) {
+-            val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
+-            clipboard.setPrimaryClip(android.content.ClipData.newPlainText("ghajar_pay", checkoutUrl.toString()))
+-            Toast.makeText(this, "لینک پرداخت تلگرام کپی شد؛ آن را در تلگرام ارسال کن و به قاجار VPN برگرد.", Toast.LENGTH_LONG).show()
+-            setResult(RESULT_OK)
+-            finish()
++            showTelegramHandoff(checkoutUrl)
+             return
+         }
+         initialHost = checkoutUrl?.host
+@@ -250,6 +246,73 @@ class SecurePaymentActivity : Activity() {
+         return true
+     }
+ 
++    /** Keep checkout visibly inside Ghajar until the user explicitly opens
++     * Telegram or returns. Immediate finish looked like an application crash. */
++    private fun showTelegramHandoff(uri: Uri) {
++        val clipboard = getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager
++        clipboard.setPrimaryClip(android.content.ClipData.newPlainText("ghajar_pay", uri.toString()))
++
++        fun action(label: String, filled: Boolean, click: () -> Unit) = TextView(this).apply {
++            text = label
++            gravity = Gravity.CENTER
++            textSize = 16f
++            setTextColor(if (filled) Color.rgb(7, 27, 46) else Color.WHITE)
++            background = android.graphics.drawable.GradientDrawable().apply {
++                cornerRadius = dp(18).toFloat()
++                if (filled) setColor(Color.rgb(214, 180, 95)) else {
++                    setColor(Color.TRANSPARENT)
++                    setStroke(dp(1), Color.rgb(214, 180, 95))
++                }
++            }
++            setOnClickListener { click() }
++        }
++
++        val content = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            gravity = Gravity.CENTER_HORIZONTAL
++            setBackgroundColor(Color.rgb(7, 27, 46))
++            setPadding(dp(22), dp(28), dp(22), dp(22))
++            addView(ImageView(this@SecurePaymentActivity).apply {
++                setImageResource(R.mipmap.ic_launcher)
++                contentDescription = "نشان قاجار وی پی ان"
++            }, LinearLayout.LayoutParams(dp(92), dp(92)))
++            addView(TextView(this@SecurePaymentActivity).apply {
++                text = "ادامهٔ پرداخت در تلگرام"
++                gravity = Gravity.CENTER
++                textSize = 23f
++                setTextColor(Color.WHITE)
++                setPadding(0, dp(20), 0, dp(10))
++            }, LinearLayout.LayoutParams(-1, -2))
++            addView(TextView(this@SecurePaymentActivity).apply {
++                text = "فاکتور روی گوشی ذخیره شده و لینک هم کپی شده است. تلگرام را باز کن، پرداخت را انجام بده و سپس برای بررسی به قاجار برگرد. دوباره پرداخت نکن."
++                gravity = Gravity.CENTER
++                textSize = 15f
++                setTextColor(Color.rgb(230, 224, 212))
++                setPadding(0, 0, 0, dp(26))
++            }, LinearLayout.LayoutParams(-1, -2))
++            addView(action("باز کردن تلگرام", true) {
++                val launch = Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
++                runCatching { startActivity(launch) }.onFailure {
++                    Toast.makeText(this@SecurePaymentActivity,
++                        "تلگرام در دسترس نیست؛ لینک کپی شده است.", Toast.LENGTH_LONG).show()
++                }
++            }, LinearLayout.LayoutParams(-1, dp(52)).apply { bottomMargin = dp(10) })
++            addView(action("بازگشت و بررسی پرداخت", false) {
++                setResult(RESULT_OK)
++                finish()
++            }, LinearLayout.LayoutParams(-1, dp(52)))
++        }
++        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(content) { view, insets ->
++            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or
++                androidx.core.view.WindowInsetsCompat.Type.displayCutout())
++            view.setPadding(dp(22) + bars.left, dp(28) + bars.top,
++                dp(22) + bars.right, dp(22) + bars.bottom)
++            insets
++        }
++        setContentView(content)
++        androidx.core.view.ViewCompat.requestApplyInsets(content)
++    }
++
+     private fun finishWithError(message: String) {
+         Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+         setResult(RESULT_CANCELED)
+diff --git a/app/src/main/java/net/gozar/app/SpeedTest.kt b/app/src/main/java/net/gozar/app/SpeedTest.kt
+index 997ff92..17bf358 100644
+--- a/app/src/main/java/net/gozar/app/SpeedTest.kt
++++ b/app/src/main/java/net/gozar/app/SpeedTest.kt
+@@ -1,6 +1,8 @@
+ package net.gozar.app
+ 
+ import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.currentCoroutineContext
++import kotlinx.coroutines.ensureActive
+ import kotlinx.coroutines.withContext
+ import java.net.HttpURLConnection
+ import java.net.InetSocketAddress
+@@ -13,9 +15,11 @@ object SpeedTest {
+     private val PROXY_PORT get() = MixedPort.value
+     private const val DELAY_URL = "https://www.gstatic.com/generate_204"
+     private const val DOWNLOAD_URL = "https://speed.cloudflare.com/__down?bytes=26214400"
++    private const val UPLOAD_URL = "https://speed.cloudflare.com/__up"
++    private const val UPLOAD_BYTES = 4 * 1024 * 1024
+ 
+     private fun proxy() =
+-        if (IkeController.active) Proxy.NO_PROXY
++        if (IkeController.active || VpnState.activeId.value?.startsWith("ovpn:") == true) Proxy.NO_PROXY
+         else Proxy(Proxy.Type.SOCKS, InetSocketAddress(PROXY_HOST, PROXY_PORT))
+ 
+     private fun measureOnce(timeoutMs: Int): Int? = try {
+@@ -83,4 +87,49 @@ object SpeedTest {
+             else peakBytesPerSec * 8.0 / 1_000_000.0
+         } catch (e: Exception) { null }
+     }
++
++    /** Independent upload fallback for native cores that return a zero upload
++     * result. It uses the same tunnel-aware SOCKS route as latency/download. */
++    suspend fun upload(): Double? = withContext(Dispatchers.IO) {
++        var conn: HttpURLConnection? = null
++        try {
++            conn = (URL(UPLOAD_URL).openConnection(proxy()) as HttpURLConnection).apply {
++                connectTimeout = 10_000
++                readTimeout = 20_000
++                requestMethod = "POST"
++                doOutput = true
++                doInput = true
++                useCaches = false
++                setFixedLengthStreamingMode(UPLOAD_BYTES)
++                setRequestProperty("User-Agent", "Ghajarvpn")
++                setRequestProperty("Content-Type", "application/octet-stream")
++            }
++            val chunk = ByteArray(64 * 1024) { index -> (index and 0xFF).toByte() }
++            var written = 0
++            val started = System.nanoTime()
++            conn.outputStream.use { output ->
++                while (written < UPLOAD_BYTES) {
++                    currentCoroutineContext().ensureActive()
++                    val count = minOf(chunk.size, UPLOAD_BYTES - written)
++                    output.write(chunk, 0, count)
++                    written += count
++                }
++                output.flush()
++            }
++            val code = conn.responseCode
++            val elapsed = System.nanoTime() - started
++            runCatching { conn.inputStream.close() }
++            if (code !in 200..299) null else rateMbps(written.toLong(), elapsed)
++        } catch (cancelled: kotlinx.coroutines.CancellationException) {
++            throw cancelled
++        } catch (_: Exception) {
++            null
++        } finally {
++            conn?.disconnect()
++        }
++    }
++
++    internal fun rateMbps(bytes: Long, elapsedNanos: Long): Double? =
++        if (bytes <= 0L || elapsedNanos <= 0L) null
++        else bytes * 8.0 * 1_000.0 / elapsedNanos
+ }
+diff --git a/app/src/main/java/net/gozar/app/StabilityTest.kt b/app/src/main/java/net/gozar/app/StabilityTest.kt
+index 25456e8..be2c859 100644
+--- a/app/src/main/java/net/gozar/app/StabilityTest.kt
++++ b/app/src/main/java/net/gozar/app/StabilityTest.kt
+@@ -42,7 +42,17 @@ object StabilityTest {
+                 try { Gozarcore.runSpeedTest(testConfigJson) } catch (e: Exception) { "" }
+             }
+             poller.cancel()
+-            parse(json)
++            val coreResult = parse(json) ?: return@coroutineScope null
++            if (coreResult.uploadMbps > 0.01) return@coroutineScope coreResult
++
++            // Some native cores finish without entering their upload phase. Do
++            // a bounded HTTPS POST through the active tunnel instead of showing 0.
++            onProgress(Phase.UPLOAD, 0.0)
++            val fallback = SpeedTest.upload()
++            if (fallback != null && fallback > 0.0) {
++                onProgress(Phase.UPLOAD, fallback)
++                coreResult.copy(uploadMbps = fallback)
++            } else coreResult
+         }
+ 
+     private fun parse(json: String): Result? {
+@@ -67,4 +77,4 @@ object StabilityTest {
+         .toString()
+ 
+     fun fromJson(json: String): Result? = parse(json)
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/net/gozar/app/Strings.kt b/app/src/main/java/net/gozar/app/Strings.kt
+index 73af742..4208c83 100644
+--- a/app/src/main/java/net/gozar/app/Strings.kt
++++ b/app/src/main/java/net/gozar/app/Strings.kt
+@@ -346,12 +346,15 @@ object Strings {
+         "tools" to "Tools",
+         "test_all" to "Test all",
+         "test_completed" to "Test completed",
++        "refresh_all" to "Update all",
++        "refresh_all_done" to "All subscriptions updated",
+         "adding" to "Adding…",
+         "added_configs" to "Added %d config(s)",
+         "added_sub" to "Added a sub with %d configs",
+         "clipboard_empty" to "Clipboard is empty",
+         "pasted" to "Pasted from clipboard",
+         "manual_configs" to "Manual configs",
++        "import_ovpn" to "Import OpenVPN (.ovpn)",
+         "refresh" to "Refresh",
+         "copy" to "Copy",
+         "ip_secured" to "Secured",
+@@ -1012,12 +1015,15 @@ object Strings {
+         "tools" to "ابزارها",
+         "test_all" to "تست همه",
+         "test_completed" to "تست کامل شد",
++        "refresh_all" to "آپدیت همه",
++        "refresh_all_done" to "ساب‌ها بروزرسانی شدند",
+         "adding" to "در حال افزودن…",
+         "added_configs" to "%d کانفیگ افزوده شد",
+         "added_sub" to "ساب با %d کانفیگ افزوده شد",
+         "clipboard_empty" to "کلیپ‌بورد خالی است",
+         "pasted" to "از کلیپ‌بورد پیست شد",
+         "manual_configs" to "کانفیگ‌های دستی",
++        "import_ovpn" to "افزودن فایل OVPN",
+         "refresh" to "بروزرسانی",
+         "copy" to "کپی",
+         "ip_secured" to "امن",
+diff --git a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+index fecf18c..3758854 100644
+--- a/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
++++ b/app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+@@ -2,29 +2,50 @@ package net.gozar.app
+ 
+ object SubscriptionRefresher {
+ 
++    data class Summary(val attempted: Int, val updated: Int, val configs: Int, val failed: Int)
++
+     suspend fun refreshStale(store: ConfigStore, force: Boolean = false) {
+         val hours = store.autoRefreshHours.value
+         if (hours <= 0 && !force) return
+         val cutoff = System.currentTimeMillis() - hours * 3_600_000L
+ 
+-        store.subscriptions.value
++        val targets = store.subscriptions.value
+             .filter { (force || it.lastUpdated <= cutoff) && (it.url.startsWith("https://") || it.url.startsWith("http://")) }
+-            .forEach { sub ->
+-                storeResult {
+-                    val result = SubscriptionFetcher.fetchFull(sub.url)
+-                    if (result.configs.isNotEmpty()) {
+-                        val info = result.userInfo
+-                        store.upsertSubscription(
+-                            sub.copy(
+-                                used = info?.used ?: sub.used,
+-                                total = info?.total ?: sub.total,
+-                                expire = info?.expire ?: sub.expire,
+-                                lastUpdated = System.currentTimeMillis()
+-                            ),
+-                            result.configs
+-                        )
+-                    }
+-                }
++        refresh(store, targets)
++    }
++
++    suspend fun refreshAll(store: ConfigStore): Summary = refresh(
++        store,
++        store.subscriptions.value.filter { it.url.startsWith("https://") || it.url.startsWith("http://") }
++    )
++
++    private suspend fun refresh(store: ConfigStore, targets: List<Subscription>): Summary {
++        var updated = 0
++        var configs = 0
++        var failed = 0
++        targets.forEach { sub ->
++            if (sub.url == FreeConfigs.SOURCE_URL) {
++                val result = FreeConfigs.refresh(store, sub.name)
++                if (result >= 0) { updated++; configs += result } else failed++
++                return@forEach
+             }
++            storeResult {
++                val result = SubscriptionFetcher.fetchFull(sub.url)
++                require(result.configs.isNotEmpty()) { "empty subscription" }
++                val info = result.userInfo
++                store.upsertSubscription(
++                    sub.copy(
++                        used = info?.used ?: sub.used,
++                        total = info?.total ?: sub.total,
++                        expire = info?.expire ?: sub.expire,
++                        lastUpdated = System.currentTimeMillis()
++                    ),
++                    result.configs
++                )
++                result.configs.size
++            }.onSuccess { count -> updated++; configs += count }
++                .onFailure { failed++ }
++        }
++        return Summary(targets.size, updated, configs, failed)
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/net/gozar/app/VpnConnectionStore.kt b/app/src/main/java/net/gozar/app/VpnConnectionStore.kt
+new file mode 100644
+index 0000000..792fc07
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/VpnConnectionStore.kt
+@@ -0,0 +1,64 @@
++package net.gozar.app
++
++import android.content.ComponentName
++import android.content.Context
++import android.os.Build
++import android.service.quicksettings.TileService
++import android.util.AtomicFile
++import org.json.JSONObject
++import java.io.File
++
++/** File-backed connection state shared by the UI and :vpn processes.
++ * SharedPreferences is intentionally avoided because Android does not provide
++ * coherent multi-process preference caches. */
++internal object VpnConnectionStore {
++    data class Snapshot(
++        val state: Connection = Connection.DISCONNECTED,
++        val activeId: String? = null,
++        val error: String? = null,
++        val updatedAt: Long = 0L
++    )
++
++    @Synchronized
++    fun write(context: Context, state: Connection, activeId: String?, error: String?) {
++        val file = atomic(context)
++        val output = runCatching { file.startWrite() }.getOrNull() ?: return
++        try {
++            val json = JSONObject().put("state", state.name)
++                .put("active_id", activeId ?: JSONObject.NULL)
++                .put("error", error ?: JSONObject.NULL)
++                .put("updated_at", System.currentTimeMillis())
++            output.write(json.toString().toByteArray(Charsets.UTF_8))
++            output.flush()
++            file.finishWrite(output)
++        } catch (_: Exception) {
++            file.failWrite(output)
++        }
++        requestTile(context)
++        runCatching { GhajarWidgetProvider.updateEveryWidget(context.applicationContext) }
++    }
++
++    @Synchronized
++    fun read(context: Context): Snapshot = runCatching {
++        val bytes = atomic(context).readFully()
++        val json = JSONObject(bytes.toString(Charsets.UTF_8))
++        Snapshot(
++            state = runCatching { Connection.valueOf(json.optString("state")) }
++                .getOrDefault(Connection.DISCONNECTED),
++            activeId = json.optString("active_id").takeUnless { it.isBlank() || it == "null" },
++            error = json.optString("error").takeUnless { it.isBlank() || it == "null" },
++            updatedAt = json.optLong("updated_at")
++        )
++    }.getOrDefault(Snapshot())
++
++    private fun atomic(context: Context) = AtomicFile(File(context.noBackupFilesDir, FILE_NAME))
++
++    private fun requestTile(context: Context) {
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) runCatching {
++            TileService.requestListeningState(context,
++                ComponentName(context, QsTileService::class.java))
++        }
++    }
++
++    private const val FILE_NAME = "ghajar-vpn-state.json"
++}
+diff --git a/app/src/main/java/net/gozar/app/VpnState.kt b/app/src/main/java/net/gozar/app/VpnState.kt
+index ef20492..7b9138c 100644
+--- a/app/src/main/java/net/gozar/app/VpnState.kt
++++ b/app/src/main/java/net/gozar/app/VpnState.kt
+@@ -1,5 +1,6 @@
+ package net.gozar.app
+ 
++import android.content.Context
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+@@ -7,6 +8,7 @@ import kotlinx.coroutines.flow.asStateFlow
+ enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+ 
+ object VpnState {
++    @Volatile private var appContext: Context? = null
+     private val _state = MutableStateFlow(Connection.DISCONNECTED)
+     val state: StateFlow<Connection> = _state.asStateFlow()
+ 
+@@ -22,11 +24,35 @@ object VpnState {
+     private val _connectedAt = MutableStateFlow(0L)
+     val connectedAt: StateFlow<Long> = _connectedAt.asStateFlow()
+ 
++    fun initialize(context: Context) {
++        appContext = context.applicationContext
++        val saved = VpnConnectionStore.read(context.applicationContext)
++        _state.value = saved.state
++        _activeId.value = saved.activeId
++        _error.value = saved.error
++        if (saved.state == Connection.CONNECTED && _connectedAt.value == 0L) _connectedAt.value = saved.updatedAt
++    }
++
++    private fun persist() {
++        appContext?.let { VpnConnectionStore.write(it, _state.value, _activeId.value, _error.value) }
++    }
++
+     fun setPicking(value: Boolean) { _picking.value = value }
+-    fun setConnecting(id: String) { _activeId.value = id; _error.value = null; _connectedAt.value = 0L; _state.value = Connection.CONNECTING }
+-    fun setConnected() { _connectedAt.value = System.currentTimeMillis(); _state.value = Connection.CONNECTED }
+-    fun setError(message: String) { _picking.value = false; _error.value = message; _connectedAt.value = 0L; _state.value = Connection.ERROR }
+-    fun setDisconnected() { _picking.value = false; _activeId.value = null; _connectedAt.value = 0L; _state.value = Connection.DISCONNECTED }
++    fun setConnecting(id: String) {
++        _activeId.value = id; _error.value = null; _connectedAt.value = 0L
++        _state.value = Connection.CONNECTING; persist()
++    }
++    fun setConnected() {
++        _connectedAt.value = System.currentTimeMillis(); _state.value = Connection.CONNECTED; persist()
++    }
++    fun setError(message: String) {
++        _picking.value = false; _error.value = message; _connectedAt.value = 0L
++        _state.value = Connection.ERROR; persist()
++    }
++    fun setDisconnected() {
++        _picking.value = false; _activeId.value = null; _connectedAt.value = 0L
++        _state.value = Connection.DISCONNECTED; persist()
++    }
+ }
+ 
+ object SecureScreen {
+@@ -51,4 +77,4 @@ object SecureScreen {
+         holders.clear()
+         _on.value = false
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/net/gozar/app/Vpnbridge.kt b/app/src/main/java/net/gozar/app/Vpnbridge.kt
+index 8c82a9c..93d91c4 100644
+--- a/app/src/main/java/net/gozar/app/Vpnbridge.kt
++++ b/app/src/main/java/net/gozar/app/Vpnbridge.kt
+@@ -71,6 +71,17 @@ object VpnBridge {
+     }
+ 
+     private fun send(ctx: Context, state: String, error: String?, tup: Long, tdown: Long, dup: Long, ddown: Long) {
++        when (state) {
++            S_CONNECTED -> {
++                val saved = VpnConnectionStore.read(ctx)
++                VpnConnectionStore.write(ctx, Connection.CONNECTED, saved.activeId, null)
++            }
++            S_ERROR -> {
++                val saved = VpnConnectionStore.read(ctx)
++                VpnConnectionStore.write(ctx, Connection.ERROR, saved.activeId, error)
++            }
++            S_DISCONNECTED -> VpnConnectionStore.write(ctx, Connection.DISCONNECTED, null, null)
++        }
+         val i = Intent(ACTION).setPackage(ctx.packageName)
+             .putExtra(EX_STATE, state)
+             .putExtra(EX_ERROR, error)
+@@ -86,4 +97,4 @@ object VpnBridge {
+     fun sendDisconnected(ctx: Context) = send(ctx, S_DISCONNECTED, null, 0L, 0L, 0L, 0L)
+     fun sendCounters(ctx: Context, totalUp: Long, totalDown: Long, upSpeed: Long, downSpeed: Long) =
+         send(ctx, S_COUNTERS, null, totalUp, totalDown, upSpeed, downSpeed)
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/res/drawable/ghajar_launch_background.xml b/app/src/main/res/drawable/ghajar_launch_background.xml
+new file mode 100644
+index 0000000..1c5bc9c
+--- /dev/null
++++ b/app/src/main/res/drawable/ghajar_launch_background.xml
+@@ -0,0 +1,13 @@
++<?xml version="1.0" encoding="utf-8"?>
++<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
++    <item>
++        <shape android:shape="rectangle">
++            <solid android:color="#061226" />
++        </shape>
++    </item>
++    <item>
++        <bitmap
++            android:gravity="fill"
++            android:src="@drawable/ghajar_welcome_royal" />
++    </item>
++</layer-list>
+diff --git a/app/src/main/res/drawable/ghajar_widget_background.xml b/app/src/main/res/drawable/ghajar_widget_background.xml
+new file mode 100644
+index 0000000..21fad7f
+--- /dev/null
++++ b/app/src/main/res/drawable/ghajar_widget_background.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <corners android:radius="24dp" />
++    <gradient android:angle="315" android:startColor="#071B2E" android:centerColor="#0B312B" android:endColor="#143A32" />
++    <stroke android:width="1dp" android:color="#99D6B45F" />
++    <padding android:left="10dp" android:top="8dp" android:right="10dp" android:bottom="8dp" />
++</shape>
+diff --git a/app/src/main/res/drawable/ghajar_widget_button.xml b/app/src/main/res/drawable/ghajar_widget_button.xml
+new file mode 100644
+index 0000000..848cd45
+--- /dev/null
++++ b/app/src/main/res/drawable/ghajar_widget_button.xml
+@@ -0,0 +1,7 @@
++<?xml version="1.0" encoding="utf-8"?>
++<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
++    <corners android:radius="14dp" />
++    <solid android:color="#26D6B45F" />
++    <stroke android:width="1dp" android:color="#BBD6B45F" />
++    <padding android:left="8dp" android:top="6dp" android:right="8dp" android:bottom="6dp" />
++</shape>
+diff --git a/app/src/main/res/layout/ghajar_widget_control.xml b/app/src/main/res/layout/ghajar_widget_control.xml
+new file mode 100644
+index 0000000..14a94eb
+--- /dev/null
++++ b/app/src/main/res/layout/ghajar_widget_control.xml
+@@ -0,0 +1,27 @@
++<?xml version="1.0" encoding="utf-8"?>
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
++    android:orientation="vertical" android:layoutDirection="rtl"
++    android:background="@drawable/ghajar_widget_background" android:padding="12dp">
++    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
++        android:orientation="horizontal" android:gravity="center_vertical">
++        <ImageView android:layout_width="38dp" android:layout_height="38dp" android:src="@mipmap/ic_launcher"
++            android:contentDescription="قاجار وی پی ان" />
++        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
++            android:orientation="vertical" android:paddingHorizontal="8dp">
++            <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content"
++                android:text="قطع" android:textColor="#F7F2E8" android:textStyle="bold" android:textSize="16sp" />
++            <TextView android:id="@+id/widget_server" android:layout_width="match_parent" android:layout_height="wrap_content"
++                android:text="انتخاب سرور" android:textColor="#91BCC7" android:textSize="12sp" android:maxLines="1" />
++        </LinearLayout>
++        <TextView android:id="@+id/widget_message" android:layout_width="wrap_content" android:layout_height="wrap_content"
++            android:text="آماده" android:textColor="#D6B45F" android:textSize="11sp" android:maxLines="1" />
++    </LinearLayout>
++    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
++        android:orientation="horizontal" android:gravity="center" android:layout_marginTop="10dp">
++        <TextView android:id="@+id/widget_connect" style="@style/GhajarWidgetAction" android:text="وصل" />
++        <TextView android:id="@+id/widget_ping" style="@style/GhajarWidgetAction" android:text="پینگ" />
++        <TextView android:id="@+id/widget_refresh" style="@style/GhajarWidgetAction" android:text="آپدیت ساب" />
++        <TextView android:id="@+id/widget_servers" style="@style/GhajarWidgetAction" android:text="سرور/لوکیشن" />
++    </LinearLayout>
++</LinearLayout>
+diff --git a/app/src/main/res/layout/ghajar_widget_small.xml b/app/src/main/res/layout/ghajar_widget_small.xml
+new file mode 100644
+index 0000000..cec2a3b
+--- /dev/null
++++ b/app/src/main/res/layout/ghajar_widget_small.xml
+@@ -0,0 +1,20 @@
++<?xml version="1.0" encoding="utf-8"?>
++<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
++    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
++    android:orientation="horizontal" android:gravity="center_vertical" android:layoutDirection="rtl"
++    android:background="@drawable/ghajar_widget_background" android:padding="10dp">
++    <ImageView android:layout_width="42dp" android:layout_height="42dp" android:src="@mipmap/ic_launcher"
++        android:contentDescription="قاجار وی پی ان" />
++    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
++        android:orientation="vertical" android:paddingHorizontal="8dp">
++        <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content"
++            android:text="قطع" android:textColor="#F7F2E8" android:textStyle="bold" android:textSize="15sp" />
++        <TextView android:id="@+id/widget_server" android:layout_width="match_parent" android:layout_height="wrap_content"
++            android:text="انتخاب سرور" android:textColor="#91BCC7" android:textSize="11sp" android:maxLines="1" />
++        <TextView android:id="@+id/widget_message" android:layout_width="match_parent" android:layout_height="wrap_content"
++            android:text="آماده" android:textColor="#D6B45F" android:textSize="10sp" android:maxLines="1" />
++    </LinearLayout>
++    <TextView android:id="@+id/widget_connect" android:layout_width="58dp" android:layout_height="42dp"
++        android:gravity="center" android:background="@drawable/ghajar_widget_button" android:text="وصل"
++        android:textColor="#F7F2E8" android:textStyle="bold" />
++</LinearLayout>
+diff --git a/app/src/main/res/values-v31/themes.xml b/app/src/main/res/values-v31/themes.xml
+new file mode 100644
+index 0000000..29980df
+--- /dev/null
++++ b/app/src/main/res/values-v31/themes.xml
+@@ -0,0 +1,13 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar">
++        <item name="android:fontFamily">sans</item>
++        <item name="android:windowBackground">@drawable/ghajar_launch_background</item>
++        <item name="android:windowSplashScreenBackground">#061226</item>
++        <item name="android:windowSplashScreenAnimatedIcon">@mipmap/ic_launcher</item>
++        <item name="android:windowLightStatusBar">false</item>
++        <item name="android:statusBarColor">@android:color/transparent</item>
++        <item name="android:navigationBarColor">#071B2E</item>
++        <item name="android:colorAccent">#C79E48</item>
++    </style>
++</resources>
+diff --git a/app/src/main/res/values/themes.xml b/app/src/main/res/values/themes.xml
+index 5157a80..7d98a95 100644
+--- a/app/src/main/res/values/themes.xml
++++ b/app/src/main/res/values/themes.xml
+@@ -1,5 +1,12 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <resources>
+ 
+-    <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar" />
++    <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar">
++        <item name="android:fontFamily">sans</item>
++        <item name="android:windowBackground">@drawable/ghajar_launch_background</item>
++        <item name="android:windowLightStatusBar">false</item>
++        <item name="android:statusBarColor">@android:color/transparent</item>
++        <item name="android:navigationBarColor">#071B2E</item>
++        <item name="android:colorAccent">#C79E48</item>
++    </style>
+ </resources>
+diff --git a/app/src/main/res/values/widget_styles.xml b/app/src/main/res/values/widget_styles.xml
+new file mode 100644
+index 0000000..de4f32b
+--- /dev/null
++++ b/app/src/main/res/values/widget_styles.xml
+@@ -0,0 +1,15 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <style name="GhajarWidgetAction">
++        <item name="android:layout_width">0dp</item>
++        <item name="android:layout_height">42dp</item>
++        <item name="android:layout_weight">1</item>
++        <item name="android:layout_marginHorizontal">3dp</item>
++        <item name="android:gravity">center</item>
++        <item name="android:background">@drawable/ghajar_widget_button</item>
++        <item name="android:textColor">#F7F2E8</item>
++        <item name="android:textStyle">bold</item>
++        <item name="android:textSize">11sp</item>
++        <item name="android:maxLines">2</item>
++    </style>
++</resources>
+diff --git a/app/src/main/res/xml/ghajar_widget_control_info.xml b/app/src/main/res/xml/ghajar_widget_control_info.xml
+new file mode 100644
+index 0000000..5a7f93e
+--- /dev/null
++++ b/app/src/main/res/xml/ghajar_widget_control_info.xml
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
++    android:minWidth="250dp" android:minHeight="110dp" android:targetCellWidth="4" android:targetCellHeight="2"
++    android:initialLayout="@layout/ghajar_widget_control" android:resizeMode="horizontal|vertical"
++    android:updatePeriodMillis="0" android:widgetCategory="home_screen" android:description="@string/app_name" />
+diff --git a/app/src/main/res/xml/ghajar_widget_small_info.xml b/app/src/main/res/xml/ghajar_widget_small_info.xml
+new file mode 100644
+index 0000000..7db3ccd
+--- /dev/null
++++ b/app/src/main/res/xml/ghajar_widget_small_info.xml
+@@ -0,0 +1,5 @@
++<?xml version="1.0" encoding="utf-8"?>
++<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
++    android:minWidth="110dp" android:minHeight="56dp" android:targetCellWidth="2" android:targetCellHeight="1"
++    android:initialLayout="@layout/ghajar_widget_small" android:resizeMode="horizontal"
++    android:updatePeriodMillis="0" android:widgetCategory="home_screen" android:description="@string/app_name" />
+diff --git a/app/src/test/java/net/gozar/app/GhajarImportRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarImportRulesTest.kt
+new file mode 100644
+index 0000000..ad1ca2b
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarImportRulesTest.kt
+@@ -0,0 +1,18 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class GhajarImportRulesTest {
++    @Test fun recognizesNpvtWithoutCaseSensitivity() {
++        assertTrue(GhajarImportRules.isNpvt("Royal.NPVT"))
++    }
++
++    @Test fun acceptsSubscriptionFileAndRejectsBundlesOrCredentials() {
++        assertEquals("https://example.com/sub?id=1", GhajarImportRules.subscriptionUrl(" https://example.com/sub?id=1 "))
++        assertNull(GhajarImportRules.subscriptionUrl("https://one.example/sub\nhttps://two.example/sub"))
++        assertNull(GhajarImportRules.subscriptionUrl("https://user:pass@example.com/sub"))
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/SpeedTestRulesTest.kt b/app/src/test/java/net/gozar/app/SpeedTestRulesTest.kt
+new file mode 100644
+index 0000000..a6ca656
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/SpeedTestRulesTest.kt
+@@ -0,0 +1,16 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class SpeedTestRulesTest {
++    @Test fun rateUsesDecimalMegabits() {
++        assertEquals(8.0, SpeedTest.rateMbps(1_000_000, 1_000_000_000L)!!, 0.0001)
++    }
++
++    @Test fun invalidMeasurementsAreRejected() {
++        assertNull(SpeedTest.rateMbps(0, 1_000_000L))
++        assertNull(SpeedTest.rateMbps(100, 0))
++    }
++}
+diff --git a/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java b/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+index f9f24fd..d6b5897 100644
+--- a/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
++++ b/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+@@ -458,17 +458,21 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+     }
+ 
+     PendingIntent getGraphPendingIntent() {
+-        // Let the configure Button show the Log
+-
+-
+-        Intent intent = new Intent();
+-        intent.setComponent(new ComponentName(this, getPackageName() + ".activities.MainActivity"));
+-
+-        intent.putExtra("PAGE", "graph");
+-        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+-        PendingIntent startLW = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+-        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+-        return startLW;
++        // This core is embedded in Ghajar and the upstream OpenVPN UI module is
++        // deliberately not packaged. Resolve the host application's launcher
++        // Activity so tapping the VPN notification always opens Ghajar instead
++        // of targeting the absent de.blinkt.openvpn.activities.MainActivity.
++        Intent intent = getPackageManager().getLaunchIntentForPackage(getPackageName());
++        if (intent == null) {
++            intent = new Intent(Intent.ACTION_MAIN).setPackage(getPackageName());
++        }
++        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_NEW_TASK);
++        return PendingIntent.getActivity(
++                this,
++                0,
++                intent,
++                PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT
++        );
+ 
+     }
+ 
+-- 
+2.51.1
+

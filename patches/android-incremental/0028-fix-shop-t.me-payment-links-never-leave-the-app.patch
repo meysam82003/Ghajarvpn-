@@ -1,0 +1,29 @@
+From 065be4371e3d4127ff077e0cadb11bda2e81da40 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sun, 30 Aug 2026 15:15:14 +0330
+Subject: [PATCH] fix(shop): t.me payment links never leave the app
+
+---
+ app/src/main/java/net/gozar/app/GhajarShopScreen.kt | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index 68bbf03..8dc2b38 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -209,7 +209,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+     LaunchedEffect(requestedUrl, active) {
+         if (active && requestedUrl != null) {
+             checkoutModel.openUrl.value = null
+-            openCheckout(requestedUrl!!)
++            if (requestedUrl!!.contains("t.me/")) {
++                val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
++                cm.setPrimaryClip(android.content.ClipData.newPlainText("ghajar_pay", requestedUrl))
++                message = "لینک پرداخت تلگرام کپی شد؛ به ربات بفرست. پس از بازگشت وضعیت خودکار بررسی می‌شود."
++            } else openCheckout(requestedUrl!!)
+         }
+     }
+     LaunchedEffect(active, paymentInit?.orderId, lifecycle) {
+-- 
+2.55.0
+

@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
@@ -56,40 +57,42 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
     fun copy(value: String, label: String) { clipboard.setText(AnnotatedString(value)); copied = "$label کپی شد" }
     val money = remember { NumberFormat.getIntegerInstance(Locale("fa", "IR")) }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp, color = Color(0xFF082F2B)) {
+        val cardShape = RoundedCornerShape(24.dp)
+        Surface(modifier = Modifier.fillMaxWidth(), shape = cardShape, shadowElevation = 3.dp,
+            color = Color(0xFF082F2B)) {
             Box {
                 Image(painterResource(R.drawable.ghajar_payment_frame), contentDescription = null,
-                    modifier = Modifier.matchParentSize(), contentScale = ContentScale.FillWidth,
-                    alignment = Alignment.TopCenter)
+                    modifier = Modifier.matchParentSize().clip(cardShape), contentScale = ContentScale.Crop,
+                    alignment = Alignment.Center)
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("خزانهٔ قاجار", color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold,
                         modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 36.dp))
-                Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
-                        Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { copy(payment.cardNumber.orEmpty(), "شماره کارت") }, enabled = !payment.cardNumber.isNullOrBlank()) {
-                        Icon(Icons.Filled.ContentCopy, "کپی شماره کارت", tint = Color(0xFFE8C975))
+                    Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
+                            Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { copy(payment.cardNumber.orEmpty(), "شماره کارت") }, enabled = !payment.cardNumber.isNullOrBlank()) {
+                            Icon(Icons.Filled.ContentCopy, "کپی شماره کارت", tint = Color(0xFFE8C975))
+                        }
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(payment.cardHolder.orEmpty(), Modifier.weight(1f), color = Color.White)
+                        IconButton(onClick = { copy(payment.cardHolder.orEmpty(), "نام صاحب کارت") }) {
+                            Icon(Icons.Filled.ContentCopy, "کپی نام صاحب کارت", tint = Color(0xFFE8C975))
+                        }
+                    }
+                    HorizontalDivider(color = Color.White.copy(alpha = .16f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text("مبلغ دقیق: ${money.format(payment.amount)} تومان", Modifier.weight(1f), color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold)
+                        IconButton(onClick = { copy(payment.amount.toString(), "مبلغ تومان") }) {
+                            Icon(Icons.Filled.ContentCopy, "کپی مبلغ تومان", tint = Color(0xFFE8C975))
+                        }
+                    }
+                    TextButton(onClick = { copy(payment.amountRial.toString(), "مبلغ ریال") }) {
+                        Text("${money.format(payment.amountRial)} ریال • کپی", color = Color.White)
                     }
                 }
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(payment.cardHolder.orEmpty(), Modifier.weight(1f), color = Color.White)
-                    IconButton(onClick = { copy(payment.cardHolder.orEmpty(), "نام صاحب کارت") }) {
-                        Icon(Icons.Filled.ContentCopy, "کپی نام صاحب کارت", tint = Color(0xFFE8C975))
-                    }
-                }
-                HorizontalDivider(color = Color.White.copy(alpha = .16f))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("مبلغ دقیق: ${money.format(payment.amount)} تومان", Modifier.weight(1f), color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold)
-                    IconButton(onClick = { copy(payment.amount.toString(), "مبلغ تومان") }) {
-                        Icon(Icons.Filled.ContentCopy, "کپی مبلغ تومان", tint = Color(0xFFE8C975))
-                    }
-                }
-                TextButton(onClick = { copy(payment.amountRial.toString(), "مبلغ ریال") }) {
-                    Text("${money.format(payment.amountRial)} ریال • کپی", color = Color.White)
-                }
-            }
             }
         }
         copied?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }

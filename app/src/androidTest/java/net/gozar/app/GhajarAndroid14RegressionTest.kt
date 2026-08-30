@@ -1,7 +1,10 @@
 package net.gozar.app
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import androidx.compose.ui.test.junit4.createEmptyComposeRule
@@ -27,6 +30,44 @@ import java.util.concurrent.Executors
 @RunWith(AndroidJUnit4::class)
 class GhajarAndroid14RegressionTest {
     @get:Rule val compose = createEmptyComposeRule()
+
+    @Test fun coldLaunchShowsWelcomeAndRegistersHomeWidgets() {
+        assumeTrue(Build.VERSION.SDK_INT >= 34)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE).edit().clear().commit()
+
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            // A first-time poster remains until the user enters, so this verifies
+            // that cold start reaches real full-screen artwork instead of a late IO result.
+            compose.waitUntil(15000) {
+                compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
+                    .fetchSemanticsNodes().isNotEmpty()
+            }
+            screenshot(context, "cold-welcome")
+
+            val packageManager = context.packageManager
+            assertEquals(
+                ComponentName(context, MainActivity::class.java),
+                packageManager.getLaunchIntentForPackage(context.packageName)?.component
+            )
+            listOf(
+                GhajarSmallWidgetProvider::class.java,
+                GhajarControlWidgetProvider::class.java
+            ).forEach { receiver ->
+                val info = packageManager.getReceiverInfo(
+                    ComponentName(context, receiver),
+                    PackageManager.GET_META_DATA
+                )
+                assertTrue(
+                    "Missing app-widget metadata for ${receiver.simpleName}",
+                    info.metaData?.getInt(AppWidgetManager.META_DATA_APPWIDGET_PROVIDER, 0) != 0
+                )
+            }
+        } finally {
+            scenario.close()
+        }
+    }
 
     @Test fun connectDisconnectReconnectAndRecreateOnAndroid14() {
         assumeTrue(Build.VERSION.SDK_INT >= 34)

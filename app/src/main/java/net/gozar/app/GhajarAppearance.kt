@@ -88,10 +88,35 @@ internal fun ghajarColorScheme(base: ColorScheme, hex: String?): ColorScheme {
     val onAccent = if (ghajarContrast(accent, Color.White) >= ghajarContrast(accent, Color.Black)) Color.White else Color.Black
     val dark = base.background.luminance() < .5f
     val container = lerp(selected, if (dark) Color.Black else Color.White, if (dark) .72f else .86f)
-    return base.copy(primary = accent, onPrimary = onAccent, primaryContainer = container,
-        onPrimaryContainer = legibleAccent(selected, container), secondary = accent,
-        onSecondary = onAccent, secondaryContainer = container,
-        onSecondaryContainer = legibleAccent(selected, container), surfaceTint = selected)
+    val tertiary = lerp(accent, if (dark) Color.White else Color.Black, .18f)
+    val background = lerp(base.background, selected, if (dark) .085f else .035f)
+    val surface = lerp(base.surface, selected, if (dark) .070f else .025f)
+    val surfaceVariant = lerp(base.surfaceVariant, selected, if (dark) .14f else .075f)
+    val surfaceLow = lerp(base.surfaceContainerLow, selected, if (dark) .075f else .030f)
+    val surfaceMid = lerp(base.surfaceContainer, selected, if (dark) .095f else .045f)
+    val surfaceHigh = lerp(base.surfaceContainerHigh, selected, if (dark) .12f else .060f)
+    val outline = lerp(base.outline, selected, if (dark) .18f else .13f)
+    return base.copy(
+        primary = accent,
+        onPrimary = onAccent,
+        primaryContainer = container,
+        onPrimaryContainer = legibleAccent(selected, container),
+        secondary = accent,
+        onSecondary = onAccent,
+        secondaryContainer = container,
+        onSecondaryContainer = legibleAccent(selected, container),
+        tertiary = tertiary,
+        onTertiary = if (ghajarContrast(tertiary, Color.White) >= ghajarContrast(tertiary, Color.Black)) Color.White else Color.Black,
+        background = background,
+        surface = surface,
+        surfaceVariant = surfaceVariant,
+        surfaceContainerLow = surfaceLow,
+        surfaceContainer = surfaceMid,
+        surfaceContainerHigh = surfaceHigh,
+        outline = outline,
+        outlineVariant = lerp(base.outlineVariant, selected, if (dark) .12f else .08f),
+        surfaceTint = selected
+    )
 }
 
 @Composable

@@ -1,8 +1,6 @@
 package net.gozar.app
 
-import android.app.ActivityManager
 import android.app.PendingIntent
-import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
 import android.net.VpnService
@@ -23,6 +21,7 @@ class QsTileService : TileService() {
 
     override fun onCreate() {
         super.onCreate()
+        VpnState.initialize(applicationContext)
         VpnBridge.register(applicationContext)
     }
 
@@ -70,12 +69,23 @@ class QsTileService : TileService() {
         }
     }
 
-    private fun startTunnel() {
+    private suspend fun startTunnel() {
         val store = ConfigStore.get(applicationContext)
         val selectedId = store.selectedId.value
         val config = store.configs.value.firstOrNull { it.id == selectedId }
         if (config == null) { openApp(); return }
         if (VpnService.prepare(this) != null) { openApp(); return }
+        if (config.protocol.equals("openvpn", true) || config.id.startsWith("ovpn:")) {
+            GhajarOpenVpnBridge.connectSaved(applicationContext, config)
+                .onFailure { VpnState.setError(it.message ?: "OVPN failed"); openApp() }
+            return
+        }
+        if (config.protocol.equals("ikev2", true)) {
+            IkeController.bind(applicationContext)
+            IkeController.claim(config)
+            if (!IkeController.connect(applicationContext, config)) openApp()
+            return
+        }
         val json = ConfigBuilder.build(
             config, store.fragment.value, store.splitRouting.value,
             store.sniffing.value, store.sniffTypes.value,
@@ -101,6 +111,18 @@ class QsTileService : TileService() {
     }
 
     private fun stopTunnel() {
+        val snapshot = VpnConnectionStore.read(applicationContext)
+        if (snapshot.activeId?.startsWith("ovpn:") == true) {
+            GhajarOpenVpnBridge.disconnect(applicationContext)
+            VpnState.setDisconnected()
+            return
+        }
+        val store = ConfigStore.get(applicationContext)
+        if (IkeController.active || store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2") {
+            IkeController.disconnect(applicationContext)
+            VpnState.setDisconnected()
+            return
+        }
         runCatching {
             startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
         }
@@ -123,18 +145,9 @@ class QsTileService : TileService() {
     }
 
     private fun activeNow(): Boolean {
-        val s = VpnState.state.value
-        if (s == Connection.CONNECTED || s == Connection.CONNECTING) return true
-        return isServiceRunning()
+        val state = VpnConnectionStore.read(applicationContext).state
+        return state == Connection.CONNECTED || state == Connection.CONNECTING
     }
-
-    private fun isServiceRunning(): Boolean = runCatching {
-        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        @Suppress("DEPRECATION")
-        am.getRunningServices(Int.MAX_VALUE).any {
-            it.service.className == GozarVpnService::class.java.name
-        }
-    }.getOrDefault(false)
 
     private fun render() {
         val tile = qsTile ?: return
@@ -147,7 +160,7 @@ class QsTileService : TileService() {
         }
         tile.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
         tile.label = Strings.get(lang, "app_title")
-        val status = when (VpnState.state.value) {
+        val status = when (VpnConnectionStore.read(applicationContext).state) {
             Connection.CONNECTING -> Strings.get(lang, "status_connecting")
             Connection.ERROR -> Strings.get(lang, "status_error")
             Connection.CONNECTED -> Strings.get(lang, "status_connected")

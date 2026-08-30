@@ -556,10 +556,12 @@ private fun windscribeRowColor(): Color = when {
 }
 
 
+data class PendingConfigImport(val bytes: ByteArray, val fileName: String? = null)
+
 object ImportBus {
-    private val _pending = kotlinx.coroutines.flow.MutableStateFlow<ByteArray?>(null)
-    val pending: kotlinx.coroutines.flow.StateFlow<ByteArray?> = _pending
-    fun offer(bytes: ByteArray) { _pending.value = bytes }
+    private val _pending = kotlinx.coroutines.flow.MutableStateFlow<PendingConfigImport?>(null)
+    val pending: kotlinx.coroutines.flow.StateFlow<PendingConfigImport?> = _pending
+    fun offer(bytes: ByteArray, fileName: String? = null) { _pending.value = PendingConfigImport(bytes, fileName) }
     fun clear() { _pending.value = null }
 
     private val _scanned = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
@@ -591,7 +593,9 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         store = ConfigStore.get(applicationContext)
+        GhajarNavigationBus.offer(intent.getStringExtra(GhajarWidgetProvider.EXTRA_DESTINATION))
         UsageStore.init(applicationContext)
         VpnBridge.register(applicationContext)
         handleImportIntent(intent)
@@ -735,6 +739,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        GhajarNavigationBus.offer(intent.getStringExtra(GhajarWidgetProvider.EXTRA_DESTINATION))
         handleImportIntent(intent)
     }
 
@@ -760,19 +765,25 @@ class MainActivity : ComponentActivity() {
                 ).show()
                 return@launch
             }
-            val bytes = withContext(Dispatchers.IO) {
+            val (bytes, displayName) = withContext(Dispatchers.IO) {
+                val name = runCatching {
+                    contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                        null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) cursor.getString(0) else null
+                    }
+                }.getOrNull() ?: uri.lastPathSegment
                 runCatching {
                     contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                }.getOrNull()
+                }.getOrNull() to name
             }
             if (bytes != null && bytes.isNotEmpty()) {
-                val isOvpn = uri.lastPathSegment?.endsWith(".ovpn", true) == true ||
+                val isOvpn = displayName?.endsWith(".ovpn", true) == true ||
                     bytes.toString(Charsets.UTF_8).contains(Regex("(?im)^\\s*(client|remote)\\b"))
                 if (isOvpn) {
                     GhajarOpenVpnBridge.offer(bytes).onFailure {
                         Toast.makeText(this@MainActivity, it.message ?: "فایل OVPN معتبر نیست", Toast.LENGTH_LONG).show()
                     }
-                } else ImportBus.offer(bytes)
+                } else ImportBus.offer(bytes, displayName)
             }
         }
     }
@@ -795,6 +806,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchConnect(config: ProxyConfig) {
+        if (config.protocol.trim().equals("openvpn", true) || config.id.startsWith("ovpn:")) {
+            val start = {
+                lifecycleScope.launch {
+                    GhajarOpenVpnBridge.connectSaved(this@MainActivity, config)
+                        .onFailure {
+                            VpnState.setError(it.message ?: "اتصال OVPN آغاز نشد")
+                            Toast.makeText(this@MainActivity,
+                                it.message ?: "اتصال OVPN آغاز نشد", Toast.LENGTH_LONG).show()
+                        }
+                }
+                Unit
+            }
+            val permission = VpnService.prepare(this)
+            if (permission == null) start() else {
+                afterPermission = start
+                vpnPermission.launch(permission)
+            }
+            return
+        }
         if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
             config.security.trim().lowercase() == "tls"
         ) {
@@ -859,7 +889,8 @@ class MainActivity : ComponentActivity() {
     private fun watchTunnel() {
         lifecycleScope.launch {
             VpnState.state.collect { state ->
-                if (state == Connection.CONNECTED && !IkeController.active) {
+                val openVpn = VpnState.activeId.value?.startsWith("ovpn:") == true
+                if (state == Connection.CONNECTED && !IkeController.active && !openVpn) {
                     TunnelHealth.check()
                     RadarRunner.start(true)
                     val id = VpnState.activeId.value
@@ -905,6 +936,9 @@ class MainActivity : ComponentActivity() {
                 val activeId = VpnState.activeId.value ?: store.selectedId.value
                 if (activeId == null) {
                     android.util.Log.d(tag, "skip: no active config id"); continue
+                }
+                if (activeId.startsWith("ovpn:")) {
+                    android.util.Log.d(tag, "skip: OpenVPN profile manages its own tunnel"); continue
                 }
                 val activeCfg = store.configs.value.find { it.id == activeId }
                 if (activeCfg?.protocol?.trim()?.lowercase() in setOf("tor", "aether")) {
@@ -1032,6 +1066,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun disconnect() {
+        if (VpnState.activeId.value?.startsWith("ovpn:") == true) {
+            GhajarOpenVpnBridge.disconnect(this)
+            VpnState.setDisconnected()
+            return
+        }
         if (IkeController.active) {
             IkeController.disconnect(this)
             VpnState.setDisconnected()
@@ -1091,6 +1130,14 @@ private fun GozarApp(
     var showWindscribe by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
+    val widgetDestination by GhajarNavigationBus.destination.collectAsState()
+    LaunchedEffect(widgetDestination) {
+        if (widgetDestination == GhajarWidgetProvider.DEST_SERVERS) {
+            pagerState.scrollToPage(PAGE_HOME)
+            showPicker = true
+            GhajarNavigationBus.consume()
+        }
+    }
     val updateCtx = LocalContext.current
     val updateUri = LocalUriHandler.current
     var updateAvailable by remember { mutableStateOf<UpdateChecker.Result.Available?>(null) }
@@ -1152,11 +1199,35 @@ private fun GozarApp(
     var importBusy by remember { mutableStateOf(false) }
 
     LaunchedEffect(pendingImport) {
-        val bytes = pendingImport ?: return@LaunchedEffect
+        val import = pendingImport ?: return@LaunchedEffect
+        val bytes = import.bytes
         importPassword = ""
         importError = ""
+        val readable = withContext(Dispatchers.Default) { GhajarImportRules.readableText(bytes) }
+        val subscriptionUrl = GhajarImportRules.subscriptionUrl(readable)
+        if (subscriptionUrl != null) {
+            importBusy = true
+            try {
+                val fetched = SubscriptionFetcher.fetchFull(subscriptionUrl)
+                if (fetched.configs.isEmpty()) throw IllegalArgumentException(t("no_configs"))
+                val name = runCatching { URL(subscriptionUrl).host }.getOrDefault("Subscription")
+                val info = fetched.userInfo
+                store.upsertSubscription(Subscription(name = name, url = subscriptionUrl,
+                    used = info?.used ?: 0, total = info?.total ?: 0, expire = info?.expire ?: 0,
+                    lastUpdated = System.currentTimeMillis()), fetched.configs)
+                android.widget.Toast.makeText(importContext,
+                    t("added_sub").format(fetched.configs.size), android.widget.Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                android.widget.Toast.makeText(importContext,
+                    "${t("fetch_failed")}: ${e.message.orEmpty()}", android.widget.Toast.LENGTH_LONG).show()
+            } finally {
+                importBusy = false
+                ImportBus.clear()
+            }
+            return@LaunchedEffect
+        }
         val plain = withContext(Dispatchers.Default) {
-            runCatching { ConfigParser.parseBundle(String(bytes, Charsets.UTF_8)) }
+            runCatching { ConfigParser.parseBundle(readable.orEmpty()) }
                 .getOrDefault(emptyList())
         }
         if (plain.isNotEmpty()) {
@@ -1177,6 +1248,11 @@ private fun GozarApp(
                 val n = store.addImported(configs)
                 android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
                 ImportBus.clear()
+            } else if (GhajarImportRules.isNpvt(import.fileName)) {
+                android.widget.Toast.makeText(importContext,
+                    "این فایل NPVT قفل یا قالب اختصاصی NetMod دارد. نسخهٔ بازِ کانفیگ/ساب را صادر کن؛ دورزدن قفل پشتیبانی نمی‌شود.",
+                    android.widget.Toast.LENGTH_LONG).show()
+                ImportBus.clear()
             } else {
                 importNeedsPassword = true
             }
@@ -1190,7 +1266,7 @@ private fun GozarApp(
             confirmLabel = t("import_button"),
             dismissLabel = t("cancel"),
             onConfirm = {
-                val bytes = pendingImport
+                val bytes = pendingImport?.bytes
                 if (bytes != null && !importBusy && importPassword.isNotEmpty()) {
                     importBusy = true
                     scope.launch {
@@ -1955,7 +2031,38 @@ private fun ConfigPickerScreen(
                         pickerContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
                     }.getOrNull()
                 }
-                if (bytes != null && bytes.isNotEmpty()) ImportBus.offer(bytes)
+                if (bytes != null && bytes.isNotEmpty()) {
+                    val name = runCatching {
+                        pickerContext.contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME),
+                            null, null, null)?.use { cursor ->
+                            if (cursor.moveToFirst()) cursor.getString(0) else null
+                        }
+                    }.getOrNull() ?: uri.lastPathSegment
+                    val isOpenVpn = name?.endsWith(".ovpn", true) == true ||
+                        bytes.toString(Charsets.UTF_8).contains(Regex("(?im)^\\s*(client|remote)\\b"))
+                    if (isOpenVpn) {
+                        GhajarOpenVpnBridge.offer(bytes).onFailure {
+                            android.widget.Toast.makeText(
+                                pickerContext,
+                                it.message ?: "فایل OVPN معتبر نیست",
+                                android.widget.Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    } else ImportBus.offer(bytes, name)
+                }
+            }
+        }
+    }
+    val openVpnPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) pickerScope.launch {
+            val bytes = withContext(Dispatchers.IO) {
+                runCatching { pickerContext.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+            }
+            if (bytes != null && bytes.isNotEmpty()) {
+                GhajarOpenVpnBridge.offer(bytes).onFailure {
+                    android.widget.Toast.makeText(pickerContext,
+                        it.message ?: "فایل OVPN معتبر نیست", android.widget.Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -1964,6 +2071,7 @@ private fun ConfigPickerScreen(
     var addBusy by remember { mutableStateOf(false) }
     var addDone by remember { mutableStateOf("") }
     var testAllState by remember { mutableStateOf(0) }
+    var refreshAllState by remember { mutableStateOf(0) }
     var addMenu by remember { mutableStateOf(false) }
     var sortMenu by remember { mutableStateOf(false) }
     var purgeMenu by remember { mutableStateOf(false) }
@@ -1976,6 +2084,12 @@ private fun ConfigPickerScreen(
     var query by remember { mutableStateOf("") }
     val expandedSubs by store.expandedSubs.collectAsState()
     val scope = rememberCoroutineScope()
+
+    // Every visit starts with the saved subscription groups visible. A user may
+    // still collapse any group during the current visit.
+    LaunchedEffect(subscriptions.map { it.id }) {
+        store.expandSubscriptions(subscriptions.map { it.id })
+    }
 
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
@@ -2075,6 +2189,10 @@ private fun ConfigPickerScreen(
         selectionMode = selected.isNotEmpty()
     }
     fun clearSel() { selected.clear(); selectionMode = false }
+    fun removeSavedOpenVpn(ids: Set<String>) {
+        configs.asSequence().filter { it.id in ids && it.id.startsWith("ovpn:") }
+            .forEach { GhajarOpenVpnBridge.removeSaved(context, it) }
+    }
 
     BackHandler(enabled = selectionMode) { clearSel() }
 
@@ -2101,6 +2219,7 @@ private fun ConfigPickerScreen(
     }
     LaunchedEffect(addDone) { if (addDone.isNotEmpty()) { delay(3000); addDone = "" } }
     LaunchedEffect(testAllState) { if (testAllState == 2) { delay(2500); testAllState = 0 } }
+    LaunchedEffect(refreshAllState) { if (refreshAllState == 2) { delay(2500); refreshAllState = 0 } }
 
     fun doAdd(raw: String) {
         val text = raw.trim()
@@ -2185,6 +2304,8 @@ private fun ConfigPickerScreen(
             },
             onManual = { addMenu = false; onAddManually() },
             onImport = { addMenu = false; filePicker.launch(arrayOf("*/*")) },
+            onImportOpenVpn = { addMenu = false; openVpnPicker.launch(arrayOf(
+                "application/x-openvpn-profile", "text/plain", "application/octet-stream", "*/*")) },
             onProjects = { addMenu = false; onFreeProjects() },
             onWindscribe = { addMenu = false; onWindscribe() },
             onScanQr = { addMenu = false; onScanQr() }
@@ -2202,14 +2323,16 @@ private fun ConfigPickerScreen(
                             val jobs = snapshot.map { cfg ->
                                 launch {
                                     sem.withPermit {
-                                        pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") {
-                                            Pinger.pingIke(cfg.address)
-                                        } else {
+                                        pings[cfg.id] = when (cfg.protocol.trim().lowercase()) {
+                                            "ikev2" -> Pinger.pingIke(cfg.address)
+                                            "openvpn" -> Pinger.ping(cfg.address, cfg.port, 3500)
+                                            else -> {
                                             val ms = withContext(Dispatchers.IO) {
                                                 Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg))
                                             }
                                             if (ms >= 0) PingResult.Ok(ms.toInt())
                                             else PingResult.Failed
+                                            }
                                         }
                                     }
                                 }
@@ -2234,6 +2357,32 @@ private fun ConfigPickerScreen(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
+            }
+
+            BounceOutlinedButton(
+                onClick = {
+                    if (refreshAllState == 0 && subscriptions.isNotEmpty()) {
+                        refreshAllState = 1
+                        scope.launch {
+                            val summary = SubscriptionRefresher.refreshAll(store)
+                            subStatus = if (summary.failed == 0) {
+                                n("${t("refresh_all_done")}: ${summary.configs}")
+                            } else {
+                                n("${summary.updated}/${summary.attempted} · ${t("fetch_failed")}: ${summary.failed}")
+                            }
+                            refreshAllState = 2
+                        }
+                    }
+                },
+                enabled = refreshAllState != 1 && subscriptions.isNotEmpty(),
+                minHeight = 42.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f).height(42.dp)
+            ) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(if (refreshAllState == 1) t("fetching_sub") else t("refresh_all"),
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
 
             Box {
@@ -2526,6 +2675,7 @@ private fun ConfigPickerScreen(
                         onRemoveTimedOut = {
                             val dead = subConfigs.filter { pings[it.id] == PingResult.Failed }
                                 .map { it.id }.toSet()
+                            removeSavedOpenVpn(dead)
                             store.deleteConfigsByIds(dead)
                             dead.forEach { pings.remove(it); selected.remove(it) }
                             addDone = n(t("deleted_n").format(dead.size))
@@ -2540,9 +2690,10 @@ private fun ConfigPickerScreen(
                                     subConfigs.map { cfg ->
                                         launch {
                                             sem.withPermit {
-                                                pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") {
-                                                    Pinger.pingIke(cfg.address)
-                                                } else {
+                                                pings[cfg.id] = when (cfg.protocol.trim().lowercase()) {
+                                                    "ikev2" -> Pinger.pingIke(cfg.address)
+                                                    "openvpn" -> Pinger.ping(cfg.address, cfg.port, 3500)
+                                                    else -> {
                                                     val ms = withContext(Dispatchers.IO) {
                                                         Gozarcore.measureDelay(
                                                             ConfigBuilder.buildForTest(cfg)
@@ -2550,6 +2701,7 @@ private fun ConfigPickerScreen(
                                                     }
                                                     if (ms >= 0) PingResult.Ok(ms.toInt())
                                                     else PingResult.Failed
+                                                    }
                                                 }
                                             }
                                         }
@@ -2573,7 +2725,10 @@ private fun ConfigPickerScreen(
                             onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
                             onLongPress = { beginPaint(cfg.id) },
                             onEdit = { onEdit(cfg) },
-                            onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
+                            onDelete = {
+                                if (cfg.id.startsWith("ovpn:")) GhajarOpenVpnBridge.removeSaved(context, cfg)
+                                store.delete(cfg.id); pings.remove(cfg.id)
+                            },
                             onShareFile = { onShareFile(listOf(cfg)) },
                             onChain = { chainFor = cfg },
                             actionsOpen = openActionsId == cfg.id,
@@ -2635,7 +2790,10 @@ private fun ConfigPickerScreen(
                         onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
                         onLongPress = { beginPaint(cfg.id) },
                         onEdit = { onEdit(cfg) },
-                        onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
+                        onDelete = {
+                            if (cfg.id.startsWith("ovpn:")) GhajarOpenVpnBridge.removeSaved(context, cfg)
+                            store.delete(cfg.id); pings.remove(cfg.id)
+                        },
                         onShareFile = { onShareFile(listOf(cfg)) },
                         onChain = { chainFor = cfg },
                         actionsOpen = openActionsId == cfg.id,
@@ -2698,6 +2856,7 @@ private fun ConfigPickerScreen(
             dismissLabel = t("cancel"),
             destructive = true,
             onConfirm = {
+                removeSavedOpenVpn(manual)
                 store.deleteConfigsByIds(manual)
                 manual.forEach { pings.remove(it); selected.remove(it) }
                 addDone = n(t("deleted_n").format(manual.size))
@@ -2720,6 +2879,7 @@ private fun ConfigPickerScreen(
             dismissLabel = t("cancel"),
             destructive = true,
             onConfirm = {
+                removeSavedOpenVpn(dupes)
                 store.deleteConfigsByIds(dupes)
                 dupes.forEach { pings.remove(it); selected.remove(it) }
                 addDone = n(t("deleted_n").format(dupes.size))
@@ -2741,6 +2901,7 @@ private fun ConfigPickerScreen(
             destructive = true,
             onConfirm = {
                 val removed = configs.size
+                removeSavedOpenVpn(configs.mapTo(linkedSetOf()) { it.id })
                 store.deleteAllConfigs()
                 selected.clear()
                 selectionMode = false
@@ -2765,6 +2926,7 @@ private fun ConfigPickerScreen(
             confirmLabel = t("delete"),
             destructive = true,
             onConfirm = {
+                removeSavedOpenVpn(dead)
                 store.deleteConfigsByIds(dead)
                 dead.forEach { pings.remove(it); selected.remove(it) }
                 addDone = n(t("deleted_n").format(dead.size))
@@ -2787,7 +2949,11 @@ private fun ConfigPickerScreen(
             destructive = true,
             onConfirm = {
                 configs.filter { selected.containsKey(it.id) }
-                    .forEach { store.delete(it.id); pings.remove(it.id) }
+                    .forEach {
+                        if (it.id.startsWith("ovpn:")) GhajarOpenVpnBridge.removeSaved(context, it)
+                        store.delete(it.id)
+                        pings.remove(it.id)
+                    }
                 clearSel()
                 confirmDelete = false
             }
@@ -3207,6 +3373,7 @@ private fun AddServerPanel(
     onPaste: () -> Unit,
     onManual: () -> Unit,
     onImport: () -> Unit,
+    onImportOpenVpn: () -> Unit,
     onProjects: () -> Unit,
     onWindscribe: () -> Unit,
     onScanQr: () -> Unit,
@@ -3274,6 +3441,8 @@ private fun AddServerPanel(
                             Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f)
                         )
                     }
+                    AddTile(Icons.Filled.Security, t("import_ovpn"), onImportOpenVpn, Modifier.fillMaxWidth(),
+                        accent = Color(0xFFD6B45F))
                     AddTile(
                         Icons.Filled.Shield, t("ws_title"), onWindscribe, Modifier.fillMaxWidth()
                     )
@@ -6983,7 +7152,7 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
         dlLive = 0.0; ulLive = 0.0; livePing = 0.0
         phase = StabilityTest.Phase.PING
         val testJson =
-            if (cfg != null && cfg.protocol.trim().lowercase() != "ikev2")
+            if (cfg != null && cfg.protocol.trim().lowercase() !in setOf("ikev2", "openvpn"))
                 ConfigBuilder.buildForTest(cfg)
             else ConfigBuilder.buildForTestDirect()
         testJob = scope.launch {
@@ -9377,6 +9546,7 @@ private fun ConfigRow(
     var shareMenu by remember { mutableStateOf(false) }
     var qrFor by remember { mutableStateOf<String?>(null) }
     val checked by remember { derivedStateOf { isChecked() } }
+    val isOpenVpn = config.protocol.equals("openvpn", true) || config.id.startsWith("ovpn:")
 
     qrFor?.let { link ->
         QrDialog(link = link, title = config.name, onDismiss = { qrFor = null })
@@ -9476,7 +9646,8 @@ private fun ConfigRow(
                     MarqueeName(config.name, color = MaterialTheme.colorScheme.onSurface)
                 }
                 Text(
-                    if (config.locked) AnnotatedString(t("locked_config"))
+                    if (isOpenVpn) scriptRuns("OpenVPN · ${config.address}:${config.port}", LexendFont)
+                    else if (config.locked) AnnotatedString(t("locked_config"))
                     else scriptRuns("${config.address}:${config.port}", LexendFont),
                     style = MaterialTheme.typography.bodySmall,
                     color = if (isActive) MaterialTheme.colorScheme.primary
@@ -9498,7 +9669,7 @@ private fun ConfigRow(
                 )
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box {
+                    if (!isOpenVpn) Box {
                         Icon(Icons.Filled.Share, contentDescription = t("share"),
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.clip(CircleShape).clickable { shareMenu = true }.padding(4.dp).size(21.dp))
@@ -9528,7 +9699,7 @@ private fun ConfigRow(
                             }
                         }
                     }
-                    Icon(
+                    if (!isOpenVpn) Icon(
                         Icons.Filled.Layers,
                         contentDescription = t("chain_through"),
                         tint = if (config.chainId.isNotEmpty()) MaterialTheme.colorScheme.primary
@@ -9536,7 +9707,7 @@ private fun ConfigRow(
                         modifier = Modifier.clip(CircleShape).clickable { onChain() }
                             .padding(4.dp).size(21.dp)
                     )
-                    Icon(Icons.Filled.Edit, contentDescription = t("edit"),
+                    if (!isOpenVpn) Icon(Icons.Filled.Edit, contentDescription = t("edit"),
                         tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.clip(CircleShape).clickable { onEdit() }.padding(4.dp).size(21.dp))
                     Icon(Icons.Filled.Delete, contentDescription = t("delete"),

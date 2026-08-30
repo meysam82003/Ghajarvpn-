@@ -122,7 +122,13 @@ private fun currentLocationSession(): GhajarLocationSession {
     val id by VpnState.activeId.collectAsState()
     val at by VpnState.connectedAt.collectAsState()
     val locked by ConfigStore.get(LocalContext.current).killSwitch.collectAsState()
-    return GhajarLocationSession(connection, id, at, locked, IkeController.active)
+    return GhajarLocationSession(
+        connection,
+        id,
+        at,
+        locked,
+        IkeController.active || id?.startsWith("ovpn:") == true
+    )
 }
 
 /** One lifecycle owner, shared by all four home styles. No stale result survives a reconnect. */

@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/widget_root" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:layoutDirection="rtl"
+    android:background="@drawable/ghajar_widget_background" android:padding="12dp">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical">
+        <ImageView android:layout_width="38dp" android:layout_height="38dp" android:src="@mipmap/ic_launcher"
+            android:contentDescription="قاجار وی پی ان" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:orientation="vertical" android:paddingHorizontal="8dp">
+            <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="قطع" android:textColor="#F7F2E8" android:textStyle="bold" android:textSize="16sp" />
+            <TextView android:id="@+id/widget_server" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="انتخاب سرور" android:textColor="#91BCC7" android:textSize="12sp" android:maxLines="1" />
+        </LinearLayout>
+        <TextView android:id="@+id/widget_message" android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:text="آماده" android:textColor="#D6B45F" android:textSize="11sp" android:maxLines="1" />
+    </LinearLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+        android:orientation="horizontal" android:gravity="center" android:layout_marginTop="10dp">
+        <TextView android:id="@+id/widget_connect" style="@style/GhajarWidgetAction" android:text="وصل" />
+        <TextView android:id="@+id/widget_ping" style="@style/GhajarWidgetAction" android:text="پینگ" />
+        <TextView android:id="@+id/widget_refresh" style="@style/GhajarWidgetAction" android:text="آپدیت ساب" />
+        <TextView android:id="@+id/widget_servers" style="@style/GhajarWidgetAction" android:text="سرور/لوکیشن" />
+    </LinearLayout>
+</LinearLayout>

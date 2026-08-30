@@ -352,7 +352,7 @@ internal fun IpLocatorContent(
     val shell = lerp(shellTint, mix, shellK)
     val shadow = lerp(shellTint, mix, shadowK)
 
-    Column(
+    Row(
         Modifier
             .then(flagBackdrop(l.countryCode))
             .background(shell.copy(alpha = veil))
@@ -375,43 +375,60 @@ internal fun IpLocatorContent(
                 end = (13f * scale).dp,
                 top = (7f * scale).dp,
                 bottom = (8f * scale).dp
-            )
+            ),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            IpLocatorDot(live, scale)
+        Box(
+            Modifier
+                .size((38f * scale).dp)
+                .clip(RoundedCornerShape((11f * scale).dp))
+                .background(onShell.copy(alpha = .11f))
+                .border(
+                    (1.1f * scale).dp,
+                    live.copy(alpha = .72f),
+                    RoundedCornerShape((11f * scale).dp)
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            CountryFlag(l.countryCode, height = (20f * scale).dp)
+        }
+        Column(Modifier.padding(start = (8f * scale).dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IpLocatorDot(live, scale)
+                Text(
+                    if (lang == Lang.FA) { if (connected) "IP خروجی اتصال" else "IP اینترنت" }
+                    else if (connected) "Connection exit IP" else "Internet IP",
+                    color = live,
+                    fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = (10f * scale).sp,
+                    lineHeight = (14f * scale).sp,
+                    maxLines = 1
+                )
+            }
             Text(
-                if (lang == Lang.FA) { if (connected) "IP خروجی اتصال" else "IP اینترنت" }
-                else if (connected) "Connection exit IP" else "Internet IP",
-                color = live,
-                fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
+                l.ip,
+                color = onShell,
+                fontFamily = LexendFont,
                 fontWeight = FontWeight.Bold,
-                fontSize = (10f * scale).sp,
+                fontSize = (13.5f * scale).sp,
+                lineHeight = (19f * scale).sp,
+                letterSpacing = 0.2.sp,
+                maxLines = 1,
+                modifier = Modifier.padding(start = (7f * scale).dp)
+            )
+            Text(
+                mixedText("${l.country} · ${l.city}".trim().trimEnd('·').trim()),
+                color = onShell.copy(alpha = 0.82f),
+                fontFamily = LexendFont,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = (9.5f * scale).sp,
                 lineHeight = (14f * scale).sp,
-                maxLines = 1
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(top = (2f * scale).dp, start = (7f * scale).dp)
             )
         }
-        Text(
-            l.ip,
-            color = onShell,
-            fontFamily = LexendFont,
-            fontWeight = FontWeight.Bold,
-            fontSize = (13.5f * scale).sp,
-            lineHeight = (19f * scale).sp,
-            letterSpacing = 0.2.sp,
-            maxLines = 1,
-            modifier = Modifier.padding(start = (7f * scale).dp)
-        )
-        Text(
-            mixedText("${GhajarLocationRules.flag(l.countryCode)} ${l.country} · ${l.city}".trim().trimEnd('·').trim()),
-            color = onShell.copy(alpha = 0.82f),
-            fontFamily = LexendFont,
-            fontWeight = FontWeight.SemiBold,
-            fontSize = (9.5f * scale).sp,
-            lineHeight = (14f * scale).sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = (2f * scale).dp, start = (7f * scale).dp)
-        )
     }
 }
 
