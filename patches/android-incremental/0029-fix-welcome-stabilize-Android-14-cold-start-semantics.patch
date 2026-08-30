@@ -8,6 +8,8 @@ Subject: [PATCH] fix(welcome): stabilize Android 14 cold-start semantics
  1 file changed, 9 insertions(+), 4 deletions(-)
 
 diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
 @@ -64,7 +64,10 @@
      val selectedName = rememberSaveable { GhajarWelcomeAssets.reserve(context) }
      var closed by remember { mutableStateOf(false) }
