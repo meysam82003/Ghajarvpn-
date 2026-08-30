@@ -186,6 +186,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.graphics.FilterQuality
 import android.content.ContextWrapper
 import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -266,6 +267,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithCache
@@ -360,7 +362,7 @@ private val GnetLightColors = lightColorScheme(
     onTertiary = Color(0xFFFFFFFF),
     tertiaryContainer = Color(0xFFC9EDF7),
     onTertiaryContainer = Color(0xFF04333F),
-    background = Color(0xFFF5F0E2),
+    background = Color(0xFFEEF3FA),
     onBackground = Color(0xFF131720),
     surface = Color(0xFFFFFFFF),
     onSurface = Color(0xFF131720),
@@ -396,7 +398,7 @@ private val GnetDarkColors = darkColorScheme(
     onSecondaryContainer = Color(0xFFD9E2F2),
     background = Color(0xFF071B2E),
     onBackground = Color(0xFFE6EAF2),
-    surface = Color(0xFF0C2631),
+    surface = Color(0xFF102637),
     onSurface = Color(0xFFE6EAF2),
     surfaceVariant = Color(0xFF232C40),
     onSurfaceVariant = Color(0xFFA2B0C8),
@@ -489,158 +491,6 @@ private fun stringsFn(): (String) -> String {
 }
 
 
-@Composable
-private fun WelcomeScreen(onDone: () -> Unit) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val welcomeFont = if (LocalLang.current == Lang.FA) VazirFont else LexendFont
-    var showLogo by remember { mutableStateOf(false) }
-    var showTagline by remember { mutableStateOf(false) }
-    var livePoster by remember { mutableStateOf<ImageBitmap?>(null) }
-
-    LaunchedEffect("ghajar-live-poster") {
-        livePoster = GhajarSplashRepository.load(context)?.asImageBitmap()
-    }
-
-    LaunchedEffect(Unit) {
-        showLogo = true
-        delay(400)
-        showTagline = true
-        delay(1600)
-        onDone()
-    }
-
-    val logoAlpha by animateFloatAsState(
-        targetValue = if (showLogo) 1f else 0f,
-        animationSpec = tween(600),
-        label = "logoAlpha"
-    )
-    val logoScale by animateFloatAsState(
-        targetValue = if (showLogo) 1f else 0.7f,
-        animationSpec = tween(600),
-        label = "logoScale"
-    )
-    val taglineAlpha by animateFloatAsState(
-        targetValue = if (showTagline) 1f else 0f,
-        animationSpec = tween(700),
-        label = "taglineAlpha"
-    )
-    val taglineShift by animateFloatAsState(
-        targetValue = if (showTagline) 0f else 30f,
-        animationSpec = tween(700),
-        label = "taglineShift"
-    )
-
-    Box(
-        Modifier
-            .fillMaxSize()
-            .background(SplashBackground),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            Image(
-                painter = livePoster?.let { androidx.compose.ui.graphics.painter.BitmapPainter(it) }
-                    ?: painterResource(R.drawable.ghajarvpn_royal_badge),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier
-                    .size(200.dp)
-                    .graphicsLayer {
-                        alpha = logoAlpha
-                        scaleX = logoScale
-                        scaleY = logoScale
-                    }
-            )
-
-            val taglineParts = remember(t("welcome_tagline")) {
-                t("welcome_tagline").split(Regex("[,\u060C]"))
-                    .map { it.trim() }.filter { it.isNotEmpty() }
-            }
-            val taglineColor = Color(0xFFEDEFF3)
-
-            Row(
-                horizontalArrangement = Arrangement.Center,
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .offset(y = (-40).dp)
-                    .padding(horizontal = 10.dp)
-                    .graphicsLayer {
-                        alpha = taglineAlpha
-                        translationY = taglineShift
-                    }
-            ) {
-                val taglineStyle = MaterialTheme.typography.titleMedium
-
-                Icon(
-                    Icons.Filled.Security,
-                    contentDescription = null,
-                    tint = taglineColor,
-                    modifier = Modifier.size(17.dp)
-                )
-                Spacer(Modifier.width(7.dp))
-                Text(
-                    text = taglineParts.getOrElse(0) { "" },
-                    style = taglineStyle,
-                    fontSize = 16.sp,
-                    lineHeight = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = welcomeFont,
-                    color = taglineColor,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Text(
-                    text = " | ",
-                    style = taglineStyle,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = welcomeFont,
-                    color = taglineColor.copy(alpha = 0.45f)
-                )
-                Text(
-                    text = taglineParts.getOrElse(1) { "" },
-                    style = taglineStyle,
-                    fontSize = 16.sp,
-                    lineHeight = 22.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = welcomeFont,
-                    color = taglineColor,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = TextOverflow.Clip,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                Spacer(Modifier.width(7.dp))
-                Icon(
-                    painter = painterResource(R.drawable.dove),
-                    contentDescription = null,
-                    tint = taglineColor,
-                    modifier = Modifier.size(17.dp)
-                )
-            }
-        }
-
-        Text(
-            text = t("welcome_dev"),
-            style = MaterialTheme.typography.bodyMedium,
-            fontSize = 15.sp,
-            fontWeight = FontWeight.Bold,
-            fontFamily = welcomeFont,
-            color = Color(0xFFAAB4C4),
-            textAlign = TextAlign.Center,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 24.dp)
-        )
-    }
-}
 internal val LocalHazeState = compositionLocalOf<HazeState?> { null }
 
 object WindscribeBrand {
@@ -725,7 +575,9 @@ class MainActivity : ComponentActivity() {
 
     private val vpnPermission =
         registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-            if (result.resultCode == Activity.RESULT_OK) afterPermission?.invoke()
+            val continuation = afterPermission
+            afterPermission = null
+            if (result.resultCode == Activity.RESULT_OK) guardedConnect { continuation?.invoke() }
             else VpnState.setDisconnected()
         }
 
@@ -782,24 +634,40 @@ class MainActivity : ComponentActivity() {
                 else -> isSystemInDarkTheme()
             }
             val controller = WindowCompat.getInsetsController(window, window.decorView)
-            controller.isAppearanceLightStatusBars = !dark
+            androidx.compose.runtime.SideEffect {
+                controller.isAppearanceLightStatusBars = !dark
+                controller.isAppearanceLightNavigationBars = !dark
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = if (dark) 0xFF071B2E.toInt() else 0xFFEEF3FA.toInt()
+                if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
+            }
             val lang by store.lang.collectAsState()
             val direction = if (lang == Lang.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
 
+            val customAccent by GhajarAppearance.get(applicationContext).accent.collectAsState()
             MaterialTheme(
-                colorScheme = if (!dark) GnetLightColors
+                colorScheme = ghajarColorScheme(if (!dark) GnetLightColors
                 else if (themeMode == ThemeMode.AMOLED) GnetAmoledColors
-                else GnetDarkColors,
-                typography = if (lang == Lang.FA) VazirTypography else LexendTypography
+                else GnetDarkColors, customAccent),
+                typography = if (lang == Lang.FA) VazirTypography else LexendTypography,
+                shapes = GhajarSoftShapes
             ) {
                 CompositionLocalProvider(
                     LocalLang provides lang,
                     LocalLayoutDirection provides direction
                 ) {
+                    ObserveGhajarLocation()
                     var showWelcome by remember { mutableStateOf(true) }
                     var startMain by remember { mutableStateOf(false) }
-                    val globalNotice by GhajarNoticeBus.notice.collectAsState()
                     val pendingOvpn by GhajarOpenVpnBridge.pending.collectAsState()
+                    LaunchedEffect(Unit) {
+                        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
+                            while (true) {
+                                GhajarNotificationMonitor.refresh(applicationContext)
+                                delay(60_000)
+                            }
+                        }
+                    }
                     LaunchedEffect(Unit) {
                         delay(1100)
                         startMain = true
@@ -812,18 +680,7 @@ class MainActivity : ComponentActivity() {
                             visible = showWelcome,
                             exit = fadeOut(tween(400))
                         ) {
-                            WelcomeScreen(onDone = { showWelcome = false })
-                        }
-                        globalNotice?.let { notice ->
-                            AlertDialog(
-                                onDismissRequest = { if (!notice.important) GhajarNoticeBus.clear() },
-                                icon = { Icon(Icons.Filled.Shield, contentDescription = null) },
-                                title = { Text(notice.title, fontWeight = FontWeight.Bold) },
-                                text = { Text(notice.message) },
-                                confirmButton = {
-                                    TextButton(onClick = GhajarNoticeBus::clear) { Text("متوجه شدم") }
-                                }
-                            )
+                            GhajarWelcomeScreen(onDone = { startMain = true; showWelcome = false })
                         }
                         pendingOvpn?.let { profile ->
                             var ovpnUser by remember(profile) { mutableStateOf(profile.embeddedUsername) }
@@ -921,12 +778,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectImportedOpenVpn(profile: PendingOpenVpnImport, username: String, password: String) {
-        val start = {
+        val start: () -> Unit = {
             lifecycleScope.launch {
                 GhajarOpenVpnBridge.connect(this@MainActivity, profile, username, password)
                     .onSuccess { Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show() }
                     .onFailure { Toast.makeText(this@MainActivity, it.message ?: "اتصال OVPN ناموفق بود", Toast.LENGTH_LONG).show() }
             }
+            Unit
         }
         val permission = VpnService.prepare(this)
         if (permission == null) start()
@@ -964,11 +822,9 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    @Volatile private var vpnBusy = false
     private fun connectTo(config: ProxyConfig) {
         val s = VpnState.state.value
         if (s == Connection.CONNECTING || s == Connection.CONNECTED) return
-        if (vpnBusy) return
 
         if (!store.autoSelect.value) {
             launchConnect(config)
@@ -1090,7 +946,21 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun guardedConnect(block: () -> Unit) {
+        try { block() }
+        catch (error: LinkageError) {
+            VpnState.setError("هستهٔ اتصال بارگذاری نشد؛ نسخهٔ سازگار با گوشی را نصب کن.")
+        } catch (error: Exception) {
+            android.util.Log.e("GhajarConnect", error.javaClass.simpleName)
+            VpnState.setError("شروع اتصال ناموفق بود؛ مجوز VPN و تنظیمات سرویس را بررسی کن.")
+        }
+    }
+
     private fun proceedConnect(config: ProxyConfig) {
+        guardedConnect { proceedConnectChecked(config) }
+    }
+
+    private fun proceedConnectChecked(config: ProxyConfig) {
         if (VpnState.state.value == Connection.CONNECTED) return
         if (config.protocol == "ikev2") {
             val xrayWasUp = VpnState.state.value != Connection.DISCONNECTED
@@ -1134,14 +1004,14 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startTunnel(configJson: String, name: String, aether: String, tor: String?) {
-        startService(
+        guardedConnect { androidx.core.content.ContextCompat.startForegroundService(this,
             Intent(this, GozarVpnService::class.java)
                 .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
                 .putExtra(GozarVpnService.EXTRA_NAME, name)
                 .putExtra(GozarVpnService.EXTRA_AETHER, aether)
                 .putExtra(GozarVpnService.EXTRA_TOR, tor)
                 .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
-        )
+        ) }
     }
 
     private fun startBlockOnly() {
@@ -1162,18 +1032,12 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun disconnect() {
-        if (vpnBusy) return
-        vpnBusy = true
         if (IkeController.active) {
             IkeController.disconnect(this)
             VpnState.setDisconnected()
             return
         }
         startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
-        lifecycleScope.launch {
-                withTimeoutOrNull(8000) { VpnState.state.first { it == Connection.DISCONNECTED || it == Connection.ERROR } }
-                vpnBusy = false
-        }
     }
 
     private fun switchTo(config: ProxyConfig) {
@@ -1457,22 +1321,11 @@ private fun GozarApp(
         contentColor = MaterialTheme.colorScheme.onBackground,
         modifier = Modifier.background(gradient),
         topBar = {
+            Column {
             CenterAlignedTopAppBar(
                 title = {
                     if (screenKey == "connection") {
-                        val logoRes = if (effectiveDark) R.drawable.logo else R.drawable.logo_black
-                        Box {
-                            Image(
-                                painter = painterResource(logoRes),
-                                contentDescription = null,
-                                modifier = Modifier.height(34.dp)
-                            )
-                            Image(
-                                painter = painterResource(logoRes),
-                                contentDescription = t("app_title"),
-                                modifier = Modifier.height(34.dp)
-                            )
-                        }
+                        GhajarWordmark(Modifier.height(48.dp).width(164.dp))
                     } else {
                         Text(
                             mixedText(when (screenKey) {
@@ -1552,19 +1405,26 @@ private fun GozarApp(
                     }
                 }
             )
+            GhajarNoticeBanner()
+            }
         },
         bottomBar = {
-            NavigationBar {
+            NavigationBar(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                    .clip(RoundedCornerShape(28.dp)),
+                containerColor = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp
+            ) {
                 NavigationBarItem(
                     selected = page == PAGE_SHOP,
                     onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } },
-                    icon = { Icon(Icons.Filled.ShoppingBag, contentDescription = null) },
+                    icon = { Icon(painterResource(R.drawable.ic_royal_shop), contentDescription = null, modifier = Modifier.size(28.dp)) },
                     label = { Text(t("shop")) }
                 )
                 NavigationBarItem(
                     selected = page == PAGE_SSH,
                     onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SSH) } },
-                    icon = { Icon(Icons.Filled.Terminal, contentDescription = null) },
+                    icon = { Icon(painterResource(R.drawable.ic_royal_tunnel), contentDescription = null, modifier = Modifier.size(28.dp)) },
                     label = { Text(t("ssh")) }
                 )
                 NavigationBarItem(
@@ -1573,13 +1433,13 @@ private fun GozarApp(
                         showPicker = false; showManual = false; showProjects = false; showTorNodes = false; showWindscribe = false; editingConfig = null
                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
                     },
-                    icon = { Icon(Icons.Rounded.Home, contentDescription = null) },
+                    icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(28.dp)) },
                     label = { Text(t("home")) }
                 )
                 NavigationBarItem(
                     selected = page == PAGE_DEBUG,
                     onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_DEBUG) } },
-                    icon = { Icon(Icons.Filled.BugReport, contentDescription = null) },
+                    icon = { Icon(painterResource(R.drawable.ic_royal_tools), contentDescription = null, modifier = Modifier.size(28.dp)) },
                     label = { Text(t("debugger")) }
                 )
                 NavigationBarItem(
@@ -1601,7 +1461,7 @@ private fun GozarApp(
                         prefsDetail = false
                         scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
                     },
-                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                    icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(28.dp)) },
                     label = { Text(t("settings")) }
                 )
             }
@@ -1626,7 +1486,7 @@ private fun GozarApp(
                 }
         ) { p ->
             if (p == PAGE_SHOP) {
-                GhajarShopScreen()
+                GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
             } else if (p == PAGE_SSH) {
                 SshScreen(
                     store = SshStore.get(LocalContext.current),
@@ -1871,151 +1731,7 @@ private fun ConnectionScreen(
                 Modifier.fillMaxSize().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Card(
-                    modifier = Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onOpenPicker() },
-                    shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    ),
-                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
-                ) {
-                    Column(Modifier.fillMaxWidth()) {
-                        Row(
-                            Modifier.fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                t("selected_server"),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                                repeat(3) {
-                                    Box(
-                                        Modifier.size(8.dp).background(
-                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
-                                            CircleShape
-                                        )
-                                    )
-                                }
-                            }
-                        }
-                        Row(
-                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Column(Modifier.weight(1f)) {
-                                if (selectedConfig != null) {
-                                    val cursorT by rememberInfiniteTransition(label = "cursor").animateFloat(
-                                        initialValue = 0f,
-                                        targetValue = 1f,
-                                        animationSpec = infiniteRepeatable(tween(1060, easing = LinearEasing)),
-                                        label = "cursorBlink"
-                                    )
-                                    val fullName = selectedConfig.name
-                                    var typed by remember(fullName) { mutableStateOf(0) }
-                                    LaunchedEffect(fullName) {
-                                        typed = 0
-                                        if (fullName.isNotEmpty()) {
-                                            val per = (1100L / fullName.length).coerceAtLeast(30L)
-                                            while (typed < fullName.length) {
-                                                delay(per)
-                                                typed++
-                                            }
-                                        }
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            flagRuns(fullName.take(typed), monoLatinFont()),
-                                            inlineContent = flagInlineContent(
-                                                fullName.take(typed),
-                                                MaterialTheme.typography.titleMedium.fontSize
-                                            ),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-                                        Box(
-                                            Modifier.padding(start = 3.dp)
-                                                .size(width = 8.dp, height = 17.dp)
-                                                .graphicsLayer { alpha = if (cursorT < 0.5f) 1f else 0f }
-                                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp))
-                                        )
-                                    }
-                                    Spacer(Modifier.height(5.dp))
-                                    if (selectedConfig.locked) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                Icons.Filled.Lock, contentDescription = null,
-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                modifier = Modifier.size(12.dp)
-                                            )
-                                            Spacer(Modifier.width(4.dp))
-                                            Text(
-                                                monoText(t("locked_config")),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    } else {
-                                        Text(
-                                            monoText(n("${selectedConfig.address}:${selectedConfig.port}")),
-                                            style = MaterialTheme.typography.bodySmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                } else {
-                                    val idleBlink by rememberInfiniteTransition(label = "idleCursor").animateFloat(
-                                        initialValue = 0f,
-                                        targetValue = 1f,
-                                        animationSpec = infiniteRepeatable(tween(1060, easing = LinearEasing)),
-                                        label = "idleCursorBlink"
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            monoText(t("tap_choose")),
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            modifier = Modifier.weight(1f, fill = false)
-                                        )
-                                        Box(
-                                            Modifier.padding(start = 3.dp)
-                                                .size(width = 8.dp, height = 15.dp)
-                                                .graphicsLayer { alpha = if (idleBlink < 0.5f) 1f else 0f }
-                                                .background(
-                                                    MaterialTheme.colorScheme.primary,
-                                                    RoundedCornerShape(1.dp)
-                                                )
-                                        )
-                                    }
-                                }
-                            }
-                            Icon(
-                                Icons.Filled.ChevronRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 10.dp)
-                            )
-                        }
-                    }
-                }
+                GhajarSelectedServerCard(selectedConfig, conn, onOpenPicker)
 
                 var btnPressed by remember { mutableStateOf(false) }
                 val glowActive = !connected && selectedConfig != null && !btnPressed
@@ -2070,6 +1786,7 @@ private fun ConnectionScreen(
                                 )
                             )
                             .border(1.6.dp, stateTint.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
+                            .testTag("ghajar_connect")
                             .clickable(enabled = enabled || picking) {
                                 when {
                                     picking -> onCancelPick()
@@ -2191,7 +1908,9 @@ private fun ConnectionScreen(
                 }
 
                 val globeStyle by store.globeStyle.collectAsState()
-                if (globeStyle == "dots") {
+                if (globeStyle == "royal" || globeStyle == "shield") {
+                    GhajarRoyalHome(globeStyle, Modifier.weight(1f).fillMaxWidth())
+                } else if (globeStyle == "dots") {
                     DotGlobeSection(Modifier.weight(1f).fillMaxWidth())
                 } else {
                     EarthSection(Modifier.weight(1f).fillMaxWidth())
@@ -5511,7 +5230,7 @@ private fun BackupRow(store: ConfigStore) {
                     if (!busy) {
                         val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
                             .format(java.util.Date())
-                        saver.launch("groute-backup-$stamp.${ConfigFile.EXTENSION}")
+                        saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
                     }
                 },
                 enabled = !busy,
@@ -6749,6 +6468,14 @@ private fun ThemeSettingsScreen(store: ConfigStore, modifier: Modifier = Modifie
                 modifier = Modifier.weight(1f)
             )
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GlobeStyleOption(label = if (LocalLang.current == Lang.FA) "شاه و ملکه" else "Royal characters",
+                selected = globeStyle == "royal", onClick = { store.setGlobeStyle("royal") }, modifier = Modifier.weight(1f))
+            GlobeStyleOption(label = if (LocalLang.current == Lang.FA) "سپر قاجار" else "Shield",
+                selected = globeStyle == "shield", onClick = { store.setGlobeStyle("shield") }, modifier = Modifier.weight(1f))
+        }
+        HorizontalDivider()
+        GhajarAppearanceSettings()
     }
 }
 
@@ -6800,7 +6527,7 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
     var updateUrl by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val logoRes = R.drawable.ghajarvpn_royal_badge
+    val logoRes = R.drawable.ghajar_wordmark
     val primary = MaterialTheme.colorScheme.primary
 
     Column(
@@ -6809,11 +6536,11 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 2.dp)) {
-            PulseHalo(color = primary, size = 190.dp)
             Image(
                 painter = painterResource(logoRes),
                 contentDescription = null,
-                modifier = Modifier.size(152.dp)
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth(0.78f).height(104.dp)
             )
         }
 
@@ -6835,7 +6562,7 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
         AboutCard(
             icon = Icons.Filled.Hub,
             title = t("source_code"),
-            value = "github.com/meysam82003/Ghajarvpn",
+            value = BrandConfig.GITHUB_URL.removePrefix("https://"),
             onClick = { runCatching { uriHandler.openUri(BrandConfig.GITHUB_URL) } }
         )
 
@@ -6997,7 +6724,8 @@ private fun AboutCard(
                 Crossfade(targetState = value, animationSpec = tween(300), label = "aboutValue") { v ->
                     if (!v.isNullOrBlank()) {
                         Text(
-                            mixedText(localizeDigits(v, LocalLang.current)),
+                            if (v.contains("github.com/") || v.startsWith("@")) AnnotatedString("\u2066$v\u2069")
+                            else mixedText(localizeDigits(v, LocalLang.current)),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.primary,
                             maxLines = 2,
@@ -7030,39 +6758,35 @@ private fun xrayCoreVersion(): String = runCatching {
 }.getOrNull()?.takeIf { it.isNotBlank() } ?: "—"
 
 private val PRIVACY_EN = """
-Ghajarvpn is built to protect your privacy.
+Ghajarvpn privacy information
 
-What we collect: Nothing. Ghajarvpn has no analytics, advertising or browsing tracking in the Android client.
+Account and store: If you link your account, the app sends its access token to the Ghajar service to load your account, subscriptions, orders and notifications. Purchase requests include the options you enter. If you upload a payment receipt, the selected image is sent to the service and may contain personal or banking information.
 
-On your device: Your server configurations are stored encrypted in the app's private storage. Data-usage statistics (how much traffic passed through the tunnel) stay only on your device and are never transmitted anywhere. Clearing the app's data removes them.
+On your device: The app stores configurations and settings in its private storage. The account access token is encrypted using Android Keystore. Clearing app data removes local records; it does not delete records held by the service.
 
-Network requests: To show your current IP address and approximate location, the app contacts third-party services such as ipwho.is and ipify.org. These services necessarily see the IP address of your connection. No other identifying information is sent.
+Network requests: Account sync, store content and the live welcome image contact the Ghajar service. Network-status features may contact third parties such as ipwho.is and ipify.org. These services can see your connection's IP address.
 
-Your servers: The proxy/VPN servers you add are provided by you or your subscription provider. Ghajarvpn cannot inspect third-party server logging practices — choose providers you trust.
+VPN and payments: The selected VPN server handles your tunnel traffic. A selected payment gateway handles the payment in its own page. This Android client cannot determine or guarantee the logging and retention practices of those services.
 
-Permissions: The VPN permission is used solely to route traffic through the tunnel you select. It is never used to inspect, modify or record your traffic.
+Permissions: VPN access starts the tunnel you select. Camera access is used for scanning codes; notification access is used for connection and service alerts.
 
-Changes: This policy may be updated as the app evolves; material changes will be noted in new releases.
-
-Contact: Questions? Reach Ghajarvpn at @Ghajarvpn.
+Questions about data held by the service or deletion requests: contact @Ghajarvpn.
 """.trimIndent()
 
 private val PRIVACY_FA = """
-جی‌روت برای حفاظت از حریم خصوصی شما ساخته شده است.
+اطلاعات حریم خصوصی قاجار وی پی ان
 
-چه چیزی جمع‌آوری می‌کنیم: هیچ‌چیز. جی‌روت حساب کاربری، تحلیل آماری، تبلیغات و ردیابی ندارد. توسعه‌دهنده هیچ سروری که فعالیت مرور شما را دریافت کند اجرا نمی‌کند.
+حساب و فروشگاه: اگر حسابتان را متصل کنید، برنامه توکن دسترسی را برای دریافت حساب، اشتراک‌ها، سفارش‌ها و اعلان‌ها به سرویس قاجار می‌فرستد. درخواست خرید شامل گزینه‌هایی است که وارد می‌کنید. اگر رسید پرداخت بارگذاری کنید، تصویر انتخاب‌شده به سرویس ارسال می‌شود و ممکن است اطلاعات شخصی یا بانکی داشته باشد.
 
-روی دستگاه شما: کانفیگ‌های سرور شما به‌صورت رمزگذاری‌شده در حافظهٔ خصوصی برنامه ذخیره می‌شوند. آمار مصرف داده (میزان ترافیک عبوری از تونل) فقط روی دستگاه شما می‌ماند و به هیچ‌جا ارسال نمی‌شود. پاک‌کردن دادهٔ برنامه آن را حذف می‌کند.
+روی گوشی: برنامه کانفیگ‌ها و تنظیمات را در حافظهٔ خصوصی خود نگه می‌دارد. توکن دسترسی حساب با Android Keystore رمزگذاری می‌شود. پاک‌کردن دادهٔ برنامه، اطلاعات محلی را حذف می‌کند؛ اطلاعات نگهداری‌شده در سرویس با این کار حذف نمی‌شوند.
 
-درخواست‌های شبکه: برای نمایش نشانی IP و موقعیت تقریبی شما، برنامه با سرویس‌های شخص ثالث مانند ipwho.is و ipify.org تماس می‌گیرد. این سرویس‌ها ناگزیر نشانی IP اتصال شما را می‌بینند. هیچ اطلاعات شناسایی دیگری ارسال نمی‌شود.
+درخواست‌های شبکه: همگام‌سازی حساب، محتوای فروشگاه و تصویر زندهٔ ورود به سرویس قاجار متصل می‌شوند. امکانات نمایش وضعیت شبکه ممکن است با سرویس‌هایی مانند ipwho.is و ipify.org تماس بگیرند. این سرویس‌ها نشانی IP اتصال شما را می‌بینند.
 
-سرورهای شما: سرورهای پراکسی/وی‌پی‌ان که اضافه می‌کنید توسط شما یا ارائه‌دهندهٔ اشتراکتان فراهم می‌شوند. جی‌روت هیچ کنترل یا دیدی نسبت به سیاست ثبت لاگ آن سرورها ندارد؛ ارائه‌دهنده‌ای را انتخاب کنید که به آن اعتماد دارید.
+وی‌پی‌ان و پرداخت: سرور وی‌پی‌ان انتخاب‌شده ترافیک تونل شما را مدیریت می‌کند. درگاه انتخاب‌شده پرداخت را در صفحهٔ خودش انجام می‌دهد. این برنامهٔ اندروید نمی‌تواند شیوهٔ ثبت لاگ و مدت نگهداری اطلاعات در آن سرویس‌ها را مشخص یا تضمین کند.
 
-دسترسی‌ها: دسترسی وی‌پی‌ان تنها برای هدایت ترافیک از طریق تونلی که انتخاب می‌کنید استفاده می‌شود و هرگز برای بازرسی، تغییر یا ثبت ترافیک شما به‌کار نمی‌رود.
+دسترسی‌ها: دسترسی وی‌پی‌ان برای شروع تونل انتخابی، دوربین برای اسکن کد و اعلان برای نمایش وضعیت اتصال و هشدار سرویس استفاده می‌شود.
 
-تغییرات: این سیاست ممکن است با تکامل برنامه به‌روزرسانی شود؛ تغییرات مهم در نسخه‌های جدید اعلام می‌شوند.
-
-تماس: سؤالی دارید؟ از طریق تلگرام با @Ghajarvpn در ارتباط باشید.
+برای پرسش دربارهٔ اطلاعات نگهداری‌شده در سرویس یا درخواست حذف آن‌ها، با @Ghajarvpn تماس بگیرید.
 """.trimIndent()
 
 @Composable
@@ -8752,7 +8476,7 @@ private fun Modifier.pressBounce(
         awaitEachGesture {
             awaitFirstDown(requireUnconsumed = false)
             scope.launch {
-                scale.animateTo(0.9f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
+                scale.animateTo(0.97f, spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium))
             }
             waitForUpOrCancellation()
             scope.launch {
@@ -8778,7 +8502,7 @@ private fun FillButton(
     val primary = accent
     val onPrimary = MaterialTheme.colorScheme.onPrimary
     val disabled = primary.copy(alpha = 0.35f)
-    val shape = RoundedCornerShape(16.dp)
+    val shape = RoundedCornerShape(22.dp)
     val hazeState = LocalHazeState.current
     val surfaceColor = MaterialTheme.colorScheme.surface
 
@@ -8788,7 +8512,7 @@ private fun FillButton(
     var pressed by remember { mutableStateOf(false) }
 
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.95f else 1f,
+        targetValue = if (pressed) 0.98f else 1f,
         animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
         label = "fillScale"
     )
@@ -8808,6 +8532,7 @@ private fun FillButton(
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
+            .then(ghajarSoftSurface(shape, enabled))
             .clip(shape)
             .then(
                 if (hazeState != null) Modifier.hazeEffect(hazeState) {
@@ -8820,7 +8545,7 @@ private fun FillButton(
             .drawBehind {
                 if (radius > 0.5f) drawCircle(color = primary, radius = radius, center = center)
             }
-            .border(BorderStroke(borderWidth, if (enabled) primary else disabled), shape)
+            .border(BorderStroke(0.7.dp, if (enabled) primary.copy(alpha = 0.22f) else disabled.copy(alpha = 0.3f)), shape)
             .defaultMinSize(minWidth = 56.dp, minHeight = minHeight)
             .onSizeChanged { sz = it }
             .pointerInput(enabled) {
@@ -8833,7 +8558,7 @@ private fun FillButton(
                     pressed = false
                 }
             }
-            .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onClick() },
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled, role = androidx.compose.ui.semantics.Role.Button) { onClick() },
         contentAlignment = Alignment.Center
     ) {
         CompositionLocalProvider(LocalContentColor provides contentColor) {
@@ -8893,7 +8618,8 @@ private fun BounceIconButton(
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.pressBounce(scale, scope),
+        modifier = modifier.pressBounce(scale, scope)
+            .then(ghajarSoftSurface(RoundedCornerShape(16.dp), enabled)),
         content = content
     )
 }
@@ -9409,7 +9135,7 @@ private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
         val image = bmp ?: return
         runCatching {
             val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-            val file = File(dir, "groute-qr.png")
+            val file = File(dir, "ghajarvpn-qr.png")
             file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
             val uri = FileProvider.getUriForFile(
                 context, context.packageName + ".fileprovider", file
