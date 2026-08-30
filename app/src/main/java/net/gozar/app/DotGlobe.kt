@@ -11,6 +11,11 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -358,41 +363,45 @@ internal fun IpLocatorContent(
             .background(shell.copy(alpha = veil))
             .background(
                 Brush.verticalGradient(
-                    0.00f to shadow.copy(alpha = 0.66f),
-                    0.45f to shadow.copy(alpha = 0.12f),
+                    0.00f to shadow.copy(alpha = 0.68f),
+                    0.42f to shadow.copy(alpha = 0.10f),
                     1.00f to shadow.copy(alpha = 0.70f)
                 )
             )
             .background(
                 Brush.horizontalGradient(
-                    0.00f to shadow.copy(alpha = 0.62f),
-                    0.50f to shadow.copy(alpha = 0.09f),
-                    1.00f to shadow.copy(alpha = 0.56f)
+                    0.00f to shadow.copy(alpha = 0.58f),
+                    0.50f to shadow.copy(alpha = 0.08f),
+                    1.00f to shadow.copy(alpha = 0.52f)
                 )
             )
             .padding(
-                start = (5f * scale).dp,
-                end = (13f * scale).dp,
-                top = (7f * scale).dp,
-                bottom = (8f * scale).dp
+                start = (6f * scale).dp,
+                end = (14f * scale).dp,
+                top = (8f * scale).dp,
+                bottom = (9f * scale).dp
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Dedicated flag tile: the country crest keeps a glassy plinth with a
+        // live-accent gradient rim instead of a flat bordered square.
         Box(
             Modifier
-                .size((38f * scale).dp)
-                .clip(RoundedCornerShape((11f * scale).dp))
-                .background(onShell.copy(alpha = .11f))
+                .size((42f * scale).dp)
+                .clip(RoundedCornerShape((12f * scale).dp))
+                .background(onShell.copy(alpha = .13f))
                 .border(
-                    (1.1f * scale).dp,
-                    live.copy(alpha = .72f),
-                    RoundedCornerShape((11f * scale).dp)
+                    (1.2f * scale).dp,
+                    Brush.linearGradient(
+                        listOf(live.copy(alpha = .88f), live.copy(alpha = .22f))
+                    ),
+                    RoundedCornerShape((12f * scale).dp)
                 ),
             contentAlignment = Alignment.Center
         ) {
-            CountryFlag(l.countryCode, height = (20f * scale).dp)
+            CountryFlag(l.countryCode, height = (22f * scale).dp)
         }
-        Column(Modifier.padding(start = (8f * scale).dp)) {
+        Column(Modifier.padding(start = (9f * scale).dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IpLocatorDot(live, scale)
                 Text(
@@ -401,8 +410,8 @@ internal fun IpLocatorContent(
                     color = live,
                     fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
                     fontWeight = FontWeight.Bold,
-                    fontSize = (10f * scale).sp,
-                    lineHeight = (14f * scale).sp,
+                    fontSize = (10.5f * scale).sp,
+                    lineHeight = (15f * scale).sp,
                     maxLines = 1
                 )
             }
@@ -411,19 +420,21 @@ internal fun IpLocatorContent(
                 color = onShell,
                 fontFamily = LexendFont,
                 fontWeight = FontWeight.Bold,
-                fontSize = (13.5f * scale).sp,
-                lineHeight = (19f * scale).sp,
+                fontSize = (14.5f * scale).sp,
+                lineHeight = (20f * scale).sp,
                 letterSpacing = 0.2.sp,
                 maxLines = 1,
-                modifier = Modifier.padding(start = (7f * scale).dp)
+                modifier = Modifier.padding(start = (7f * scale).dp, top = (1f * scale).dp)
             )
+            val flagEmoji = GhajarLocationRules.flag(l.countryCode)
+            val place = "${l.country} · ${l.city}".trim().trimEnd('·').trim()
             Text(
-                mixedText("${l.country} · ${l.city}".trim().trimEnd('·').trim()),
+                mixedText(if (flagEmoji.isEmpty()) place else "$flagEmoji $place"),
                 color = onShell.copy(alpha = 0.82f),
                 fontFamily = LexendFont,
                 fontWeight = FontWeight.SemiBold,
-                fontSize = (9.5f * scale).sp,
-                lineHeight = (14f * scale).sp,
+                fontSize = (10f * scale).sp,
+                lineHeight = (15f * scale).sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = (2f * scale).dp, start = (7f * scale).dp)
@@ -726,7 +737,13 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
             }
         }
 
-        if (!hasLocation) GhajarLocationStatus(geo)
+        AnimatedVisibility(
+            visible = !hasLocation,
+            enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+            exit = fadeOut(tween(180)) + shrinkVertically(tween(180))
+        ) {
+            GhajarLocationStatus(geo)
+        }
         Spacer(Modifier.height(6.dp))
 
         val pillColor by animateColorAsState(

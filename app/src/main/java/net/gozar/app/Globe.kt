@@ -1,7 +1,12 @@
 package net.gozar.app
 
 import android.util.Base64
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.Crossfade
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -51,7 +56,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
@@ -134,6 +141,27 @@ private fun globeFrameRateModifier(): Modifier {
 private const val GLOBE_RENDER_MAX = 384
 private const val GLOBE_RENDER_SCALE = 75
 private const val GLOBE_RAD_FRAC = 0.86
+
+// Idle rotation pace while the exit IP is still unresolved (radians/second);
+// withFrameNanos converts wall time into spin so the pace is frame-rate safe.
+private const val GLOBE_SPIN_PER_NANOS = 0.45f / 1_000_000_000f
+
+// Raster buffer sizes move in fixed steps so window resizes, foldables and
+// split-screen drags do not rebuild the raster pipeline on every layout pixel.
+internal fun globeBufferSize(sidePx: Int): Int {
+    val raw = (sidePx * GLOBE_RENDER_SCALE / 100).coerceIn(96, GLOBE_RENDER_MAX)
+    return (raw / 32) * 32
+}
+
+// One atomic holder couples the texture with the exact angles it was rasterized
+// for, so the marker, the popup card and the placeholder always agree with the
+// pixels on screen instead of racing loose state values.
+private class RenderedFrame(
+    val image: ImageBitmap,
+    val spin: Float,
+    val tilt: Float,
+    val size: Int
+)
 
 private fun sampleMask(lon: Float, lat: Float): Float {
     val mw = EarthMask.W
@@ -431,19 +459,23 @@ fun EarthSection(modifier: Modifier = Modifier) {
         val targetSpin = nearestAngle(-Math.toRadians(loc.lon).toFloat(), spinY.value)
         val targetTilt = Math.toRadians(loc.lat).toFloat().coerceIn(-1.35f, 1.35f)
         coroutineScope {
-            launch { spinY.animateTo(targetSpin, tween(850, easing = FastOutSlowInEasing)) }
-            launch { tiltX.animateTo(targetTilt, tween(850, easing = FastOutSlowInEasing)) }
+            launch { spinY.animateTo(targetSpin, tween(1150, easing = FastOutSlowInEasing)) }
+            launch { tiltX.animateTo(targetTilt, tween(1150, easing = FastOutSlowInEasing)) }
         }
     }
     // Keep the globe visibly moving while the real exit IP is being resolved.
-    // This effect is cancelled before the country fly-to animation starts.
+    // withFrameNanos ties the pace to the display clock instead of a timer, and
+    // the effect is cancelled before the verified country fly-to starts, so the
+    // two writers can never race on the same Animatable.
     LaunchedEffect(hasLocation, geo.loading, conn) {
         if (hasLocation || !(geo.loading || conn == Connection.CONNECTING || conn == Connection.CONNECTED)) {
             return@LaunchedEffect
         }
+        var last = withFrameNanos { it }
         while (true) {
-            spinY.snapTo(spinY.value + 0.0105f)
-            delay(32)
+            val now = withFrameNanos { it }
+            spinY.snapTo(spinY.value + (now - last) * GLOBE_SPIN_PER_NANOS)
+            last = now
         }
     }
     val inf = rememberInfiniteTransition(label = "globe")
@@ -474,7 +506,7 @@ fun EarthSection(modifier: Modifier = Modifier) {
             val popupHpx = with(density) { (60f * uiScale).dp.toPx() }
             var popupSize by remember { mutableStateOf(IntSize.Zero) }
 
-            val bs = remember(sidePx) { (sidePx.roundToInt() * GLOBE_RENDER_SCALE / 100).coerceIn(96, GLOBE_RENDER_MAX) }
+            val bs = remember(sidePx) { globeBufferSize(sidePx.roundToInt()) }
             var lut by remember(bs) { mutableStateOf<GlobeLut?>(null) }
             val px = remember(bs) { IntArray(bs * bs) }
             val bmp = remember(bs) {
@@ -484,11 +516,11 @@ fun EarthSection(modifier: Modifier = Modifier) {
                 )
             }
             val img = remember(bs) { arrayOf(bmp[0].asImageBitmap(), bmp[1].asImageBitmap()) }
-
-            var frameImage by remember(bs) { mutableStateOf(img[0]) }
-            var renderedSpin by remember { mutableStateOf(Float.NaN) }
-            var renderedTilt by remember { mutableStateOf(0f) }
-            val front = remember(bs) { intArrayOf(0) }
+            val front = remember { intArrayOf(0) }
+            // The texture lives in one atomic holder instead of loose states. When
+            // the raster size changes, the new buffers are seeded from the previous
+            // frame, so a resize or state-driven layout shift never blanks the globe.
+            var frame by remember { mutableStateOf<RenderedFrame?>(null) }
             val fadeBmp = remember(bs) {
                 android.graphics.Bitmap.createBitmap(bs, bs, android.graphics.Bitmap.Config.ARGB_8888)
             }
@@ -497,14 +529,25 @@ fun EarthSection(modifier: Modifier = Modifier) {
             val themeFade = remember(bs) { Animatable(1f) }
             var themeSettled by remember(bs) { mutableStateOf(false) }
 
+            LaunchedEffect(bs) {
+                val previous = frame ?: return@LaunchedEffect
+                if (previous.size == bs) return@LaunchedEffect
+                val paint = android.graphics.Paint().apply { isFilterBitmap = true }
+                android.graphics.Canvas(bmp[front[0]]).drawBitmap(
+                    previous.image.asAndroidBitmap(), null,
+                    android.graphics.Rect(0, 0, bs, bs), paint
+                )
+                frame = RenderedFrame(img[front[0]], previous.spin, previous.tilt, bs)
+            }
+
             LaunchedEffect(isDark, bs) {
                 if (!themeSettled) {
                     themeSettled = true
                     return@LaunchedEffect
                 }
-                if (renderedSpin.isNaN()) return@LaunchedEffect
+                val current = frame ?: return@LaunchedEffect
                 android.graphics.Canvas(fadeBmp)
-                    .drawBitmap(frameImage.asAndroidBitmap(), 0f, 0f, null)
+                    .drawBitmap(current.image.asAndroidBitmap(), 0f, 0f, null)
                 fadeFrom = fadeImg
                 themeFade.snapTo(0f)
                 themeFade.animateTo(1f, tween(520, easing = FastOutSlowInEasing))
@@ -527,19 +570,22 @@ fun EarthSection(modifier: Modifier = Modifier) {
                 }
             }
 
-            LaunchedEffect(bs, lut, isDark) {
+            // A single collector owns the raster pipeline for the whole life of this
+            // globe. Spin, tilt and theme are snapshot state, so connection or theme
+            // changes re-render through the same collector instead of rebuilding it.
+            val isDarkState = rememberUpdatedState(isDark)
+            LaunchedEffect(bs, lut) {
                 val l = lut ?: return@LaunchedEffect
-                snapshotFlow { spinY.value to tiltX.value }
+                snapshotFlow { Triple(spinY.value, tiltX.value, isDarkState.value) }
                     .conflate()
-                    .collect { (s, t) ->
+                    .collect { (s, t, dark) ->
                         val back = 1 - front[0]
                         withContext(Dispatchers.Default) {
-                            renderGlobeParallel(px, l, s, t, true, !isDark)
+                            renderGlobeParallel(px, l, s, t, true, !dark)
                             bmp[back].setPixels(px, 0, bs, 0, 0, bs, bs)
                         }
                         front[0] = back
-                        frameImage = img[back]
-                        renderedSpin = s; renderedTilt = t
+                        frame = RenderedFrame(img[back], s, t, bs)
                     }
             }
 
@@ -567,9 +613,16 @@ fun EarthSection(modifier: Modifier = Modifier) {
                         }
                 ) {
                     val placeholderAlpha by animateFloatAsState(
-                        targetValue = if (renderedSpin.isNaN()) 1f else 0f,
+                        targetValue = if (frame == null) 1f else 0f,
                         animationSpec = tween(220),
                         label = "globePlaceholder"
+                    )
+                    // The verified marker and its flag card fade in gracefully the
+                    // moment the exit IP resolves instead of popping mid-spin.
+                    val nodeReveal by animateFloatAsState(
+                        targetValue = if (hasLocation) 1f else 0f,
+                        animationSpec = tween(320, easing = FastOutSlowInEasing),
+                        label = "globeNodeReveal"
                     )
                     Canvas(Modifier.fillMaxSize()) {
                         val halo = haloColor
@@ -611,6 +664,7 @@ fun EarthSection(modifier: Modifier = Modifier) {
                         )
                     }
                     Canvas(Modifier.fillMaxSize()) {
+                        val current = frame ?: return@Canvas
                         val prev = fadeFrom
                         val dst = IntSize(sidePx.roundToInt(), sidePx.roundToInt())
                         if (prev != null) {
@@ -624,7 +678,7 @@ fun EarthSection(modifier: Modifier = Modifier) {
                             )
                         }
                         drawImage(
-                            image = frameImage,
+                            image = current.image,
                             srcOffset = IntOffset.Zero,
                             srcSize = IntSize(bs, bs),
                             dstOffset = IntOffset.Zero,
@@ -635,26 +689,30 @@ fun EarthSection(modifier: Modifier = Modifier) {
                     }
 
                     Canvas(Modifier.fillMaxSize()) {
-                        val ms = if (renderedSpin.isNaN()) spinY.value else renderedSpin
-                        val mt = if (renderedSpin.isNaN()) tiltX.value else renderedTilt
+                        val fr = frame
+                        val ms = fr?.spin ?: spinY.value
+                        val mt = fr?.tilt ?: tiltX.value
                         val m = project(loc.lat, loc.lon, ms, mt, cx, cy, rad)
-                        if (hasLocation && m[2] > 0f) {
+                        if ((hasLocation || nodeReveal > 0f) && m[2] > 0f) {
                             val mc = Offset(m[0], m[1])
                             val ph1 = ringT
                             val ph2 = (ringT + 0.5f) % 1f
                             drawCircle(
-                                nodeColor.copy(alpha = (0.45f * (1f - ph1)).coerceIn(0f, 1f)),
+                                nodeColor.copy(alpha = (0.45f * (1f - ph1) * nodeReveal).coerceIn(0f, 1f)),
                                 radius = rad * (0.028f + 0.11f * ph1), center = mc,
                                 style = Stroke(width = 1.6f)
                             )
                             drawCircle(
-                                nodeColor.copy(alpha = (0.45f * (1f - ph2)).coerceIn(0f, 1f)),
+                                nodeColor.copy(alpha = (0.45f * (1f - ph2) * nodeReveal).coerceIn(0f, 1f)),
                                 radius = rad * (0.028f + 0.11f * ph2), center = mc,
                                 style = Stroke(width = 1.6f)
                             )
                             drawLine(
                                 brush = Brush.verticalGradient(
-                                    colors = listOf(nodeColor.copy(alpha = 0f), nodeColor.copy(alpha = 0.75f)),
+                                    colors = listOf(
+                                        nodeColor.copy(alpha = 0f),
+                                        nodeColor.copy(alpha = 0.75f * nodeReveal)
+                                    ),
                                     startY = m[1] - rad * 0.16f, endY = m[1]
                                 ),
                                 start = Offset(m[0], m[1] - rad * 0.16f),
@@ -662,23 +720,27 @@ fun EarthSection(modifier: Modifier = Modifier) {
                             )
                             drawCircle(
                                 brush = Brush.radialGradient(
-                                    colors = listOf(nodeColor.copy(alpha = 0.55f), nodeColor.copy(alpha = 0f)),
+                                    colors = listOf(
+                                        nodeColor.copy(alpha = 0.55f * nodeReveal),
+                                        nodeColor.copy(alpha = 0f)
+                                    ),
                                     center = mc, radius = rad * 0.055f
                                 ),
                                 radius = rad * 0.055f, center = mc
                             )
-                            drawCircle(Color(0xFFE4F1FF), radius = rad * 0.019f, center = mc)
-                            drawCircle(Color.White, radius = rad * 0.008f, center = mc)
+                            drawCircle(Color(0xFFE4F1FF), alpha = nodeReveal, radius = rad * 0.019f, center = mc)
+                            drawCircle(Color.White, alpha = nodeReveal, radius = rad * 0.008f, center = mc)
                         }
                     }
 
-                    if (hasLocation) Card(
+                    if (hasLocation || nodeReveal > 0f) Card(
                         modifier = Modifier
                             .widthIn(max = (228f * uiScale).dp)
                             .onSizeChanged { popupSize = it }
                             .absoluteOffset {
-                                val sp = if (renderedSpin.isNaN()) spinY.value else renderedSpin
-                                val tl = if (renderedSpin.isNaN()) tiltX.value else renderedTilt
+                                val fr = frame
+                                val sp = fr?.spin ?: spinY.value
+                                val tl = fr?.tilt ?: tiltX.value
                                 val m = project(loc.lat, loc.lon, sp, tl, cx, cy, rad)
                                 val pw = if (popupSize.width > 0) popupSize.width.toFloat() else popupWpx
                                 val ph = if (popupSize.height > 0) popupSize.height.toFloat() else popupHpx
@@ -687,10 +749,14 @@ fun EarthSection(modifier: Modifier = Modifier) {
                                 IntOffset(x.roundToInt(), y.roundToInt())
                             }
                             .graphicsLayer {
-                                val sp = if (renderedSpin.isNaN()) spinY.value else renderedSpin
-                                val tl = if (renderedSpin.isNaN()) tiltX.value else renderedTilt
+                                val fr = frame
+                                val sp = fr?.spin ?: spinY.value
+                                val tl = fr?.tilt ?: tiltX.value
                                 val tz = project(loc.lat, loc.lon, sp, tl, cx, cy, rad)[2]
-                                alpha = (tz / 0.25f).coerceIn(0f, 1f) * introAlpha
+                                alpha = (tz / 0.25f).coerceIn(0f, 1f) * introAlpha * nodeReveal
+                                val sc = 0.94f + 0.06f * nodeReveal
+                                scaleX = sc
+                                scaleY = sc
                             },
                         shape = RoundedCornerShape(14.dp),
                         border = BorderStroke(1.4.dp, popupBorder),
@@ -705,7 +771,15 @@ fun EarthSection(modifier: Modifier = Modifier) {
             }
         }
 
-        if (!hasLocation) GhajarLocationStatus(geo)
+        // The helper row collapses smoothly when the IP lands, so the status pill
+        // below it glides into place instead of jumping.
+        AnimatedVisibility(
+            visible = !hasLocation,
+            enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+            exit = fadeOut(tween(180)) + shrinkVertically(tween(180))
+        ) {
+            GhajarLocationStatus(geo)
+        }
         Spacer(Modifier.height(6.dp))
 
         val pillColor by animateColorAsState(
