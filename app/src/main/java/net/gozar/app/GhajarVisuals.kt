@@ -64,7 +64,10 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
     val selectedName = rememberSaveable { GhajarWelcomeAssets.reserve(context) }
     var closed by remember { mutableStateOf(false) }
     val finish by rememberUpdatedState(onDone)
-    val selected = GhajarWelcomeAssets.posters.firstOrNull { it.name == selectedName }
+    val selected = remember(selectedName) {
+        GhajarWelcomeAssets.posters.firstOrNull { it.name == selectedName }
+            ?: GhajarWelcomeAssets.posters.firstOrNull()
+    }
     fun close() {
         if (closed) return
         closed = true
@@ -76,7 +79,10 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
         if (returning && selected != null) { delay(1800); close() }
     }
     val backdrop = if (selected?.dark != false) Color(0xFF061226) else Color(0xFFEAF1FB)
-    Box(Modifier.fillMaxSize().background(backdrop).clickable(onClick = ::close)) {
+    // Tag the stable full-screen welcome root, not the Image semantics node. On Android 14
+    // the image semantics can be merged while the artwork is decoding, which made CI flaky.
+    Box(Modifier.fillMaxSize().background(backdrop).clickable(onClick = ::close)
+        .testTag("ghajar_welcome_poster")) {
         selected?.let { poster ->
             // The cropped backdrop fills unusual aspect ratios while the fitted
             // foreground preserves every part of the complete 9:16 artwork.
@@ -86,8 +92,7 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
             Image(painterResource(poster.resourceId),
                 contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
                 contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().testTag("ghajar_welcome_poster")
-                    .graphicsLayer { alpha = 1f })
+                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 1f })
         }
         if (!returning) {
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()
