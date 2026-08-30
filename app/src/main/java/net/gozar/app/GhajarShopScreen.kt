@@ -209,7 +209,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     LaunchedEffect(requestedUrl, active) {
         if (active && requestedUrl != null) {
             checkoutModel.openUrl.value = null
-            openCheckout(requestedUrl!!)
+            if (requestedUrl!!.contains("t.me/")) {
+                val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                cm.setPrimaryClip(android.content.ClipData.newPlainText("ghajar_pay", requestedUrl))
+                message = "لینک پرداخت تلگرام کپی شد؛ به ربات بفرست. پس از بازگشت وضعیت خودکار بررسی می‌شود."
+            } else openCheckout(requestedUrl!!)
         }
     }
     LaunchedEffect(active, paymentInit?.orderId, lifecycle) {
