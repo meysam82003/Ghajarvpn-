@@ -20,6 +20,6 @@ jobs:
           RUN_ID: ${{ inputs.run_id }}
           TAG: ${{ inputs.tag }}
         run: |
-          gh run download "$RUN_ID" -n Ghajarvpn-3.0.4-CI-ephemeral-key-Android8plus -D apk
+          gh run download "$RUN_ID" -R meysam82003/Ghajarvpn- -n Ghajarvpn-3.0.4-CI-ephemeral-key-Android8plus -D apk
           APK=$(find apk -name '*.apk' | head -1)
-          gh release upload "$TAG" "$APK" --clobber
+          gh release upload -R meysam82003/Ghajarvpn- "$TAG" "$APK" --clobber
