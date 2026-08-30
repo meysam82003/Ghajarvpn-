@@ -43,6 +43,7 @@ snapshots=(
   "app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt"
   "app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt"
   "app/src/test/java/net/gozar/app/GhajarLinkFlowTest.kt"
+  "app/src/test/java/net/gozar/app/GlobeRenderRulesTest.kt"
   "app/src/main/AndroidManifest.xml"
   "app/src/main/java/net/gozar/app/ConfigStore.kt"
   "app/src/main/java/net/gozar/app/GhajarImportRules.kt"
