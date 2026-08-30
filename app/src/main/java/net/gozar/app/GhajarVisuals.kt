@@ -71,8 +71,9 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
         prefs.edit().putBoolean("soft_intro_seen", true).apply()
         finish()
     }
-    LaunchedEffect(Unit) {
-        if (returning) { delay(1800); close() }
+    // Auto-close only after the poster is actually composed (slow emulators must not lose the welcome).
+    LaunchedEffect(returning, selected) {
+        if (returning && selected != null) { delay(1800); close() }
     }
     val backdrop = if (selected?.dark != false) Color(0xFF061226) else Color(0xFFEAF1FB)
     Box(Modifier.fillMaxSize().background(backdrop).clickable(onClick = ::close)) {
