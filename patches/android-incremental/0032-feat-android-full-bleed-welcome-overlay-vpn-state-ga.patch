@@ -1,0 +1,944 @@
+From 836183d1487bd2a70d0f901c7714ee9d8cb83dbb Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Mon, 31 Aug 2026 10:39:26 +0330
+Subject: [PATCH] feat(android): full-bleed welcome overlay, vpn state gate,
+ multi-source channels
+
+- welcome: screen always fully covered (crop backdrop + Fit original), hairline
+  frame, no enter button and no educational panel, auto-close and tap dismiss
+- vpn state: debounce rapid connect/disconnect, drop stale lookup results via
+  lookup generation, clear IP/country/flag on disconnect
+- channels: multi-source free-config scraping through shared extraction rules
+- npvt: open-text payloads import through the shared rules; locked payloads
+  still require the owner key and are never bypassed
+- tests: welcome overlay rules, channel rules, vpn state gate; Android 14
+  welcome regression updated for the button-less overlay
+---
+ .../app/GhajarAndroid14RegressionTest.kt      |  17 +--
+ .../main/java/net/gozar/app/FreeConfigs.kt    |  65 +++++-----
+ .../java/net/gozar/app/GhajarChannelRules.kt  |  64 ++++++++++
+ .../main/java/net/gozar/app/GhajarLocation.kt |  14 ++-
+ .../main/java/net/gozar/app/GhajarVisuals.kt  |  58 ++-------
+ .../net/gozar/app/GhajarWelcomeOverlay.kt     | 104 ++++++++++++++++
+ .../main/java/net/gozar/app/MainActivity.kt   |  20 ++-
+ app/src/main/java/net/gozar/app/VpnState.kt   |  87 +++++++++++--
+ .../net/gozar/app/GhajarChannelRulesTest.kt   | 101 +++++++++++++++
+ .../app/GhajarWelcomeOverlayRulesTest.kt      |  47 +++++++
+ .../java/net/gozar/app/VpnStateGateTest.kt    | 116 ++++++++++++++++++
+ 11 files changed, 594 insertions(+), 99 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarChannelRules.kt
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
+ create mode 100644 app/src/test/java/net/gozar/app/GhajarChannelRulesTest.kt
+ create mode 100644 app/src/test/java/net/gozar/app/GhajarWelcomeOverlayRulesTest.kt
+ create mode 100644 app/src/test/java/net/gozar/app/VpnStateGateTest.kt
+
+diff --git a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+index 8dad272..edc826a 100644
+--- a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
++++ b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+@@ -38,20 +38,20 @@ class GhajarAndroid14RegressionTest {
+ 
+         val scenario = ActivityScenario.launch(MainActivity::class.java)
+         try {
+-            // A first-time poster remains until the user enters, so this verifies
+-            // that cold start reaches real full-screen artwork instead of a late IO result.
++            // A first-time poster remains until it auto-closes or is tapped, so
++            // this verifies that cold start reaches real full-screen artwork
++            // instead of a late IO result.
+             compose.waitUntil(15000) {
+                 compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
+                     .fetchSemanticsNodes().isNotEmpty()
+             }
+-            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_panel"))
+-                .fetchSemanticsNodes().isNotEmpty())
+-            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
++            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster_fit"))
+                 .fetchSemanticsNodes().isNotEmpty())
+             assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect"))
+                 .fetchSemanticsNodes().isEmpty())
+             screenshot(context, "cold-welcome")
+-            compose.onNodeWithTag("ghajar_welcome_enter").performClick()
++            compose.onNodeWithTag("ghajar_welcome_poster", useUnmergedTree = true)
++                .performClick()
+             compose.waitUntil(15000) {
+                 compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
+                     .fetchSemanticsNodes().isEmpty() &&
+@@ -102,9 +102,10 @@ class GhajarAndroid14RegressionTest {
+             store.add(config); store.setSelectedId(config.id)
+             val scenario = ActivityScenario.launch(MainActivity::class.java)
+             try {
+-                compose.waitUntil(15000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
++                compose.waitUntil(15000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
+                     .fetchSemanticsNodes().isNotEmpty() }
+-                compose.onNodeWithTag("ghajar_welcome_enter").performClick()
++                compose.onNodeWithTag("ghajar_welcome_poster", useUnmergedTree = true)
++                    .performClick()
+                 compose.waitUntil(20000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster")).fetchSemanticsNodes().isEmpty() &&
+                     compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect")).fetchSemanticsNodes().isNotEmpty() }
+                 repeat(2) { cycle ->
+diff --git a/app/src/main/java/net/gozar/app/FreeConfigs.kt b/app/src/main/java/net/gozar/app/FreeConfigs.kt
+index 80c6bd9..7fa7c41 100644
+--- a/app/src/main/java/net/gozar/app/FreeConfigs.kt
++++ b/app/src/main/java/net/gozar/app/FreeConfigs.kt
+@@ -21,6 +21,11 @@ object FreeConfigs {
+     const val CHANNEL = BrandConfig.FREE_CONFIG_CHANNEL
+     const val SOURCE_URL = "https://t.me/s/$CHANNEL"
+ 
++    // Multi-source free-config ingestion: every listed channel is scraped with
++    // the shared GhajarChannelRules extraction; user-visible naming stays
++    // @Ghajarvpn-branded regardless of the technical origin.
++    private val CHANNELS = listOf(CHANNEL)
++
+     private const val TAG = "GhajarFree"
+     private const val CONCURRENCY = 16
+     private const val MESSAGES = 50
+@@ -32,10 +37,6 @@ object FreeConfigs {
+     const val CONFIG_NAME = "Ghajarvpn-Free"
+ 
+ 
+-    private val LINK = Regex(
+-        "(?:vless|vmess|trojan|ss|hysteria2|hy2)://[^\\s\"'<>\\\\]+",
+-        RegexOption.IGNORE_CASE
+-    )
+     private val POST_ID = Regex("data-post=\"[^/\"]+/(\\d+)\"")
+ 
+     data class Progress(val tested: Int, val total: Int, val alive: Int)
+@@ -60,8 +61,9 @@ object FreeConfigs {
+         .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
+         .replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ")
+ 
+-    private fun page(before: Long): String = runCatching {
+-        val url = if (before <= 0) SOURCE_URL else "$SOURCE_URL?before=$before"
++    private fun page(channel: String, before: Long): String = runCatching {
++        val base = "https://t.me/s/$channel"
++        val url = if (before <= 0) base else "$base?before=$before"
+         val conn = (URL(url).openConnection(route()) as HttpURLConnection).apply {
+             connectTimeout = HTTP_TIMEOUT
+             readTimeout = HTTP_TIMEOUT
+@@ -80,41 +82,42 @@ object FreeConfigs {
+ 
+     private suspend fun scrape(): Scrape = withContext(Dispatchers.IO) {
+         val seen = LinkedHashMap<String, ProxyConfig>()
+-        var before = 0L
+-        var pages = 0
+         var messages = 0
+         var reachable = false
+         var links = 0
+ 
+-        while (pages < MAX_PAGES && messages < MESSAGES) {
+-            val html = page(before)
+-            if (html.isBlank()) break
+-            reachable = true
+-
+-            val ids = POST_ID.findAll(html).mapNotNull { it.groupValues[1].toLongOrNull() }.toList()
+-            if (ids.isEmpty()) break
+-            val room = MESSAGES - messages
+-            val take = ids.sortedDescending().take(room).toSet()
+-            messages += take.size
+-
+-            LINK.findAll(html).forEach { m ->
+-                links++
+-                val uri = unescape(m.value)
+-                val cfg = runCatching { ConfigParser.parse(uri, ConfigSource.COMMUNITY) }.getOrNull()
+-                if (cfg != null && cfg.address.isNotBlank() && cfg.port in 1..65535) {
+-                    seen.putIfAbsent(sig(cfg), rename(cfg))
++        for (channel in CHANNELS) {
++            var before = 0L
++            var pages = 0
++            while (pages < MAX_PAGES && messages < MESSAGES) {
++                val html = page(channel, before)
++                if (html.isBlank()) break
++                reachable = true
++
++                val ids = POST_ID.findAll(html).mapNotNull { it.groupValues[1].toLongOrNull() }.toList()
++                if (ids.isEmpty()) break
++                val room = MESSAGES - messages
++                val take = ids.sortedDescending().take(room).toSet()
++                messages += take.size
++
++                GhajarChannelRules.extractProxyLinks(unescape(html)).forEach { uri ->
++                    links++
++                    val cfg = runCatching { ConfigParser.parse(uri, ConfigSource.COMMUNITY) }.getOrNull()
++                    if (cfg != null && cfg.address.isNotBlank() && cfg.port in 1..65535) {
++                        seen.putIfAbsent(sig(cfg), rename(cfg))
++                    }
+                 }
+-            }
+ 
+-            val oldest = ids.minOrNull() ?: break
+-            if (before != 0L && oldest >= before) break
+-            before = oldest
+-            pages++
++                val oldest = ids.minOrNull() ?: break
++                if (before != 0L && oldest >= before) break
++                before = oldest
++                pages++
++            }
+         }
+ 
+         android.util.Log.i(
+             TAG,
+-            "pages=$pages messages=$messages links=$links parsed=${seen.size} reachable=$reachable"
++            "channels=${CHANNELS.size} messages=$messages links=$links parsed=${seen.size} reachable=$reachable"
+         )
+         Scrape(reachable, messages, seen.values.toList())
+     }
+diff --git a/app/src/main/java/net/gozar/app/GhajarChannelRules.kt b/app/src/main/java/net/gozar/app/GhajarChannelRules.kt
+new file mode 100644
+index 0000000..ed9f2a0
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarChannelRules.kt
+@@ -0,0 +1,64 @@
++package net.gozar.app
++
++/**
++ * Multi-source free-config ingestion rules.
++ * Public surface is always branded @Ghajarvpn; the technical origin of a
++ * source is kept as an internal tag for abuse handling only and must never
++ * reach user-visible text. Locked NPVT payloads are never broken open:
++ * an open-text payload is accepted, anything else requires the owner key.
++ */
++internal object GhajarChannelRules {
++    const val PUBLIC_BRAND = "@Ghajarvpn"
++
++    val SUPPORTED_SCHEMES = setOf(
++        "vless", "vmess", "trojan", "ss", "ssr", "hysteria", "hysteria2", "hy2",
++        "tuic", "juicity", "anytls", "snell", "mieru", "wireguard", "wg",
++        "socks", "socks5", "http", "https"
++    )
++
++    private val NOISE_HTTP_HOSTS = setOf("t.me", "telegram.me", "telegram.org", "github.com", "play.google.com")
++
++    private val LINK_REGEX = Regex("[A-Za-z][A-Za-z0-9+.-]*://[^\\s\"'<>،؛\\u200c]+")
++
++    fun publicBrand(source: String?): String = PUBLIC_BRAND
++
++    fun internalOriginTag(source: String?): String {
++        val normalized = source?.trim()?.lowercase()
++            ?.removePrefix("https://").orEmpty()
++            .substringBefore('/')
++        return if (normalized.isBlank()) "src:internal" else "src:$normalized"
++    }
++
++    fun extractProxyLinks(text: String?): List<String> {
++        if (text.isNullOrBlank()) return emptyList()
++        val seen = LinkedHashSet<String>()
++        LINK_REGEX.findAll(text).forEach { match ->
++            val raw = match.value.trimEnd('.', ',', ')', ']', '}', ':')
++            val scheme = raw.substringBefore("://", "").lowercase()
++            if (scheme !in SUPPORTED_SCHEMES) return@forEach
++            if (scheme == "http" || scheme == "https") {
++                val host = raw.substringAfter("://").substringBefore('/').substringBefore(':')
++                    .removePrefix("www.").lowercase()
++                if (host in NOISE_HTTP_HOSTS) return@forEach
++            }
++            if (raw.substringAfter("://", "").isBlank()) return@forEach
++            seen.add(raw)
++        }
++        return seen.toList()
++    }
++
++    fun isAcceptableChannelText(text: String?): Boolean = extractProxyLinks(text).isNotEmpty()
++
++    fun npvtPayload(text: String?): String? {
++        if (text.isNullOrBlank()) return null
++        val links = extractProxyLinks(text)
++        links.firstOrNull { !it.substringBefore("://").lowercase().let { s -> s == "http" || s == "https" } }
++            ?.let { return it }
++        links.firstOrNull { it.substringBefore("://").lowercase().let { s -> s == "http" || s == "https" } }
++            ?.let { return it }
++        return null
++    }
++
++    fun npvtIsLocked(text: String?): Boolean =
++        !text.isNullOrBlank() && npvtPayload(text) == null
++}
+diff --git a/app/src/main/java/net/gozar/app/GhajarLocation.kt b/app/src/main/java/net/gozar/app/GhajarLocation.kt
+index 0bab732..b2a5b1e 100644
+--- a/app/src/main/java/net/gozar/app/GhajarLocation.kt
++++ b/app/src/main/java/net/gozar/app/GhajarLocation.kt
+@@ -114,6 +114,12 @@ internal object GhajarLocationMonitor {
+         _snapshot.value = value
+         LocationFetcher.showIp(value.ip)
+     }
++
++    /** Drops stale IP/country/flag data the moment a disconnect happens. */
++    fun clearStale() {
++        _snapshot.value = GhajarLocationSnapshot()
++        LocationFetcher.showIp("")
++    }
+ }
+ 
+ @Composable
+@@ -136,8 +142,12 @@ private fun currentLocationSession(): GhajarLocationSession {
+ internal fun ObserveGhajarLocation() {
+     val session = currentLocationSession()
+     val refresh by GhajarLocationMonitor.refresh.collectAsState()
++    val lookupGeneration by VpnState.lookupGeneration.collectAsState()
+     val lifecycle = LocalLifecycleOwner.current.lifecycle
+-    LaunchedEffect(session, refresh, lifecycle) {
++    LaunchedEffect(session, refresh, lookupGeneration, lifecycle) {
++        // Every connect/disconnect transition bumps the lookup generation:
++        // in-flight results are dropped and stale IP/country/flag data is
++        // replaced by an empty snapshot for the new session.
+         GhajarLocationMonitor.publish(GhajarLocationSnapshot(session))
+         if (session.connection !in listOf(Connection.CONNECTED, Connection.DISCONNECTED) ||
+             (session.connection == Connection.DISCONNECTED && session.locked)) return@LaunchedEffect
+@@ -153,12 +163,14 @@ internal fun ObserveGhajarLocation() {
+                     GhajarLocationMonitor.publish(result)
+                 }
+                 currentCoroutineContext().ensureActive()
++                if (VpnState.lookupGeneration.value != lookupGeneration) return@repeatOnLifecycle
+                 if (location != null) {
+                     GhajarLocationMonitor.publish(result.copy(ip = location.ip, location = location, loading = false))
+                     return@repeatOnLifecycle
+                 }
+                 if (connected && attempt < 2) delay(2000L * (attempt + 1))
+             }
++            if (VpnState.lookupGeneration.value != lookupGeneration) return@repeatOnLifecycle
+             GhajarLocationMonitor.publish(result.copy(loading = false))
+         }
+     }
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+index 5f4f922..b99fc4d 100644
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -50,56 +50,20 @@ internal fun GhajarWordmark(modifier: Modifier = Modifier) {
+     )
+ }
+ 
+-/** One locally bundled picture per launch, with no carousel or network access. */
++/** One locally bundled picture per launch: the screen stays fully covered by
++ * a crop backdrop of the same artwork while the original poster keeps its
++ * aspect ratio with ContentScale.Fit. No enter button and no panel — the
++ * overlay auto-closes and dismisses on any tap. */
+ @Composable
+ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+     val context = LocalContext.current
+-    val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
+-    // Complete the tiny preference lookup during the first composition. Deferring
+-    // this selection to an IO effect produced a blank frame on cold starts.
+-    val selectedName = rememberSaveable { GhajarWelcomeAssets.reserve(context) }
+-    var closed by remember { mutableStateOf(false) }
+-    val finish by rememberUpdatedState(onDone)
+-    val selected = remember(selectedName) {
+-        GhajarWelcomeAssets.posters.firstOrNull { it.name == selectedName }
+-            ?: GhajarWelcomeAssets.posters.firstOrNull()
++    val prefs = remember {
++        context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE)
+     }
+-    val content = remember(selectedName) { GhajarWelcomeAssets.contentFor(selectedName) }
+-    fun close() {
+-        if (closed) return
+-        closed = true
+-        prefs.edit().putBoolean("soft_intro_seen", true).apply()
+-        finish()
+-    }
+-    val backdrop = if (selected?.dark != false) Color(0xFF061226) else Color(0xFFEAF1FB)
+-    // Tag the stable full-screen welcome root, not the Image semantics node. On Android 14
+-    // the image semantics can be merged while the artwork is decoding, which made CI flaky.
+-    Box(Modifier.fillMaxSize().background(backdrop).testTag("ghajar_welcome_poster")) {
+-        selected?.let { poster ->
+-            Image(painterResource(poster.resourceId),
+-                contentDescription = "${content.title}؛ تصویر خوش‌آمدگویی قاجار VPN",
+-                contentScale = ContentScale.Crop,
+-                modifier = Modifier.fillMaxSize())
+-        }
+-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
+-            Color.Transparent, Color.Transparent, Color(0xB3061226), Color(0xF2061226)
+-        ))))
+-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()
+-            .padding(horizontal = 16.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+-            Surface(color = Color(0xF20B211C), shape = RoundedCornerShape(26.dp),
+-                tonalElevation = 8.dp, shadowElevation = 10.dp, modifier = Modifier.testTag("ghajar_welcome_panel")) {
+-                Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally,
+-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+-                    Text(content.title, style = MaterialTheme.typography.titleLarge, color = Color(0xFFD6B45F),
+-                        textAlign = TextAlign.Center, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
+-                    Text(content.body, style = MaterialTheme.typography.bodyMedium, color = Color.White,
+-                        textAlign = TextAlign.Center)
+-                    Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
+-                        .testTag("ghajar_welcome_enter"), shape = RoundedCornerShape(18.dp)) {
+-                        Text("ورود به برنامه")
+-                    }
+-                }
+-            }
++    GhajarWelcomeOverlay(
++        onDone = {
++            prefs.edit().putBoolean("soft_intro_seen", true).apply()
++            onDone()
+         }
+-    }
++    )
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt b/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
+new file mode 100644
+index 0000000..587c83f
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
+@@ -0,0 +1,104 @@
++package net.gozar.app
++
++import androidx.compose.animation.core.animateFloatAsState
++import androidx.compose.animation.core.tween
++import androidx.compose.foundation.Image
++import androidx.compose.foundation.background
++import androidx.compose.foundation.border
++import androidx.compose.foundation.gestures.detectTapGestures
++import androidx.compose.foundation.layout.Box
++import androidx.compose.foundation.layout.aspectRatio
++import androidx.compose.foundation.layout.fillMaxHeight
++import androidx.compose.foundation.layout.fillMaxSize
++import androidx.compose.foundation.layout.padding
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.runtime.Composable
++import androidx.compose.runtime.LaunchedEffect
++import androidx.compose.runtime.getValue
++import androidx.compose.runtime.mutableStateOf
++import androidx.compose.runtime.remember
++import androidx.compose.runtime.setValue
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.alpha
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.input.pointer.pointerInput
++import androidx.compose.ui.layout.ContentScale
++import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.res.painterResource
++import androidx.compose.ui.unit.dp
++import kotlinx.coroutines.delay
++
++internal object GhajarWelcomeOverlayRules {
++    const val AUTOCLOSE_MS = 3_200L
++    const val FRAME_STROKE_DP = 0.5f
++    const val FRAME_GAP_DP = 1f
++
++    fun autocloseMs(): Long = AUTOCLOSE_MS
++
++    fun resolvePoster(name: String): GhajarWelcomeAssets.Poster =
++        GhajarWelcomeAssets.posters.firstOrNull { it.name == name }
++            ?: GhajarWelcomeAssets.posters.first()
++
++    fun reservesPoster(context: android.content.Context): String =
++        GhajarWelcomeAssets.reserve(context)
++}
++
++@Composable
++fun GhajarWelcomeOverlay(onDone: () -> Unit) {
++    val context = LocalContext.current
++    var posterName by remember { mutableStateOf<String?>(null) }
++    var visible by remember { mutableStateOf(false) }
++
++    LaunchedEffect(Unit) {
++        posterName = GhajarWelcomeOverlayRules.reservesPoster(context)
++        visible = true
++        delay(GhajarWelcomeOverlayRules.autocloseMs())
++        visible = false
++        delay(280)
++        onDone()
++    }
++
++    val chosen = posterName?.let { GhajarWelcomeOverlayRules.resolvePoster(it) }
++    val fade by animateFloatAsState(
++        targetValue = if (visible) 1f else 0f,
++        animationSpec = tween(280),
++        label = "welcomeFade"
++    )
++    Box(
++        modifier = Modifier
++            .fillMaxSize()
++            .background(Color(0xFF04070C))
++            .alpha(fade),
++        contentAlignment = Alignment.Center
++    ) {
++        if (chosen != null) {
++            Box(
++                modifier = Modifier
++                    .fillMaxHeight()
++                    .aspectRatio(9f / 16f)
++                    .padding(GhajarWelcomeOverlayRules.FRAME_GAP_DP.dp)
++                    .border(
++                        GhajarWelcomeOverlayRules.FRAME_STROKE_DP.dp,
++                        Color(0xFFC79E48).copy(alpha = 0.45f),
++                        RoundedCornerShape(2.dp)
++                    )
++            ) {
++                Image(
++                    painter = painterResource(chosen.resourceId),
++                    contentDescription = null,
++                    modifier = Modifier.fillMaxSize(),
++                    contentScale = ContentScale.Fit
++                )
++            }
++        }
++        Box(
++            modifier = Modifier
++                .fillMaxSize()
++                .pointerInput(visible) {
++                    if (!visible) return@pointerInput
++                    detectTapGestures { onDone() }
++                }
++        )
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 5d6d2a2..f2171e9 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -1062,6 +1062,7 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun disconnect() {
++        GhajarLocationMonitor.clearStale()
+         if (VpnState.activeId.value?.startsWith("ovpn:") == true) {
+             GhajarOpenVpnBridge.disconnect(this)
+             VpnState.setDisconnected()
+@@ -1200,7 +1201,12 @@ private fun GozarApp(
+         importPassword = ""
+         importError = ""
+         val readable = withContext(Dispatchers.Default) { GhajarImportRules.readableText(bytes) }
+-        val subscriptionUrl = GhajarImportRules.subscriptionUrl(readable)
++        // An open-text NPVT carries noise around its payload; route it through
++        // the shared channel rules. Locked NPVT keeps falling through to the
++        // owner-password path below and is never bypassed.
++        val effective = if (GhajarImportRules.isNpvt(import.fileName))
++            GhajarChannelRules.npvtPayload(readable) ?: readable else readable
++        val subscriptionUrl = GhajarImportRules.subscriptionUrl(effective)
+         if (subscriptionUrl != null) {
+             importBusy = true
+             try {
+@@ -1223,7 +1229,7 @@ private fun GozarApp(
+             return@LaunchedEffect
+         }
+         val plain = withContext(Dispatchers.Default) {
+-            runCatching { ConfigParser.parseBundle(readable.orEmpty()) }
++            runCatching { ConfigParser.parseBundle(effective.orEmpty()) }
+                 .getOrDefault(emptyList())
+         }
+         if (plain.isNotEmpty()) {
+@@ -2274,12 +2280,16 @@ private fun ConfigPickerScreen(
+     LaunchedEffect(scanned) {
+         scanned?.let { text ->
+             ImportBus.clearScan()
+-            if (ConfigParser.parseBundle(text).isEmpty() &&
+-                !text.startsWith("http://") && !text.startsWith("https://")
++            // Channel posts from any source may wrap configs in noise; extract
++            // every proxy link before deciding the text is invalid.
++            val extracted = if (ConfigParser.parseBundle(text).isEmpty())
++                GhajarChannelRules.extractProxyLinks(text).joinToString("\n") else text
++            if (ConfigParser.parseBundle(extracted).isEmpty() &&
++                !extracted.startsWith("http://") && !extracted.startsWith("https://")
+             ) {
+                 addDone = t("qr_invalid")
+             } else {
+-                doAdd(text)
++                doAdd(extracted)
+             }
+         }
+     }
+diff --git a/app/src/main/java/net/gozar/app/VpnState.kt b/app/src/main/java/net/gozar/app/VpnState.kt
+index 7b9138c..4a6cb05 100644
+--- a/app/src/main/java/net/gozar/app/VpnState.kt
++++ b/app/src/main/java/net/gozar/app/VpnState.kt
+@@ -8,7 +8,14 @@ import kotlinx.coroutines.flow.asStateFlow
+ enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+ 
+ object VpnState {
++    internal var clock: () -> Long = { System.currentTimeMillis() }
++
++    internal const val TRANSITION_DEBOUNCE_MS = 450L
++    internal const val RECONNECT_LOCK_MS = 700L
++
+     @Volatile private var appContext: Context? = null
++    private val gate = Any()
++
+     private val _state = MutableStateFlow(Connection.DISCONNECTED)
+     val state: StateFlow<Connection> = _state.asStateFlow()
+ 
+@@ -24,6 +31,25 @@ object VpnState {
+     private val _connectedAt = MutableStateFlow(0L)
+     val connectedAt: StateFlow<Long> = _connectedAt.asStateFlow()
+ 
++    private val _lookupGeneration = MutableStateFlow(0)
++    val lookupGeneration: StateFlow<Int> = _lookupGeneration.asStateFlow()
++
++    private var lastTransitionAt = 0L
++    private var lastDisconnectAt = 0L
++
++    internal fun resetForTests() {
++        synchronized(gate) {
++            _state.value = Connection.DISCONNECTED
++            _activeId.value = null
++            _error.value = null
++            _picking.value = false
++            _connectedAt.value = 0L
++            _lookupGeneration.value = 0
++            lastTransitionAt = 0L
++            lastDisconnectAt = 0L
++        }
++    }
++
+     fun initialize(context: Context) {
+         appContext = context.applicationContext
+         val saved = VpnConnectionStore.read(context.applicationContext)
+@@ -37,21 +63,68 @@ object VpnState {
+         appContext?.let { VpnConnectionStore.write(it, _state.value, _activeId.value, _error.value) }
+     }
+ 
++    private fun bumpGenerationLocked() {
++        _lookupGeneration.value = _lookupGeneration.value + 1
++    }
++
+     fun setPicking(value: Boolean) { _picking.value = value }
++
+     fun setConnecting(id: String) {
+-        _activeId.value = id; _error.value = null; _connectedAt.value = 0L
+-        _state.value = Connection.CONNECTING; persist()
++        synchronized(gate) {
++            val now = clock()
++            if (_state.value == Connection.CONNECTED && _activeId.value == id) return
++            if (now - lastTransitionAt < TRANSITION_DEBOUNCE_MS) return
++            if (_state.value == Connection.DISCONNECTED &&
++                lastDisconnectAt != 0L && now - lastDisconnectAt < RECONNECT_LOCK_MS) return
++            lastTransitionAt = now
++            _activeId.value = id
++            _error.value = null
++            _connectedAt.value = 0L
++            _state.value = Connection.CONNECTING
++            bumpGenerationLocked()
++            persist()
++        }
+     }
++
+     fun setConnected() {
+-        _connectedAt.value = System.currentTimeMillis(); _state.value = Connection.CONNECTED; persist()
++        synchronized(gate) {
++            val now = clock()
++            if (_state.value != Connection.CONNECTING) return
++            if (now - lastTransitionAt < TRANSITION_DEBOUNCE_MS) return
++            lastTransitionAt = now
++            _connectedAt.value = System.currentTimeMillis()
++            _state.value = Connection.CONNECTED
++            persist()
++        }
+     }
++
+     fun setError(message: String) {
+-        _picking.value = false; _error.value = message; _connectedAt.value = 0L
+-        _state.value = Connection.ERROR; persist()
++        synchronized(gate) {
++            if (_state.value == Connection.CONNECTED) return
++            _picking.value = false
++            _error.value = message
++            _connectedAt.value = 0L
++            _state.value = Connection.ERROR
++            persist()
++        }
+     }
++
+     fun setDisconnected() {
+-        _picking.value = false; _activeId.value = null; _connectedAt.value = 0L
+-        _state.value = Connection.DISCONNECTED; persist()
++        synchronized(gate) {
++            val now = clock()
++            val wasActive = _state.value != Connection.DISCONNECTED
++            lastTransitionAt = now
++            lastDisconnectAt = if (wasActive) now else lastDisconnectAt
++            _picking.value = false
++            _activeId.value = null
++            _connectedAt.value = 0L
++            _error.value = null
++            _state.value = Connection.DISCONNECTED
++            if (wasActive) {
++                bumpGenerationLocked()
++                persist()
++            }
++        }
+     }
+ }
+ 
+diff --git a/app/src/test/java/net/gozar/app/GhajarChannelRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarChannelRulesTest.kt
+new file mode 100644
+index 0000000..c0ba7a7
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarChannelRulesTest.kt
+@@ -0,0 +1,101 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class GhajarChannelRulesTest {
++    @Test fun extractsEverySupportedSchemeFromMixedChannelText() {
++        val text = """
++            کانال قاجار — کانفیگ امروز:
++            vless://uuid123@example.com:443?security=tls#قاجار۱
++            vmess://eyJhZGQiOiJleGFtcGxlLmNvbSJ9
++            trojan://pass@host.example:8443?sni=x#t2
++            hysteria2://pass@h.example:443#hy2
++            ss://YWVzLTEyOC1nY206dGVzdA@1.2.3.4:8388#ss1
++        """.trimIndent()
++        val links = GhajarChannelRules.extractProxyLinks(text)
++        assertEquals(5, links.size)
++        assertTrue(links[0].startsWith("vless://"))
++        assertTrue(links[1].startsWith("vmess://"))
++        assertTrue(links[2].startsWith("trojan://"))
++        assertTrue(links[3].startsWith("hysteria2://"))
++        assertTrue(links[4].startsWith("ss://"))
++    }
++
++    @Test fun deduplicatesAndKeepsOrder() {
++        val text = "vless://a@x:1#one\nمتن فارسی\nvless://a@x:1#one-dup\nss://b@y:2#two"
++        assertEquals(
++            listOf("vless://a@x:1#one", "ss://b@y:2#two"),
++            GhajarChannelRules.extractProxyLinks(text)
++        )
++    }
++
++    @Test fun telegramAndNoiseLinksAreNeverTreatedAsProxies() {
++        val text = """
++            https://t.me/Ghajarvpn
++            https://t.me/+inviteOnly
++            https://github.com/meysam82003
++            vless://real@host:443#ok
++        """.trimIndent()
++        assertEquals(listOf("vless://real@host:443#ok"), GhajarChannelRules.extractProxyLinks(text))
++    }
++
++    @Test fun linksInsideHtmlTagsAndPersianPunctuationAreTrimmed() {
++        val text = "<a href=\"ss://k@1.2.3.4:8388#x\">لینک</a>، vless://p@h:1#دو؛"
++        assertEquals(
++            listOf("ss://k@1.2.3.4:8388#x", "vless://p@h:1#دو"),
++            GhajarChannelRules.extractProxyLinks(text)
++        )
++    }
++
++    @Test fun zwnjInsidePersianTextNeverBreaksTheLink() {
++        val text = "کانفیگ بعدی\u200c: trojan://t@h:443#قاجار"
++        assertEquals(
++            listOf("trojan://t@h:443#قاجار"),
++            GhajarChannelRules.extractProxyLinks(text)
++        )
++    }
++
++    @Test fun emptyAndBlankInputsYieldNothing() {
++        assertTrue(GhajarChannelRules.extractProxyLinks(null).isEmpty())
++        assertTrue(GhajarChannelRules.extractProxyLinks("   ").isEmpty())
++        assertTrue(GhajarChannelRules.extractProxyLinks("بدون هیچ لینکی").isEmpty())
++        assertFalse(GhajarChannelRules.isAcceptableChannelText("سلام"))
++        assertTrue(GhajarChannelRules.isAcceptableChannelText("hy2://p@h:1#x"))
++    }
++
++    @Test fun publicBrandIsAlwaysGhajarvpnWhateverTheSourceIs() {
++        listOf(null, "", "t.me/someChannel", "@OtherChannel", "https://t.me/Ghajarvpn").forEach { source ->
++            assertEquals("@Ghajarvpn", GhajarChannelRules.publicBrand(source))
++        }
++    }
++
++    @Test fun originTagStaysInternalAndNormalized() {
++        assertEquals("src:internal", GhajarChannelRules.internalOriginTag(null))
++        assertEquals("src:t.me/somechannel", GhajarChannelRules.internalOriginTag("https://t.me/SomeChannel"))
++        assertFalse(GhajarChannelRules.internalOriginTag("https://t.me/Secret").contains("Secret"))
++    }
++
++    @Test fun openNpvtPrefersProxyLinkThenSubscriptionUrl() {
++        assertEquals(
++            "vless://v@h:443#a",
++            GhajarChannelRules.npvtPayload("نوت قاجار\nvless://v@h:443#a")
++        )
++        assertEquals(
++            "https://sub.example.com/s/abc",
++            GhajarChannelRules.npvtPayload("https://sub.example.com/s/abc")
++        )
++    }
++
++    @Test fun lockedOrEmptyNpvtIsRejectedWithoutBreakingIt() {
++        assertNull(GhajarChannelRules.npvtPayload(null))
++        assertNull(GhajarChannelRules.npvtPayload(""))
++        assertNull(GhajarChannelRules.npvtPayload("فقط متن قفل‌شده بدون لینک"))
++        assertTrue(GhajarChannelRules.npvtIsLocked("فقط متن قفل‌شده بدون لینک"))
++        assertFalse(GhajarChannelRules.npvtIsLocked(null))
++        assertFalse(GhajarChannelRules.npvtIsLocked("ss://k@1.2.3.4:8388#open"))
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/GhajarWelcomeOverlayRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarWelcomeOverlayRulesTest.kt
+new file mode 100644
+index 0000000..cdfb5c2
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarWelcomeOverlayRulesTest.kt
+@@ -0,0 +1,47 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNotEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class GhajarWelcomeOverlayRulesTest {
++    @Test fun autocloseWindowIsPositiveAndStable() {
++        val ms = GhajarWelcomeOverlayRules.autocloseMs()
++        assertTrue(ms in 1..10_000)
++        assertEquals(GhajarWelcomeOverlayRules.AUTOCLOSE_MS, ms)
++    }
++
++    @Test fun frameIsHairlineAndNeverCropsThePoster() {
++        assertTrue(GhajarWelcomeOverlayRules.FRAME_STROKE_DP <= 1f)
++        assertTrue(GhajarWelcomeOverlayRules.FRAME_GAP_DP <= 2f)
++    }
++
++    @Test fun unknownPosterNameFallsBackToFirstPoster() {
++        val fallback = GhajarWelcomeOverlayRules.resolvePoster("نه_این_نه_آن")
++        assertEquals(GhajarWelcomeAssets.posters.first(), fallback)
++    }
++
++    @Test fun everyPosterNameResolvesToItself() {
++        GhajarWelcomeAssets.posters.forEach { poster ->
++            assertEquals(poster, GhajarWelcomeOverlayRules.resolvePoster(poster.name))
++        }
++    }
++
++    @Test fun assetListStaysAtThirtyThreePosters() {
++        assertEquals(33, GhajarWelcomeAssets.posters.size)
++        assertTrue(GhajarWelcomeAssets.posters.all { it.resourceId != 0 })
++    }
++
++    @Test fun reserveRotationNeverReturnsSamePosterTwiceInARow() {
++        var last: String? = null
++        repeat(20) { seed ->
++            val pick = GhajarWelcomeRotation.next(
++                GhajarWelcomeAssets.posters.map { it.name },
++                emptySet(), last, kotlin.random.Random(seed)
++            )!!
++            assertNotEquals(last, pick.name)
++            last = pick.name
++        }
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/VpnStateGateTest.kt b/app/src/test/java/net/gozar/app/VpnStateGateTest.kt
+new file mode 100644
+index 0000000..efb73df
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/VpnStateGateTest.kt
+@@ -0,0 +1,116 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNotEquals
++import org.junit.Assert.assertTrue
++import org.junit.Before
++import org.junit.Test
++
++class VpnStateGateTest {
++    private var now = 1_000_000L
++
++    @Before
++    fun setUp() {
++        VpnState.resetForTests()
++        VpnState.clock = { now }
++    }
++
++    @Test fun rapidDoubleConnectIsDebounced() {
++        VpnState.setConnecting("a")
++        now += 100
++        VpnState.setConnecting("b")
++        assertEquals(Connection.CONNECTING, VpnState.state.value)
++        assertEquals("a", VpnState.activeId.value)
++    }
++
++    @Test fun connectAfterDebounceWindowSwitchesTarget() {
++        VpnState.setConnecting("a")
++        now += VpnState.TRANSITION_DEBOUNCE_MS + 1
++        VpnState.setConnecting("b")
++        assertEquals(Connection.CONNECTING, VpnState.state.value)
++        assertEquals("b", VpnState.activeId.value)
++    }
++
++    @Test fun reconnectRightAfterDisconnectIsLocked() {
++        VpnState.setConnecting("a")
++        now += 1_000
++        VpnState.setDisconnected()
++        now += 100
++        VpnState.setConnecting("b")
++        assertEquals(Connection.DISCONNECTED, VpnState.state.value)
++        now += VpnState.RECONNECT_LOCK_MS
++        VpnState.setConnecting("b")
++        assertEquals(Connection.CONNECTING, VpnState.state.value)
++        assertEquals("b", VpnState.activeId.value)
++    }
++
++    @Test fun staleConnectedEventCannotReviveDisconnectedState() {
++        VpnState.setConnecting("a")
++        now += 1_000
++        VpnState.setDisconnected()
++        VpnState.setConnected()
++        assertEquals(Connection.DISCONNECTED, VpnState.state.value)
++        assertEquals(0L, VpnState.connectedAt.value)
++    }
++
++    @Test fun staleErrorCannotOverwriteConnectedState() {
++        VpnState.setConnecting("a")
++        now += 1_000
++        VpnState.setConnected()
++        VpnState.setError("نباید ثبت شود")
++        assertEquals(Connection.CONNECTED, VpnState.state.value)
++        assertEquals(null, VpnState.error.value)
++    }
++
++    @Test fun connectedOnlyTransitionsFromConnecting() {
++        VpnState.setConnected()
++        assertEquals(Connection.DISCONNECTED, VpnState.state.value)
++        VpnState.setConnecting("a")
++        now += VpnState.TRANSITION_DEBOUNCE_MS + 1
++        VpnState.setConnected()
++        assertEquals(Connection.CONNECTED, VpnState.state.value)
++        assertTrue(VpnState.connectedAt.value > 0L)
++    }
++
++    @Test fun lookupGenerationBumpsOnConnectAndDisconnect() {
++        val initial = VpnState.lookupGeneration.value
++        VpnState.setConnecting("a")
++        val afterConnect = VpnState.lookupGeneration.value
++        assertEquals(initial + 1, afterConnect)
++        now += 1_000
++        VpnState.setDisconnected()
++        assertEquals(afterConnect + 1, VpnState.lookupGeneration.value)
++    }
++
++    @Test fun repeatedDisconnectIsIdempotentAndDoesNotBumpGeneration() {
++        VpnState.setConnecting("a")
++        now += 1_000
++        VpnState.setDisconnected()
++        val generation = VpnState.lookupGeneration.value
++        VpnState.setDisconnected()
++        assertEquals(generation, VpnState.lookupGeneration.value)
++        assertEquals(Connection.DISCONNECTED, VpnState.state.value)
++    }
++
++    @Test fun connectingAgainToSameIdWhileConnectedIsNoOp() {
++        VpnState.setConnecting("a")
++        now += 1_000
++        VpnState.setConnected()
++        val generation = VpnState.lookupGeneration.value
++        now += 1_000
++        VpnState.setConnecting("a")
++        assertEquals(Connection.CONNECTED, VpnState.state.value)
++        assertEquals("a", VpnState.activeId.value)
++        assertEquals(generation, VpnState.lookupGeneration.value)
++    }
++
++    @Test fun errorStateAllowsImmediateReconnectAttempt() {
++        VpnState.setConnecting("a")
++        now += 1_000
++        VpnState.setError("شبکه در دسترس نیست")
++        assertEquals(Connection.ERROR, VpnState.state.value)
++        VpnState.setConnecting("b")
++        assertEquals(Connection.CONNECTING, VpnState.state.value)
++        assertNotEquals("شبکه در دسترس نیست", VpnState.error.value)
++    }
++}
+-- 
+2.55.0
+

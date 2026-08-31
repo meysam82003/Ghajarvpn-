@@ -114,6 +114,12 @@ internal object GhajarLocationMonitor {
         _snapshot.value = value
         LocationFetcher.showIp(value.ip)
     }
+
+    /** Drops stale IP/country/flag data the moment a disconnect happens. */
+    fun clearStale() {
+        _snapshot.value = GhajarLocationSnapshot()
+        LocationFetcher.showIp("")
+    }
 }
 
 @Composable
@@ -136,8 +142,12 @@ private fun currentLocationSession(): GhajarLocationSession {
 internal fun ObserveGhajarLocation() {
     val session = currentLocationSession()
     val refresh by GhajarLocationMonitor.refresh.collectAsState()
+    val lookupGeneration by VpnState.lookupGeneration.collectAsState()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(session, refresh, lifecycle) {
+    LaunchedEffect(session, refresh, lookupGeneration, lifecycle) {
+        // Every connect/disconnect transition bumps the lookup generation:
+        // in-flight results are dropped and stale IP/country/flag data is
+        // replaced by an empty snapshot for the new session.
         GhajarLocationMonitor.publish(GhajarLocationSnapshot(session))
         if (session.connection !in listOf(Connection.CONNECTED, Connection.DISCONNECTED) ||
             (session.connection == Connection.DISCONNECTED && session.locked)) return@LaunchedEffect
@@ -153,12 +163,14 @@ internal fun ObserveGhajarLocation() {
                     GhajarLocationMonitor.publish(result)
                 }
                 currentCoroutineContext().ensureActive()
+                if (VpnState.lookupGeneration.value != lookupGeneration) return@repeatOnLifecycle
                 if (location != null) {
                     GhajarLocationMonitor.publish(result.copy(ip = location.ip, location = location, loading = false))
                     return@repeatOnLifecycle
                 }
                 if (connected && attempt < 2) delay(2000L * (attempt + 1))
             }
+            if (VpnState.lookupGeneration.value != lookupGeneration) return@repeatOnLifecycle
             GhajarLocationMonitor.publish(result.copy(loading = false))
         }
     }

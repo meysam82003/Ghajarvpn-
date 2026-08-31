@@ -8,7 +8,14 @@ import kotlinx.coroutines.flow.asStateFlow
 enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
 
 object VpnState {
+    internal var clock: () -> Long = { System.currentTimeMillis() }
+
+    internal const val TRANSITION_DEBOUNCE_MS = 450L
+    internal const val RECONNECT_LOCK_MS = 700L
+
     @Volatile private var appContext: Context? = null
+    private val gate = Any()
+
     private val _state = MutableStateFlow(Connection.DISCONNECTED)
     val state: StateFlow<Connection> = _state.asStateFlow()
 
@@ -24,6 +31,25 @@ object VpnState {
     private val _connectedAt = MutableStateFlow(0L)
     val connectedAt: StateFlow<Long> = _connectedAt.asStateFlow()
 
+    private val _lookupGeneration = MutableStateFlow(0)
+    val lookupGeneration: StateFlow<Int> = _lookupGeneration.asStateFlow()
+
+    private var lastTransitionAt = 0L
+    private var lastDisconnectAt = 0L
+
+    internal fun resetForTests() {
+        synchronized(gate) {
+            _state.value = Connection.DISCONNECTED
+            _activeId.value = null
+            _error.value = null
+            _picking.value = false
+            _connectedAt.value = 0L
+            _lookupGeneration.value = 0
+            lastTransitionAt = 0L
+            lastDisconnectAt = 0L
+        }
+    }
+
     fun initialize(context: Context) {
         appContext = context.applicationContext
         val saved = VpnConnectionStore.read(context.applicationContext)
@@ -37,21 +63,68 @@ object VpnState {
         appContext?.let { VpnConnectionStore.write(it, _state.value, _activeId.value, _error.value) }
     }
 
+    private fun bumpGenerationLocked() {
+        _lookupGeneration.value = _lookupGeneration.value + 1
+    }
+
     fun setPicking(value: Boolean) { _picking.value = value }
+
     fun setConnecting(id: String) {
-        _activeId.value = id; _error.value = null; _connectedAt.value = 0L
-        _state.value = Connection.CONNECTING; persist()
+        synchronized(gate) {
+            val now = clock()
+            if (_state.value == Connection.CONNECTED && _activeId.value == id) return
+            if (now - lastTransitionAt < TRANSITION_DEBOUNCE_MS) return
+            if (_state.value == Connection.DISCONNECTED &&
+                lastDisconnectAt != 0L && now - lastDisconnectAt < RECONNECT_LOCK_MS) return
+            lastTransitionAt = now
+            _activeId.value = id
+            _error.value = null
+            _connectedAt.value = 0L
+            _state.value = Connection.CONNECTING
+            bumpGenerationLocked()
+            persist()
+        }
     }
+
     fun setConnected() {
-        _connectedAt.value = System.currentTimeMillis(); _state.value = Connection.CONNECTED; persist()
+        synchronized(gate) {
+            val now = clock()
+            if (_state.value != Connection.CONNECTING) return
+            if (now - lastTransitionAt < TRANSITION_DEBOUNCE_MS) return
+            lastTransitionAt = now
+            _connectedAt.value = System.currentTimeMillis()
+            _state.value = Connection.CONNECTED
+            persist()
+        }
     }
+
     fun setError(message: String) {
-        _picking.value = false; _error.value = message; _connectedAt.value = 0L
-        _state.value = Connection.ERROR; persist()
+        synchronized(gate) {
+            if (_state.value == Connection.CONNECTED) return
+            _picking.value = false
+            _error.value = message
+            _connectedAt.value = 0L
+            _state.value = Connection.ERROR
+            persist()
+        }
     }
+
     fun setDisconnected() {
-        _picking.value = false; _activeId.value = null; _connectedAt.value = 0L
-        _state.value = Connection.DISCONNECTED; persist()
+        synchronized(gate) {
+            val now = clock()
+            val wasActive = _state.value != Connection.DISCONNECTED
+            lastTransitionAt = now
+            lastDisconnectAt = if (wasActive) now else lastDisconnectAt
+            _picking.value = false
+            _activeId.value = null
+            _connectedAt.value = 0L
+            _error.value = null
+            _state.value = Connection.DISCONNECTED
+            if (wasActive) {
+                bumpGenerationLocked()
+                persist()
+            }
+        }
     }
 }
 

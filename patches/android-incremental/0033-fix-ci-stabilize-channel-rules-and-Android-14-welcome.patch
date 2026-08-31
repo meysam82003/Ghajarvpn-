@@ -1,0 +1,201 @@
+From 3333333333333333333333333333333333333333 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Mon, 31 Aug 2026 11:20:00 +0330
+Subject: [PATCH] fix(ci): stabilize channel rules and Android 14 welcome
+
+---
+ 3 files changed, 64 insertions(+), 46 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarChannelRules.kt b/app/src/main/java/net/gozar/app/GhajarChannelRules.kt
+index ed9f2a0..e98a8f1 100644
+--- a/app/src/main/java/net/gozar/app/GhajarChannelRules.kt
++++ b/app/src/main/java/net/gozar/app/GhajarChannelRules.kt
+@@ -24,14 +24,21 @@
+ 
+     fun internalOriginTag(source: String?): String {
+         val normalized = source?.trim()?.lowercase()
+-            ?.removePrefix("https://").orEmpty()
+-            .substringBefore('/')
++            ?.removePrefix("https://")
++            ?.removePrefix("http://")
++            ?.removePrefix("www.")
++            ?.substringBefore('?')
++            ?.substringBefore('#')
++            ?.trim('/')
++            .orEmpty()
+         return if (normalized.isBlank()) "src:internal" else "src:$normalized"
+     }
+ 
+     fun extractProxyLinks(text: String?): List<String> {
+         if (text.isNullOrBlank()) return emptyList()
+-        val seen = LinkedHashSet<String>()
++        // Fragments are display remarks. Keep the first visible label while
++        // deduplicating the underlying transport URI.
++        val seen = LinkedHashMap<String, String>()
+         LINK_REGEX.findAll(text).forEach { match ->
+             val raw = match.value.trimEnd('.', ',', ')', ']', '}', ':')
+             val scheme = raw.substringBefore("://", "").lowercase()
+@@ -42,9 +49,10 @@
+                 if (host in NOISE_HTTP_HOSTS) return@forEach
+             }
+             if (raw.substringAfter("://", "").isBlank()) return@forEach
+-            seen.add(raw)
++            val transportKey = raw.substringBefore('#')
++            seen.putIfAbsent(transportKey, raw)
+         }
+-        return seen.toList()
++        return seen.values.toList()
+     }
+ 
+     fun isAcceptableChannelText(text: String?): Boolean = extractProxyLinks(text).isNotEmpty()
+diff --git a/app/src/main/java/net/gozar/app/GhajarUiRules.kt b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+index 58a5be1..d7eed07 100644
+--- a/app/src/main/java/net/gozar/app/GhajarUiRules.kt
++++ b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+@@ -55,9 +55,15 @@
+         if (names.isEmpty()) return null
+         val seen = previouslySeen.intersect(names.toSet())
+         val unseen = names.filterNot { it in seen }
+-        val newCycle = unseen.isEmpty()
+-        val choices = if (newCycle) names.filter { names.size == 1 || it != last } else unseen
++        // Never repeat the poster that was shown immediately before this pick. If
++        // persisted state is incomplete and the only unseen item equals `last`,
++        // start a fresh cycle rather than producing a visible back-to-back repeat.
++        val restartCycle = unseen.isEmpty() ||
++            (names.size > 1 && unseen.size == 1 && unseen.first() == last)
++        val cyclePool = if (restartCycle) names else unseen
++        val withoutLast = if (names.size > 1) cyclePool.filterNot { it == last } else cyclePool
++        val choices = withoutLast.ifEmpty { cyclePool }
+         val selected = choices.random(random)
+-        return Pick(selected, (if (newCycle) emptySet() else seen) + selected)
++        return Pick(selected, (if (restartCycle) emptySet() else seen) + selected)
+     }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt b/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
+index 587c83f..b297628 100644
+--- a/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
++++ b/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
+@@ -5,7 +5,7 @@
+ import androidx.compose.foundation.Image
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.border
+-import androidx.compose.foundation.gestures.detectTapGestures
++import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.aspectRatio
+ import androidx.compose.foundation.layout.fillMaxHeight
+@@ -17,14 +17,15 @@
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
++import androidx.compose.runtime.rememberUpdatedState
+ import androidx.compose.runtime.setValue
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+ import androidx.compose.ui.draw.alpha
+ import androidx.compose.ui.graphics.Color
+-import androidx.compose.ui.input.pointer.pointerInput
+ import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.testTag
+ import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.unit.dp
+ import kotlinx.coroutines.delay
+@@ -47,19 +48,30 @@
+ @Composable
+ fun GhajarWelcomeOverlay(onDone: () -> Unit) {
+     val context = LocalContext.current
+-    var posterName by remember { mutableStateOf<String?>(null) }
+-    var visible by remember { mutableStateOf(false) }
++    // Reserve during composition so the Android 14 cold-start tree has a stable
++    // poster node immediately instead of waiting for a later coroutine frame.
++    val posterName = remember { GhajarWelcomeOverlayRules.reservesPoster(context) }
++    val chosen = remember(posterName) { GhajarWelcomeOverlayRules.resolvePoster(posterName) }
++    val finish by rememberUpdatedState(onDone)
++    var visible by remember { mutableStateOf(true) }
++    var closed by remember { mutableStateOf(false) }
+ 
+-    LaunchedEffect(Unit) {
+-        posterName = GhajarWelcomeOverlayRules.reservesPoster(context)
+-        visible = true
+-        delay(GhajarWelcomeOverlayRules.autocloseMs())
++    fun close() {
++        if (closed) return
++        closed = true
+         visible = false
+-        delay(280)
+-        onDone()
++        finish()
+     }
+ 
+-    val chosen = posterName?.let { GhajarWelcomeOverlayRules.resolvePoster(it) }
++    LaunchedEffect(posterName) {
++        delay(GhajarWelcomeOverlayRules.autocloseMs())
++        if (!closed) {
++            visible = false
++            delay(280)
++            close()
++        }
++    }
++
+     val fade by animateFloatAsState(
+         targetValue = if (visible) 1f else 0f,
+         animationSpec = tween(280),
+@@ -69,36 +81,28 @@
+         modifier = Modifier
+             .fillMaxSize()
+             .background(Color(0xFF04070C))
+-            .alpha(fade),
++            .alpha(fade)
++            .testTag("ghajar_welcome_poster")
++            .clickable(enabled = visible, onClick = ::close),
+         contentAlignment = Alignment.Center
+     ) {
+-        if (chosen != null) {
+-            Box(
+-                modifier = Modifier
+-                    .fillMaxHeight()
+-                    .aspectRatio(9f / 16f)
+-                    .padding(GhajarWelcomeOverlayRules.FRAME_GAP_DP.dp)
+-                    .border(
+-                        GhajarWelcomeOverlayRules.FRAME_STROKE_DP.dp,
+-                        Color(0xFFC79E48).copy(alpha = 0.45f),
+-                        RoundedCornerShape(2.dp)
+-                    )
+-            ) {
+-                Image(
+-                    painter = painterResource(chosen.resourceId),
+-                    contentDescription = null,
+-                    modifier = Modifier.fillMaxSize(),
+-                    contentScale = ContentScale.Fit
+-                )
+-            }
+-        }
+         Box(
+             modifier = Modifier
+-                .fillMaxSize()
+-                .pointerInput(visible) {
+-                    if (!visible) return@pointerInput
+-                    detectTapGestures { onDone() }
+-                }
+-        )
++                .fillMaxHeight()
++                .aspectRatio(9f / 16f)
++                .padding(GhajarWelcomeOverlayRules.FRAME_GAP_DP.dp)
++                .border(
++                    GhajarWelcomeOverlayRules.FRAME_STROKE_DP.dp,
++                    Color(0xFFC79E48).copy(alpha = 0.45f),
++                    RoundedCornerShape(2.dp)
++                )
++        ) {
++            Image(
++                painter = painterResource(chosen.resourceId),
++                contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
++                modifier = Modifier.fillMaxSize().testTag("ghajar_welcome_poster_fit"),
++                contentScale = ContentScale.Fit
++            )
++        }
+     }
+ }
+-- 
+2.55.0
