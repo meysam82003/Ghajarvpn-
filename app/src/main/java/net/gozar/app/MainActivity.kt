@@ -672,10 +672,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    LaunchedEffect(Unit) {
-                        delay(1100)
-                        startMain = true
-                    }
                     Box {
                         if (startMain) {
                             GozarApp(store = store, onConnect = ::connectTo, onDisconnect = ::disconnect, onSwitch = ::switchTo, onCancelPick = ::cancelPick)

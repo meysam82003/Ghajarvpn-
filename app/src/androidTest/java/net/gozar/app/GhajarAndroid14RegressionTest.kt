@@ -44,7 +44,20 @@ class GhajarAndroid14RegressionTest {
                 compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
                     .fetchSemanticsNodes().isNotEmpty()
             }
+            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_panel"))
+                .fetchSemanticsNodes().isNotEmpty())
+            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
+                .fetchSemanticsNodes().isNotEmpty())
+            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect"))
+                .fetchSemanticsNodes().isEmpty())
             screenshot(context, "cold-welcome")
+            compose.onNodeWithTag("ghajar_welcome_enter").performClick()
+            compose.waitUntil(15000) {
+                compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
+                    .fetchSemanticsNodes().isEmpty() &&
+                    compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect"))
+                        .fetchSemanticsNodes().isNotEmpty()
+            }
 
             val packageManager = context.packageManager
             assertEquals(
@@ -89,6 +102,9 @@ class GhajarAndroid14RegressionTest {
             store.add(config); store.setSelectedId(config.id)
             val scenario = ActivityScenario.launch(MainActivity::class.java)
             try {
+                compose.waitUntil(15000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
+                    .fetchSemanticsNodes().isNotEmpty() }
+                compose.onNodeWithTag("ghajar_welcome_enter").performClick()
                 compose.waitUntil(20000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster")).fetchSemanticsNodes().isEmpty() &&
                     compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect")).fetchSemanticsNodes().isNotEmpty() }
                 repeat(2) { cycle ->
@@ -119,6 +135,46 @@ class GhajarAndroid14RegressionTest {
             }
         }
     }
+
+    @Test fun widgetChangesLocationAndRunsRealPingAndSubscriptionRefresh() {
+        assumeTrue(Build.VERSION.SDK_INT >= 34)
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val store = ConfigStore.get(context)
+        runBlocking { store.awaitReady() }
+        LocalSocksFixture().use { fixture ->
+            val first = ProxyConfig("ویجت تهران", "socks", "127.0.0.1", fixture.port)
+            val second = ProxyConfig("ویجت شیراز", "socks", "127.0.0.1", fixture.port)
+            store.add(first); store.add(second); store.setSelectedId(first.id)
+            val prefs = context.getSharedPreferences("ghajar_widget", Context.MODE_PRIVATE)
+            prefs.edit().clear().commit()
+            try {
+                context.sendBroadcast(Intent(context, GhajarControlWidgetProvider::class.java)
+                    .setAction(GhajarWidgetProvider.ACTION_NEXT_LOCATION))
+                waitFor(10_000) { store.selectedId.value == second.id }
+                assertEquals(second.id, store.selectedId.value)
+                assertTrue(prefs.getString("message", "").orEmpty().contains("ویجت شیراز"))
+
+                context.sendBroadcast(Intent(context, GhajarControlWidgetProvider::class.java)
+                    .setAction(GhajarWidgetProvider.ACTION_PING))
+                waitFor(10_000) { prefs.getString("message", "").orEmpty().startsWith("پینگ ") }
+                assertTrue(prefs.getString("message", "").orEmpty().contains("ms"))
+
+                context.sendBroadcast(Intent(context, GhajarControlWidgetProvider::class.java)
+                    .setAction(GhajarWidgetProvider.ACTION_REFRESH))
+                waitFor(10_000) { prefs.getString("message", "").orEmpty().contains("در حال بروزرسانی") }
+                waitFor(25_000) { !prefs.getString("message", "").orEmpty().contains("در حال بروزرسانی") }
+                val refresh = prefs.getString("message", "").orEmpty()
+                assertTrue(refresh.contains("بروزرسانی") || refresh.contains("خطا"))
+            } finally {
+                store.delete(first.id); store.delete(second.id)
+            }
+        }
+    }
+}
+
+private fun waitFor(timeoutMs: Long, condition: () -> Boolean) {
+    val deadline = System.currentTimeMillis() + timeoutMs
+    while (!condition() && System.currentTimeMillis() < deadline) Thread.sleep(100)
 }
 
 internal fun screenshot(context: Context, name: String) {

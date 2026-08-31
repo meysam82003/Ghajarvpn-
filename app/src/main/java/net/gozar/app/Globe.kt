@@ -14,7 +14,6 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -145,6 +144,10 @@ private const val GLOBE_RAD_FRAC = 0.86
 // Idle rotation pace while the exit IP is still unresolved (radians/second);
 // withFrameNanos converts wall time into spin so the pace is frame-rate safe.
 private const val GLOBE_SPIN_PER_NANOS = 0.45f / 1_000_000_000f
+private const val GLOBE_PENDING_SPIN_LIMIT_NANOS = 4_000_000_000L
+
+internal fun globePendingSpinActive(startNanos: Long, nowNanos: Long): Boolean =
+    nowNanos >= startNanos && nowNanos - startNanos < GLOBE_PENDING_SPIN_LIMIT_NANOS
 
 // Raster buffer sizes move in fixed steps so window resizes, foldables and
 // split-screen drags do not rebuild the raster pipeline on every layout pixel.
@@ -408,15 +411,10 @@ fun EarthSection(modifier: Modifier = Modifier) {
     val badgeTarget = MaterialTheme.colorScheme.primary
     var badgeShown by remember { mutableStateOf(badgeTarget) }
     val badgeTint by animateColorAsState(badgeShown, tween(450), label = "badgeTint")
-    val badgePulse by rememberInfiniteTransition(label = "badgePulse").animateFloat(
-        initialValue = 0.45f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            tween(1100, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "badgePulseV"
-    )
-    val badgeGlow = if (connected && !offline) badgePulse else 0.65f
+    // Keep the badge stable in composition. A per-frame pulse here used to
+    // invalidate the whole home tree while connected, preventing Compose from
+    // ever becoming idle and making the disconnect control unresponsive.
+    val badgeGlow = if (connected && !offline) 0.92f else 0.65f
     val nodeColor by animateColorAsState(
         targetValue = if (isDark) Color(0xFF8FC0FF) else Color(0xFF2E5F9E),
         animationSpec = themeSpec,
@@ -471,9 +469,11 @@ fun EarthSection(modifier: Modifier = Modifier) {
         if (hasLocation || !(geo.loading || conn == Connection.CONNECTING || conn == Connection.CONNECTED)) {
             return@LaunchedEffect
         }
-        var last = withFrameNanos { it }
+        val started = withFrameNanos { it }
+        var last = started
         while (true) {
             val now = withFrameNanos { it }
+            if (!globePendingSpinActive(started, now)) break
             spinY.snapTo(spinY.value + (now - last) * GLOBE_SPIN_PER_NANOS)
             last = now
         }

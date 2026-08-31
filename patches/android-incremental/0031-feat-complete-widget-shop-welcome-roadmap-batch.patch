@@ -1,0 +1,1134 @@
+From 2268d82c1b243b78f21eb1387d3650fd7cb2be9c Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Sun, 30 Aug 2026 23:05:35 -0300
+Subject: [PATCH] feat: complete widget shop welcome roadmap batch
+
+---
+ .../app/GhajarAndroid14RegressionTest.kt      |  56 ++++
+ .../java/net/gozar/app/GhajarShopScreen.kt    | 263 ++++++++++++------
+ .../main/java/net/gozar/app/GhajarStoreApi.kt |   3 +
+ .../main/java/net/gozar/app/GhajarVisuals.kt  |  50 ++--
+ .../java/net/gozar/app/GhajarWelcomeAssets.kt |  19 ++
+ .../net/gozar/app/GhajarWidgetProvider.kt     | 160 ++++++++---
+ app/src/main/java/net/gozar/app/Globe.kt      |  22 +-
+ .../main/java/net/gozar/app/MainActivity.kt   |   4 -
+ .../main/res/layout/ghajar_widget_control.xml |   5 +-
+ .../main/res/layout/ghajar_widget_small.xml   |   2 +-
+ .../java/net/gozar/app/GhajarShopRulesTest.kt |  18 ++
+ .../java/net/gozar/app/GhajarUiRulesTest.kt   |   8 +
+ .../net/gozar/app/GhajarWidgetRulesTest.kt    |  22 ++
+ .../net/gozar/app/GlobeRenderRulesTest.kt     |   8 +
+ 14 files changed, 479 insertions(+), 161 deletions(-)
+ create mode 100644 app/src/test/java/net/gozar/app/GhajarShopRulesTest.kt
+ create mode 100644 app/src/test/java/net/gozar/app/GhajarWidgetRulesTest.kt
+
+diff --git a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+index a7f0e04..8dad272 100644
+--- a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
++++ b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
+@@ -44,7 +44,20 @@ class GhajarAndroid14RegressionTest {
+                 compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
+                     .fetchSemanticsNodes().isNotEmpty()
+             }
++            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_panel"))
++                .fetchSemanticsNodes().isNotEmpty())
++            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
++                .fetchSemanticsNodes().isNotEmpty())
++            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect"))
++                .fetchSemanticsNodes().isEmpty())
+             screenshot(context, "cold-welcome")
++            compose.onNodeWithTag("ghajar_welcome_enter").performClick()
++            compose.waitUntil(15000) {
++                compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
++                    .fetchSemanticsNodes().isEmpty() &&
++                    compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect"))
++                        .fetchSemanticsNodes().isNotEmpty()
++            }
+ 
+             val packageManager = context.packageManager
+             assertEquals(
+@@ -89,6 +102,9 @@ class GhajarAndroid14RegressionTest {
+             store.add(config); store.setSelectedId(config.id)
+             val scenario = ActivityScenario.launch(MainActivity::class.java)
+             try {
++                compose.waitUntil(15000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
++                    .fetchSemanticsNodes().isNotEmpty() }
++                compose.onNodeWithTag("ghajar_welcome_enter").performClick()
+                 compose.waitUntil(20000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster")).fetchSemanticsNodes().isEmpty() &&
+                     compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect")).fetchSemanticsNodes().isNotEmpty() }
+                 repeat(2) { cycle ->
+@@ -119,6 +135,46 @@ class GhajarAndroid14RegressionTest {
+             }
+         }
+     }
++
++    @Test fun widgetChangesLocationAndRunsRealPingAndSubscriptionRefresh() {
++        assumeTrue(Build.VERSION.SDK_INT >= 34)
++        val context = InstrumentationRegistry.getInstrumentation().targetContext
++        val store = ConfigStore.get(context)
++        runBlocking { store.awaitReady() }
++        LocalSocksFixture().use { fixture ->
++            val first = ProxyConfig("ویجت تهران", "socks", "127.0.0.1", fixture.port)
++            val second = ProxyConfig("ویجت شیراز", "socks", "127.0.0.1", fixture.port)
++            store.add(first); store.add(second); store.setSelectedId(first.id)
++            val prefs = context.getSharedPreferences("ghajar_widget", Context.MODE_PRIVATE)
++            prefs.edit().clear().commit()
++            try {
++                context.sendBroadcast(Intent(context, GhajarControlWidgetProvider::class.java)
++                    .setAction(GhajarWidgetProvider.ACTION_NEXT_LOCATION))
++                waitFor(10_000) { store.selectedId.value == second.id }
++                assertEquals(second.id, store.selectedId.value)
++                assertTrue(prefs.getString("message", "").orEmpty().contains("ویجت شیراز"))
++
++                context.sendBroadcast(Intent(context, GhajarControlWidgetProvider::class.java)
++                    .setAction(GhajarWidgetProvider.ACTION_PING))
++                waitFor(10_000) { prefs.getString("message", "").orEmpty().startsWith("پینگ ") }
++                assertTrue(prefs.getString("message", "").orEmpty().contains("ms"))
++
++                context.sendBroadcast(Intent(context, GhajarControlWidgetProvider::class.java)
++                    .setAction(GhajarWidgetProvider.ACTION_REFRESH))
++                waitFor(10_000) { prefs.getString("message", "").orEmpty().contains("در حال بروزرسانی") }
++                waitFor(25_000) { !prefs.getString("message", "").orEmpty().contains("در حال بروزرسانی") }
++                val refresh = prefs.getString("message", "").orEmpty()
++                assertTrue(refresh.contains("بروزرسانی") || refresh.contains("خطا"))
++            } finally {
++                store.delete(first.id); store.delete(second.id)
++            }
++        }
++    }
++}
++
++private fun waitFor(timeoutMs: Long, condition: () -> Boolean) {
++    val deadline = System.currentTimeMillis() + timeoutMs
++    while (!condition() && System.currentTimeMillis() < deadline) Thread.sleep(100)
+ }
+ 
+ internal fun screenshot(context: Context, name: String) {
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index 8dc2b38..eee6852 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -3,12 +3,12 @@ package net.gozar.app
+ import android.app.Activity
+ import android.content.Intent
+ import android.net.Uri
++import androidx.compose.animation.animateContentSize
+ import androidx.activity.compose.rememberLauncherForActivityResult
+ import androidx.activity.result.contract.ActivityResultContracts
+ import androidx.compose.foundation.BorderStroke
+ import androidx.compose.foundation.Image
+ import androidx.compose.foundation.background
+-import androidx.compose.foundation.horizontalScroll
+ import androidx.compose.foundation.layout.Arrangement
+ import androidx.compose.foundation.layout.Box
+ import androidx.compose.foundation.layout.Column
+@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Row
+ import androidx.compose.foundation.layout.Spacer
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.fillMaxWidth
++import androidx.compose.foundation.layout.FlowRow
++import androidx.compose.foundation.layout.ExperimentalLayoutApi
+ import androidx.compose.foundation.layout.height
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+@@ -30,7 +32,11 @@ import androidx.compose.material.icons.filled.AddCircle
+ import androidx.compose.material.icons.filled.CardGiftcard
+ import androidx.compose.material.icons.filled.ContentCopy
+ import androidx.compose.material.icons.filled.CreditCard
++import androidx.compose.material.icons.filled.ExpandLess
++import androidx.compose.material.icons.filled.ExpandMore
++import androidx.compose.material.icons.filled.Group
+ import androidx.compose.material.icons.filled.Link
++import androidx.compose.material.icons.filled.Place
+ import androidx.compose.material.icons.filled.Notifications
+ import androidx.compose.material.icons.filled.OpenInNew
+ import androidx.compose.material.icons.filled.ReceiptLong
+@@ -52,13 +58,13 @@ import androidx.compose.material3.FilterChip
+ import androidx.compose.material3.Icon
+ import androidx.compose.material3.IconButton
+ import androidx.compose.material3.MaterialTheme
+-import androidx.compose.material3.DropdownMenu
+-import androidx.compose.material3.DropdownMenuItem
+ import androidx.compose.material3.OutlinedButton
+ import androidx.compose.material3.OutlinedTextField
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.TextButton
+ import androidx.compose.runtime.Composable
++import androidx.compose.runtime.CompositionLocalProvider
+ import androidx.compose.runtime.LaunchedEffect
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableIntStateOf
+@@ -74,11 +80,13 @@ import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.res.painterResource
+ import androidx.compose.ui.platform.LocalClipboardManager
+ import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.LocalLayoutDirection
+ import androidx.compose.ui.text.AnnotatedString
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.input.KeyboardType
+ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.ui.text.style.TextAlign
++import androidx.compose.ui.unit.LayoutDirection
+ import androidx.compose.ui.unit.dp
+ import androidx.lifecycle.ViewModelProvider
+ import androidx.activity.ComponentActivity
+@@ -144,6 +152,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+     var customTraffic by remember { mutableStateOf("") }
+     var customDays by remember { mutableStateOf("") }
+     var customQuote by remember { mutableStateOf<GhajarCustomQuote?>(null) }
++    var customQuoteLoading by remember { mutableStateOf(false) }
++    var customQuoteError by remember { mutableStateOf<String?>(null) }
+     var customUsername by remember { mutableStateOf("") }
+     var customNote by remember { mutableStateOf("") }
+     var discountCode by remember { mutableStateOf("") }
+@@ -250,6 +260,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+         selectedTime = null
+         customMode = false
+         customQuote = null
++        customQuoteError = null
+         products = emptyList()
+         storeResult {
+             categories = api.categories(panel.id)
+@@ -268,6 +279,38 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+         } finally { busy = false }
+     }
+ 
++    LaunchedEffect(customMode, selectedPanel?.id, customTraffic, customDays) {
++        val panel = selectedPanel ?: return@LaunchedEffect
++        val traffic = customTraffic.toIntOrNull()
++        val days = customDays.toIntOrNull()
++        if (!customMode || traffic == null || traffic <= 0 || days == null || days <= 0) {
++            customQuote = null
++            customQuoteLoading = false
++            customQuoteError = null
++            return@LaunchedEffect
++        }
++        customQuote = null
++        customQuoteLoading = true
++        customQuoteError = null
++        delay(450)
++        try {
++            val quote = api.customQuote(panel.id, traffic, days)
++            currentCoroutineContext().ensureActive()
++            if (selectedPanel?.id == panel.id && customTraffic.toIntOrNull() == traffic &&
++                customDays.toIntOrNull() == days) customQuote = quote
++        } catch (cancelled: CancellationException) {
++            throw cancelled
++        } catch (failure: Exception) {
++            if (selectedPanel?.id == panel.id && customTraffic.toIntOrNull() == traffic &&
++                customDays.toIntOrNull() == days) {
++                customQuoteError = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
++            }
++        } finally {
++            if (selectedPanel?.id == panel.id && customTraffic.toIntOrNull() == traffic &&
++                customDays.toIntOrNull() == days) customQuoteLoading = false
++        }
++    }
++
+     LaunchedEffect(linkSession?.sessionToken, active, lifecycle) {
+         val session = linkSession ?: return@LaunchedEffect
+         if (!active) return@LaunchedEffect
+@@ -332,6 +375,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+         }
+     }
+ 
++    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
+     LazyColumn(
+         modifier = modifier.fillMaxSize().padding(horizontal = 14.dp),
+         state = listState,
+@@ -466,7 +510,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+             item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
+             if (panels.isNotEmpty()) {
+                 item {
+-                    FilterRow(
++                    ServiceSelectionGrid(
+                         items = panels,
+                         selected = selectedPanel,
+                         label = { it.name },
+@@ -476,7 +520,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+             }
+             if (categories.isNotEmpty()) {
+                 item {
+-                    NullableFilterRow(
++                    ChoiceGrid(
+                         allLabel = "همه دسته‌ها",
+                         items = categories,
+                         selected = selectedCategory,
+@@ -487,7 +531,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+             }
+             if (timeRanges.isNotEmpty()) {
+                 item {
+-                    NullableFilterRow(
++                    ChoiceGrid(
+                         allLabel = "همه مدت‌ها",
+                         items = timeRanges,
+                         selected = selectedTime,
+@@ -501,7 +545,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+                 item {
+                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                         FilterChip(selected = !customMode, onClick = { customMode = false }, label = { Text("پلن‌های آماده") })
+-                        FilterChip(selected = customMode, onClick = { customMode = true }, label = { Text("سرویس سفارشی") })
++                        FilterChip(selected = customMode, onClick = {
++                            customMode = true
++                            if (customTraffic.isBlank()) customTraffic = "50"
++                            if (customDays.isBlank()) customDays = "30"
++                        }, label = { Text("سرویس سفارشی") })
+                     }
+                 }
+             }
+@@ -512,23 +560,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+                         traffic = customTraffic,
+                         days = customDays,
+                         quote = customQuote,
++                        location = selectedPanel?.name.orEmpty(),
++                        loading = customQuoteLoading,
++                        quoteError = customQuoteError,
+                         onTrafficChange = { customTraffic = asciiDigits(it).take(5); customQuote = null },
+                         onDaysChange = { customDays = asciiDigits(it).take(4); customQuote = null },
+-                        onQuote = {
+-                            val panel = selectedPanel ?: return@CustomServiceCard
+-                            if (busy) return@CustomServiceCard
+-                            val requestedTraffic = customTraffic
+-                            val requestedDays = customDays
+-                            scope.launch {
+-                                busy = true
+-                                storeResult {
+-                                    api.customQuote(panel.id, requestedTraffic.toIntOrNull() ?: 0, requestedDays.toIntOrNull() ?: 0)
+-                                }.onSuccess {
+-                                    if (customTraffic == requestedTraffic && customDays == requestedDays && selectedPanel?.id == panel.id) customQuote = it
+-                                }.onFailure { error = it.message }
+-                                busy = false
+-                            }
+-                        }
+                     )
+                 }
+             } else {
+@@ -633,6 +669,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+             dismissButton = { TextButton(onClick = { confirmation = null }) { Text("بازگشت") } }
+         )
+     }
++    }
+ }
+ 
+ private fun asciiDigits(value: String): String = GhajarUiRules.asciiDigits(value)
+@@ -746,44 +783,64 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit)
+     }
+ }
+ 
+-@Composable
+-private fun <T> FilterRow(items: List<T>, selected: T?, label: (T) -> String, onSelect: (T) -> Unit) {
+-    var open by remember { mutableStateOf(false) }
+-    Box(Modifier.fillMaxWidth()) {
+-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+-            Text(selected?.let(label) ?: "انتخاب لوکیشن", maxLines = 2)
+-        }
+-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+-            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
++internal object GhajarShopRules {
++    fun optionValues(min: Int, max: Int, defaults: List<Int>): List<Int> {
++        val validMin = min.takeIf { it > 0 }
++        val validMax = max.takeIf { it >= (validMin ?: 1) }
++        val candidates = buildList {
++            addAll(defaults)
++            validMin?.let(::add)
++            if (validMin != null && validMax != null) add(validMin + (validMax - validMin) / 2)
++            validMax?.let(::add)
+         }
++        return candidates.filter { value -> value > 0 &&
++            (validMin == null || value >= validMin) && (validMax == null || value <= validMax) }
++            .distinct().sorted().take(6)
+     }
+ }
+ 
++@OptIn(ExperimentalLayoutApi::class)
+ @Composable
+-private fun <T> NullableFilterRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
+-    var open by remember { mutableStateOf(false) }
+-    Box(Modifier.fillMaxWidth()) {
+-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+-            Text(selected?.let(label) ?: allLabel, maxLines = 2)
++private fun <T> ServiceSelectionGrid(items: List<T>, selected: T?, label: (T) -> String, onSelect: (T) -> Unit) {
++    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
++        verticalArrangement = Arrangement.spacedBy(8.dp)) {
++        items.forEach { item ->
++            FilterChip(
++                selected = item == selected,
++                onClick = { onSelect(item) },
++                leadingIcon = { Icon(Icons.Filled.Place, null, modifier = Modifier.size(18.dp)) },
++                label = { Text(label(item), maxLines = 2, textAlign = TextAlign.Center) }
++            )
+         }
+-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+-            DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelect(null); open = false })
+-            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
++    }
++}
++
++@OptIn(ExperimentalLayoutApi::class)
++@Composable
++private fun <T> ChoiceGrid(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
++    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
++        verticalArrangement = Arrangement.spacedBy(6.dp)) {
++        FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text(allLabel) })
++        items.forEach { item ->
++            FilterChip(selected = item == selected, onClick = { onSelect(item) }, label = { Text(label(item)) })
+         }
+     }
+ }
+ 
++@OptIn(ExperimentalLayoutApi::class)
+ @Composable
+-private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
+-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+-        shape = RoundedCornerShape(24.dp), elevation = CardDefaults.cardElevation(2.dp),
+-        border = BorderStroke(1.dp, Color(0x66D6B45F)),
+-        modifier = Modifier.fillMaxWidth()) {
+-        Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
++internal fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
++    var expanded by remember(product.id) { mutableStateOf(false) }
++    Card(onClick = { expanded = !expanded },
++        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
++        shape = RoundedCornerShape(22.dp), elevation = CardDefaults.cardElevation(2.dp),
++        border = BorderStroke(1.dp, Color(0x66D6B45F)), modifier = Modifier.fillMaxWidth()) {
++        Column(Modifier.fillMaxWidth().animateContentSize().padding(15.dp),
++            verticalArrangement = Arrangement.spacedBy(10.dp)) {
+             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
+-                Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0x1FD6B45F)),
++                Box(Modifier.size(42.dp).clip(CircleShape).background(Color(0x1FD6B45F)),
+                     contentAlignment = Alignment.Center) {
+-                    Icon(Icons.Filled.Shield, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(27.dp))
++                    Icon(Icons.Filled.Shield, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(25.dp))
+                 }
+                 Column(Modifier.weight(1f)) {
+                     Text(product.name, style = MaterialTheme.typography.titleMedium,
+@@ -792,24 +849,24 @@ private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> U
+                         ?: "قیمت در دسترس نیست", color = MaterialTheme.colorScheme.primary,
+                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+                 }
++                Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
++                    if (expanded) "بستن توضیحات" else "نمایش توضیحات")
+             }
+-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+-                product.trafficGb?.let {
+-                    Text("${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ",
+-                        modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp))
+-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+-                        style = MaterialTheme.typography.labelLarge)
+-                }
+-                product.days?.let {
+-                    Text("$it روز", modifier = Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp))
+-                        .padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
+-                }
++            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
++                product.trafficGb?.let { ProductBadge("${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ") }
++                product.days?.let { ProductBadge("$it روز") }
++                product.users?.let { ProductBadge("$it کاربر", Icons.Filled.Group) }
++                ProductBadge("آمادهٔ اتصال")
++            }
++            if (expanded) {
++                Text(product.description.ifBlank { "سرویس آمادهٔ اتصال؛ مشخصات از پنل فروش دریافت شده است." },
++                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
++            } else {
++                Text("برای دیدن توضیحات کامل روی کارت بزنید", style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+             }
+-            Text(product.description.ifBlank { "سرویس آمادهٔ اتصال؛ مشخصات از پنل فروش دریافت شده است." },
+-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                maxLines = 3, overflow = TextOverflow.Ellipsis)
+             Button(onClick = onBuy, enabled = enabled && product.price != null,
+-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp)) {
++                modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp), shape = RoundedCornerShape(15.dp)) {
+                 Icon(Icons.Filled.ShoppingCart, null, modifier = Modifier.size(19.dp))
+                 Spacer(Modifier.width(8.dp))
+                 Text("انتخاب این سرویس")
+@@ -818,30 +875,80 @@ private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> U
+     }
+ }
+ 
++@Composable
++private fun ProductBadge(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector? = null) {
++    Row(Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(11.dp))
++        .padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically,
++        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
++        icon?.let { Icon(it, null, modifier = Modifier.size(15.dp)) }
++        Text(text, style = MaterialTheme.typography.labelMedium)
++    }
++}
++
++@OptIn(ExperimentalLayoutApi::class)
+ @Composable
+ private fun CustomServiceCard(
+     traffic: String,
+     days: String,
+     quote: GhajarCustomQuote?,
++    location: String,
++    loading: Boolean,
++    quoteError: String?,
+     onTrafficChange: (String) -> Unit,
+-    onDaysChange: (String) -> Unit,
+-    onQuote: () -> Unit
++    onDaysChange: (String) -> Unit
+ ) {
+-    Card(shape = RoundedCornerShape(20.dp)) {
+-        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+-            Text("سرویس سفارشی", fontWeight = FontWeight.Bold)
+-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+-                OutlinedTextField(traffic, onTrafficChange, label = { Text("حجم (گیگ)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+-                OutlinedTextField(days, onDaysChange, label = { Text("مدت (روز)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+-            }
+-            quote?.let {
+-                Text(
+-                    if (it.price != null) "قیمت لحظه‌ای: ${formatPrice(it.price)} تومان" else "سرویس سفارشی برای این پنل فعال نیست",
+-                    color = Color(0xFFD6B45F), fontWeight = FontWeight.Bold
+-                )
+-                Text("حجم ${it.trafficMin} تا ${it.trafficMax} گیگ · زمان ${it.timeMin} تا ${it.timeMax} روز", style = MaterialTheme.typography.bodySmall)
++    val trafficOptions = GhajarShopRules.optionValues(quote?.trafficMin ?: 0, quote?.trafficMax ?: 0,
++        listOf(10, 30, 50, 100, 200))
++    val dayOptions = GhajarShopRules.optionValues(quote?.timeMin ?: 0, quote?.timeMax ?: 0,
++        listOf(7, 30, 60, 90, 180))
++    Card(shape = RoundedCornerShape(24.dp),
++        colors = CardDefaults.cardColors(containerColor = Color(0xFF102F2A)),
++        border = BorderStroke(1.dp, Color(0xAAD6B45F))) {
++        Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
++            Text("سرویس سفارشی قاجار", color = Color(0xFFD6B45F),
++                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
++            Text("لوکیشن: $location", color = Color(0xFFEAF6F2), style = MaterialTheme.typography.bodyMedium)
++
++            Text("۱. حجم موردنیاز", color = Color.White, fontWeight = FontWeight.Bold)
++            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
++                trafficOptions.forEach { value ->
++                    FilterChip(selected = traffic == value.toString(), onClick = { onTrafficChange(value.toString()) },
++                        label = { Text("$value گیگ") })
++                }
++            }
++            OutlinedTextField(traffic, onTrafficChange, label = { Text("حجم دقیق به گیگ") },
++                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
++                modifier = Modifier.fillMaxWidth())
++
++            Text("۲. مدت سرویس", color = Color.White, fontWeight = FontWeight.Bold)
++            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
++                dayOptions.forEach { value ->
++                    FilterChip(selected = days == value.toString(), onClick = { onDaysChange(value.toString()) },
++                        label = { Text("$value روز") })
++                }
++            }
++            OutlinedTextField(days, onDaysChange, label = { Text("مدت دقیق به روز") },
++                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
++                modifier = Modifier.fillMaxWidth())
++
++            Surface(color = Color(0xFF071B2E), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
++                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
++                    horizontalAlignment = Alignment.CenterHorizontally) {
++                    Text("۳. نتیجه و قیمت نهایی", color = Color(0xFF91BCC7), fontWeight = FontWeight.Bold)
++                    when {
++                        loading -> { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp); Text("قیمت در حال محاسبه…", color = Color.White) }
++                        quoteError != null -> Text(quoteError, color = Color(0xFFFFAB91), textAlign = TextAlign.Center)
++                        quote?.price != null -> Text("${formatPrice(quote.price)} تومان", color = Color(0xFFD6B45F),
++                            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
++                        quote != null -> Text("سرویس سفارشی برای این انتخاب فعال نیست", color = Color(0xFFFFAB91))
++                        else -> Text("حجم و مدت را انتخاب کنید", color = Color.White)
++                    }
++                    Text("تعداد کاربر و محدودیت‌ها طبق تنظیم همین پنل اعمال می‌شود.",
++                        color = Color(0xFFC7D9D4), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
++                    quote?.let { Text("محدوده مجاز: ${it.trafficMin}–${it.trafficMax} گیگ · ${it.timeMin}–${it.timeMax} روز",
++                        color = Color(0xFF91BCC7), style = MaterialTheme.typography.labelSmall) }
++                }
+             }
+-            OutlinedButton(onClick = onQuote, modifier = Modifier.fillMaxWidth()) { Text("محاسبه قیمت از پنل") }
+         }
+     }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+index a1ad135..b7e58aa 100644
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -44,6 +44,7 @@ data class GhajarProduct(
+     val price: Long?,
+     val trafficGb: Double?,
+     val days: Int?,
++    val users: Int?,
+     val description: String,
+     val countryId: String
+ )
+@@ -239,6 +240,8 @@ class GhajarStoreApi(context: Context) {
+                 price = row.optNullableDouble("price")?.takeIf { it.isFinite() && it >= 0 }?.toLong(),
+                 trafficGb = row.optNullableDouble("traffic_gb")?.takeIf { it >= 0 },
+                 days = row.optInt("time_days", -1).takeIf { it >= 0 },
++                users = listOf("user_limit", "limit_user", "users", "ip_limit", "limit_ip")
++                    .asSequence().map { row.optInt(it, -1) }.firstOrNull { it > 0 },
+                 description = visible(row.optString("description")),
+                 countryId = row.optString("country_id", countryId)
+             )
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+index 82d75e7..5f4f922 100644
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -2,7 +2,6 @@ package net.gozar.app
+ 
+ import android.content.Context
+ import androidx.compose.foundation.Image
+-import androidx.compose.foundation.clickable
+ import androidx.compose.foundation.background
+ import androidx.compose.foundation.layout.*
+ import androidx.compose.foundation.shape.CircleShape
+@@ -15,7 +14,6 @@ import androidx.compose.ui.draw.shadow
+ import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.graphics.Color
+ import androidx.compose.ui.graphics.Shape
+-import androidx.compose.ui.graphics.graphicsLayer
+ import androidx.compose.ui.layout.ContentScale
+ import androidx.compose.ui.platform.LocalContext
+ import androidx.compose.ui.res.painterResource
+@@ -23,7 +21,6 @@ import androidx.compose.ui.semantics.contentDescription
+ import androidx.compose.ui.semantics.semantics
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+-import kotlinx.coroutines.delay
+ import androidx.compose.runtime.saveable.rememberSaveable
+ import androidx.compose.ui.platform.testTag
+ 
+@@ -58,7 +55,6 @@ internal fun GhajarWordmark(modifier: Modifier = Modifier) {
+ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+     val context = LocalContext.current
+     val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
+-    val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
+     // Complete the tiny preference lookup during the first composition. Deferring
+     // this selection to an IO effect produced a blank frame on cold starts.
+     val selectedName = rememberSaveable { GhajarWelcomeAssets.reserve(context) }
+@@ -68,43 +64,39 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+         GhajarWelcomeAssets.posters.firstOrNull { it.name == selectedName }
+             ?: GhajarWelcomeAssets.posters.firstOrNull()
+     }
++    val content = remember(selectedName) { GhajarWelcomeAssets.contentFor(selectedName) }
+     fun close() {
+         if (closed) return
+         closed = true
+         prefs.edit().putBoolean("soft_intro_seen", true).apply()
+         finish()
+     }
+-    // Auto-close only after the poster is actually composed (slow emulators must not lose the welcome).
+-    LaunchedEffect(returning, selected) {
+-        if (returning && selected != null) { delay(1800); close() }
+-    }
+     val backdrop = if (selected?.dark != false) Color(0xFF061226) else Color(0xFFEAF1FB)
+     // Tag the stable full-screen welcome root, not the Image semantics node. On Android 14
+     // the image semantics can be merged while the artwork is decoding, which made CI flaky.
+-    Box(Modifier.fillMaxSize().background(backdrop).clickable(onClick = ::close)
+-        .testTag("ghajar_welcome_poster")) {
++    Box(Modifier.fillMaxSize().background(backdrop).testTag("ghajar_welcome_poster")) {
+         selected?.let { poster ->
+-            // The cropped backdrop fills unusual aspect ratios while the fitted
+-            // foreground preserves every part of the complete 9:16 artwork.
+-            Image(painterResource(poster.resourceId), contentDescription = null,
+-                contentScale = ContentScale.Crop,
+-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = .42f })
+             Image(painterResource(poster.resourceId),
+-                contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
+-                contentScale = ContentScale.Fit,
+-                modifier = Modifier.fillMaxSize().graphicsLayer { alpha = 1f })
++                contentDescription = "${content.title}؛ تصویر خوش‌آمدگویی قاجار VPN",
++                contentScale = ContentScale.Crop,
++                modifier = Modifier.fillMaxSize())
+         }
+-        if (!returning) {
+-            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()
+-                .padding(horizontal = 18.dp, vertical = 14.dp),
+-                horizontalAlignment = Alignment.CenterHorizontally) {
+-                Surface(color = Color(0xCC061226), shape = RoundedCornerShape(22.dp)) {
+-                    Column(Modifier.fillMaxWidth().padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+-                        Text("وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود",
+-                            style = MaterialTheme.typography.labelSmall, color = Color.White,
+-                            textAlign = TextAlign.Center, modifier = Modifier.padding(bottom = 7.dp))
+-                        Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
+-                            shape = RoundedCornerShape(18.dp)) { Text("ورود به قاجار VPN") }
++        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
++            Color.Transparent, Color.Transparent, Color(0xB3061226), Color(0xF2061226)
++        ))))
++        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().safeDrawingPadding()
++            .padding(horizontal = 16.dp, vertical = 14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
++            Surface(color = Color(0xF20B211C), shape = RoundedCornerShape(26.dp),
++                tonalElevation = 8.dp, shadowElevation = 10.dp, modifier = Modifier.testTag("ghajar_welcome_panel")) {
++                Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally,
++                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                    Text(content.title, style = MaterialTheme.typography.titleLarge, color = Color(0xFFD6B45F),
++                        textAlign = TextAlign.Center, fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold)
++                    Text(content.body, style = MaterialTheme.typography.bodyMedium, color = Color.White,
++                        textAlign = TextAlign.Center)
++                    Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)
++                        .testTag("ghajar_welcome_enter"), shape = RoundedCornerShape(18.dp)) {
++                        Text("ورود به برنامه")
+                     }
+                 }
+             }
+diff --git a/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt b/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
+index d867413..58b5570 100644
+--- a/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
++++ b/app/src/main/java/net/gozar/app/GhajarWelcomeAssets.kt
+@@ -5,6 +5,7 @@ import android.content.Context
+ /** Offline artwork only: no host, bot gallery or remote boot request. */
+ internal object GhajarWelcomeAssets {
+     data class Poster(val name: String, val resourceId: Int, val dark: Boolean)
++    data class Content(val title: String, val body: String)
+     val posters = listOf(
+         Poster("ghajar_welcome_world", R.drawable.ghajar_welcome_world, false),
+         Poster("ghajar_welcome_connection", R.drawable.ghajar_welcome_connection, false),
+@@ -41,6 +42,24 @@ internal object GhajarWelcomeAssets {
+         Poster("ghajar_welcome_extra_22", R.drawable.ghajar_welcome_extra_22, false)
+     )
+ 
++    private val contents = listOf(
++        Content("اتصال سریع و روشن", "وضعیت اتصال را روی خانه ببینید و با یک لمس وصل یا قطع شوید."),
++        Content("ساب را تازه نگه دارید", "قبل از اتصال، یک‌بار ساب را بروزرسانی کنید تا لوکیشن‌های تازه برسند."),
++        Content("بهترین لوکیشن را پیدا کنید", "پینگ لوکیشن‌ها را بررسی کنید و نزدیک‌ترین مسیر را انتخاب کنید."),
++        Content("کانفیگ رایگان", "بخش کانفیگ رایگان برای شروع سریع و بدون خرید در دسترس است."),
++        Content("پشتیبانی OpenVPN", "پروفایل OpenVPN را وارد کنید و نتیجهٔ پینگ را پیش از اتصال ببینید."),
++        Content("فروشگاه داخل برنامه", "سرویس آماده یا سفارشی را انتخاب کنید و وضعیت پرداخت را امن پیگیری کنید."),
++        Content("سرویس‌های ویژه", "حجم و مدت دلخواه را بسازید و قیمت نهایی را همان لحظه ببینید."),
++        Content("ویجت مرکز فرمان", "اتصال، پینگ، بروزرسانی ساب و تغییر لوکیشن از صفحهٔ خانه انجام می‌شود."),
++        Content("امنیت شاهانه", "اطلاعات حساس در فضای خصوصی برنامه نگهداری و مسیر پرداخت جدا بررسی می‌شود."),
++        Content("حریم خصوصی", "قاجار VPN وضعیت لازم را شفاف نشان می‌دهد و کنترل اتصال دست خود شماست.")
++    )
++
++    fun contentFor(posterName: String): Content {
++        val index = posters.indexOfFirst { it.name == posterName }.coerceAtLeast(0)
++        return contents[index % contents.size]
++    }
++
+     @Synchronized
+     fun reserve(context: Context): String {
+         val prefs = context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE)
+diff --git a/app/src/main/java/net/gozar/app/GhajarWidgetProvider.kt b/app/src/main/java/net/gozar/app/GhajarWidgetProvider.kt
+index cef4942..ddd8b6c 100644
+--- a/app/src/main/java/net/gozar/app/GhajarWidgetProvider.kt
++++ b/app/src/main/java/net/gozar/app/GhajarWidgetProvider.kt
+@@ -13,9 +13,42 @@ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.SupervisorJob
+ import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.delay
+ import kotlinx.coroutines.launch
+ import kotlinx.coroutines.withContext
+ 
++internal enum class GhajarWidgetPhase { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING }
++
++/** Android-free widget contracts kept deterministic for local regression tests. */
++internal object GhajarWidgetRules {
++    fun phase(connection: Connection, operation: String?): GhajarWidgetPhase = when {
++        operation == "disconnecting" && connection != Connection.DISCONNECTED -> GhajarWidgetPhase.DISCONNECTING
++        connection == Connection.CONNECTED -> GhajarWidgetPhase.CONNECTED
++        connection == Connection.CONNECTING || operation == "connecting" -> GhajarWidgetPhase.CONNECTING
++        else -> GhajarWidgetPhase.DISCONNECTED
++    }
++
++    fun status(phase: GhajarWidgetPhase): String = when (phase) {
++        GhajarWidgetPhase.DISCONNECTED -> "قطع"
++        GhajarWidgetPhase.CONNECTING -> "در حال اتصال…"
++        GhajarWidgetPhase.CONNECTED -> "متصل"
++        GhajarWidgetPhase.DISCONNECTING -> "در حال قطع…"
++    }
++
++    fun connectLabel(phase: GhajarWidgetPhase): String = when (phase) {
++        GhajarWidgetPhase.DISCONNECTED -> "وصل"
++        GhajarWidgetPhase.CONNECTING -> "لغو"
++        GhajarWidgetPhase.CONNECTED -> "قطع"
++        GhajarWidgetPhase.DISCONNECTING -> "صبر کنید"
++    }
++
++    fun nextId(ids: List<String>, currentId: String?): String? {
++        if (ids.isEmpty()) return null
++        val index = ids.indexOf(currentId)
++        return ids[(if (index < 0) 0 else (index + 1) % ids.size)]
++    }
++}
++
+ internal object GhajarNavigationBus {
+     private val _destination = MutableStateFlow<String?>(null)
+     val destination = _destination
+@@ -36,14 +69,17 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
+         val pending = goAsync()
+         WIDGET_SCOPE.launch {
+             try {
+-                val message = when (intent.action) {
+-                    ACTION_TOGGLE -> toggle(context.applicationContext)
+-                    ACTION_PING -> ping(context.applicationContext)
+-                    ACTION_REFRESH -> refresh(context.applicationContext)
+-                    else -> null
+-                }
++                val message = runCatching {
++                    when (intent.action) {
++                        ACTION_TOGGLE -> toggle(context.applicationContext)
++                        ACTION_PING -> ping(context.applicationContext)
++                        ACTION_REFRESH -> refresh(context.applicationContext)
++                        ACTION_NEXT_LOCATION -> nextLocation(context.applicationContext)
++                        else -> null
++                    }
++                }.getOrElse { "عملیات ویجت انجام نشد" }
+                 if (message != null) context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+-                    .edit().putString(KEY_MESSAGE, message).apply()
++                    .edit().putString(KEY_MESSAGE, message).remove(KEY_OPERATION).apply()
+                 updateEveryWidget(context.applicationContext)
+             } finally { pending.finish() }
+         }
+@@ -53,10 +89,12 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
+         private val WIDGET_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+         private const val PREFS = "ghajar_widget"
+         private const val KEY_MESSAGE = "message"
+-        private const val ACTION_TOGGLE = "net.gozar.app.widget.TOGGLE"
+-        private const val ACTION_PING = "net.gozar.app.widget.PING"
+-        private const val ACTION_REFRESH = "net.gozar.app.widget.REFRESH"
+-        private val ACTIONS = setOf(ACTION_TOGGLE, ACTION_PING, ACTION_REFRESH)
++        private const val KEY_OPERATION = "operation"
++        internal const val ACTION_TOGGLE = "net.gozar.app.widget.TOGGLE"
++        internal const val ACTION_PING = "net.gozar.app.widget.PING"
++        internal const val ACTION_REFRESH = "net.gozar.app.widget.REFRESH"
++        internal const val ACTION_NEXT_LOCATION = "net.gozar.app.widget.NEXT_LOCATION"
++        private val ACTIONS = setOf(ACTION_TOGGLE, ACTION_PING, ACTION_REFRESH, ACTION_NEXT_LOCATION)
+         const val EXTRA_DESTINATION = "net.gozar.app.widget.DESTINATION"
+         const val DEST_SERVERS = "servers"
+ 
+@@ -66,19 +104,17 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
+             val store = ConfigStore.get(context)
+             store.awaitReady()
+             if (snapshot.state == Connection.CONNECTED || snapshot.state == Connection.CONNECTING) {
+-                when {
+-                    snapshot.activeId?.startsWith("ovpn:") == true -> GhajarOpenVpnBridge.disconnect(context)
+-                    store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2" ->
+-                        IkeController.disconnect(context)
+-                    else -> context.startService(Intent(context, GozarVpnService::class.java)
+-                        .setAction(GozarVpnService.ACTION_STOP))
+-                }
+-                VpnState.setDisconnected()
++                mark(context, "در حال قطع اتصال…", "disconnecting")
++                disconnect(context, snapshot, store)
+                 return "قطع شد"
+             }
+-            val id = store.selectedId.value
+-            val config = store.configs.value.firstOrNull { it.id == id }
++            val config = store.configs.value.firstOrNull { it.id == store.selectedId.value }
+                 ?: return "ابتدا سرور را انتخاب کن"
++            mark(context, "در حال اتصال…", "connecting")
++            return connect(context, store, config)
++        }
++
++        private suspend fun connect(context: Context, store: ConfigStore, config: ProxyConfig): String {
+             if (VpnService.prepare(context) != null) return "برای مجوز، برنامه را باز کن"
+             if (config.protocol == "openvpn" || config.id.startsWith("ovpn:")) {
+                 return GhajarOpenVpnBridge.connectSaved(context, config).fold(
+@@ -107,7 +143,41 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
+                 .getOrElse { VpnState.setDisconnected(); "اتصال شروع نشد" }
+         }
+ 
++        private fun disconnect(context: Context, snapshot: VpnConnectionStore.Snapshot, store: ConfigStore) {
++            when {
++                snapshot.activeId?.startsWith("ovpn:") == true -> GhajarOpenVpnBridge.disconnect(context)
++                store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2" ->
++                    IkeController.disconnect(context)
++                else -> context.startService(Intent(context, GozarVpnService::class.java)
++                    .setAction(GozarVpnService.ACTION_STOP))
++            }
++            VpnState.setDisconnected()
++        }
++
++        private suspend fun nextLocation(context: Context): String {
++            VpnState.initialize(context)
++            val store = ConfigStore.get(context)
++            store.awaitReady()
++            val configs = store.configs.value
++            val nextId = GhajarWidgetRules.nextId(configs.map { it.id }, store.selectedId.value)
++                ?: return "لوکیشنی برای انتخاب وجود ندارد"
++            val next = configs.first { it.id == nextId }
++            val snapshot = VpnConnectionStore.read(context)
++            store.setSelectedId(next.id)
++            if (snapshot.state == Connection.CONNECTED || snapshot.state == Connection.CONNECTING) {
++                mark(context, "تغییر به ${publicName(next)}…", "disconnecting")
++                disconnect(context, snapshot, store)
++                // Let protocol services release their tunnel before the selected
++                // location is started again from this same widget action.
++                delay(650)
++                mark(context, "اتصال به ${publicName(next)}…", "connecting")
++                return connect(context, store, next)
++            }
++            return "لوکیشن: ${publicName(next)}"
++        }
++
+         private suspend fun ping(context: Context): String {
++            mark(context, "در حال سنجش پینگ واقعی…", null)
+             val store = ConfigStore.get(context)
+             store.awaitReady()
+             val active = VpnConnectionStore.read(context).activeId
+@@ -125,11 +195,16 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
+         }
+ 
+         private suspend fun refresh(context: Context): String {
++            mark(context, "در حال بروزرسانی ساب…", "refreshing")
+             val store = ConfigStore.get(context)
+             store.awaitReady()
+-            val summary = SubscriptionRefresher.refreshAll(store)
+-            return if (summary.failed == 0) "${summary.configs} کانفیگ بروزرسانی شد"
+-            else "${summary.updated}/${summary.attempted} ساب بروزرسانی شد"
++            return runCatching { SubscriptionRefresher.refreshAll(store) }.fold(
++                onSuccess = { summary ->
++                    if (summary.failed == 0) "بروزرسانی موفق · ${summary.configs} کانفیگ"
++                    else "خطا · ${summary.updated}/${summary.attempted} ساب بروزرسانی شد"
++                },
++                onFailure = { "بروزرسانی ساب ناموفق" }
++            )
+         }
+ 
+         private fun render(context: Context, manager: AppWidgetManager, id: Int,
+@@ -137,26 +212,30 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
+             val snapshot = VpnConnectionStore.read(context)
+             val store = ConfigStore.get(context)
+             val selected = store.configs.value.firstOrNull { it.id == (snapshot.activeId ?: store.selectedId.value) }
+-            val status = when (snapshot.state) {
+-                Connection.CONNECTED -> "متصل"
+-                Connection.CONNECTING -> "در حال اتصال…"
+-                Connection.ERROR -> "خطای اتصال"
+-                else -> "قطع"
+-            }
++            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
++            val operation = prefs.getString(KEY_OPERATION, null)
++            val phase = GhajarWidgetRules.phase(snapshot.state, operation)
++            val status = if (snapshot.state == Connection.ERROR) "خطای اتصال" else GhajarWidgetRules.status(phase)
+             val views = RemoteViews(context.packageName, layout)
+             views.setTextViewText(R.id.widget_status, status)
+             views.setTextViewText(R.id.widget_server,
+-                selected?.name?.let(BrandConfig::sanitizePublicText)
+-                    ?: GhajarOpenVpnBridge.activeName(context) ?: "انتخاب سرور")
+-            views.setTextViewText(R.id.widget_connect,
+-                if (snapshot.state in setOf(Connection.CONNECTED, Connection.CONNECTING)) "قطع" else "وصل")
++                selected?.let { "لوکیشن: ${publicName(it)}" }
++                    ?: GhajarOpenVpnBridge.activeName(context)?.let { "لوکیشن: ${BrandConfig.sanitizePublicText(it)}" }
++                    ?: "لوکیشن انتخاب نشده")
++            views.setTextViewText(R.id.widget_connect, GhajarWidgetRules.connectLabel(phase))
+             views.setTextViewText(R.id.widget_message,
+-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_MESSAGE, "آماده") ?: "آماده")
++                prefs.getString(KEY_MESSAGE, "آماده") ?: "آماده")
++            views.setTextColor(R.id.widget_status, when (phase) {
++                GhajarWidgetPhase.CONNECTED -> 0xFF78D6A8.toInt()
++                GhajarWidgetPhase.CONNECTING -> 0xFFFFD166.toInt()
++                GhajarWidgetPhase.DISCONNECTING -> 0xFFFFA36C.toInt()
++                GhajarWidgetPhase.DISCONNECTED -> 0xFFF7F2E8.toInt()
++            })
+             views.setOnClickPendingIntent(R.id.widget_connect, broadcast(context, provider, id, ACTION_TOGGLE))
+             if (layout == R.layout.ghajar_widget_control) {
+                 views.setOnClickPendingIntent(R.id.widget_ping, broadcast(context, provider, id, ACTION_PING))
+                 views.setOnClickPendingIntent(R.id.widget_refresh, broadcast(context, provider, id, ACTION_REFRESH))
+-                views.setOnClickPendingIntent(R.id.widget_servers, openApp(context, id, DEST_SERVERS))
++                views.setOnClickPendingIntent(R.id.widget_servers, broadcast(context, provider, id, ACTION_NEXT_LOCATION))
+             }
+             views.setOnClickPendingIntent(R.id.widget_root, openApp(context, id, null))
+             manager.updateAppWidget(id, views)
+@@ -186,6 +265,15 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
+                 }
+             }
+         }
++
++        private fun mark(context: Context, message: String, operation: String?) {
++            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
++                .putString(KEY_MESSAGE, message).putString(KEY_OPERATION, operation).apply()
++            updateEveryWidget(context)
++        }
++
++        private fun publicName(config: ProxyConfig): String =
++            BrandConfig.sanitizePublicText(config.name).ifBlank { config.protocol.uppercase() }
+     }
+ }
+ 
+diff --git a/app/src/main/java/net/gozar/app/Globe.kt b/app/src/main/java/net/gozar/app/Globe.kt
+index 4321dfc..e0ce1d8 100644
+--- a/app/src/main/java/net/gozar/app/Globe.kt
++++ b/app/src/main/java/net/gozar/app/Globe.kt
+@@ -14,7 +14,6 @@ import androidx.compose.animation.core.LinearEasing
+ import androidx.compose.animation.core.animateFloat
+ import androidx.compose.animation.core.animateFloatAsState
+ import androidx.compose.animation.core.infiniteRepeatable
+-import androidx.compose.animation.core.RepeatMode
+ import androidx.compose.animation.core.rememberInfiniteTransition
+ import androidx.compose.animation.core.spring
+ import androidx.compose.animation.core.tween
+@@ -145,6 +144,10 @@ private const val GLOBE_RAD_FRAC = 0.86
+ // Idle rotation pace while the exit IP is still unresolved (radians/second);
+ // withFrameNanos converts wall time into spin so the pace is frame-rate safe.
+ private const val GLOBE_SPIN_PER_NANOS = 0.45f / 1_000_000_000f
++private const val GLOBE_PENDING_SPIN_LIMIT_NANOS = 4_000_000_000L
++
++internal fun globePendingSpinActive(startNanos: Long, nowNanos: Long): Boolean =
++    nowNanos >= startNanos && nowNanos - startNanos < GLOBE_PENDING_SPIN_LIMIT_NANOS
+ 
+ // Raster buffer sizes move in fixed steps so window resizes, foldables and
+ // split-screen drags do not rebuild the raster pipeline on every layout pixel.
+@@ -408,15 +411,10 @@ fun EarthSection(modifier: Modifier = Modifier) {
+     val badgeTarget = MaterialTheme.colorScheme.primary
+     var badgeShown by remember { mutableStateOf(badgeTarget) }
+     val badgeTint by animateColorAsState(badgeShown, tween(450), label = "badgeTint")
+-    val badgePulse by rememberInfiniteTransition(label = "badgePulse").animateFloat(
+-        initialValue = 0.45f, targetValue = 1f,
+-        animationSpec = infiniteRepeatable(
+-            tween(1100, easing = FastOutSlowInEasing),
+-            repeatMode = RepeatMode.Reverse
+-        ),
+-        label = "badgePulseV"
+-    )
+-    val badgeGlow = if (connected && !offline) badgePulse else 0.65f
++    // Keep the badge stable in composition. A per-frame pulse here used to
++    // invalidate the whole home tree while connected, preventing Compose from
++    // ever becoming idle and making the disconnect control unresponsive.
++    val badgeGlow = if (connected && !offline) 0.92f else 0.65f
+     val nodeColor by animateColorAsState(
+         targetValue = if (isDark) Color(0xFF8FC0FF) else Color(0xFF2E5F9E),
+         animationSpec = themeSpec,
+@@ -471,9 +469,11 @@ fun EarthSection(modifier: Modifier = Modifier) {
+         if (hasLocation || !(geo.loading || conn == Connection.CONNECTING || conn == Connection.CONNECTED)) {
+             return@LaunchedEffect
+         }
+-        var last = withFrameNanos { it }
++        val started = withFrameNanos { it }
++        var last = started
+         while (true) {
+             val now = withFrameNanos { it }
++            if (!globePendingSpinActive(started, now)) break
+             spinY.snapTo(spinY.value + (now - last) * GLOBE_SPIN_PER_NANOS)
+             last = now
+         }
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index fcc8198..5d6d2a2 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -672,10 +672,6 @@ class MainActivity : ComponentActivity() {
+                             }
+                         }
+                     }
+-                    LaunchedEffect(Unit) {
+-                        delay(1100)
+-                        startMain = true
+-                    }
+                     Box {
+                         if (startMain) {
+                             GozarApp(store = store, onConnect = ::connectTo, onDisconnect = ::disconnect, onSwitch = ::switchTo, onCancelPick = ::cancelPick)
+diff --git a/app/src/main/res/layout/ghajar_widget_control.xml b/app/src/main/res/layout/ghajar_widget_control.xml
+index 14a94eb..fe723fe 100644
+--- a/app/src/main/res/layout/ghajar_widget_control.xml
++++ b/app/src/main/res/layout/ghajar_widget_control.xml
+@@ -15,13 +15,14 @@
+                 android:text="انتخاب سرور" android:textColor="#91BCC7" android:textSize="12sp" android:maxLines="1" />
+         </LinearLayout>
+         <TextView android:id="@+id/widget_message" android:layout_width="wrap_content" android:layout_height="wrap_content"
+-            android:text="آماده" android:textColor="#D6B45F" android:textSize="11sp" android:maxLines="1" />
++            android:text="آماده" android:textColor="#D6B45F" android:textSize="11sp" android:maxLines="2"
++            android:gravity="center_vertical" />
+     </LinearLayout>
+     <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+         android:orientation="horizontal" android:gravity="center" android:layout_marginTop="10dp">
+         <TextView android:id="@+id/widget_connect" style="@style/GhajarWidgetAction" android:text="وصل" />
+         <TextView android:id="@+id/widget_ping" style="@style/GhajarWidgetAction" android:text="پینگ" />
+         <TextView android:id="@+id/widget_refresh" style="@style/GhajarWidgetAction" android:text="آپدیت ساب" />
+-        <TextView android:id="@+id/widget_servers" style="@style/GhajarWidgetAction" android:text="سرور/لوکیشن" />
++        <TextView android:id="@+id/widget_servers" style="@style/GhajarWidgetAction" android:text="لوکیشن بعدی" />
+     </LinearLayout>
+ </LinearLayout>
+diff --git a/app/src/main/res/layout/ghajar_widget_small.xml b/app/src/main/res/layout/ghajar_widget_small.xml
+index cec2a3b..5ee7995 100644
+--- a/app/src/main/res/layout/ghajar_widget_small.xml
++++ b/app/src/main/res/layout/ghajar_widget_small.xml
+@@ -10,7 +10,7 @@
+         <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content"
+             android:text="قطع" android:textColor="#F7F2E8" android:textStyle="bold" android:textSize="15sp" />
+         <TextView android:id="@+id/widget_server" android:layout_width="match_parent" android:layout_height="wrap_content"
+-            android:text="انتخاب سرور" android:textColor="#91BCC7" android:textSize="11sp" android:maxLines="1" />
++            android:text="لوکیشن انتخاب نشده" android:textColor="#B9D9E2" android:textSize="11sp" android:maxLines="1" />
+         <TextView android:id="@+id/widget_message" android:layout_width="match_parent" android:layout_height="wrap_content"
+             android:text="آماده" android:textColor="#D6B45F" android:textSize="10sp" android:maxLines="1" />
+     </LinearLayout>
+diff --git a/app/src/test/java/net/gozar/app/GhajarShopRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarShopRulesTest.kt
+new file mode 100644
+index 0000000..cdafd1d
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarShopRulesTest.kt
+@@ -0,0 +1,18 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class GhajarShopRulesTest {
++    @Test fun customStepsStayInsideServerLimitsAndIncludeBoundaries() {
++        val values = GhajarShopRules.optionValues(20, 80, listOf(10, 30, 50, 100))
++        assertEquals(listOf(20, 30, 50, 80), values)
++        assertTrue(values.all { it in 20..80 })
++    }
++
++    @Test fun customStepsRemainUsefulBeforeTheFirstLiveQuote() {
++        assertEquals(listOf(7, 30, 60, 90, 180),
++            GhajarShopRules.optionValues(0, 0, listOf(7, 30, 60, 90, 180)))
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+index 4197e14..5598e3a 100644
+--- a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
++++ b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+@@ -62,6 +62,14 @@ class GhajarUiRulesTest {
+         assertEquals("king", pick.name)
+         assertEquals(setOf("king"), pick.seen)
+     }
++    @Test fun everyOfflineWelcomePosterHasAnIndependentEducationalPanel() {
++        assertEquals(33, GhajarWelcomeAssets.posters.size)
++        GhajarWelcomeAssets.posters.forEach { poster ->
++            val content = GhajarWelcomeAssets.contentFor(poster.name)
++            assertTrue(content.title.isNotBlank())
++            assertTrue(content.body.isNotBlank())
++        }
++    }
+ 
+     @Test fun nativeTelegramIntentCarriesTheSameCommandAsTheWebFallback() {
+         assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=link_012345",
+diff --git a/app/src/test/java/net/gozar/app/GhajarWidgetRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarWidgetRulesTest.kt
+new file mode 100644
+index 0000000..b2a768b
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/GhajarWidgetRulesTest.kt
+@@ -0,0 +1,22 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Test
++
++class GhajarWidgetRulesTest {
++    @Test fun widgetExposesAllFourConnectionPhases() {
++        assertEquals(GhajarWidgetPhase.DISCONNECTED, GhajarWidgetRules.phase(Connection.DISCONNECTED, null))
++        assertEquals(GhajarWidgetPhase.CONNECTING, GhajarWidgetRules.phase(Connection.CONNECTING, null))
++        assertEquals(GhajarWidgetPhase.CONNECTED, GhajarWidgetRules.phase(Connection.CONNECTED, null))
++        assertEquals(GhajarWidgetPhase.DISCONNECTING, GhajarWidgetRules.phase(Connection.CONNECTED, "disconnecting"))
++        assertEquals("در حال قطع…", GhajarWidgetRules.status(GhajarWidgetPhase.DISCONNECTING))
++    }
++
++    @Test fun nextLocationCyclesWithoutSkippingOrGettingStuck() {
++        val ids = listOf("tehran", "shiraz", "tabriz")
++        assertEquals("tehran", GhajarWidgetRules.nextId(ids, null))
++        assertEquals("shiraz", GhajarWidgetRules.nextId(ids, "tehran"))
++        assertEquals("tehran", GhajarWidgetRules.nextId(ids, "tabriz"))
++        assertEquals(null, GhajarWidgetRules.nextId(emptyList(), "tehran"))
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/GlobeRenderRulesTest.kt b/app/src/test/java/net/gozar/app/GlobeRenderRulesTest.kt
+index 2afb7d4..7f30eed 100644
+--- a/app/src/test/java/net/gozar/app/GlobeRenderRulesTest.kt
++++ b/app/src/test/java/net/gozar/app/GlobeRenderRulesTest.kt
+@@ -39,4 +39,12 @@ class GlobeRenderRulesTest {
+             previous = current
+         }
+     }
++
++    @Test fun unresolvedIpSpinStopsInsteadOfKeepingComposeBusyForever() {
++        val start = 10_000_000_000L
++        assertTrue(globePendingSpinActive(start, start))
++        assertTrue(globePendingSpinActive(start, start + 3_999_999_999L))
++        org.junit.Assert.assertFalse(globePendingSpinActive(start, start + 4_000_000_000L))
++        org.junit.Assert.assertFalse(globePendingSpinActive(start, start - 1L))
++    }
+ }
+-- 
+2.51.1
+

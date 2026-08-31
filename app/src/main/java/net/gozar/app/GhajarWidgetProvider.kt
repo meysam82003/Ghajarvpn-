@@ -13,8 +13,41 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+
+internal enum class GhajarWidgetPhase { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING }
+
+/** Android-free widget contracts kept deterministic for local regression tests. */
+internal object GhajarWidgetRules {
+    fun phase(connection: Connection, operation: String?): GhajarWidgetPhase = when {
+        operation == "disconnecting" && connection != Connection.DISCONNECTED -> GhajarWidgetPhase.DISCONNECTING
+        connection == Connection.CONNECTED -> GhajarWidgetPhase.CONNECTED
+        connection == Connection.CONNECTING || operation == "connecting" -> GhajarWidgetPhase.CONNECTING
+        else -> GhajarWidgetPhase.DISCONNECTED
+    }
+
+    fun status(phase: GhajarWidgetPhase): String = when (phase) {
+        GhajarWidgetPhase.DISCONNECTED -> "قطع"
+        GhajarWidgetPhase.CONNECTING -> "در حال اتصال…"
+        GhajarWidgetPhase.CONNECTED -> "متصل"
+        GhajarWidgetPhase.DISCONNECTING -> "در حال قطع…"
+    }
+
+    fun connectLabel(phase: GhajarWidgetPhase): String = when (phase) {
+        GhajarWidgetPhase.DISCONNECTED -> "وصل"
+        GhajarWidgetPhase.CONNECTING -> "لغو"
+        GhajarWidgetPhase.CONNECTED -> "قطع"
+        GhajarWidgetPhase.DISCONNECTING -> "صبر کنید"
+    }
+
+    fun nextId(ids: List<String>, currentId: String?): String? {
+        if (ids.isEmpty()) return null
+        val index = ids.indexOf(currentId)
+        return ids[(if (index < 0) 0 else (index + 1) % ids.size)]
+    }
+}
 
 internal object GhajarNavigationBus {
     private val _destination = MutableStateFlow<String?>(null)
@@ -36,14 +69,17 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
         val pending = goAsync()
         WIDGET_SCOPE.launch {
             try {
-                val message = when (intent.action) {
-                    ACTION_TOGGLE -> toggle(context.applicationContext)
-                    ACTION_PING -> ping(context.applicationContext)
-                    ACTION_REFRESH -> refresh(context.applicationContext)
-                    else -> null
-                }
+                val message = runCatching {
+                    when (intent.action) {
+                        ACTION_TOGGLE -> toggle(context.applicationContext)
+                        ACTION_PING -> ping(context.applicationContext)
+                        ACTION_REFRESH -> refresh(context.applicationContext)
+                        ACTION_NEXT_LOCATION -> nextLocation(context.applicationContext)
+                        else -> null
+                    }
+                }.getOrElse { "عملیات ویجت انجام نشد" }
                 if (message != null) context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-                    .edit().putString(KEY_MESSAGE, message).apply()
+                    .edit().putString(KEY_MESSAGE, message).remove(KEY_OPERATION).apply()
                 updateEveryWidget(context.applicationContext)
             } finally { pending.finish() }
         }
@@ -53,10 +89,12 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
         private val WIDGET_SCOPE = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         private const val PREFS = "ghajar_widget"
         private const val KEY_MESSAGE = "message"
-        private const val ACTION_TOGGLE = "net.gozar.app.widget.TOGGLE"
-        private const val ACTION_PING = "net.gozar.app.widget.PING"
-        private const val ACTION_REFRESH = "net.gozar.app.widget.REFRESH"
-        private val ACTIONS = setOf(ACTION_TOGGLE, ACTION_PING, ACTION_REFRESH)
+        private const val KEY_OPERATION = "operation"
+        internal const val ACTION_TOGGLE = "net.gozar.app.widget.TOGGLE"
+        internal const val ACTION_PING = "net.gozar.app.widget.PING"
+        internal const val ACTION_REFRESH = "net.gozar.app.widget.REFRESH"
+        internal const val ACTION_NEXT_LOCATION = "net.gozar.app.widget.NEXT_LOCATION"
+        private val ACTIONS = setOf(ACTION_TOGGLE, ACTION_PING, ACTION_REFRESH, ACTION_NEXT_LOCATION)
         const val EXTRA_DESTINATION = "net.gozar.app.widget.DESTINATION"
         const val DEST_SERVERS = "servers"
 
@@ -66,19 +104,17 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
             val store = ConfigStore.get(context)
             store.awaitReady()
             if (snapshot.state == Connection.CONNECTED || snapshot.state == Connection.CONNECTING) {
-                when {
-                    snapshot.activeId?.startsWith("ovpn:") == true -> GhajarOpenVpnBridge.disconnect(context)
-                    store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2" ->
-                        IkeController.disconnect(context)
-                    else -> context.startService(Intent(context, GozarVpnService::class.java)
-                        .setAction(GozarVpnService.ACTION_STOP))
-                }
-                VpnState.setDisconnected()
+                mark(context, "در حال قطع اتصال…", "disconnecting")
+                disconnect(context, snapshot, store)
                 return "قطع شد"
             }
-            val id = store.selectedId.value
-            val config = store.configs.value.firstOrNull { it.id == id }
+            val config = store.configs.value.firstOrNull { it.id == store.selectedId.value }
                 ?: return "ابتدا سرور را انتخاب کن"
+            mark(context, "در حال اتصال…", "connecting")
+            return connect(context, store, config)
+        }
+
+        private suspend fun connect(context: Context, store: ConfigStore, config: ProxyConfig): String {
             if (VpnService.prepare(context) != null) return "برای مجوز، برنامه را باز کن"
             if (config.protocol == "openvpn" || config.id.startsWith("ovpn:")) {
                 return GhajarOpenVpnBridge.connectSaved(context, config).fold(
@@ -107,7 +143,41 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
                 .getOrElse { VpnState.setDisconnected(); "اتصال شروع نشد" }
         }
 
+        private fun disconnect(context: Context, snapshot: VpnConnectionStore.Snapshot, store: ConfigStore) {
+            when {
+                snapshot.activeId?.startsWith("ovpn:") == true -> GhajarOpenVpnBridge.disconnect(context)
+                store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2" ->
+                    IkeController.disconnect(context)
+                else -> context.startService(Intent(context, GozarVpnService::class.java)
+                    .setAction(GozarVpnService.ACTION_STOP))
+            }
+            VpnState.setDisconnected()
+        }
+
+        private suspend fun nextLocation(context: Context): String {
+            VpnState.initialize(context)
+            val store = ConfigStore.get(context)
+            store.awaitReady()
+            val configs = store.configs.value
+            val nextId = GhajarWidgetRules.nextId(configs.map { it.id }, store.selectedId.value)
+                ?: return "لوکیشنی برای انتخاب وجود ندارد"
+            val next = configs.first { it.id == nextId }
+            val snapshot = VpnConnectionStore.read(context)
+            store.setSelectedId(next.id)
+            if (snapshot.state == Connection.CONNECTED || snapshot.state == Connection.CONNECTING) {
+                mark(context, "تغییر به ${publicName(next)}…", "disconnecting")
+                disconnect(context, snapshot, store)
+                // Let protocol services release their tunnel before the selected
+                // location is started again from this same widget action.
+                delay(650)
+                mark(context, "اتصال به ${publicName(next)}…", "connecting")
+                return connect(context, store, next)
+            }
+            return "لوکیشن: ${publicName(next)}"
+        }
+
         private suspend fun ping(context: Context): String {
+            mark(context, "در حال سنجش پینگ واقعی…", null)
             val store = ConfigStore.get(context)
             store.awaitReady()
             val active = VpnConnectionStore.read(context).activeId
@@ -125,11 +195,16 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
         }
 
         private suspend fun refresh(context: Context): String {
+            mark(context, "در حال بروزرسانی ساب…", "refreshing")
             val store = ConfigStore.get(context)
             store.awaitReady()
-            val summary = SubscriptionRefresher.refreshAll(store)
-            return if (summary.failed == 0) "${summary.configs} کانفیگ بروزرسانی شد"
-            else "${summary.updated}/${summary.attempted} ساب بروزرسانی شد"
+            return runCatching { SubscriptionRefresher.refreshAll(store) }.fold(
+                onSuccess = { summary ->
+                    if (summary.failed == 0) "بروزرسانی موفق · ${summary.configs} کانفیگ"
+                    else "خطا · ${summary.updated}/${summary.attempted} ساب بروزرسانی شد"
+                },
+                onFailure = { "بروزرسانی ساب ناموفق" }
+            )
         }
 
         private fun render(context: Context, manager: AppWidgetManager, id: Int,
@@ -137,26 +212,30 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
             val snapshot = VpnConnectionStore.read(context)
             val store = ConfigStore.get(context)
             val selected = store.configs.value.firstOrNull { it.id == (snapshot.activeId ?: store.selectedId.value) }
-            val status = when (snapshot.state) {
-                Connection.CONNECTED -> "متصل"
-                Connection.CONNECTING -> "در حال اتصال…"
-                Connection.ERROR -> "خطای اتصال"
-                else -> "قطع"
-            }
+            val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            val operation = prefs.getString(KEY_OPERATION, null)
+            val phase = GhajarWidgetRules.phase(snapshot.state, operation)
+            val status = if (snapshot.state == Connection.ERROR) "خطای اتصال" else GhajarWidgetRules.status(phase)
             val views = RemoteViews(context.packageName, layout)
             views.setTextViewText(R.id.widget_status, status)
             views.setTextViewText(R.id.widget_server,
-                selected?.name?.let(BrandConfig::sanitizePublicText)
-                    ?: GhajarOpenVpnBridge.activeName(context) ?: "انتخاب سرور")
-            views.setTextViewText(R.id.widget_connect,
-                if (snapshot.state in setOf(Connection.CONNECTED, Connection.CONNECTING)) "قطع" else "وصل")
+                selected?.let { "لوکیشن: ${publicName(it)}" }
+                    ?: GhajarOpenVpnBridge.activeName(context)?.let { "لوکیشن: ${BrandConfig.sanitizePublicText(it)}" }
+                    ?: "لوکیشن انتخاب نشده")
+            views.setTextViewText(R.id.widget_connect, GhajarWidgetRules.connectLabel(phase))
             views.setTextViewText(R.id.widget_message,
-                context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_MESSAGE, "آماده") ?: "آماده")
+                prefs.getString(KEY_MESSAGE, "آماده") ?: "آماده")
+            views.setTextColor(R.id.widget_status, when (phase) {
+                GhajarWidgetPhase.CONNECTED -> 0xFF78D6A8.toInt()
+                GhajarWidgetPhase.CONNECTING -> 0xFFFFD166.toInt()
+                GhajarWidgetPhase.DISCONNECTING -> 0xFFFFA36C.toInt()
+                GhajarWidgetPhase.DISCONNECTED -> 0xFFF7F2E8.toInt()
+            })
             views.setOnClickPendingIntent(R.id.widget_connect, broadcast(context, provider, id, ACTION_TOGGLE))
             if (layout == R.layout.ghajar_widget_control) {
                 views.setOnClickPendingIntent(R.id.widget_ping, broadcast(context, provider, id, ACTION_PING))
                 views.setOnClickPendingIntent(R.id.widget_refresh, broadcast(context, provider, id, ACTION_REFRESH))
-                views.setOnClickPendingIntent(R.id.widget_servers, openApp(context, id, DEST_SERVERS))
+                views.setOnClickPendingIntent(R.id.widget_servers, broadcast(context, provider, id, ACTION_NEXT_LOCATION))
             }
             views.setOnClickPendingIntent(R.id.widget_root, openApp(context, id, null))
             manager.updateAppWidget(id, views)
@@ -186,6 +265,15 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
                 }
             }
         }
+
+        private fun mark(context: Context, message: String, operation: String?) {
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putString(KEY_MESSAGE, message).putString(KEY_OPERATION, operation).apply()
+            updateEveryWidget(context)
+        }
+
+        private fun publicName(config: ProxyConfig): String =
+            BrandConfig.sanitizePublicText(config.name).ifBlank { config.protocol.uppercase() }
     }
 }
 

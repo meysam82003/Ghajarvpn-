@@ -10,7 +10,7 @@
         <TextView android:id="@+id/widget_status" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="قطع" android:textColor="#F7F2E8" android:textStyle="bold" android:textSize="15sp" />
         <TextView android:id="@+id/widget_server" android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="انتخاب سرور" android:textColor="#91BCC7" android:textSize="11sp" android:maxLines="1" />
+            android:text="لوکیشن انتخاب نشده" android:textColor="#B9D9E2" android:textSize="11sp" android:maxLines="1" />
         <TextView android:id="@+id/widget_message" android:layout_width="match_parent" android:layout_height="wrap_content"
             android:text="آماده" android:textColor="#D6B45F" android:textSize="10sp" android:maxLines="1" />
     </LinearLayout>

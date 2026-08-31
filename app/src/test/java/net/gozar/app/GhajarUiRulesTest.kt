@@ -62,6 +62,14 @@ class GhajarUiRulesTest {
         assertEquals("king", pick.name)
         assertEquals(setOf("king"), pick.seen)
     }
+    @Test fun everyOfflineWelcomePosterHasAnIndependentEducationalPanel() {
+        assertEquals(33, GhajarWelcomeAssets.posters.size)
+        GhajarWelcomeAssets.posters.forEach { poster ->
+            val content = GhajarWelcomeAssets.contentFor(poster.name)
+            assertTrue(content.title.isNotBlank())
+            assertTrue(content.body.isNotBlank())
+        }
+    }
 
     @Test fun nativeTelegramIntentCarriesTheSameCommandAsTheWebFallback() {
         assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=link_012345",
