@@ -39,4 +39,12 @@ class GlobeRenderRulesTest {
             previous = current
         }
     }
+
+    @Test fun unresolvedIpSpinStopsInsteadOfKeepingComposeBusyForever() {
+        val start = 10_000_000_000L
+        assertTrue(globePendingSpinActive(start, start))
+        assertTrue(globePendingSpinActive(start, start + 3_999_999_999L))
+        org.junit.Assert.assertFalse(globePendingSpinActive(start, start + 4_000_000_000L))
+        org.junit.Assert.assertFalse(globePendingSpinActive(start, start - 1L))
+    }
 }
