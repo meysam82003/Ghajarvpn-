@@ -55,9 +55,15 @@ internal object GhajarWelcomeRotation {
         if (names.isEmpty()) return null
         val seen = previouslySeen.intersect(names.toSet())
         val unseen = names.filterNot { it in seen }
-        val newCycle = unseen.isEmpty()
-        val choices = if (newCycle) names.filter { names.size == 1 || it != last } else unseen
+        // Never repeat the poster that was shown immediately before this pick. If
+        // persisted state is incomplete and the only unseen item equals `last`,
+        // start a fresh cycle rather than producing a visible back-to-back repeat.
+        val restartCycle = unseen.isEmpty() ||
+            (names.size > 1 && unseen.size == 1 && unseen.first() == last)
+        val cyclePool = if (restartCycle) names else unseen
+        val withoutLast = if (names.size > 1) cyclePool.filterNot { it == last } else cyclePool
+        val choices = withoutLast.ifEmpty { cyclePool }
         val selected = choices.random(random)
-        return Pick(selected, (if (newCycle) emptySet() else seen) + selected)
+        return Pick(selected, (if (restartCycle) emptySet() else seen) + selected)
     }
 }
