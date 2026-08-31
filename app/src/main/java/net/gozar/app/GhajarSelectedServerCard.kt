@@ -47,6 +47,7 @@ internal fun GhajarSelectedServerCard(config: ProxyConfig?, connection: Connecti
                 Text(when (connection) {
                     Connection.CONNECTED -> "متصل"
                     Connection.CONNECTING -> "در حال اتصال…"
+                    Connection.DISCONNECTING -> "در حال قطع…"
                     Connection.ERROR -> "اتصال برقرار نشد"
                     else -> "آمادهٔ اتصال"
                 }, style = MaterialTheme.typography.labelMedium,

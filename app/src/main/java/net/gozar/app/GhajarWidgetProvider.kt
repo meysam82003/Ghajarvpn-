@@ -23,6 +23,7 @@ internal enum class GhajarWidgetPhase { DISCONNECTED, CONNECTING, CONNECTED, DIS
 internal object GhajarWidgetRules {
     fun phase(connection: Connection, operation: String?): GhajarWidgetPhase = when {
         operation == "disconnecting" && connection != Connection.DISCONNECTED -> GhajarWidgetPhase.DISCONNECTING
+        connection == Connection.DISCONNECTING -> GhajarWidgetPhase.DISCONNECTING
         connection == Connection.CONNECTED -> GhajarWidgetPhase.CONNECTED
         connection == Connection.CONNECTING || operation == "connecting" -> GhajarWidgetPhase.CONNECTING
         else -> GhajarWidgetPhase.DISCONNECTED
@@ -144,14 +145,21 @@ abstract class GhajarWidgetProvider : AppWidgetProvider() {
         }
 
         private fun disconnect(context: Context, snapshot: VpnConnectionStore.Snapshot, store: ConfigStore) {
+            VpnState.beginDisconnecting()
             when {
-                snapshot.activeId?.startsWith("ovpn:") == true -> GhajarOpenVpnBridge.disconnect(context)
-                store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2" ->
+                snapshot.activeId?.startsWith("ovpn:") == true -> {
+                    GhajarOpenVpnBridge.disconnect(context)
+                    VpnState.setDisconnected()
+                }
+                store.configs.value.firstOrNull { it.id == snapshot.activeId }?.protocol == "ikev2" -> {
                     IkeController.disconnect(context)
+                    VpnState.setDisconnected()
+                }
+                // Xray: let the service confirm via its broadcast (or the
+                // watchdog force the state within 3s if the service is silent).
                 else -> context.startService(Intent(context, GozarVpnService::class.java)
                     .setAction(GozarVpnService.ACTION_STOP))
             }
-            VpnState.setDisconnected()
         }
 
         private suspend fun nextLocation(context: Context): String {

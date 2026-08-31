@@ -113,4 +113,70 @@ class VpnStateGateTest {
         assertEquals(Connection.CONNECTING, VpnState.state.value)
         assertNotEquals("شبکه در دسترس نیست", VpnState.error.value)
     }
+
+    @Test fun beginDisconnectingShowsDisconnectingAndServiceConfirmClearsIt() {
+        VpnState.setConnecting("a")
+        now += 1_000
+        VpnState.setConnected()
+        VpnState.beginDisconnecting()
+        assertEquals(Connection.DISCONNECTING, VpnState.state.value)
+        VpnState.setDisconnected()
+        assertEquals(Connection.DISCONNECTED, VpnState.state.value)
+    }
+
+    @Test fun connectIsBlockedWhileDisconnecting() {
+        VpnState.setConnecting("a")
+        now += 1_000
+        VpnState.setConnected()
+        now += 1_000
+        VpnState.beginDisconnecting()
+        now += 2_000
+        VpnState.setConnecting("b")
+        assertEquals(Connection.DISCONNECTING, VpnState.state.value)
+    }
+
+    @Test fun setConnectedCannotLandDuringDisconnecting() {
+        VpnState.setConnecting("a")
+        now += 1_000
+        VpnState.beginDisconnecting()
+        VpnState.setConnected()
+        assertEquals(Connection.DISCONNECTING, VpnState.state.value)
+    }
+
+    @Test fun repeatedDisconnectingIsIdempotent() {
+        VpnState.setConnecting("a")
+        now += 1_000
+        VpnState.setConnected()
+        VpnState.beginDisconnecting()
+        now += 500
+        VpnState.beginDisconnecting()
+        assertEquals(Connection.DISCONNECTING, VpnState.state.value)
+        VpnState.setDisconnected()
+        assertEquals(Connection.DISCONNECTED, VpnState.state.value)
+    }
+
+    @Test fun disconnectingNeverPersistsAcrossProcessRestart() {
+        VpnState.setConnecting("a")
+        now += 1_000
+        VpnState.setConnected()
+        VpnState.beginDisconnecting()
+        // simulate the next process reading the persisted state
+        VpnState.resetForTests()
+        assertEquals(Connection.DISCONNECTED, VpnState.state.value)
+    }
+
+    @Test fun disconnectFromConnectingOrErrorAlsoEntersDisconnecting() {
+        VpnState.setConnecting("a")
+        VpnState.beginDisconnecting()
+        assertEquals(Connection.DISCONNECTING, VpnState.state.value)
+        VpnState.setDisconnected()
+
+        VpnState.setConnecting("a")
+        now += 1_000
+        VpnState.setError("شبکه در دسترس نیست")
+        VpnState.beginDisconnecting()
+        assertEquals(Connection.DISCONNECTING, VpnState.state.value)
+        VpnState.setDisconnected()
+        assertEquals(Connection.DISCONNECTED, VpnState.state.value)
+    }
 }

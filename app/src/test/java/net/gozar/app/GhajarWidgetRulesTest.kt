@@ -9,6 +9,7 @@ class GhajarWidgetRulesTest {
         assertEquals(GhajarWidgetPhase.CONNECTING, GhajarWidgetRules.phase(Connection.CONNECTING, null))
         assertEquals(GhajarWidgetPhase.CONNECTED, GhajarWidgetRules.phase(Connection.CONNECTED, null))
         assertEquals(GhajarWidgetPhase.DISCONNECTING, GhajarWidgetRules.phase(Connection.CONNECTED, "disconnecting"))
+        assertEquals(GhajarWidgetPhase.DISCONNECTING, GhajarWidgetRules.phase(Connection.DISCONNECTING, null))
         assertEquals("در حال قطع…", GhajarWidgetRules.status(GhajarWidgetPhase.DISCONNECTING))
     }
 

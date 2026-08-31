@@ -1062,6 +1062,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun disconnect() {
+        // Reflect the user's intent instantly; the tunnel confirmation (or the
+        // watchdog) moves the state on to DISCONNECTED.
+        VpnState.beginDisconnecting()
         GhajarLocationMonitor.clearStale()
         if (VpnState.activeId.value?.startsWith("ovpn:") == true) {
             GhajarOpenVpnBridge.disconnect(this)
@@ -1837,7 +1840,7 @@ private fun ConnectionScreen(
                     val stateTint by animateColorAsState(
                         when {
                             netOffline || deadTunnel -> Color(0xFFE0413C)
-                            conn == Connection.CONNECTING -> Color(0xFFFFA94D)
+                            conn == Connection.CONNECTING || conn == Connection.DISCONNECTING -> Color(0xFFFFA94D)
                             connected -> AppGreen
                             else -> MaterialTheme.colorScheme.primary
                         },
@@ -8810,6 +8813,7 @@ private fun statusText(conn: Connection, error: String?, lang: Lang): String = w
     Connection.DISCONNECTED -> Strings.get(lang, "status_disconnected")
     Connection.CONNECTING -> Strings.get(lang, "status_connecting")
     Connection.CONNECTED -> Strings.get(lang, "status_connected")
+    Connection.DISCONNECTING -> Strings.get(lang, "status_disconnecting")
     Connection.ERROR -> localizeDigits("${Strings.get(lang, "status_error")}: ${error ?: ""}", lang)
 }
 
