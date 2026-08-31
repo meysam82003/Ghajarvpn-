@@ -1062,6 +1062,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun disconnect() {
+        GhajarLocationMonitor.clearStale()
         if (VpnState.activeId.value?.startsWith("ovpn:") == true) {
             GhajarOpenVpnBridge.disconnect(this)
             VpnState.setDisconnected()
@@ -1200,7 +1201,12 @@ private fun GozarApp(
         importPassword = ""
         importError = ""
         val readable = withContext(Dispatchers.Default) { GhajarImportRules.readableText(bytes) }
-        val subscriptionUrl = GhajarImportRules.subscriptionUrl(readable)
+        // An open-text NPVT carries noise around its payload; route it through
+        // the shared channel rules. Locked NPVT keeps falling through to the
+        // owner-password path below and is never bypassed.
+        val effective = if (GhajarImportRules.isNpvt(import.fileName))
+            GhajarChannelRules.npvtPayload(readable) ?: readable else readable
+        val subscriptionUrl = GhajarImportRules.subscriptionUrl(effective)
         if (subscriptionUrl != null) {
             importBusy = true
             try {
@@ -1223,7 +1229,7 @@ private fun GozarApp(
             return@LaunchedEffect
         }
         val plain = withContext(Dispatchers.Default) {
-            runCatching { ConfigParser.parseBundle(readable.orEmpty()) }
+            runCatching { ConfigParser.parseBundle(effective.orEmpty()) }
                 .getOrDefault(emptyList())
         }
         if (plain.isNotEmpty()) {
@@ -2274,12 +2280,16 @@ private fun ConfigPickerScreen(
     LaunchedEffect(scanned) {
         scanned?.let { text ->
             ImportBus.clearScan()
-            if (ConfigParser.parseBundle(text).isEmpty() &&
-                !text.startsWith("http://") && !text.startsWith("https://")
+            // Channel posts from any source may wrap configs in noise; extract
+            // every proxy link before deciding the text is invalid.
+            val extracted = if (ConfigParser.parseBundle(text).isEmpty())
+                GhajarChannelRules.extractProxyLinks(text).joinToString("\n") else text
+            if (ConfigParser.parseBundle(extracted).isEmpty() &&
+                !extracted.startsWith("http://") && !extracted.startsWith("https://")
             ) {
                 addDone = t("qr_invalid")
             } else {
-                doAdd(text)
+                doAdd(extracted)
             }
         }
     }

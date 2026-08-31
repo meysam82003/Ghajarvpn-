@@ -38,20 +38,20 @@ class GhajarAndroid14RegressionTest {
 
         val scenario = ActivityScenario.launch(MainActivity::class.java)
         try {
-            // A first-time poster remains until the user enters, so this verifies
-            // that cold start reaches real full-screen artwork instead of a late IO result.
+            // A first-time poster remains until it auto-closes or is tapped, so
+            // this verifies that cold start reaches real full-screen artwork
+            // instead of a late IO result.
             compose.waitUntil(15000) {
                 compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
                     .fetchSemanticsNodes().isNotEmpty()
             }
-            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_panel"))
-                .fetchSemanticsNodes().isNotEmpty())
-            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
+            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster_fit"))
                 .fetchSemanticsNodes().isNotEmpty())
             assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect"))
                 .fetchSemanticsNodes().isEmpty())
             screenshot(context, "cold-welcome")
-            compose.onNodeWithTag("ghajar_welcome_enter").performClick()
+            compose.onNodeWithTag("ghajar_welcome_poster", useUnmergedTree = true)
+                .performClick()
             compose.waitUntil(15000) {
                 compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
                     .fetchSemanticsNodes().isEmpty() &&
@@ -102,9 +102,10 @@ class GhajarAndroid14RegressionTest {
             store.add(config); store.setSelectedId(config.id)
             val scenario = ActivityScenario.launch(MainActivity::class.java)
             try {
-                compose.waitUntil(15000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
+                compose.waitUntil(15000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
                     .fetchSemanticsNodes().isNotEmpty() }
-                compose.onNodeWithTag("ghajar_welcome_enter").performClick()
+                compose.onNodeWithTag("ghajar_welcome_poster", useUnmergedTree = true)
+                    .performClick()
                 compose.waitUntil(20000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster")).fetchSemanticsNodes().isEmpty() &&
                     compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect")).fetchSemanticsNodes().isNotEmpty() }
                 repeat(2) { cycle ->
