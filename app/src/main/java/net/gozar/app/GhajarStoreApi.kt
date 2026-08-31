@@ -44,6 +44,7 @@ data class GhajarProduct(
     val price: Long?,
     val trafficGb: Double?,
     val days: Int?,
+    val users: Int?,
     val description: String,
     val countryId: String
 )
@@ -239,6 +240,8 @@ class GhajarStoreApi(context: Context) {
                 price = row.optNullableDouble("price")?.takeIf { it.isFinite() && it >= 0 }?.toLong(),
                 trafficGb = row.optNullableDouble("traffic_gb")?.takeIf { it >= 0 },
                 days = row.optInt("time_days", -1).takeIf { it >= 0 },
+                users = listOf("user_limit", "limit_user", "users", "ip_limit", "limit_ip")
+                    .asSequence().map { row.optInt(it, -1) }.firstOrNull { it > 0 },
                 description = visible(row.optString("description")),
                 countryId = row.optString("country_id", countryId)
             )

@@ -5,6 +5,7 @@ import android.content.Context
 /** Offline artwork only: no host, bot gallery or remote boot request. */
 internal object GhajarWelcomeAssets {
     data class Poster(val name: String, val resourceId: Int, val dark: Boolean)
+    data class Content(val title: String, val body: String)
     val posters = listOf(
         Poster("ghajar_welcome_world", R.drawable.ghajar_welcome_world, false),
         Poster("ghajar_welcome_connection", R.drawable.ghajar_welcome_connection, false),
@@ -40,6 +41,24 @@ internal object GhajarWelcomeAssets {
         Poster("ghajar_welcome_extra_21", R.drawable.ghajar_welcome_extra_21, true),
         Poster("ghajar_welcome_extra_22", R.drawable.ghajar_welcome_extra_22, false)
     )
+
+    private val contents = listOf(
+        Content("اتصال سریع و روشن", "وضعیت اتصال را روی خانه ببینید و با یک لمس وصل یا قطع شوید."),
+        Content("ساب را تازه نگه دارید", "قبل از اتصال، یک‌بار ساب را بروزرسانی کنید تا لوکیشن‌های تازه برسند."),
+        Content("بهترین لوکیشن را پیدا کنید", "پینگ لوکیشن‌ها را بررسی کنید و نزدیک‌ترین مسیر را انتخاب کنید."),
+        Content("کانفیگ رایگان", "بخش کانفیگ رایگان برای شروع سریع و بدون خرید در دسترس است."),
+        Content("پشتیبانی OpenVPN", "پروفایل OpenVPN را وارد کنید و نتیجهٔ پینگ را پیش از اتصال ببینید."),
+        Content("فروشگاه داخل برنامه", "سرویس آماده یا سفارشی را انتخاب کنید و وضعیت پرداخت را امن پیگیری کنید."),
+        Content("سرویس‌های ویژه", "حجم و مدت دلخواه را بسازید و قیمت نهایی را همان لحظه ببینید."),
+        Content("ویجت مرکز فرمان", "اتصال، پینگ، بروزرسانی ساب و تغییر لوکیشن از صفحهٔ خانه انجام می‌شود."),
+        Content("امنیت شاهانه", "اطلاعات حساس در فضای خصوصی برنامه نگهداری و مسیر پرداخت جدا بررسی می‌شود."),
+        Content("حریم خصوصی", "قاجار VPN وضعیت لازم را شفاف نشان می‌دهد و کنترل اتصال دست خود شماست.")
+    )
+
+    fun contentFor(posterName: String): Content {
+        val index = posters.indexOfFirst { it.name == posterName }.coerceAtLeast(0)
+        return contents[index % contents.size]
+    }
 
     @Synchronized
     fun reserve(context: Context): String {

@@ -3,12 +3,12 @@ package net.gozar.app
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.animateContentSize
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +16,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -30,7 +32,11 @@ import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.Group
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -52,13 +58,13 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -74,11 +80,13 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.ViewModelProvider
 import androidx.activity.ComponentActivity
@@ -144,6 +152,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var customTraffic by remember { mutableStateOf("") }
     var customDays by remember { mutableStateOf("") }
     var customQuote by remember { mutableStateOf<GhajarCustomQuote?>(null) }
+    var customQuoteLoading by remember { mutableStateOf(false) }
+    var customQuoteError by remember { mutableStateOf<String?>(null) }
     var customUsername by remember { mutableStateOf("") }
     var customNote by remember { mutableStateOf("") }
     var discountCode by remember { mutableStateOf("") }
@@ -250,6 +260,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         selectedTime = null
         customMode = false
         customQuote = null
+        customQuoteError = null
         products = emptyList()
         storeResult {
             categories = api.categories(panel.id)
@@ -266,6 +277,38 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 products = if (customMode) emptyList() else api.products(panel.id, selectedCategory?.id, selectedTime?.days)
             }.onFailure { error = GhajarCommerceRules.publicMessage(it.message.orEmpty()) }
         } finally { busy = false }
+    }
+
+    LaunchedEffect(customMode, selectedPanel?.id, customTraffic, customDays) {
+        val panel = selectedPanel ?: return@LaunchedEffect
+        val traffic = customTraffic.toIntOrNull()
+        val days = customDays.toIntOrNull()
+        if (!customMode || traffic == null || traffic <= 0 || days == null || days <= 0) {
+            customQuote = null
+            customQuoteLoading = false
+            customQuoteError = null
+            return@LaunchedEffect
+        }
+        customQuote = null
+        customQuoteLoading = true
+        customQuoteError = null
+        delay(450)
+        try {
+            val quote = api.customQuote(panel.id, traffic, days)
+            currentCoroutineContext().ensureActive()
+            if (selectedPanel?.id == panel.id && customTraffic.toIntOrNull() == traffic &&
+                customDays.toIntOrNull() == days) customQuote = quote
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (selectedPanel?.id == panel.id && customTraffic.toIntOrNull() == traffic &&
+                customDays.toIntOrNull() == days) {
+                customQuoteError = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
+            }
+        } finally {
+            if (selectedPanel?.id == panel.id && customTraffic.toIntOrNull() == traffic &&
+                customDays.toIntOrNull() == days) customQuoteLoading = false
+        }
     }
 
     LaunchedEffect(linkSession?.sessionToken, active, lifecycle) {
@@ -332,6 +375,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         }
     }
 
+    CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Rtl) {
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 14.dp),
         state = listState,
@@ -466,7 +510,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
             if (panels.isNotEmpty()) {
                 item {
-                    FilterRow(
+                    ServiceSelectionGrid(
                         items = panels,
                         selected = selectedPanel,
                         label = { it.name },
@@ -476,7 +520,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
             if (categories.isNotEmpty()) {
                 item {
-                    NullableFilterRow(
+                    ChoiceGrid(
                         allLabel = "همه دسته‌ها",
                         items = categories,
                         selected = selectedCategory,
@@ -487,7 +531,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
             if (timeRanges.isNotEmpty()) {
                 item {
-                    NullableFilterRow(
+                    ChoiceGrid(
                         allLabel = "همه مدت‌ها",
                         items = timeRanges,
                         selected = selectedTime,
@@ -501,7 +545,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 item {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         FilterChip(selected = !customMode, onClick = { customMode = false }, label = { Text("پلن‌های آماده") })
-                        FilterChip(selected = customMode, onClick = { customMode = true }, label = { Text("سرویس سفارشی") })
+                        FilterChip(selected = customMode, onClick = {
+                            customMode = true
+                            if (customTraffic.isBlank()) customTraffic = "50"
+                            if (customDays.isBlank()) customDays = "30"
+                        }, label = { Text("سرویس سفارشی") })
                     }
                 }
             }
@@ -512,23 +560,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         traffic = customTraffic,
                         days = customDays,
                         quote = customQuote,
+                        location = selectedPanel?.name.orEmpty(),
+                        loading = customQuoteLoading,
+                        quoteError = customQuoteError,
                         onTrafficChange = { customTraffic = asciiDigits(it).take(5); customQuote = null },
                         onDaysChange = { customDays = asciiDigits(it).take(4); customQuote = null },
-                        onQuote = {
-                            val panel = selectedPanel ?: return@CustomServiceCard
-                            if (busy) return@CustomServiceCard
-                            val requestedTraffic = customTraffic
-                            val requestedDays = customDays
-                            scope.launch {
-                                busy = true
-                                storeResult {
-                                    api.customQuote(panel.id, requestedTraffic.toIntOrNull() ?: 0, requestedDays.toIntOrNull() ?: 0)
-                                }.onSuccess {
-                                    if (customTraffic == requestedTraffic && customDays == requestedDays && selectedPanel?.id == panel.id) customQuote = it
-                                }.onFailure { error = it.message }
-                                busy = false
-                            }
-                        }
                     )
                 }
             } else {
@@ -632,6 +668,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             },
             dismissButton = { TextButton(onClick = { confirmation = null }) { Text("بازگشت") } }
         )
+    }
     }
 }
 
@@ -746,44 +783,64 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) 
     }
 }
 
-@Composable
-private fun <T> FilterRow(items: List<T>, selected: T?, label: (T) -> String, onSelect: (T) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(selected?.let(label) ?: "انتخاب لوکیشن", maxLines = 2)
+internal object GhajarShopRules {
+    fun optionValues(min: Int, max: Int, defaults: List<Int>): List<Int> {
+        val validMin = min.takeIf { it > 0 }
+        val validMax = max.takeIf { it >= (validMin ?: 1) }
+        val candidates = buildList {
+            addAll(defaults)
+            validMin?.let(::add)
+            if (validMin != null && validMax != null) add(validMin + (validMax - validMin) / 2)
+            validMax?.let(::add)
         }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
+        return candidates.filter { value -> value > 0 &&
+            (validMin == null || value >= validMin) && (validMax == null || value <= validMax) }
+            .distinct().sorted().take(6)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun <T> ServiceSelectionGrid(items: List<T>, selected: T?, label: (T) -> String, onSelect: (T) -> Unit) {
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        items.forEach { item ->
+            FilterChip(
+                selected = item == selected,
+                onClick = { onSelect(item) },
+                leadingIcon = { Icon(Icons.Filled.Place, null, modifier = Modifier.size(18.dp)) },
+                label = { Text(label(item), maxLines = 2, textAlign = TextAlign.Center) }
+            )
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun <T> NullableFilterRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(selected?.let(label) ?: allLabel, maxLines = 2)
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelect(null); open = false })
-            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
+private fun <T> ChoiceGrid(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
+    FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        FilterChip(selected = selected == null, onClick = { onSelect(null) }, label = { Text(allLabel) })
+        items.forEach { item ->
+            FilterChip(selected = item == selected, onClick = { onSelect(item) }, label = { Text(label(item)) })
         }
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(24.dp), elevation = CardDefaults.cardElevation(2.dp),
-        border = BorderStroke(1.dp, Color(0x66D6B45F)),
-        modifier = Modifier.fillMaxWidth()) {
-        Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+internal fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
+    var expanded by remember(product.id) { mutableStateOf(false) }
+    Card(onClick = { expanded = !expanded },
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        shape = RoundedCornerShape(22.dp), elevation = CardDefaults.cardElevation(2.dp),
+        border = BorderStroke(1.dp, Color(0x66D6B45F)), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().animateContentSize().padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(11.dp)) {
-                Box(Modifier.size(44.dp).clip(CircleShape).background(Color(0x1FD6B45F)),
+                Box(Modifier.size(42.dp).clip(CircleShape).background(Color(0x1FD6B45F)),
                     contentAlignment = Alignment.Center) {
-                    Icon(Icons.Filled.Shield, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(27.dp))
+                    Icon(Icons.Filled.Shield, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(25.dp))
                 }
                 Column(Modifier.weight(1f)) {
                     Text(product.name, style = MaterialTheme.typography.titleMedium,
@@ -792,24 +849,24 @@ private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> U
                         ?: "قیمت در دسترس نیست", color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
                 }
+                Icon(if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                    if (expanded) "بستن توضیحات" else "نمایش توضیحات")
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                product.trafficGb?.let {
-                    Text("${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ",
-                        modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(12.dp))
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
-                        style = MaterialTheme.typography.labelLarge)
-                }
-                product.days?.let {
-                    Text("$it روز", modifier = Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 10.dp, vertical = 6.dp), style = MaterialTheme.typography.labelLarge)
-                }
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                product.trafficGb?.let { ProductBadge("${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ") }
+                product.days?.let { ProductBadge("$it روز") }
+                product.users?.let { ProductBadge("$it کاربر", Icons.Filled.Group) }
+                ProductBadge("آمادهٔ اتصال")
             }
-            Text(product.description.ifBlank { "سرویس آمادهٔ اتصال؛ مشخصات از پنل فروش دریافت شده است." },
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (expanded) {
+                Text(product.description.ifBlank { "سرویس آمادهٔ اتصال؛ مشخصات از پنل فروش دریافت شده است." },
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            } else {
+                Text("برای دیدن توضیحات کامل روی کارت بزنید", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             Button(onClick = onBuy, enabled = enabled && product.price != null,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(16.dp)) {
+                modifier = Modifier.fillMaxWidth().heightIn(min = 46.dp), shape = RoundedCornerShape(15.dp)) {
                 Icon(Icons.Filled.ShoppingCart, null, modifier = Modifier.size(19.dp))
                 Spacer(Modifier.width(8.dp))
                 Text("انتخاب این سرویس")
@@ -819,29 +876,79 @@ private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> U
 }
 
 @Composable
+private fun ProductBadge(text: String, icon: androidx.compose.ui.graphics.vector.ImageVector? = null) {
+    Row(Modifier.background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(11.dp))
+        .padding(horizontal = 9.dp, vertical = 5.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        icon?.let { Icon(it, null, modifier = Modifier.size(15.dp)) }
+        Text(text, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun CustomServiceCard(
     traffic: String,
     days: String,
     quote: GhajarCustomQuote?,
+    location: String,
+    loading: Boolean,
+    quoteError: String?,
     onTrafficChange: (String) -> Unit,
-    onDaysChange: (String) -> Unit,
-    onQuote: () -> Unit
+    onDaysChange: (String) -> Unit
 ) {
-    Card(shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("سرویس سفارشی", fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(traffic, onTrafficChange, label = { Text("حجم (گیگ)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-                OutlinedTextField(days, onDaysChange, label = { Text("مدت (روز)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+    val trafficOptions = GhajarShopRules.optionValues(quote?.trafficMin ?: 0, quote?.trafficMax ?: 0,
+        listOf(10, 30, 50, 100, 200))
+    val dayOptions = GhajarShopRules.optionValues(quote?.timeMin ?: 0, quote?.timeMax ?: 0,
+        listOf(7, 30, 60, 90, 180))
+    Card(shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF102F2A)),
+        border = BorderStroke(1.dp, Color(0xAAD6B45F))) {
+        Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(13.dp)) {
+            Text("سرویس سفارشی قاجار", color = Color(0xFFD6B45F),
+                style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.ExtraBold)
+            Text("لوکیشن: $location", color = Color(0xFFEAF6F2), style = MaterialTheme.typography.bodyMedium)
+
+            Text("۱. حجم موردنیاز", color = Color.White, fontWeight = FontWeight.Bold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                trafficOptions.forEach { value ->
+                    FilterChip(selected = traffic == value.toString(), onClick = { onTrafficChange(value.toString()) },
+                        label = { Text("$value گیگ") })
+                }
             }
-            quote?.let {
-                Text(
-                    if (it.price != null) "قیمت لحظه‌ای: ${formatPrice(it.price)} تومان" else "سرویس سفارشی برای این پنل فعال نیست",
-                    color = Color(0xFFD6B45F), fontWeight = FontWeight.Bold
-                )
-                Text("حجم ${it.trafficMin} تا ${it.trafficMax} گیگ · زمان ${it.timeMin} تا ${it.timeMax} روز", style = MaterialTheme.typography.bodySmall)
+            OutlinedTextField(traffic, onTrafficChange, label = { Text("حجم دقیق به گیگ") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
+                modifier = Modifier.fillMaxWidth())
+
+            Text("۲. مدت سرویس", color = Color.White, fontWeight = FontWeight.Bold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(7.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                dayOptions.forEach { value ->
+                    FilterChip(selected = days == value.toString(), onClick = { onDaysChange(value.toString()) },
+                        label = { Text("$value روز") })
+                }
             }
-            OutlinedButton(onClick = onQuote, modifier = Modifier.fillMaxWidth()) { Text("محاسبه قیمت از پنل") }
+            OutlinedTextField(days, onDaysChange, label = { Text("مدت دقیق به روز") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
+                modifier = Modifier.fillMaxWidth())
+
+            Surface(color = Color(0xFF071B2E), shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+                Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("۳. نتیجه و قیمت نهایی", color = Color(0xFF91BCC7), fontWeight = FontWeight.Bold)
+                    when {
+                        loading -> { CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp); Text("قیمت در حال محاسبه…", color = Color.White) }
+                        quoteError != null -> Text(quoteError, color = Color(0xFFFFAB91), textAlign = TextAlign.Center)
+                        quote?.price != null -> Text("${formatPrice(quote.price)} تومان", color = Color(0xFFD6B45F),
+                            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Black)
+                        quote != null -> Text("سرویس سفارشی برای این انتخاب فعال نیست", color = Color(0xFFFFAB91))
+                        else -> Text("حجم و مدت را انتخاب کنید", color = Color.White)
+                    }
+                    Text("تعداد کاربر و محدودیت‌ها طبق تنظیم همین پنل اعمال می‌شود.",
+                        color = Color(0xFFC7D9D4), style = MaterialTheme.typography.bodySmall, textAlign = TextAlign.Center)
+                    quote?.let { Text("محدوده مجاز: ${it.trafficMin}–${it.trafficMax} گیگ · ${it.timeMin}–${it.timeMax} روز",
+                        color = Color(0xFF91BCC7), style = MaterialTheme.typography.labelSmall) }
+                }
+            }
         }
     }
 }
