@@ -5,7 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -23,10 +23,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.delay
 
@@ -83,7 +86,17 @@ fun GhajarWelcomeOverlay(onDone: () -> Unit) {
             .background(Color(0xFF04070C))
             .alpha(fade)
             .testTag("ghajar_welcome_poster")
-            .clickable(enabled = visible, onClick = ::close),
+            // Keep the root semantically clickable without merging descendants;
+            // Android 14 tests must still see the fitted-poster child tag.
+            .semantics {
+                onClick(label = "ورود به قاجار VPN") {
+                    if (visible) close()
+                    true
+                }
+            }
+            .pointerInput(visible) {
+                if (visible) detectTapGestures { close() }
+            },
         contentAlignment = Alignment.Center
     ) {
         Box(
