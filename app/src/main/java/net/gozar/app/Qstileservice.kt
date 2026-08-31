@@ -111,6 +111,7 @@ class QsTileService : TileService() {
     }
 
     private fun stopTunnel() {
+        VpnState.beginDisconnecting()
         val snapshot = VpnConnectionStore.read(applicationContext)
         if (snapshot.activeId?.startsWith("ovpn:") == true) {
             GhajarOpenVpnBridge.disconnect(applicationContext)
@@ -123,10 +124,11 @@ class QsTileService : TileService() {
             VpnState.setDisconnected()
             return
         }
+        // Xray: wait for the service confirmation broadcast; the VpnState
+        // watchdog guarantees the UI never stays on "disconnecting".
         runCatching {
             startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
         }
-        VpnState.setDisconnected()
     }
 
     private fun openApp() {
@@ -162,6 +164,7 @@ class QsTileService : TileService() {
         tile.label = Strings.get(lang, "app_title")
         val status = when (VpnConnectionStore.read(applicationContext).state) {
             Connection.CONNECTING -> Strings.get(lang, "status_connecting")
+            Connection.DISCONNECTING -> Strings.get(lang, "status_disconnecting")
             Connection.ERROR -> Strings.get(lang, "status_error")
             Connection.CONNECTED -> Strings.get(lang, "status_connected")
             else -> if (active) Strings.get(lang, "status_connecting") else Strings.get(lang, "status_disconnected")

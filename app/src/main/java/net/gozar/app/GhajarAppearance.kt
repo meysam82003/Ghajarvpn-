@@ -227,6 +227,7 @@ internal fun GhajarRoyalHome(style: String, modifier: Modifier = Modifier) {
         val label = when (connection) {
             Connection.CONNECTED -> if (fa) "اتصال برقرار است" else "Connected"
             Connection.CONNECTING -> if (fa) "در حال اتصال…" else "Connecting…"
+            Connection.DISCONNECTING -> if (fa) "در حال قطع…" else "Disconnecting…"
             Connection.ERROR -> if (fa) "اتصال برقرار نشد" else "Connection failed"
             else -> if (fa) "آمادهٔ اتصال" else "Ready to connect"
         }

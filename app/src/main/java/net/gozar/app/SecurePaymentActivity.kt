@@ -64,21 +64,29 @@ class SecurePaymentActivity : Activity() {
         }
         accountToken = GhajarAccountStore(this).token()
 
-        webView = WebView(this).apply {
-            setBackgroundColor(Color.rgb(7, 27, 46))
-            settings.javaScriptEnabled = true
-            settings.domStorageEnabled = true
-            settings.allowFileAccess = false
-            settings.allowContentAccess = false
-            settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
-            settings.setSupportMultipleWindows(true)
-            settings.javaScriptCanOpenWindowsAutomatically = false
-            settings.userAgentString = settings.userAgentString + " Ghajarvpn/${BuildConfig.VERSION_NAME}"
-            isLongClickable = false
-            setOnLongClickListener { true }
-            webViewClient = CheckoutClient()
-            webChromeClient = CheckoutChrome()
+        val built = runCatching {
+            WebView(this).apply {
+                setBackgroundColor(Color.rgb(7, 27, 46))
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.allowFileAccess = false
+                settings.allowContentAccess = false
+                settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                settings.setSupportMultipleWindows(true)
+                settings.javaScriptCanOpenWindowsAutomatically = false
+                settings.userAgentString = settings.userAgentString + " Ghajarvpn/${BuildConfig.VERSION_NAME}"
+                isLongClickable = false
+                setOnLongClickListener { true }
+                webViewClient = CheckoutClient()
+                webChromeClient = CheckoutChrome()
+            }
         }
+        val created = built.getOrNull()
+        if (built.isFailure || created == null) {
+            finishWithError("صفحهٔ پرداخت امن باز نشد؛ دوباره تلاش کن.")
+            return
+        }
+        webView = created
         progress = ProgressBar(this)
         val header = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -140,6 +148,14 @@ class SecurePaymentActivity : Activity() {
                     val uri = request?.url ?: return true
                     if (!route(uri)) webView.loadUrl(uri.toString())
                     popup.post { popup.destroy() }
+                    return true
+                }
+
+                override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+                    runCatching {
+                        (view?.parent as? ViewGroup)?.removeView(view)
+                        view?.destroy()
+                    }
                     return true
                 }
             }
@@ -230,6 +246,24 @@ class SecurePaymentActivity : Activity() {
                 progress.visibility = View.GONE
                 Toast.makeText(this@SecurePaymentActivity, "صفحهٔ درگاه بارگذاری نشد؛ برگرد و «ادامهٔ همین پرداخت» را بزن.", Toast.LENGTH_LONG).show()
             }
+        }
+
+        override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
+            // A crashed renderer must never take the whole application down:
+            // detach and destroy the dead WebView, then close checkout
+            // gracefully. The invoice stays persisted locally, so the user can
+            // resume it from the shop via "ادامهٔ همین پرداخت".
+            progress.visibility = View.GONE
+            runCatching {
+                (view?.parent as? ViewGroup)?.removeView(view)
+                view?.destroy()
+            }
+            Toast.makeText(this@SecurePaymentActivity,
+                "صفحهٔ پرداخت با خطا متوقف شد؛ برگرد و «ادامهٔ همین پرداخت» را بزن. پرداختت لغو نشده است.",
+                Toast.LENGTH_LONG).show()
+            setResult(RESULT_CANCELED)
+            finish()
+            return true
         }
     }
 

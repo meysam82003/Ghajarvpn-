@@ -181,10 +181,16 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     }
 
     fun openCheckout(url: String) {
-        checkout.launch(
-            Intent(context, SecurePaymentActivity::class.java)
-                .putExtra(SecurePaymentActivity.EXTRA_URL, url)
-        )
+        // Never let a failed checkout launch leave the app; the invoice stays
+        // persisted so the user can retry via "ادامهٔ همین پرداخت".
+        runCatching {
+            checkout.launch(
+                Intent(context, SecurePaymentActivity::class.java)
+                    .putExtra(SecurePaymentActivity.EXTRA_URL, url)
+            )
+        }.onFailure {
+            error = "صفحهٔ پرداخت باز نشد؛ دوباره تلاش کن. پرداختت لغو نشده است."
+        }
     }
 
     fun openBot(session: GhajarLinkSession? = linkSession) {

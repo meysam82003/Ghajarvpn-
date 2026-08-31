@@ -4,17 +4,21 @@ import android.content.Context
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.util.Timer
+import java.util.TimerTask
 
-enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING, ERROR }
 
 object VpnState {
     internal var clock: () -> Long = { System.currentTimeMillis() }
 
     internal const val TRANSITION_DEBOUNCE_MS = 450L
     internal const val RECONNECT_LOCK_MS = 700L
+    internal const val DISCONNECT_WATCHDOG_MS = 3_000L
 
     @Volatile private var appContext: Context? = null
     private val gate = Any()
+    private var watchdog: Timer? = null
 
     private val _state = MutableStateFlow(Connection.DISCONNECTED)
     val state: StateFlow<Connection> = _state.asStateFlow()
@@ -39,6 +43,7 @@ object VpnState {
 
     internal fun resetForTests() {
         synchronized(gate) {
+            cancelWatchdogLocked()
             _state.value = Connection.DISCONNECTED
             _activeId.value = null
             _error.value = null
@@ -53,7 +58,9 @@ object VpnState {
     fun initialize(context: Context) {
         appContext = context.applicationContext
         val saved = VpnConnectionStore.read(context.applicationContext)
-        _state.value = saved.state
+        // A "disconnecting" snapshot never means anything to the next process:
+        // the watchdog decision belongs to this process only.
+        _state.value = if (saved.state == Connection.DISCONNECTING) Connection.DISCONNECTED else saved.state
         _activeId.value = saved.activeId
         _error.value = saved.error
         if (saved.state == Connection.CONNECTED && _connectedAt.value == 0L) _connectedAt.value = saved.updatedAt
@@ -72,6 +79,7 @@ object VpnState {
     fun setConnecting(id: String) {
         synchronized(gate) {
             val now = clock()
+            if (_state.value == Connection.DISCONNECTING) return
             if (_state.value == Connection.CONNECTED && _activeId.value == id) return
             if (now - lastTransitionAt < TRANSITION_DEBOUNCE_MS) return
             if (_state.value == Connection.DISCONNECTED &&
@@ -100,13 +108,63 @@ object VpnState {
 
     fun setError(message: String) {
         synchronized(gate) {
-            if (_state.value == Connection.CONNECTED) return
+            if (_state.value == Connection.CONNECTED || _state.value == Connection.DISCONNECTING) return
             _picking.value = false
             _error.value = message
             _connectedAt.value = 0L
             _state.value = Connection.ERROR
             persist()
         }
+    }
+
+    /** User intent to disconnect: show "disconnecting" instantly and arm the
+     * watchdog so a silent service can never leave the UI stuck. */
+    fun beginDisconnecting() {
+        synchronized(gate) {
+            when (_state.value) {
+                Connection.CONNECTED, Connection.CONNECTING, Connection.ERROR -> {
+                    lastTransitionAt = clock()
+                    _state.value = Connection.DISCONNECTING
+                    persist()
+                    armDisconnectWatchdogLocked()
+                }
+                Connection.DISCONNECTING -> if (watchdog == null) armDisconnectWatchdogLocked()
+                Connection.DISCONNECTED -> Unit
+            }
+        }
+    }
+
+    /** The tunnel itself is the source of truth; if a disconnect never
+     * confirms within the watchdog window, force the state back so the UI
+     * can never stay stuck on "disconnecting". */
+    private fun armDisconnectWatchdogLocked() {
+        cancelWatchdogLocked()
+        val timer = Timer("ghajar-disconnect-watchdog", true)
+        watchdog = timer
+        timer.schedule(object : TimerTask() {
+            override fun run() {
+                synchronized(gate) {
+                    if (_state.value == Connection.DISCONNECTING) {
+                        val now = clock()
+                        lastTransitionAt = now
+                        lastDisconnectAt = now
+                        _picking.value = false
+                        _activeId.value = null
+                        _connectedAt.value = 0L
+                        _error.value = null
+                        _state.value = Connection.DISCONNECTED
+                        cancelWatchdogLocked()
+                        bumpGenerationLocked()
+                        persist()
+                    }
+                }
+            }
+        }, DISCONNECT_WATCHDOG_MS)
+    }
+
+    private fun cancelWatchdogLocked() {
+        watchdog?.cancel()
+        watchdog = null
     }
 
     fun setDisconnected() {
@@ -120,6 +178,7 @@ object VpnState {
             _connectedAt.value = 0L
             _error.value = null
             _state.value = Connection.DISCONNECTED
+            cancelWatchdogLocked()
             if (wasActive) {
                 bumpGenerationLocked()
                 persist()
