@@ -24,14 +24,21 @@ internal object GhajarChannelRules {
 
     fun internalOriginTag(source: String?): String {
         val normalized = source?.trim()?.lowercase()
-            ?.removePrefix("https://").orEmpty()
-            .substringBefore('/')
+            ?.removePrefix("https://")
+            ?.removePrefix("http://")
+            ?.removePrefix("www.")
+            ?.substringBefore('?')
+            ?.substringBefore('#')
+            ?.trim('/')
+            .orEmpty()
         return if (normalized.isBlank()) "src:internal" else "src:$normalized"
     }
 
     fun extractProxyLinks(text: String?): List<String> {
         if (text.isNullOrBlank()) return emptyList()
-        val seen = LinkedHashSet<String>()
+        // Fragments are display remarks. Keep the first visible label while
+        // deduplicating the underlying transport URI.
+        val seen = LinkedHashMap<String, String>()
         LINK_REGEX.findAll(text).forEach { match ->
             val raw = match.value.trimEnd('.', ',', ')', ']', '}', ':')
             val scheme = raw.substringBefore("://", "").lowercase()
@@ -42,9 +49,10 @@ internal object GhajarChannelRules {
                 if (host in NOISE_HTTP_HOSTS) return@forEach
             }
             if (raw.substringAfter("://", "").isBlank()) return@forEach
-            seen.add(raw)
+            val transportKey = raw.substringBefore('#')
+            seen.putIfAbsent(transportKey, raw)
         }
-        return seen.toList()
+        return seen.values.toList()
     }
 
     fun isAcceptableChannelText(text: String?): Boolean = extractProxyLinks(text).isNotEmpty()
