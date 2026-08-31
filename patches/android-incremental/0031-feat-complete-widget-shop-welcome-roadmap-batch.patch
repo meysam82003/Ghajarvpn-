@@ -1,10 +1,10 @@
-From 03d92b7de072dd926e6a9d154714915b0974cbe4 Mon Sep 17 00:00:00 2001
+From a84773973384e1063dc03f8830dd1326ce0c19ad Mon Sep 17 00:00:00 2001
 From: Ghajarvpn Build <build@ghajarvpn.local>
 Date: Sun, 30 Aug 2026 23:05:35 -0300
 Subject: [PATCH] feat: complete widget shop welcome roadmap batch
 
 ---
- .../app/GhajarAndroid14RegressionTest.kt      |  55 ++++
+ .../app/GhajarAndroid14RegressionTest.kt      |  56 ++++
  .../java/net/gozar/app/GhajarShopScreen.kt    | 263 ++++++++++++------
  .../main/java/net/gozar/app/GhajarStoreApi.kt |   3 +
  .../main/java/net/gozar/app/GhajarVisuals.kt  |  50 ++--
@@ -16,28 +16,22 @@ Subject: [PATCH] feat: complete widget shop welcome roadmap batch
  .../java/net/gozar/app/GhajarShopRulesTest.kt |  18 ++
  .../java/net/gozar/app/GhajarUiRulesTest.kt   |   8 +
  .../net/gozar/app/GhajarWidgetRulesTest.kt    |  22 ++
- 12 files changed, 459 insertions(+), 150 deletions(-)
+ 12 files changed, 460 insertions(+), 150 deletions(-)
  create mode 100644 app/src/test/java/net/gozar/app/GhajarShopRulesTest.kt
  create mode 100644 app/src/test/java/net/gozar/app/GhajarWidgetRulesTest.kt
 
 diff --git a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
-index a7f0e04..2420297 100644
+index a7f0e04..8dad272 100644
 --- a/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
 +++ b/app/src/androidTest/java/net/gozar/app/GhajarAndroid14RegressionTest.kt
-@@ -7,6 +7,7 @@ import android.content.Intent
- import android.content.pm.PackageManager
- import android.graphics.Bitmap
- import android.os.Build
-+import androidx.compose.ui.test.assertExists
- import androidx.compose.ui.test.junit4.createEmptyComposeRule
- import androidx.compose.ui.test.onNodeWithTag
- import androidx.compose.ui.test.performClick
-@@ -44,7 +45,18 @@ class GhajarAndroid14RegressionTest {
+@@ -44,7 +44,20 @@ class GhajarAndroid14RegressionTest {
                  compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster"))
                      .fetchSemanticsNodes().isNotEmpty()
              }
-+            compose.onNodeWithTag("ghajar_welcome_panel").assertExists()
-+            compose.onNodeWithTag("ghajar_welcome_enter").assertExists()
++            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_panel"))
++                .fetchSemanticsNodes().isNotEmpty())
++            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_enter"))
++                .fetchSemanticsNodes().isNotEmpty())
 +            assertTrue(compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect"))
 +                .fetchSemanticsNodes().isEmpty())
              screenshot(context, "cold-welcome")
@@ -51,7 +45,7 @@ index a7f0e04..2420297 100644
  
              val packageManager = context.packageManager
              assertEquals(
-@@ -89,6 +101,9 @@ class GhajarAndroid14RegressionTest {
+@@ -89,6 +102,9 @@ class GhajarAndroid14RegressionTest {
              store.add(config); store.setSelectedId(config.id)
              val scenario = ActivityScenario.launch(MainActivity::class.java)
              try {
@@ -61,7 +55,7 @@ index a7f0e04..2420297 100644
                  compose.waitUntil(20000) { compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_welcome_poster")).fetchSemanticsNodes().isEmpty() &&
                      compose.onAllNodes(androidx.compose.ui.test.hasTestTag("ghajar_connect")).fetchSemanticsNodes().isNotEmpty() }
                  repeat(2) { cycle ->
-@@ -119,6 +134,46 @@ class GhajarAndroid14RegressionTest {
+@@ -119,6 +135,46 @@ class GhajarAndroid14RegressionTest {
              }
          }
      }
