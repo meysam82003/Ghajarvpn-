@@ -73,7 +73,7 @@ jobs:
       - name: Build Android 8+ CI APK (ephemeral test key)
         if: github.event_name != 'workflow_dispatch' || !inputs.signed_demo
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
-        run: ./gradlew --no-daemon -Pghajar.demo=true :app:testDebugUnitTest :app:assembleDebug
+        run: ./gradlew --no-daemon -Pghajar.demo=true clean :app:testDebugUnitTest :app:assembleDebug
       - name: Prepare private demo signing key
         if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref == 'refs/heads/main'
         env:
@@ -101,7 +101,7 @@ jobs:
           GHAJAR_DEMO_KEYSTORE_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEYSTORE_PASSWORD }}
           GHAJAR_DEMO_KEY_ALIAS: ${{ secrets.GHAJAR_DEMO_KEY_ALIAS }}
           GHAJAR_DEMO_KEY_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true :app:testDebugUnitTest :app:assembleDebug
+        run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true clean :app:testDebugUnitTest :app:assembleDebug
       - name: Verify APK signatures and hashes
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: |
