@@ -8,16 +8,16 @@ symbols used by the new shop/server UI, and pass OpenVPN actions from the
 Activity into GozarApp explicitly so the top-level composable never tries to
 resolve Activity-private methods.
 ---
- .../net/gozar/app/GhajarComposeCompat.kt      | 53 +++++++++++++++++++
- .../main/java/net/gozar/app/MainActivity.kt   | 16 ++++--
- 2 files changed, 66 insertions(+), 3 deletions(-)
+ .../net/gozar/app/GhajarComposeCompat.kt    | 52 ++++++++++++++++++++
+ .../main/java/net/gozar/app/MainActivity.kt | 16 +++++--
+ 2 files changed, 65 insertions(+), 3 deletions(-)
  create mode 100644 app/src/main/java/net/gozar/app/GhajarComposeCompat.kt
 
 diff --git a/app/src/main/java/net/gozar/app/GhajarComposeCompat.kt b/app/src/main/java/net/gozar/app/GhajarComposeCompat.kt
 new file mode 100644
 --- /dev/null
 +++ b/app/src/main/java/net/gozar/app/GhajarComposeCompat.kt
-@@ -0,0 +1,53 @@
+@@ -0,0 +1,52 @@
 +package net.gozar.app
 +
 +import androidx.compose.foundation.layout.Arrangement
@@ -70,6 +70,7 @@ new file mode 100644
 +    min: Dp = Dp.Unspecified,
 +    max: Dp = Dp.Unspecified
 +): Modifier = this.composeWidthIn(min = min, max = max)
++
 +diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
 +--- a/app/src/main/java/net/gozar/app/MainActivity.kt
 ++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
