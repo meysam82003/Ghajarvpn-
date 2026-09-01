@@ -52,6 +52,22 @@ jobs:
           fi
       - name: Verify reviewed snapshots match reconstructed source
         run: bash scripts/verify-source-snapshots.sh "$GHAJAR_SOURCE_ROOT"
+      - name: Upload reconstructed OpenVPN integration sources
+        if: env.GHAJAR_SOURCE_ROOT != '.'
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-openvpn-integration-sources
+          path: |
+            ${{ env.GHAJAR_SOURCE_ROOT }}/app/src/main/java/net/gozar/app/MainActivity.kt
+            ${{ env.GHAJAR_SOURCE_ROOT }}/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+            ${{ env.GHAJAR_SOURCE_ROOT }}/openvpn/src/main/AndroidManifest.xml
+            ${{ env.GHAJAR_SOURCE_ROOT }}/openvpn/src/main/java/de/blinkt/openvpn/VpnProfile.java
+            ${{ env.GHAJAR_SOURCE_ROOT }}/openvpn/src/main/java/de/blinkt/openvpn/LaunchVPN.java
+            ${{ env.GHAJAR_SOURCE_ROOT }}/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+            ${{ env.GHAJAR_SOURCE_ROOT }}/openvpn/src/main/java/de/blinkt/openvpn/core/VPNLaunchHelper.java
+            ${{ env.GHAJAR_SOURCE_ROOT }}/openvpn/src/main/java/de/blinkt/openvpn/core/StatusListener.java
+            ${{ env.GHAJAR_SOURCE_ROOT }}/openvpn/src/main/java/de/blinkt/openvpn/core/ProfileManager.java
+          if-no-files-found: warn
       - name: Test OpenSSL architecture selection
         run: |
           cmake_bin="$ANDROID_HOME/cmake/3.22.1/bin/cmake"
@@ -120,37 +136,3 @@ jobs:
             ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/test-results/testDebugUnitTest/*.xml
             ${{ runner.temp }}/ghajar-native-arch-tests/Testing/Temporary/LastTest.log
           if-no-files-found: warn
-      - name: Publish Ghajar VPN 0.0.1 and archive older Releases
-        if: github.event_name == 'push' && github.ref == 'refs/heads/ghajar-3.0.4-carousel-33-source'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          set -euo pipefail
-          release_dir="$RUNNER_TEMP/ghajar-0.0.1-release"
-          mkdir -p "$release_dir"
-          arm64="$GHAJAR_SOURCE_ROOT/app/build/outputs/apk/debug/app-arm64-v8a-debug.apk"
-          armv7="$GHAJAR_SOURCE_ROOT/app/build/outputs/apk/debug/app-armeabi-v7a-debug.apk"
-          test -s "$arm64"
-          test -s "$armv7"
-          cp "$arm64" "$release_dir/GhajarVPN-0.0.1-arm64-v8a.apk"
-          cp "$armv7" "$release_dir/GhajarVPN-0.0.1-armeabi-v7a.apk"
-          (cd "$release_dir" && sha256sum *.apk > SHA256SUMS.txt)
-
-          # Recreate v0.0.1 idempotently, then remove only the old Release entries.
-          # Historical tags are intentionally preserved as the archive.
-          gh release delete v0.0.1 --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || true
-          gh release create v0.0.1 \
-            --repo "$GITHUB_REPOSITORY" \
-            --target "$GITHUB_SHA" \
-            --title "Ghajar VPN 0.0.1" \
-            --notes "اولین نسخهٔ رسمی خط جدید قاجار VPN. لوگوی رسمی طلایی/سبز جدید و قابلیت‌های شاخه ghajar-3.0.4-carousel-33-source در این بیلد قرار دارند. این APK فعلاً با کلید آزمایشی CI امضا شده است؛ برای انتشار عمومی پایدار و آپدیت‌های قابل نصب روی هم باید کلید امضای ثابت Release تنظیم شود." \
-            "$release_dir/GhajarVPN-0.0.1-arm64-v8a.apk" \
-            "$release_dir/GhajarVPN-0.0.1-armeabi-v7a.apk" \
-            "$release_dir/SHA256SUMS.txt"
-
-          mapfile -t tags < <(gh api --paginate "repos/$GITHUB_REPOSITORY/releases?per_page=100" --jq '.[].tag_name')
-          for tag in "${tags[@]}"; do
-            [[ "$tag" == "v0.0.1" ]] && continue
-            echo "Archiving old Release entry: $tag (tag preserved)"
-            gh release delete "$tag" --repo "$GITHUB_REPOSITORY" --yes
-          done
