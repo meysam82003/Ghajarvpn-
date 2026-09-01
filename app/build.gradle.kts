@@ -23,12 +23,11 @@ android {
 
     defaultConfig {
         applicationId = "com.ghajarvpn.app"
-        // The bundled core AAR requires API 26. Keep the API 24 release target
-        // explicit while building an honestly labelled Android 8+ demo.
+        // Keep the internal code monotonic so 0.0.1 can update existing 3.0.4 test installs.
         minSdk = if (ghajarDemoBuild) 26 else 24
         targetSdk = 36
-        versionCode = 30004
-        versionName = if (ghajarDemoBuild) "3.0.4-demo" else "3.0.4"
+        versionCode = 30005
+        versionName = "0.0.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
