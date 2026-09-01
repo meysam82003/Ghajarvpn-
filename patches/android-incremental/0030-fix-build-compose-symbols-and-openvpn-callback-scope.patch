@@ -9,8 +9,8 @@ Activity into GozarApp explicitly so the top-level composable never tries to
 resolve Activity-private methods.
 ---
  .../net/gozar/app/GhajarComposeCompat.kt    | 52 ++++++++++++++++++++
- .../main/java/net/gozar/app/MainActivity.kt | 16 +++++--
- 2 files changed, 65 insertions(+), 3 deletions(-)
+ .../main/java/net/gozar/app/MainActivity.kt | 18 ++++++--
+ 2 files changed, 66 insertions(+), 4 deletions(-)
  create mode 100644 app/src/main/java/net/gozar/app/GhajarComposeCompat.kt
 
 diff --git a/app/src/main/java/net/gozar/app/GhajarComposeCompat.kt b/app/src/main/java/net/gozar/app/GhajarComposeCompat.kt
@@ -74,7 +74,7 @@ new file mode 100644
 diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
 --- a/app/src/main/java/net/gozar/app/MainActivity.kt
 +++ b/app/src/main/java/net/gozar/app/MainActivity.kt
-@@ -678,7 +678,14 @@ class MainActivity : ComponentActivity() {
+@@ -678,7 +678,15 @@ class MainActivity : ComponentActivity() {
                      }
                      Box {
                          if (startMain) {
