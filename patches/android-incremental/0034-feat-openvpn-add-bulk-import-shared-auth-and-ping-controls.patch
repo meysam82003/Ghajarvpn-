@@ -1,0 +1,232 @@
+From a56da1ee33b52efdd98e03bfdaa3da1d279cb0ec Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 16:07:56 +0000
+Subject: [PATCH 3/4] feat(openvpn): add bulk import shared auth and ping
+ controls
+
+---
+ .../main/java/net/gozar/app/MainActivity.kt   | 159 +++++++++++++++---
+ 1 file changed, 131 insertions(+), 28 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index e2d3b49..bd77df4 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -8870,6 +8870,9 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+     val context = LocalContext.current
+     val status by GhajarOpenVpnBridge.status.collectAsState()
+     val activeUuid by GhajarOpenVpnBridge.activeUuid.collectAsState()
++    val engineMessage by GhajarOpenVpnBridge.lastMessage.collectAsState()
++    val testResults by GhajarOpenVpnBridge.tests.collectAsState()
++    val pingResults = remember { mutableStateMapOf<String, PingResult>() }
+     var tick by remember { mutableIntStateOf(0) }
+     var profiles by remember { mutableStateOf(GhajarOpenVpnBridge.profiles(context)) }
+     LaunchedEffect(tick) {
+@@ -8881,6 +8884,34 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+     var editPass by remember { mutableStateOf("") }
+     var confirmDelete by remember { mutableStateOf<GhajarOvpnProfile?>(null) }
+     val scope = rememberCoroutineScope()
++    var bulkImports by remember { mutableStateOf<List<PendingOpenVpnImport>?>(null) }
++    var bulkBad by remember { mutableIntStateOf(0) }
++    var sharedCredentials by remember { mutableStateOf(true) }
++    var sharedUser by remember { mutableStateOf("") }
++    var sharedPass by remember { mutableStateOf("") }
++    val bulkPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
++        if (uris.isNotEmpty()) scope.launch {
++            val parsed = withContext(Dispatchers.IO) {
++                var bad = 0
++                val good = uris.mapNotNull { uri ->
++                    val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
++                    if (bytes.isNullOrEmpty()) { bad++; null }
++                    else GhajarOpenVpnBridge.inspect(bytes).getOrElse { bad++; null }
++                }
++                good to bad
++            }
++            bulkBad = parsed.second
++            if (parsed.first.isNotEmpty()) bulkImports = parsed.first
++            else Toast.makeText(context, "هیچ فایل OVPN معتبری پیدا نشد", Toast.LENGTH_LONG).show()
++        }
++    }
++
++    fun pingOvpn(profile: GhajarOvpnProfile) {
++        pingResults[profile.uuid] = PingResult.Testing
++        scope.launch {
++            pingResults[profile.uuid] = withContext(Dispatchers.IO) { Pinger.ping(profile.host, profile.port, 3500) }
++        }
++    }
+     val stateLabel = when (status) {
+         GhajarOvpnState.CONNECTED -> "متصل"
+         GhajarOvpnState.CONNECTING -> "در حال اتصال…"
+@@ -8907,6 +8938,10 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+                             GhajarOvpnState.ERROR -> MaterialTheme.colorScheme.error
+                             else -> MaterialTheme.colorScheme.onSurfaceVariant
+                         })
++                    if ((status == GhajarOvpnState.ERROR || status == GhajarOvpnState.CONNECTING) && engineMessage.isNotBlank())
++                        Text(engineMessage, style = MaterialTheme.typography.labelSmall,
++                            color = if (status == GhajarOvpnState.ERROR) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
++                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                 }
+                 IconButton(onClick = { expanded = !expanded }) {
+                     Icon(Icons.Filled.ExpandMore, if (expanded) "بستن" else "باز کردن",
+@@ -8914,6 +8949,16 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+                 }
+             }
+             if (expanded) {
++                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                    BounceOutlinedButton(
++                        onClick = { bulkPicker.launch(arrayOf("application/x-openvpn-profile", "application/octet-stream", "text/plain", "*/*")) },
++                        minHeight = 36.dp, contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp)
++                    ) { Text("افزودن چند OVPN", style = MaterialTheme.typography.labelMedium) }
++                    BounceOutlinedButton(
++                        onClick = { profiles.forEach(::pingOvpn) }, enabled = profiles.isNotEmpty(),
++                        minHeight = 36.dp, contentPadding = PaddingValues(horizontal = 11.dp, vertical = 6.dp)
++                    ) { Text("پینگ همه", style = MaterialTheme.typography.labelMedium) }
++                }
+                 if (profiles.isEmpty()) {
+                     Text("فایل .ovpn را ایمپورت کن تا همین‌جا قابل اتصال شود؛ از «افزودن» یا باز کردن فایل استفاده کن.",
+                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+@@ -8932,6 +8977,24 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+                                     style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                 if (profile.needsCredentials) Text("نام کاربری/رمز لازم دارد", style = MaterialTheme.typography.labelSmall,
+                                     color = MaterialTheme.colorScheme.error)
++                                when (val ping = pingResults[profile.uuid]) {
++                                    is PingResult.Ok -> Text("پینگ: ${ping.ms}ms", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
++                                    PingResult.Testing -> Text("پینگ: در حال تست…", style = MaterialTheme.typography.labelSmall)
++                                    PingResult.Failed -> Text("پینگ: ناموفق", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
++                                    null -> Unit
++                                }
++                                testResults[profile.uuid]?.let { tr ->
++                                    Text(
++                                        when {
++                                            tr.running -> "تست اتصال واقعی: در حال اجرا…"
++                                            tr.ok == true -> "تست واقعی: موفق (${tr.connectMs ?: 0}ms)"
++                                            else -> "تست واقعی: ناموفق — ${tr.message}"
++                                        },
++                                        style = MaterialTheme.typography.labelSmall,
++                                        color = if (tr.ok == false) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
++                                        maxLines = 2, overflow = TextOverflow.Ellipsis
++                                    )
++                                }
+                             }
+                             Text(
+                                 when {
+@@ -8949,34 +9012,31 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+                                 Icon(Icons.Filled.Delete, "حذف پروفایل OVPN", tint = MaterialTheme.colorScheme.error,
+                                     modifier = Modifier.size(18.dp))
+                             }
+-                            if (isActive || isBusy) {
+-                                BounceOutlinedButton(
+-                                    onClick = onDisconnect,
+-                                    minHeight = 36.dp,
+-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
+-                                ) { Text("قطع", style = MaterialTheme.typography.labelMedium) }
+-                            } else {
+-                                Button(
+-                                    onClick = {
+-                                        scope.launch {
+-                                            val ping = withContext(Dispatchers.IO) { Pinger.ping(profile.host, profile.port, 3000) }
+-                                            val suffix = when (ping) {
+-                                                is PingResult.Ok -> " (پینگ ${ping.ms}ms)"
+-                                                else -> ""
+-                                            }
+-                                            android.widget.Toast.makeText(
+-                                                context, "اتصال به ${profile.name}$suffix",
+-                                                android.widget.Toast.LENGTH_SHORT
+-                                            ).show()
+-                                            onConnect(profile.uuid)
+-                                            tick++
+-                                        }
+-                                    },
+-                                    enabled = !profile.needsCredentials,
+-                                    shape = RoundedCornerShape(12.dp),
+-                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+-                                    modifier = Modifier.height(36.dp)
+-                                ) { Text("اتصال", style = MaterialTheme.typography.labelMedium) }
++                            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(5.dp)) {
++                                Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
++                                    BounceOutlinedButton(
++                                        onClick = { pingOvpn(profile) }, minHeight = 32.dp,
++                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
++                                    ) { Text("پینگ", style = MaterialTheme.typography.labelSmall) }
++                                    BounceOutlinedButton(
++                                        onClick = { onTest(profile.uuid) },
++                                        enabled = !profile.needsCredentials && testResults[profile.uuid]?.running != true && !isBusy,
++                                        minHeight = 32.dp, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
++                                    ) { Text("تست", style = MaterialTheme.typography.labelSmall) }
++                                }
++                                if (isActive || isBusy) {
++                                    BounceOutlinedButton(
++                                        onClick = onDisconnect, minHeight = 34.dp,
++                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
++                                    ) { Text("قطع", style = MaterialTheme.typography.labelMedium) }
++                                } else {
++                                    Button(
++                                        onClick = { onConnect(profile.uuid) }, enabled = !profile.needsCredentials,
++                                        shape = RoundedCornerShape(12.dp),
++                                        contentPadding = PaddingValues(horizontal = 13.dp, vertical = 5.dp),
++                                        modifier = Modifier.height(34.dp)
++                                    ) { Text("اتصال", style = MaterialTheme.typography.labelMedium) }
++                                }
+                             }
+                         }
+                     }
+@@ -8984,6 +9044,48 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+             }
+         }
+     }
++    bulkImports?.let { imports ->
++        val needsCredentials = imports.any { it.needsCredentials }
++        GlassDialog(
++            onDismiss = { bulkImports = null },
++            title = "افزودن گروهی OVPN",
++            confirmLabel = "ذخیره ${imports.size} فایل",
++            dismissLabel = "انصراف",
++            onConfirm = {
++                scope.launch {
++                    val result = withContext(Dispatchers.IO) {
++                        var ok = 0
++                        var bad = bulkBad
++                        imports.forEach { item ->
++                            val user = if (sharedCredentials) sharedUser.trim() else item.embeddedUsername
++                            val pass = if (sharedCredentials) sharedPass else item.embeddedPassword
++                            GhajarOpenVpnBridge.saveImported(context, item, user, pass)
++                                .onSuccess { ok++ }.onFailure { bad++ }
++                        }
++                        ok to bad
++                    }
++                    tick++
++                    bulkImports = null
++                    Toast.makeText(context, "${result.first} پروفایل ذخیره شد" + if (result.second > 0) " — ${result.second} ناموفق" else "", Toast.LENGTH_LONG).show()
++                }
++            }
++        ) {
++            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
++                Text("${imports.size} فایل معتبر" + if (bulkBad > 0) "، $bulkBad فایل نامعتبر" else "")
++                Row(verticalAlignment = Alignment.CenterVertically) {
++                    Text("نام کاربری و رمز همه یکی است", modifier = Modifier.weight(1f))
++                    Switch(checked = sharedCredentials, onCheckedChange = { sharedCredentials = it })
++                }
++                if (sharedCredentials) {
++                    OutlinedTextField(sharedUser, { sharedUser = it }, label = { Text("نام کاربری مشترک") }, singleLine = true)
++                    OutlinedTextField(sharedPass, { sharedPass = it }, label = { Text("رمز عبور مشترک") }, singleLine = true, visualTransformation = PasswordVisualTransformation())
++                    if (needsCredentials && (sharedUser.isBlank() || sharedPass.isBlank()))
++                        Text("فایل‌های دارای احراز هویت بدون این اطلاعات فقط ذخیره می‌شوند و تا تکمیل حساب قابل تست نیستند.", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
++                } else Text("پروفایل‌ها ذخیره می‌شوند و می‌توانی حساب هرکدام را جدا با مداد وارد کنی.", style = MaterialTheme.typography.bodySmall)
++            }
++        }
++    }
++
+     editing?.let { profile ->
+         GlassDialog(
+             onDismiss = { editing = null },
+@@ -9000,6 +9102,7 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+             }
+         ) {
+             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
++                Text("فیلد خالی مقدار قبلی را تغییر نمی‌دهد.", style = MaterialTheme.typography.bodySmall)
+                 OutlinedTextField(editUser, { editUser = it }, label = { Text("نام کاربری") }, singleLine = true)
+                 OutlinedTextField(editPass, { editPass = it }, label = { Text("رمز عبور") }, singleLine = true,
+                     visualTransformation = PasswordVisualTransformation())
+-- 
+2.47.3
+
