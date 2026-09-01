@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -171,10 +172,18 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     }
 
     fun openCheckout(url: String) {
-        checkout.launch(
-            Intent(context, SecurePaymentActivity::class.java)
-                .putExtra(SecurePaymentActivity.EXTRA_URL, url)
-        )
+        // The invoice is durable before launch; the payment page must stay in the
+        // Ghajar task and a renderer crash must never eject the user to home.
+        val launch: () -> Unit = {
+            checkout.launch(
+                Intent(context, SecurePaymentActivity::class.java)
+                    .putExtra(SecurePaymentActivity.EXTRA_URL, url)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            )
+        }
+        storeResult { launch() }.onFailure {
+            error = "صفحهٔ پرداخت امن باز نشد؛ «ادامهٔ همین پرداخت» را دوباره بزن."
+        }
     }
 
     fun openBot(session: GhajarLinkSession? = linkSession) {
@@ -383,12 +392,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
         } else {
             item {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    listOf("خرید", "سرویس‌ها", "پیام‌ها", "کیف پول").forEachIndexed { index, label ->
-                        FilterChip(selected = section == index, onClick = { section = index },
-                            label = { Text(label, maxLines = 1) }, modifier = Modifier.weight(1f))
-                    }
-                }
+                StoreSectionTabs(section = section, onSelect = { section = it })
             }
             if (section == 3) {
                 item {
@@ -460,19 +464,24 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
             }
             item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
+            if (panels.isEmpty() && !busy) {
+                item { Text("دستهٔ سرویسی از پنل دریافت نشده است؛ چند لحظه بعد دوباره بررسی کن.",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+            }
             if (panels.isNotEmpty()) {
                 item {
-                    FilterRow(
+                    ServiceTypeGrid(
                         items = panels,
                         selected = selectedPanel,
                         label = { it.name },
+                        icon = { panelIcon(it.name) },
                         onSelect = { selectedPanel = it }
                     )
                 }
             }
             if (categories.isNotEmpty()) {
                 item {
-                    NullableFilterRow(
+                    ChipFlowRow(
                         allLabel = "همه دسته‌ها",
                         items = categories,
                         selected = selectedCategory,
@@ -483,7 +492,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
             if (timeRanges.isNotEmpty()) {
                 item {
-                    NullableFilterRow(
+                    ChipFlowRow(
                         allLabel = "همه مدت‌ها",
                         items = timeRanges,
                         selected = selectedTime,
@@ -742,31 +751,117 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) 
     }
 }
 
+/** Store tabs: exact labels, horizontally and vertically centered, uniform metrics. */
 @Composable
-private fun <T> FilterRow(items: List<T>, selected: T?, label: (T) -> String, onSelect: (T) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(selected?.let(label) ?: "انتخاب لوکیشن", maxLines = 2)
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
+private fun StoreSectionTabs(section: Int, onSelect: (Int) -> Unit) {
+    val labels = listOf("خریدها", "سرویس‌ها", "پیام‌ها", "کیف پول")
+    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
+        Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            labels.forEachIndexed { index, label ->
+                val selected = section == index
+                val shape = RoundedCornerShape(14.dp)
+                Box(
+                    Modifier.weight(1f)
+                        .clip(shape)
+                        .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                        .clickable { onSelect(index) }
+                        .padding(vertical = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(label, maxLines = 1, textAlign = TextAlign.Center,
+                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                }
+            }
         }
     }
 }
 
+/** Service categories are never hidden behind a dropdown; the full list is visible at once. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun <T> NullableFilterRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
-    var open by remember { mutableStateOf(false) }
-    Box(Modifier.fillMaxWidth()) {
-        OutlinedButton(onClick = { open = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-            Text(selected?.let(label) ?: allLabel, maxLines = 2)
-        }
-        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
-            DropdownMenuItem(text = { Text(allLabel) }, onClick = { onSelect(null); open = false })
-            items.forEach { item -> DropdownMenuItem(text = { Text(label(item)) }, onClick = { onSelect(item); open = false }) }
+private fun <T> ServiceTypeGrid(items: List<T>, selected: T?, label: (T) -> String,
+    icon: (T) -> String, onSelect: (T) -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items.forEach { item ->
+            val isSelected = item == selected
+            Card(
+                onClick = { onSelect(item) },
+                shape = RoundedCornerShape(18.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                    else MaterialTheme.colorScheme.surface
+                ),
+                border = BorderStroke(
+                    width = if (isSelected) 2.dp else 1.dp,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                ),
+                elevation = CardDefaults.cardElevation(if (isSelected) 2.dp else 0.dp)
+            ) {
+                Column(
+                    Modifier.padding(horizontal = 14.dp, vertical = 12.dp).widthIn(min = 132.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(icon(item), style = MaterialTheme.typography.titleLarge)
+                    Text(label(item), textAlign = TextAlign.Center, maxLines = 2,
+                        style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                }
+            }
         }
     }
+}
+
+/** Secondary filters (category, duration) as directly visible chips, centered text. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable
+private fun <T> ChipFlowRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        val anySelected = selected != null
+        FilterChip(selected = !anySelected, onClick = { onSelect(null) }, label = {
+            Text(allLabel, textAlign = TextAlign.Center, maxLines = 1)
+        })
+        items.forEach { item ->
+            FilterChip(selected = item == selected, onClick = { onSelect(item) }, label = {
+                Text(label(item), textAlign = TextAlign.Center, maxLines = 1)
+            })
+        }
+    }
+}
+
+/** Stable icon per service family, matched to the panel names used by the panel. */
+private fun panelIcon(name: String): String = when {
+    name.contains("مولتی") || name.contains("چند لوکیشن") || name.contains("لوکیشن") -> "📍"
+    name.contains("قبله") || name.contains("ویژه") && !name.contains("ایرانسل") -> "👑"
+    name.contains("ایرانسل") || name.contains("اقتصادی") -> "📉"
+    name.contains("آمریکا") || name.contains("usa", true) -> "🇺🇸"
+    name.contains("آلمان") || name.contains("germany", true) -> "🇩🇪"
+    name.contains("سوئد") || name.contains("sweden", true) -> "🇸🇪"
+    name.contains("ترکیه") || name.contains("turkey", true) -> "🇹🇷"
+    name.contains("هلند") || name.contains("netherlands", true) -> "🇳🇱"
+    name.contains("فنلاند") || name.contains("finland", true) -> "🇫🇮"
+    name.contains("انگلیس") || name.contains("uk", true) || name.contains("england", true) -> "🇬🇧"
+    name.contains("کانادا") || name.contains("canada", true) -> "🇨🇦"
+    name.contains("امارات") || name.contains("uae", true) -> "🇦🇪"
+    name.contains("سنگاپور") || name.contains("singapore", true) -> "🇸🇬"
+    name.contains("ژاپن") || name.contains("japan", true) -> "🇯🇵"
+    name.contains("فرانسه") || name.contains("france", true) -> "🇫🇷"
+    name.contains("روسیه") || name.contains("russia", true) -> "🇷🇺"
+    name.contains("چین") || name.contains("china", true) -> "🇨🇳"
+    name.contains("هند") || name.contains("india", true) -> "🇮🇳"
+    name.contains("تست") || name.contains("trial", true) -> "🎁"
+    name.contains("گیم") || name.contains("بازی") -> "🎮"
+    else -> "🌐"
 }
 
 @Composable

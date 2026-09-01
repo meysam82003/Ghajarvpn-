@@ -1,0 +1,217 @@
+From 2aa66afc510b32ce54d2ce9d0cf233524c0abe59 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 12:19:08 +0330
+Subject: [PATCH] feat(checkout): safe wallet fallback when delivery fails
+ after payment
+
+Track the order stage with the invoice and, once the panel confirms a
+paid invoice that keeps failing to deliver the service (at least two
+checks or an explicit PROVISION_FAILED), request payment_fallback_wallet
+exactly once. Server-confirmed credits clear the invoice durably; a
+delivered service can never be refunded. The fallback request is
+idempotent client- and panel-side.
+---
+ .../net/gozar/app/GhajarCheckoutViewModel.kt  | 86 ++++++++++++++++---
+ .../main/java/net/gozar/app/GhajarStoreApi.kt | 17 ++++
+ 2 files changed, 92 insertions(+), 11 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+index 42fdef5..2cfacde 100644
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+@@ -33,7 +33,13 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+     val walletTopUp = mutableStateOf(false)
+     internal val delivery = mutableStateOf<GhajarDelivery?>(null)
+     val openUrl = mutableStateOf<String?>(null)
++    /** Delivery/refund lifecycle of the current paid order; null for unpaid browsing. */
++    private val stage = mutableStateOf<GhajarOrderStage?>(null)
+     private var owner = ""
++    // The wallet fallback for one invoice is attempted at most once per session
++    // and only after the panel had a real chance to finish provisioning.
++    private var paidWaitingChecks = 0
++    private var fallbackAttemptedOrderId: String? = null
+ 
+     init {
+         busy.value = true
+@@ -63,7 +69,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+                 if (owner.isNotBlank() && owner != current) {
+                     purchase.value = null; payment.value = null; methods.value = null
+                     receipt.value = null; delivery.value = null; openUrl.value = null
+-                    receiptSent.value = false; walletTopUp.value = false
++                    receiptSent.value = false; walletTopUp.value = false; stage.value = null
+                     owner = current
+                     prefs.edit().clear().apply()
+                     throw GhajarApiException("حساب تغییر کرده است؛ سفارش مربوط به حساب قبلی بود.")
+@@ -91,6 +97,9 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+             message.value = "برای همین سفارش، روش پرداخت را انتخاب کن."
+         } else {
+             require(result.completed) { "خرید تأیید نشد؛ وضعیت سرویس را بررسی کن." }
++            // Wallet-balance purchases are paid orders too: track delivery so a
++            // failed delivery can still fall back to the wallet exactly once.
++            stage.value = GhajarOrderFlow.initialStage(paid = true, walletTopUp = false)
+             val service = result.service ?: result.username?.let { api.service(it) }
+                 ?: throw GhajarApiException("سفارش ثبت شد؛ خروجی سرویس هنوز آماده نیست.")
+             deliver(service, finishCheckout = true)
+@@ -124,6 +133,8 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+         payment.value = result
+         receipt.value = null
+         receiptSent.value = false
++        paidWaitingChecks = 0
++        fallbackAttemptedOrderId = null
+         persist() // Save the exact card and amount before leaving for payment.
+         message.value = result.message.ifBlank { "فاکتور آماده است." }
+         openUrl.value = result.url
+@@ -146,11 +157,25 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+     fun importOwned(username: String) = runOperation { deliver(api.service(username)) }
+ 
+     private suspend fun deliver(service: GhajarServiceDetails, finishCheckout: Boolean = false) {
++        // Delivery of an already-delivered fingerprint is idempotent in the API;
++        // the stage machine keeps paid orders from being refunded after delivery.
++        val paidStage = stage.value?.let(GhajarOrderFlow::onDeliveryAttempt)
++        if (paidStage != null) stage.value = paidStage
+         delivery.value = GhajarDelivery(service, 0, false)
+-        val count = api.importServiceOnce(store, service)
++        val imported = try {
++            val count = api.importServiceOnce(store, service)
++            if (paidStage != null) stage.value = GhajarOrderFlow.onDelivered(paidStage, count)
++            count
++        } catch (failure: Exception) {
++            if (paidStage != null) {
++                stage.value = GhajarOrderFlow.onDeliveryFailed(paidStage)
++                persist() // A paid order must resume as PROVISION_FAILED, never re-charge.
++            }
++            throw failure
++        }
+         // Only a parsed/imported configuration counts as installed.
+-        val installed = count > 0
+-        delivery.value = GhajarDelivery(service, count, installed)
++        val installed = imported > 0
++        delivery.value = GhajarDelivery(service, imported, installed)
+         message.value = if (installed) "سرویس به قاجار VPN اضافه شد؛ QR و اطلاعات اتصال آماده است."
+             else "سرویس صادر شد؛ خروجی اتصال هنوز در دسترس نیست."
+         if (installed) {
+@@ -158,7 +183,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+             // Importing a trial/owned service must not discard an unrelated unpaid invoice.
+             if (finishCheckout) {
+                 purchase.value = null; payment.value = null; receipt.value = null
+-                receiptSent.value = false; walletTopUp.value = false
++                receiptSent.value = false; walletTopUp.value = false; stage.value = null
+                 prefs.edit().clear().apply()
+             }
+         }
+@@ -170,20 +195,56 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+         val status = api.paymentStatus(invoice.orderId)
+         val value = status.optString("payment_status")
+         val service = status.optJSONObject("service")
+-        when (GhajarCommerceRules.paymentOutcome(value, walletTopUp.value, status.optBoolean("wallet_credited_only"),
+-            status.optBoolean("is_service_ready"), service != null)) {
++        val serviceReady = status.optBoolean("is_service_ready")
++        val outcome = GhajarCommerceRules.paymentOutcome(value, walletTopUp.value, status.optBoolean("wallet_credited_only"),
++            serviceReady, service != null)
++        when (outcome) {
+             GhajarPaymentOutcome.WALLET_CREDITED -> {
++                // The panel confirmed the money went back to the wallet; record it once.
++                stage.value = GhajarOrderFlow.onWalletRefunded(
++                    stage.value ?: GhajarOrderFlow.initialStage(paid = true, walletTopUp = walletTopUp.value)
++                    ?: GhajarOrderStage.PAYMENT_CONFIRMED) ?: GhajarOrderStage.WALLET_REFUNDED
++                persist()
+                 methods.value = api.paymentOptions()
+                 message.value = if (walletTopUp.value) "شارژ کیف پول تأیید شد و موجودی بروزرسانی شد."
+-                    else "پرداخت تأیید و کیف پول شارژ شد؛ طبق تنظیم ادمین، خرید خودکار فعال نیست. خرید را از محصولات ادامه بده."
++                    else "پرداخت تأیید شد و مبلغ به کیف پول برگشت؛ خرید را از محصولات ادامه بده."
+                 purchase.value = null; payment.value = null; receipt.value = null
+                 receiptSent.value = false; walletTopUp.value = false
++                stage.value = null
+                 prefs.edit().clear().apply()
+             }
+             GhajarPaymentOutcome.SERVICE_READY ->
+                 deliver(api.serviceFrom(requireNotNull(service), purchase.value?.username.orEmpty()), finishCheckout = true)
+-            GhajarPaymentOutcome.PAID_WAITING ->
+-                message.value = "پرداخت تأیید شد؛ سرویس در حال آماده‌سازی است. دوباره پرداخت نکن."
++            GhajarPaymentOutcome.PAID_WAITING -> {
++                // Payment is real but the service is not delivered yet: the order
++                // becomes PROVISION_FAILED territory with an idempotent wallet fallback.
++                if (stage.value == null) stage.value = GhajarOrderFlow.initialStage(paid = true, walletTopUp = walletTopUp.value)
++                stage.value = stage.value ?: GhajarOrderStage.PAYMENT_CONFIRMED
++                paidWaitingChecks++
++                persist()
++                val mayFallback = GhajarOrderFlow.refundEligible(value, walletTopUp.value, serviceReady, service != null) &&
++                    GhajarOrderFlow.walletFallbackAllowed(stage.value!!) &&
++                    fallbackAttemptedOrderId != invoice.orderId &&
++                    (paidWaitingChecks >= 2 || stage.value == GhajarOrderStage.PROVISION_FAILED)
++                if (mayFallback) {
++                    fallbackAttemptedOrderId = invoice.orderId
++                    val credited = runCatching { api.requestWalletFallback(invoice.orderId) }.getOrDefault(false)
++                    if (credited) {
++                        stage.value = GhajarOrderFlow.onWalletRefunded(stage.value!!) ?: GhajarOrderStage.WALLET_REFUNDED
++                        methods.value = api.paymentOptions()
++                        message.value = "پرداخت تأیید شد ولی سرویس تحویل نشد؛ مبلغ به‌صورت خودکار به کیف پول برگشت."
++                        purchase.value = null; payment.value = null; receipt.value = null
++                        receiptSent.value = false; walletTopUp.value = false; stage.value = null
++                        prefs.edit().clear().apply()
++                    } else {
++                        stage.value = GhajarOrderFlow.onDeliveryFailed(stage.value!!)
++                        persist()
++                        message.value = "پرداخت تأیید شد؛ سرویس در حال آماده‌سازی است. دوباره پرداخت نکن."
++                    }
++                } else {
++                    message.value = "پرداخت تأیید شد؛ سرویس در حال آماده‌سازی است. دوباره پرداخت نکن."
++                }
++            }
+             GhajarPaymentOutcome.NOT_APPROVED ->
+                 message.value = status.optString("reason").takeUnless { it.isBlank() || it == "null" }
+                     ?: "این فاکتور تأیید نشده یا منقضی است."
+@@ -196,7 +257,8 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+         if (busy.value) return
+         // Local navigation only: this does not cancel a real payment on the server.
+         purchase.value = null; payment.value = null; methods.value = null
+-        receipt.value = null; receiptSent.value = false; walletTopUp.value = false
++        receipt.value = null; receiptSent.value = false; walletTopUp.value = false; stage.value = null
++        paidWaitingChecks = 0; fallbackAttemptedOrderId = null
+         prefs.edit().clear().apply()
+         message.value = "به محصولات برگشتی. اگر پرداخت کرده‌ای، قبل از خرید دوباره «سرویس‌های من» را بررسی کن."
+     }
+@@ -206,6 +268,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+         val root = JSONObject().put("owner", owner).put("username", p.username)
+             .put("due", p.amountDue).put("balance", p.balance).put("price", p.price)
+             .put("receipt_sent", receiptSent.value).put("wallet_top_up", walletTopUp.value)
++        stage.value?.let { root.put("stage", it.name) }
+         payment.value?.let { v ->
+             root.put("payment", JSONObject().put("kind", v.kind).put("order", v.orderId)
+                 .put("url", v.url).put("card", v.cardNumber).put("holder", v.cardHolder)
+@@ -224,6 +287,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+             root.optLong("due"), root.optLong("balance"), root.optLong("price"), null)
+         receiptSent.value = root.optBoolean("receipt_sent")
+         walletTopUp.value = root.optBoolean("wallet_top_up")
++        stage.value = GhajarOrderFlow.fromStorage(root.optString("stage").takeUnless { it.isBlank() })
+         root.optJSONObject("payment")?.let { p ->
+             fun optional(key: String) = p.optString(key).takeUnless { it.isBlank() || it == "null" }
+             payment.value = GhajarPaymentInit(p.optString("kind"), p.optString("order"), optional("url"),
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+index a1ad135..0be6e9b 100644
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -393,6 +393,23 @@ class GhajarStoreApi(context: Context) {
+     suspend fun paymentStatus(orderId: String): JSONObject =
+         action("payment_status", params = mapOf("order_id" to orderId)).payloadObject()
+ 
++    /**
++     * Asks the panel to credit the wallet for a confirmed payment whose service
++     * delivery failed. The panel remains the financial authority and must treat
++     * repeated requests for the same order as a no-op; the client enforces its
++     * own idempotency with GhajarOrderFlow and only records WALLET_REFUNDED when
++     * the server explicitly confirms `wallet_credited`.
++     */
++    suspend fun requestWalletFallback(orderId: String): Boolean {
++        val payload = action(
++            "payment_fallback_wallet",
++            method = "POST",
++            body = JSONObject().put("order_id", orderId)
++        ).payloadObject()
++        return payload.optBoolean("wallet_credited", payload.optBoolean("credited", false)) ||
++            payload.optBoolean("success", false) && payload.optString("stage") == "wallet_refunded"
++    }
++
+     suspend fun uploadReceipt(orderId: String, photo: Uri): String = withContext(Dispatchers.IO) {
+         val resolver = appContext.contentResolver
+         val size = resolver.openAssetFileDescriptor(photo, "r")?.use { it.length } ?: -1L

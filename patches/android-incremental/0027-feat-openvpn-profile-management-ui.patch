@@ -1,0 +1,544 @@
+From 5aa848c4e154807a9aa37c3ce2cfa9761159af59 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 12:19:08 +0330
+Subject: [PATCH] feat(openvpn): full profile management in the Ghajar server
+ list
+
+Keep imported OVPN profiles listed in a dedicated OpenVPN card with
+connect/disconnect, live engine state, pre-connect ping toast,
+credential editing and delete. OVPN files offered through the normal
+import path route to the bridge, and saved profiles reconnect without
+re-import. Status flows straight from VpnStatus so connection and error
+states stay honest.
+---
+ .../java/net/gozar/app/GhajarOpenVpnBridge.kt | 114 +++++++
+ .../main/java/net/gozar/app/MainActivity.kt   | 278 +++++++++++++++++-
+ 2 files changed, 391 insertions(+), 1 deletion(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+index d462a91..adbb45d 100644
+--- a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
++++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+@@ -2,19 +2,28 @@ package net.gozar.app
+ 
+ import android.app.NotificationChannel
+ import android.app.NotificationManager
++import android.content.ComponentName
+ import android.content.Context
++import android.content.Intent
++import android.content.ServiceConnection
+ import android.os.Build
++import android.os.IBinder
+ import de.blinkt.openvpn.VpnProfile
+ import de.blinkt.openvpn.core.ConfigParser as OvpnConfigParser
++import de.blinkt.openvpn.core.ConnectionStatus
++import de.blinkt.openvpn.core.IOpenVPNServiceInternal
+ import de.blinkt.openvpn.core.OpenVPNService
+ import de.blinkt.openvpn.core.ProfileManager
+ import de.blinkt.openvpn.core.StatusListener
+ import de.blinkt.openvpn.core.VPNLaunchHelper
++import de.blinkt.openvpn.core.VpnStatus
+ import kotlinx.coroutines.Dispatchers
+ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ import kotlinx.coroutines.withContext
+ import java.io.StringReader
++import java.util.concurrent.CountDownLatch
++import java.util.concurrent.TimeUnit
+ 
+ data class PendingOpenVpnImport(
+     val raw: String,
+@@ -26,15 +35,32 @@ data class PendingOpenVpnImport(
+     val embeddedPassword: String
+ )
+ 
++/** A saved OVPN profile as shown in the Ghajar server list. */
++data class GhajarOvpnProfile(
++    val uuid: String,
++    val name: String,
++    val host: String,
++    val port: Int,
++    val needsCredentials: Boolean
++)
++
++enum class GhajarOvpnState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
++
+ object GhajarOpenVpnBridge {
+     private val _pending = MutableStateFlow<PendingOpenVpnImport?>(null)
+     val pending = _pending.asStateFlow()
++    private val _status = MutableStateFlow(GhajarOvpnState.DISCONNECTED)
++    val status = _status.asStateFlow()
++    private val _activeUuid = MutableStateFlow<String?>(null)
++    val activeUuid = _activeUuid.asStateFlow()
+     private var statusListener: StatusListener? = null
++    private var stateListener: VpnStatus.StateListener? = null
+ 
+     fun initialize(context: Context) {
+         if (statusListener == null) {
+             statusListener = StatusListener().also { it.init(context.applicationContext) }
+         }
++        ensureStateListener()
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+             context.getSystemService(NotificationManager::class.java).createNotificationChannels(
+                 listOf(
+@@ -46,6 +72,25 @@ object GhajarOpenVpnBridge {
+         }
+     }
+ 
++    private fun ensureStateListener() {
++        if (stateListener != null) return
++        stateListener = object : VpnStatus.StateListener {
++            override fun updateState(state: String, logmessage: String, localizedResId: Int, level: ConnectionStatus, Intent: android.content.Intent?) {
++                _status.value = when (level) {
++                    ConnectionStatus.LEVEL_CONNECTED -> GhajarOvpnState.CONNECTED
++                    ConnectionStatus.LEVEL_AUTH_FAILED -> GhajarOvpnState.ERROR
++                    ConnectionStatus.LEVEL_NOTCONNECTED -> GhajarOvpnState.DISCONNECTED
++                    else -> GhajarOvpnState.CONNECTING
++                }
++            }
++
++            override fun setConnectedVPN(uuid: String?) {
++                _activeUuid.value = uuid?.takeIf { it.isNotBlank() }
++            }
++        }
++        VpnStatus.addStateListener(stateListener)
++    }
++
+     fun offer(bytes: ByteArray): Result<PendingOpenVpnImport> = runCatching {
+         val raw = bytes.toString(Charsets.UTF_8).trimStart('\uFEFF')
+         require(raw.contains("remote ", ignoreCase = true) || raw.contains("<connection>", ignoreCase = true)) {
+@@ -92,6 +137,75 @@ object GhajarOpenVpnBridge {
+         }
+     }
+ 
++    /** Saved OVPN profiles for the server list section. */
++    fun profiles(context: Context): List<GhajarOvpnProfile> = runCatching {
++        ProfileManager.getInstance(context.applicationContext).getProfiles().map { profile ->
++            GhajarOvpnProfile(
++                uuid = profile.getUUIDString(),
++                name = BrandConfig.sanitizePublicText(profile.mName.ifBlank { "سرویس OVPN قاجار" }),
++                host = profile.mConnections.firstOrNull()?.mServerName.orEmpty(),
++                port = profile.mConnections.firstOrNull()?.mServerPort?.toIntOrNull() ?: 1194,
++                needsCredentials = profile.isUserPWAuth() && (profile.mUsername.isNullOrBlank() || profile.mPassword.isNullOrBlank())
++            )
++        }.sortedBy { it.name }
++    }.getOrDefault(emptyList())
++
++    fun findProfile(context: Context, uuid: String): VpnProfile? =
++        ProfileManager.getInstance(context.applicationContext).getProfiles()
++            .firstOrNull { it.getUUIDString() == uuid }
++
++    /** Connects a saved profile; the caller must have prepared the VPN permission. */
++    fun connectSaved(context: Context, uuid: String): Result<Unit> = runCatching {
++        val profile = findProfile(context, uuid)
++            ?: throw IllegalStateException("پروفایل OVPN پیدا نشد؛ دوباره ایمپورتش کن.")
++        require(profile.needUserPWInput(null, null) == 0) { "نام کاربری یا رمز عبور این پروفایل لازم است" }
++        VPNLaunchHelper.startOpenVpn(profile, context.applicationContext, "Ghajarvpn user request", true)
++    }
++
++    fun updateCredentials(context: Context, uuid: String, username: String, password: String): Result<Unit> = runCatching {
++        val profile = findProfile(context, uuid)
++            ?: throw IllegalStateException("پروفایل OVPN پیدا نشد.")
++        profile.mUsername = username
++        profile.mPassword = password
++        val manager = ProfileManager.getInstance(context.applicationContext)
++        ProfileManager.saveProfile(context.applicationContext, profile)
++        manager.saveProfileList(context.applicationContext)
++    }
++
++    fun delete(context: Context, uuid: String): Result<Unit> = runCatching {
++        val profile = findProfile(context, uuid)
++            ?: throw IllegalStateException("پروفایل OVPN پیدا نشد.")
++        ProfileManager.getInstance(context.applicationContext).removeProfile(context.applicationContext, profile)
++    }
++
++    /** Gracefully stops the bundled OpenVPN engine from inside the app. */
++    suspend fun disconnect(context: Context) = withContext(Dispatchers.IO) {
++        runCatching {
++            val app = context.applicationContext
++            val latch = CountDownLatch(1)
++            var service: IOpenVPNServiceInternal? = null
++            val connection = object : ServiceConnection {
++                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
++                    service = IOpenVPNServiceInternal.Stub.asInterface(binder)
++                    try { service?.stopVPN(false) } catch (_: Exception) {}
++                    latch.countDown()
++                }
++
++                override fun onServiceDisconnected(name: ComponentName?) {
++                    latch.countDown()
++                }
++            }
++            val intent = Intent(app, OpenVPNService::class.java).setAction(OpenVPNService.START_SERVICE)
++            val bound = runCatching { app.bindService(intent, connection, Context.BIND_AUTO_CREATE) }.getOrDefault(false)
++            if (bound) {
++                latch.await(5, TimeUnit.SECONDS)
++                runCatching { app.unbindService(connection) }
++            } else {
++                VpnStatus.updateStateString("DISCONNECTED", "", 0, ConnectionStatus.LEVEL_NOTCONNECTED)
++            }
++        }
++    }
++
+     private fun parse(raw: String): VpnProfile {
+         val parser = OvpnConfigParser()
+         parser.parseConfig(StringReader(raw))
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 7c3f63d..1a37525 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -241,6 +241,7 @@ import androidx.compose.material3.NavigationBarItem
+ import androidx.compose.material3.OutlinedButton
+ import androidx.compose.material3.OutlinedTextField
+ import androidx.compose.material3.Scaffold
++import androidx.compose.material3.Surface
+ import androidx.compose.material3.Switch
+ import androidx.compose.material3.Text
+ import androidx.compose.material3.AlertDialog
+@@ -260,6 +261,7 @@ import androidx.compose.runtime.compositionLocalOf
+ import androidx.compose.runtime.derivedStateOf
+ import androidx.compose.runtime.getValue
+ import androidx.compose.runtime.mutableStateMapOf
++import androidx.compose.runtime.mutableIntStateOf
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.compose.runtime.remember
+ import androidx.compose.runtime.rememberCoroutineScope
+@@ -665,6 +667,18 @@ class MainActivity : ComponentActivity() {
+                             }
+                         }
+                     }
++                    var lastEntryRefresh by remember { mutableStateOf(0L) }
++                    LaunchedEffect(Unit) {
++                        // Every time the app becomes active, subscriptions refresh in the
++                        // background; a failure never blocks the UI and old data stays.
++                        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
++                            val now = System.currentTimeMillis()
++                            if (now - lastEntryRefresh >= 15_000) {
++                                lastEntryRefresh = now
++                                storeResult { SubscriptionRefresher.refreshStale(store, force = true) }
++                            }
++                        }
++                    }
+                     LaunchedEffect(Unit) {
+                         delay(1100)
+                         startMain = true
+@@ -791,6 +805,28 @@ class MainActivity : ComponentActivity() {
+         }
+     }
+ 
++    private fun connectSavedOpenVpn(uuid: String) {
++        val start: () -> Unit = {
++            val launched = GhajarOpenVpnBridge.connectSaved(this, uuid)
++                .onFailure { Toast.makeText(this, it.message ?: "اتصال OVPN ناموفق بود", Toast.LENGTH_LONG).show() }
++            if (launched.isFailure) Toast.makeText(this, "اتصال OVPN آغاز نشد", Toast.LENGTH_LONG).show()
++            else Toast.makeText(this, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show()
++            Unit
++        }
++        val permission = VpnService.prepare(this)
++        if (permission == null) start()
++        else {
++            afterPermission = start
++            vpnPermission.launch(permission)
++        }
++    }
++
++    private fun disconnectOpenVpn() {
++        lifecycleScope.launch {
++            GhajarOpenVpnBridge.disconnect(this@MainActivity)
++        }
++    }
++
+     private fun launchConnect(config: ProxyConfig) {
+         if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
+             config.security.trim().lowercase() == "tls"
+@@ -1165,6 +1201,22 @@ private fun GozarApp(
+             ImportBus.clear()
+             return@LaunchedEffect
+         }
++        // OpenVPN profiles are managed by the Ghajar OVPN bridge, not the core parser.
++        val looksOvpn = runCatching {
++            String(bytes, Charsets.UTF_8).contains(Regex("(?im)^\\s*(client|remote|<connection>)\\b"))
++        }.getOrDefault(false)
++        if (looksOvpn) {
++            GhajarOpenVpnBridge.offer(bytes)
++                .onSuccess { ImportBus.clear() }
++                .onFailure {
++                    android.widget.Toast.makeText(
++                        importContext, it.message ?: "فایل OVPN معتبر نیست",
++                        android.widget.Toast.LENGTH_LONG
++                    ).show()
++                    ImportBus.clear()
++                }
++            return@LaunchedEffect
++        }
+         importNeedsPassword = runCatching { ConfigFile.isPasswordProtected(bytes) }.getOrDefault(false)
+         if (!importNeedsPassword) {
+             val configs = withContext(Dispatchers.Default) {
+@@ -1539,7 +1591,9 @@ private fun GozarApp(
+                             onFreeProjects = { showProjects = true },
+                             onWindscribe = { showWindscribe = true },
+                             onScanQr = { showScanner = true },
+-                            onShareFile = { exportConfigs = it }
++                            onShareFile = { exportConfigs = it },
++                            onConnectOpenVpn = ::connectSavedOpenVpn,
++                            onDisconnectOpenVpn = ::disconnectOpenVpn
+                         )
+                         "projects" -> FreeProjectsScreen(
+                             store = store,
+@@ -1928,6 +1982,8 @@ private fun ConfigPickerScreen(
+     onWindscribe: () -> Unit,
+     onScanQr: () -> Unit,
+     onShareFile: (List<ProxyConfig>) -> Unit,
++    onConnectOpenVpn: (String) -> Unit = {},
++    onDisconnectOpenVpn: () -> Unit = {},
+     modifier: Modifier = Modifier
+ ) {
+     val t = stringsFn()
+@@ -1958,6 +2014,7 @@ private fun ConfigPickerScreen(
+     var addBusy by remember { mutableStateOf(false) }
+     var addDone by remember { mutableStateOf("") }
+     var testAllState by remember { mutableStateOf(0) }
++    var updateSubsState by remember { mutableStateOf(0) }
+     var addMenu by remember { mutableStateOf(false) }
+     var sortMenu by remember { mutableStateOf(false) }
+     var purgeMenu by remember { mutableStateOf(false) }
+@@ -2376,6 +2433,60 @@ private fun ConfigPickerScreen(
+             }
+         }
+ 
++        BounceOutlinedButton(
++            onClick = {
++                if (updateSubsState != 1) {
++                    updateSubsState = 1
++                    scope.launch {
++                        val subs = store.subscriptions.value
++                            .filter { it.url.startsWith("https://") || it.url.startsWith("http://") }
++                        var updated = 0
++                        subs.forEach { sub ->
++                            storeResult {
++                                val result = SubscriptionFetcher.fetchFull(sub.url)
++                                if (result.configs.isNotEmpty()) {
++                                    val info = result.userInfo
++                                    store.upsertSubscription(
++                                        sub.copy(
++                                            used = info?.used ?: sub.used,
++                                            total = info?.total ?: sub.total,
++                                            expire = info?.expire ?: sub.expire,
++                                            lastUpdated = System.currentTimeMillis()
++                                        ),
++                                        result.configs
++                                    )
++                                    updated++
++                                }
++                            }
++                        }
++                        updateSubsState = 0
++                        if (subs.isEmpty()) subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
++                        else if (updated == subs.size) addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
++                        else if (updated > 0) addDone = n("$updated از ${subs.size} ساب بروزرسانی شد")
++                        else subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
++                    }
++                }
++            },
++            minHeight = 42.dp,
++            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
++            modifier = Modifier.fillMaxWidth().height(42.dp)
++        ) {
++            if (updateSubsState == 1) {
++                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
++            } else {
++                Icon(Icons.Filled.Autorenew, contentDescription = null, modifier = Modifier.size(18.dp))
++            }
++            Spacer(Modifier.width(8.dp))
++            Text(
++                when (updateSubsState) {
++                    1 -> t("fetching_sub")
++                    else -> "آپدیت ساب‌ها"
++                },
++                maxLines = 1,
++                overflow = TextOverflow.Ellipsis
++            )
++        }
++
+         AnimatedVisibility(
+             visible = searchOpen,
+             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+@@ -2475,6 +2586,9 @@ private fun ConfigPickerScreen(
+                 },
+             verticalArrangement = Arrangement.spacedBy(8.dp)
+         ) {
++            item(key = "openvpn-section") {
++                GhajarOpenVpnSection(onConnect = onConnectOpenVpn, onDisconnect = onDisconnectOpenVpn)
++            }
+             grouped.forEach { (sub, subConfigs) ->
+                 val wsRow = if (WindscribeBrand.isWindscribe(sub)) wsRowColor else null
+                 item(key = "sub-${sub.id}") {
+@@ -8715,6 +8829,168 @@ private fun formatBytesParts(bytes: Long, lang: Lang): Pair<String, String> {
+     return localizeDigits(num, lang) to unit
+ }
+ 
++/** Visible OpenVPN card: saved profiles, state, pre-connect ping, connect/disconnect, edit/delete. */
++@Composable
++private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -> Unit) {
++    val context = LocalContext.current
++    val status by GhajarOpenVpnBridge.status.collectAsState()
++    val activeUuid by GhajarOpenVpnBridge.activeUuid.collectAsState()
++    var tick by remember { mutableIntStateOf(0) }
++    var profiles by remember { mutableStateOf(GhajarOpenVpnBridge.profiles(context)) }
++    LaunchedEffect(tick) {
++        profiles = withContext(Dispatchers.IO) { GhajarOpenVpnBridge.profiles(context) }
++    }
++    var expanded by remember { mutableStateOf(true) }
++    var editing by remember { mutableStateOf<GhajarOvpnProfile?>(null) }
++    var editUser by remember { mutableStateOf("") }
++    var editPass by remember { mutableStateOf("") }
++    var confirmDelete by remember { mutableStateOf<GhajarOvpnProfile?>(null) }
++    val scope = rememberCoroutineScope()
++    val stateLabel = when (status) {
++        GhajarOvpnState.CONNECTED -> "متصل"
++        GhajarOvpnState.CONNECTING -> "در حال اتصال…"
++        GhajarOvpnState.ERROR -> "اتصال برقرار نشد"
++        GhajarOvpnState.DISCONNECTED -> "متصل نیست"
++    }
++    Card(
++        modifier = Modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(18.dp),
++        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
++        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
++        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
++    ) {
++        Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                Icon(Icons.Filled.Security, contentDescription = null,
++                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
++                Spacer(Modifier.width(10.dp))
++                Column(Modifier.weight(1f)) {
++                    Text("OpenVPN", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
++                    Text(stateLabel, style = MaterialTheme.typography.labelMedium,
++                        color = when (status) {
++                            GhajarOvpnState.CONNECTED -> MaterialTheme.colorScheme.primary
++                            GhajarOvpnState.ERROR -> MaterialTheme.colorScheme.error
++                            else -> MaterialTheme.colorScheme.onSurfaceVariant
++                        })
++                }
++                IconButton(onClick = { expanded = !expanded }) {
++                    Icon(Icons.Filled.ExpandMore, if (expanded) "بستن" else "باز کردن",
++                        modifier = Modifier.size(20.dp))
++                }
++            }
++            if (expanded) {
++                if (profiles.isEmpty()) {
++                    Text("فایل .ovpn را ایمپورت کن تا همین‌جا قابل اتصال شود؛ از «افزودن» یا باز کردن فایل استفاده کن.",
++                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
++                }
++                profiles.forEach { profile ->
++                    val isActive = activeUuid == profile.uuid && status == GhajarOvpnState.CONNECTED
++                    val isBusy = activeUuid == profile.uuid && status == GhajarOvpnState.CONNECTING
++                    Surface(
++                        shape = RoundedCornerShape(14.dp),
++                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
++                    ) {
++                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
++                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
++                                Text(profile.name, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
++                                Text("\u2066${profile.host}:${profile.port}\u2069",
++                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
++                                if (profile.needsCredentials) Text("نام کاربری/رمز لازم دارد", style = MaterialTheme.typography.labelSmall,
++                                    color = MaterialTheme.colorScheme.error)
++                            }
++                            Text(
++                                when {
++                                    isActive -> "متصل"
++                                    isBusy -> "…"
++                                    else -> ""
++                                },
++                                color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
++                                style = MaterialTheme.typography.labelMedium
++                            )
++                            IconButton(onClick = {
++                                editUser = ""; editPass = ""; editing = profile
++                            }) { Icon(Icons.Filled.Edit, "ویرایش اطلاعات OVPN", modifier = Modifier.size(18.dp)) }
++                            IconButton(onClick = { confirmDelete = profile }) {
++                                Icon(Icons.Filled.Delete, "حذف پروفایل OVPN", tint = MaterialTheme.colorScheme.error,
++                                    modifier = Modifier.size(18.dp))
++                            }
++                            if (isActive || isBusy) {
++                                BounceOutlinedButton(
++                                    onClick = onDisconnect,
++                                    minHeight = 36.dp,
++                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp)
++                                ) { Text("قطع", style = MaterialTheme.typography.labelMedium) }
++                            } else {
++                                Button(
++                                    onClick = {
++                                        scope.launch {
++                                            val ping = withContext(Dispatchers.IO) { Pinger.ping(profile.host, profile.port, 3000) }
++                                            val suffix = when (ping) {
++                                                is PingResult.Ok -> " (پینگ ${ping.ms}ms)"
++                                                else -> ""
++                                            }
++                                            android.widget.Toast.makeText(
++                                                context, "اتصال به ${profile.name}$suffix",
++                                                android.widget.Toast.LENGTH_SHORT
++                                            ).show()
++                                            onConnect(profile.uuid)
++                                            tick++
++                                        }
++                                    },
++                                    enabled = !profile.needsCredentials,
++                                    shape = RoundedCornerShape(12.dp),
++                                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
++                                    modifier = Modifier.height(36.dp)
++                                ) { Text("اتصال", style = MaterialTheme.typography.labelMedium) }
++                            }
++                        }
++                    }
++                }
++            }
++        }
++    }
++    editing?.let { profile ->
++        GlassDialog(
++            onDismiss = { editing = null },
++            title = "ویرایش حساب OVPN",
++            confirmLabel = "ذخیره",
++            dismissLabel = "انصراف",
++            onConfirm = {
++                GhajarOpenVpnBridge.updateCredentials(context, profile.uuid, editUser.trim(), editPass.trim())
++                    .onSuccess { tick++ }
++                    .onFailure { message ->
++                        android.widget.Toast.makeText(context, message.message ?: "ذخیره نشد", Toast.LENGTH_LONG).show()
++                    }
++                editing = null
++            }
++        ) {
++            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
++                OutlinedTextField(editUser, { editUser = it }, label = { Text("نام کاربری") }, singleLine = true)
++                OutlinedTextField(editPass, { editPass = it }, label = { Text("رمز عبور") }, singleLine = true,
++                    visualTransformation = PasswordVisualTransformation())
++            }
++        }
++    }
++    confirmDelete?.let { profile ->
++        GlassDialog(
++            onDismiss = { confirmDelete = null },
++            title = "حذف پروفایل OVPN",
++            confirmLabel = "حذف",
++            dismissLabel = "انصراف",
++            onConfirm = {
++                GhajarOpenVpnBridge.delete(context, profile.uuid)
++                    .onSuccess { tick++ }
++                    .onFailure { message ->
++                        android.widget.Toast.makeText(context, message.message ?: "حذف نشد", Toast.LENGTH_LONG).show()
++                    }
++                confirmDelete = null
++            }
++        ) {
++            Text("«${profile.name}» از فهرست OpenVPN حذف شود؟ این کار کانفیگ‌های دیگر را عوض نمی‌کند.")
++        }
++    }
++}
++
+ @Composable
+ private fun SubscriptionHeader(
+     sub: Subscription,

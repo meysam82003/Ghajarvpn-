@@ -1,0 +1,103 @@
+From a302f6e64e692515bd90e9c07cd1507ed6764941 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 12:19:39 +0330
+Subject: [PATCH] feat(home): compact premium connection route card
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Shrink the 'مسیر اتصال شما' card into one tight row that keeps the
+config name, protocol/engine and connection state while freeing home
+screen space; the title moves to a content description.
+---
+ .../net/gozar/app/GhajarSelectedServerCard.kt | 54 ++++++++++++-------
+ 1 file changed, 35 insertions(+), 19 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt b/app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
+index 16cdf8e..ad6462d 100644
+--- a/app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
++++ b/app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
+@@ -11,48 +11,64 @@ import androidx.compose.material3.*
+ import androidx.compose.runtime.Composable
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
+-import androidx.compose.ui.graphics.Brush
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
+ import java.util.Locale
+ 
++/**
++ * Compact "your connection route" card: config name, protocol/engine and the
++ * live connection state in one tight premium row that leaves room for home.
++ */
+ @Composable
+ internal fun GhajarSelectedServerCard(config: ProxyConfig?, connection: Connection, onChoose: () -> Unit) {
+     val colors = MaterialTheme.colorScheme
+-    Card(onClick = onChoose, modifier = Modifier.fillMaxWidth(),
+-        shape = RoundedCornerShape(24.dp),
++    val stateColor = when (connection) {
++        Connection.CONNECTED -> colors.primary
++        Connection.ERROR -> colors.error
++        else -> colors.onSurfaceVariant
++    }
++    Card(onClick = onChoose, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp),
++        shape = RoundedCornerShape(18.dp),
+         colors = CardDefaults.cardColors(containerColor = colors.surface),
+-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+-        border = BorderStroke(1.dp, colors.primary.copy(alpha = .18f))) {
+-        Row(Modifier.background(Brush.linearGradient(listOf(colors.primary.copy(alpha = .08f), colors.surface)))
+-            .padding(17.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+-            Surface(shape = RoundedCornerShape(17.dp), color = colors.primary.copy(alpha = .10f)) {
+-                Icon(Icons.Filled.Shield, null, modifier = Modifier.padding(12.dp).size(28.dp), tint = colors.primary)
++        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
++        border = BorderStroke(1.dp, colors.primary.copy(alpha = .20f))) {
++        Row(
++            Modifier.background(Brush.linearGradient(listOf(colors.primary.copy(alpha = .07f), colors.surface)))
++                .padding(horizontal = 12.dp, vertical = 9.dp),
++            verticalAlignment = Alignment.CenterVertically,
++            horizontalArrangement = Arrangement.spacedBy(10.dp)
++        ) {
++            Surface(shape = RoundedCornerShape(12.dp), color = colors.primary.copy(alpha = .10f)) {
++                Icon(Icons.Filled.Shield, null, modifier = Modifier.padding(6.dp).size(17.dp), tint = colors.primary)
+             }
+-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+-                Text("مسیر اتصال شما", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
++            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                 Text(config?.name?.let(BrandConfig::sanitizePublicText) ?: "یک سرویس انتخاب کن",
+-                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
+-                    maxLines = 2, overflow = TextOverflow.Ellipsis)
++                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
++                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                 if (config != null) {
++                    val engine = when {
++                        config.locked -> "قفل‌شده"
++                        config.protocol in setOf("aether", "tor") -> config.protocol.uppercase(Locale.ROOT)
++                        else -> config.protocol.uppercase(Locale.ROOT)
++                    }
+                     val endpoint = when {
+                         config.locked -> "اطلاعات اتصال محفوظ"
+-                        config.protocol in setOf("aether", "tor") -> "موتور داخلی • ${config.protocol.uppercase(Locale.ROOT)}"
++                        config.protocol in setOf("aether", "tor") -> "موتور داخلی"
+                         else -> "\u2066${config.address}:${config.port}\u2069"
+                     }
+-                    Text(endpoint, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
+-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
++                    Text("$engine • $endpoint", style = MaterialTheme.typography.labelSmall,
++                        color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                 }
+                 Text(when (connection) {
+                     Connection.CONNECTED -> "متصل"
+                     Connection.CONNECTING -> "در حال اتصال…"
+                     Connection.ERROR -> "اتصال برقرار نشد"
+                     else -> "آمادهٔ اتصال"
+-                }, style = MaterialTheme.typography.labelMedium,
+-                    color = if (connection == Connection.ERROR) colors.error else colors.primary)
++                }, style = MaterialTheme.typography.labelSmall, color = stateColor)
+             }
+-            Icon(Icons.Filled.ChevronRight, "انتخاب یا تغییر سرویس", tint = colors.onSurfaceVariant)
++            Icon(Icons.Filled.ChevronRight, "انتخاب یا تغییر سرویس",
++                tint = colors.onSurfaceVariant, modifier = Modifier.size(18.dp))
+         }
+     }
+ }

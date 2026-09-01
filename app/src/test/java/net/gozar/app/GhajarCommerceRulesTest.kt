@@ -34,6 +34,89 @@ class GhajarCommerceRulesTest {
         assertEquals(0, GhajarCommerceRules.nextPoster(3, 4))
         assertEquals(0, GhajarCommerceRules.nextPoster(0, 1))
     }
+
+    private val random = kotlin.random.Random(42)
+
+    @Test fun singlePosterIsRandomAndNeverRepeatsThePreviousLaunch() {
+        for (count in 2..33) for (last in -1 until count) {
+            assertNotEquals("count=$count last=$last", last, GhajarCommerceRules.randomPoster(last, count, random))
+        }
+    }
+    @Test fun singlePosterAlwaysStaysInsideThePosterSet() {
+        for (count in 1..33) for (last in -1 until count) {
+            val chosen = GhajarCommerceRules.randomPoster(last, count, random)
+            assertTrue(chosen in 0 until count)
+        }
+        assertEquals(0, GhajarCommerceRules.randomPoster(0, 1, random))
+    }
+    @Test fun welcomeTipsAreNonBlankPersianFeatureNotes() {
+        assertTrue(GhajarCommerceRules.welcomeTips.size >= 12)
+        GhajarCommerceRules.welcomeTips.forEach { tip ->
+            assertTrue(tip.isNotBlank())
+            assertTrue(tip.any { it in '\u0600'..'\u06ff' })
+        }
+    }
+    @Test fun welcomeTipRotatesWithoutImmediateRepetition() {
+        val tips = GhajarCommerceRules.welcomeTips
+        for (last in tips.indices) {
+            val next = GhajarCommerceRules.randomWelcomeTip(last, random)
+            assertNotEquals(tips[last], next)
+            assertTrue(next in tips)
+        }
+        assertEquals(0, GhajarCommerceRules.welcomeTipIndex(tips.first()))
+        assertEquals(0, GhajarCommerceRules.welcomeTipIndex("نامعلوم"))
+    }
+
+    @Test fun paidOrdersEnterTheStageMachineAndWalletTopUpsNeverDo() {
+        assertEquals(GhajarOrderStage.PAYMENT_CONFIRMED, GhajarOrderFlow.initialStage(true, false))
+        assertNull(GhajarOrderFlow.initialStage(true, true))
+        assertNull(GhajarOrderFlow.initialStage(false, false))
+    }
+    @Test fun provisioningFailsIntoARefundableStageAndDeliveryClosesIt() {
+        var stage = GhajarOrderStage.PAYMENT_CONFIRMED
+        stage = GhajarOrderFlow.onDeliveryAttempt(stage)
+        assertEquals(GhajarOrderStage.PROVISIONING, stage)
+        stage = GhajarOrderFlow.onDeliveryFailed(stage)
+        assertEquals(GhajarOrderStage.PROVISION_FAILED, stage)
+        assertTrue(GhajarOrderFlow.walletFallbackAllowed(stage))
+        assertEquals(GhajarOrderStage.WALLET_REFUNDED, GhajarOrderFlow.onWalletRefunded(stage))
+        assertFalse(GhajarOrderFlow.walletFallbackAllowed(GhajarOrderStage.WALLET_REFUNDED))
+        assertNull(GhajarOrderFlow.onWalletRefunded(GhajarOrderStage.WALLET_REFUNDED))
+    }
+    @Test fun deliveredServiceCanNeverBeRefundedToTheWallet() {
+        var stage = GhajarOrderStage.PAYMENT_CONFIRMED
+        stage = GhajarOrderFlow.onDeliveryAttempt(stage)
+        stage = GhajarOrderFlow.onDelivered(stage, 3)
+        assertEquals(GhajarOrderStage.DELIVERED, stage)
+        assertFalse(GhajarOrderFlow.walletFallbackAllowed(stage))
+        assertNull(GhajarOrderFlow.onWalletRefunded(stage))
+        assertEquals(GhajarOrderStage.DELIVERED, GhajarOrderFlow.onDeliveryFailed(stage))
+    }
+    @Test fun walletRefundIsIdempotentAcrossRepeatedAttempts() {
+        val first = GhajarOrderFlow.onWalletRefunded(GhajarOrderStage.PROVISION_FAILED)
+        assertEquals(GhajarOrderStage.WALLET_REFUNDED, first)
+        // Re-crediting an already refunded invoice is a no-op (null), never double credit.
+        assertNull(GhajarOrderFlow.onWalletRefunded(first!!))
+    }
+    @Test fun pendingOrRejectedCardToCardReceiptNeverQualifiesForWalletCredit() {
+        listOf("waiting", "pending", "unpaid").forEach { status ->
+            assertFalse(status, GhajarOrderFlow.refundEligible(status, false, false, false))
+        }
+        listOf("rejected", "expired", "canceled").forEach { status ->
+            assertFalse(status, GhajarOrderFlow.refundEligible(status, false, false, false))
+        }
+        assertFalse(GhajarOrderFlow.refundEligible("paid", false, true, true))
+        assertTrue(GhajarOrderFlow.refundEligible("paid", false, false, false))
+        assertTrue(GhajarOrderFlow.refundEligible("paid", false, true, false))
+        assertFalse(GhajarOrderFlow.refundEligible("paid", true, false, false))
+    }
+    @Test fun stageMachineSurvivesStorageRoundTrip() {
+        GhajarOrderStage.entries.forEach { stage ->
+            assertEquals(stage, GhajarOrderFlow.fromStorage(stage.name))
+        }
+        assertNull(GhajarOrderFlow.fromStorage(null))
+        assertNull(GhajarOrderFlow.fromStorage("garbage"))
+    }
     @Test fun internalEnglishErrorIsNotDisplayed() {
         assertFalse(GhajarCommerceRules.publicMessage("The coroutine scope left the composition").contains("coroutine"))
     }

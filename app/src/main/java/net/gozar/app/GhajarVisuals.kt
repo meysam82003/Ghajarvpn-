@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextAlign
@@ -62,9 +63,8 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
     val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
 
-    // Keep the original 3.0.4 HorizontalPager behavior; only expand the poster set to all 33 images.
+    // The full 3.0.4 poster set; only ONE image is shown per launch, randomly.
     val posters = remember {
         listOf(
             R.drawable.ghajar_welcome_world,
@@ -102,87 +102,48 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
             R.drawable.ghajar_welcome_extra_22
         )
     }
-    val darkPosters = remember {
-        setOf(
-            R.drawable.ghajar_welcome_royal,
-            R.drawable.ghajar_welcome_king_night,
-            R.drawable.ghajar_welcome_queen_shield,
-            R.drawable.ghajar_welcome_queen_night,
-            R.drawable.ghajar_welcome_extra_01,
-            R.drawable.ghajar_welcome_extra_02,
-            R.drawable.ghajar_welcome_extra_03,
-            R.drawable.ghajar_welcome_extra_04,
-            R.drawable.ghajar_welcome_extra_06,
-            R.drawable.ghajar_welcome_extra_07,
-            R.drawable.ghajar_welcome_extra_09,
-            R.drawable.ghajar_welcome_extra_10,
-            R.drawable.ghajar_welcome_extra_12,
-            R.drawable.ghajar_welcome_extra_13,
-            R.drawable.ghajar_welcome_extra_14,
-            R.drawable.ghajar_welcome_extra_15,
-            R.drawable.ghajar_welcome_extra_21
-        )
+    // One random poster per launch; the previous launch's poster is not repeated.
+    val selectedPoster = remember {
+        GhajarCommerceRules.randomPoster(prefs.getInt("last_poster", -1), posters.size, kotlin.random.Random.Default)
     }
-    val selectedPoster = remember { GhajarCommerceRules.nextPoster(prefs.getInt("last_poster", -1), posters.size) }
-    val pager = rememberPagerState(initialPage = if (returning) selectedPoster else if (dark) 3 else 0, pageCount = { posters.size })
+    val selectedTip = remember {
+        GhajarCommerceRules.randomWelcomeTip(prefs.getInt("last_tip", -1), kotlin.random.Random.Default)
+    }
     val finish by rememberUpdatedState(onDone)
     var entered by remember { mutableStateOf(false) }
     val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(450), label = "welcome-reveal")
-    fun close() {
-        prefs.edit().putBoolean("soft_intro_seen", true)
-            .putInt("last_poster", if (returning) selectedPoster else pager.currentPage).apply()
-        finish()
-    }
     LaunchedEffect(Unit) {
+        // Persist immediately so a killed process still never repeats the poster/tip.
+        prefs.edit()
+            .putInt("last_poster", selectedPoster)
+            .putInt("last_tip", GhajarCommerceRules.welcomeTipIndex(selectedTip))
+            .putBoolean("soft_intro_seen", true)
+            .apply()
         entered = true
         if (returning) {
-            prefs.edit().putInt("last_poster", selectedPoster).apply()
+            // Existing auto-close behavior for users who have seen the intro once.
             delay(1500)
-            close()
+            finish()
         }
     }
-    val posterDark = posters[pager.currentPage] in darkPosters
-    val backdrop = if (posterDark) Color(0xFF061226) else Color(0xFFEAF1FB)
+    // The navy info card is part of the brand and must always frame the poster.
+    val backdrop = Color(0xFF061226)
     Column(
-        Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
+        Modifier.fillMaxSize().background(backdrop).safeDrawingPadding().clickable(onClick = { finish() }),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        if (returning) {
-            Image(painterResource(posters[selectedPoster]), contentDescription = "خوش آمدی به قاجار VPN",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.weight(1f).fillMaxWidth().clickable(onClick = ::close).graphicsLayer { alpha = reveal })
-        } else HorizontalPager(
-            state = pager,
-            modifier = Modifier.weight(1f).fillMaxWidth(),
-            beyondViewportPageCount = 0
-        ) { page ->
-            Image(
-                painterResource(posters[page]),
-                contentDescription = "تصویر معرفی قاجار VPN، صفحه ${page + 1}",
-                // FIT is deliberate: hats, feet, captions and all four edges stay visible.
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().padding(4.dp).graphicsLayer {
-                    alpha = reveal
-                    scaleX = 0.985f + reveal * 0.015f
-                    scaleY = scaleX
-                }
-            )
-        }
-        if (!returning) Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.semantics { contentDescription = "صفحه ${pager.currentPage + 1} از ${posters.size}" }) {
-                    posters.indices.forEach { index ->
-                        Box(Modifier.size(if (index == pager.currentPage) 5.dp else 4.dp)
-                            .background(if (index == pager.currentPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, CircleShape))
-                    }
-                }
-                Text("تصاویر معرفی • وضعیت واقعی اتصال در صفحهٔ خانه نمایش داده می‌شود", style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(vertical = 6.dp))
-                Button(onClick = ::close, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    shape = RoundedCornerShape(20.dp), elevation = ButtonDefaults.buttonElevation(defaultElevation = 2.dp)) {
-                    Text("ورود به قاجار VPN")
-                }
+        Image(painterResource(posters[selectedPoster]), contentDescription = "خوش آمدی به قاجار VPN",
+            contentScale = ContentScale.Crop,
+            modifier = Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = reveal })
+        Surface(color = Color(0xFF0B1F3A), shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+            modifier = Modifier.fillMaxWidth()) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
+                horizontalAlignment = Alignment.CenterHorizontally) {
+                Text("💡 نکتهٔ قاجار", style = MaterialTheme.typography.labelMedium,
+                    color = Color(0xFFD6B45F), fontWeight = FontWeight.Bold)
+                Text(selectedTip, style = MaterialTheme.typography.bodyMedium,
+                    color = Color(0xFFF2F6FC), textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(top = 6.dp))
             }
         }
     }

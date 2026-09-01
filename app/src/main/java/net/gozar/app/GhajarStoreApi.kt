@@ -393,6 +393,23 @@ class GhajarStoreApi(context: Context) {
     suspend fun paymentStatus(orderId: String): JSONObject =
         action("payment_status", params = mapOf("order_id" to orderId)).payloadObject()
 
+    /**
+     * Asks the panel to credit the wallet for a confirmed payment whose service
+     * delivery failed. The panel remains the financial authority and must treat
+     * repeated requests for the same order as a no-op; the client enforces its
+     * own idempotency with GhajarOrderFlow and only records WALLET_REFUNDED when
+     * the server explicitly confirms `wallet_credited`.
+     */
+    suspend fun requestWalletFallback(orderId: String): Boolean {
+        val payload = action(
+            "payment_fallback_wallet",
+            method = "POST",
+            body = JSONObject().put("order_id", orderId)
+        ).payloadObject()
+        return payload.optBoolean("wallet_credited", payload.optBoolean("credited", false)) ||
+            payload.optBoolean("success", false) && payload.optString("stage") == "wallet_refunded"
+    }
+
     suspend fun uploadReceipt(orderId: String, photo: Uri): String = withContext(Dispatchers.IO) {
         val resolver = appContext.contentResolver
         val size = resolver.openAssetFileDescriptor(photo, "r")?.use { it.length } ?: -1L

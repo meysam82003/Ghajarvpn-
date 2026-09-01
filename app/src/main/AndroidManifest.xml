@@ -77,6 +77,8 @@
         <activity
             android:name=".SecurePaymentActivity"
             android:exported="false"
+            android:launchMode="singleTop"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:label="پرداخت امن قاجار وی پی ان"
             android:theme="@style/Theme.Ghajarvpn" />
         <service
