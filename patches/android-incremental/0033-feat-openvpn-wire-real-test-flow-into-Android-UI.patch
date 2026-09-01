@@ -1,0 +1,107 @@
+From 4c41b4daf68d951abf6652b8323bbd493f16284e Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 16:07:56 +0000
+Subject: [PATCH 2/4] feat(openvpn): wire real test flow into Android UI
+
+---
+ .../main/java/net/gozar/app/MainActivity.kt   | 35 ++++++++++++++++---
+ 1 file changed, 30 insertions(+), 5 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index fbc07ab..e2d3b49 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -595,6 +595,7 @@ class MainActivity : ComponentActivity() {
+         store = ConfigStore.get(applicationContext)
+         UsageStore.init(applicationContext)
+         VpnBridge.register(applicationContext)
++        GhajarOpenVpnBridge.initialize(applicationContext)
+         handleImportIntent(intent)
+         IkeController.bind(this)
+         watchTunnel()
+@@ -692,7 +693,8 @@ class MainActivity : ComponentActivity() {
+                                 onSwitch = ::switchTo,
+                                 onCancelPick = ::cancelPick,
+                                 onConnectOpenVpn = ::connectSavedOpenVpn,
+-                                onDisconnectOpenVpn = ::disconnectOpenVpn
++                                onDisconnectOpenVpn = ::disconnectOpenVpn,
++                                onTestOpenVpn = ::testSavedOpenVpn
+                             )
+                         }
+                         AnimatedVisibility(
+@@ -835,6 +837,26 @@ class MainActivity : ComponentActivity() {
+         }
+     }
+ 
++    private fun testSavedOpenVpn(uuid: String) {
++        val start: () -> Unit = {
++            lifecycleScope.launch {
++                val result = GhajarOpenVpnBridge.testSaved(this@MainActivity, uuid)
++                Toast.makeText(
++                    this@MainActivity,
++                    if (result.ok == true) "تست واقعی موفق: ${result.connectMs ?: 0}ms"
++                    else "تست OVPN ناموفق: ${result.message}",
++                    Toast.LENGTH_LONG
++                ).show()
++            }
++            Unit
++        }
++        val permission = VpnService.prepare(this)
++        if (permission == null) start() else {
++            afterPermission = start
++            vpnPermission.launch(permission)
++        }
++    }
++
+     private fun launchConnect(config: ProxyConfig) {
+         if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
+             config.security.trim().lowercase() == "tls"
+@@ -1114,7 +1136,8 @@ private fun GozarApp(
+     onSwitch: (ProxyConfig) -> Unit,
+     onCancelPick: () -> Unit = {},
+     onConnectOpenVpn: (String) -> Unit = {},
+-    onDisconnectOpenVpn: () -> Unit = {}
++    onDisconnectOpenVpn: () -> Unit = {},
++    onTestOpenVpn: (String) -> Unit = {}
+ ) {
+     val t = stringsFn()
+     val scope = rememberCoroutineScope()
+@@ -1603,7 +1626,8 @@ private fun GozarApp(
+                             onScanQr = { showScanner = true },
+                             onShareFile = { exportConfigs = it },
+                             onConnectOpenVpn = onConnectOpenVpn,
+-                            onDisconnectOpenVpn = onDisconnectOpenVpn
++                            onDisconnectOpenVpn = onDisconnectOpenVpn,
++                            onTestOpenVpn = onTestOpenVpn
+                         )
+                         "projects" -> FreeProjectsScreen(
+                             store = store,
+@@ -1994,6 +2018,7 @@ private fun ConfigPickerScreen(
+     onShareFile: (List<ProxyConfig>) -> Unit,
+     onConnectOpenVpn: (String) -> Unit = {},
+     onDisconnectOpenVpn: () -> Unit = {},
++    onTestOpenVpn: (String) -> Unit = {},
+     modifier: Modifier = Modifier
+ ) {
+     val t = stringsFn()
+@@ -2597,7 +2622,7 @@ private fun ConfigPickerScreen(
+             verticalArrangement = Arrangement.spacedBy(8.dp)
+         ) {
+             item(key = "openvpn-section") {
+-                GhajarOpenVpnSection(onConnect = onConnectOpenVpn, onDisconnect = onDisconnectOpenVpn)
++                GhajarOpenVpnSection(onConnect = onConnectOpenVpn, onDisconnect = onDisconnectOpenVpn, onTest = onTestOpenVpn)
+             }
+             grouped.forEach { (sub, subConfigs) ->
+                 val wsRow = if (WindscribeBrand.isWindscribe(sub)) wsRowColor else null
+@@ -8841,7 +8866,7 @@ private fun formatBytesParts(bytes: Long, lang: Lang): Pair<String, String> {
+ 
+ /** Visible OpenVPN card: saved profiles, state, pre-connect ping, connect/disconnect, edit/delete. */
+ @Composable
+-private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -> Unit) {
++private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -> Unit, onTest: (String) -> Unit) {
+     val context = LocalContext.current
+     val status by GhajarOpenVpnBridge.status.collectAsState()
+     val activeUuid by GhajarOpenVpnBridge.activeUuid.collectAsState()
+-- 
+2.47.3
+
