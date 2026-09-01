@@ -70,48 +70,48 @@ new file mode 100644
 +    min: Dp = Dp.Unspecified,
 +    max: Dp = Dp.Unspecified
 +): Modifier = this.composeWidthIn(min = min, max = max)
-+
-+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
-+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
-++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
-+@@ -678,7 +678,14 @@ class MainActivity : ComponentActivity() {
-+                     }
-+                     Box {
-+                         if (startMain) {
-+-                            GozarApp(store = store, onConnect = ::connectTo, onDisconnect = ::disconnect, onSwitch = ::switchTo, onCancelPick = ::cancelPick)
-++                            GozarApp(
-++                                store = store,
-++                                onConnect = ::connectTo,
-++                                onDisconnect = ::disconnect,
-++                                onSwitch = ::switchTo,
-++                                onCancelPick = ::cancelPick,
-++                                onConnectOpenVpn = ::connectSavedOpenVpn,
-++                                onDisconnectOpenVpn = ::disconnectOpenVpn
-++                            )
-+                         }
-+                         AnimatedVisibility(
-+                             visible = showWelcome,
-+@@ -1081,7 +1088,9 @@ private fun GozarApp(
-+     onConnect: (ProxyConfig) -> Unit,
-+     onDisconnect: () -> Unit,
-+     onSwitch: (ProxyConfig) -> Unit,
-+-    onCancelPick: () -> Unit = {}
-++    onCancelPick: () -> Unit = {},
-++    onConnectOpenVpn: (String) -> Unit = {},
-++    onDisconnectOpenVpn: () -> Unit = {}
-+ ) {
-+     val t = stringsFn()
-+     val scope = rememberCoroutineScope()
-+@@ -1592,8 +1601,8 @@ private fun GozarApp(
-+                             onWindscribe = { showWindscribe = true },
-+                             onScanQr = { showScanner = true },
-+                             onShareFile = { exportConfigs = it },
-+-                            onConnectOpenVpn = ::connectSavedOpenVpn,
-+-                            onDisconnectOpenVpn = ::disconnectOpenVpn
-++                            onConnectOpenVpn = onConnectOpenVpn,
-++                            onDisconnectOpenVpn = onDisconnectOpenVpn
-+                         )
-+                         "projects" -> FreeProjectsScreen(
-+                             store = store,
-+-- 
-+2.55.0
+
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -678,7 +678,14 @@ class MainActivity : ComponentActivity() {
+                     }
+                     Box {
+                         if (startMain) {
+-                            GozarApp(store = store, onConnect = ::connectTo, onDisconnect = ::disconnect, onSwitch = ::switchTo, onCancelPick = ::cancelPick)
++                            GozarApp(
++                                store = store,
++                                onConnect = ::connectTo,
++                                onDisconnect = ::disconnect,
++                                onSwitch = ::switchTo,
++                                onCancelPick = ::cancelPick,
++                                onConnectOpenVpn = ::connectSavedOpenVpn,
++                                onDisconnectOpenVpn = ::disconnectOpenVpn
++                            )
+                         }
+                         AnimatedVisibility(
+                             visible = showWelcome,
+@@ -1081,7 +1088,9 @@ private fun GozarApp(
+     onConnect: (ProxyConfig) -> Unit,
+     onDisconnect: () -> Unit,
+     onSwitch: (ProxyConfig) -> Unit,
+-    onCancelPick: () -> Unit = {}
++    onCancelPick: () -> Unit = {},
++    onConnectOpenVpn: (String) -> Unit = {},
++    onDisconnectOpenVpn: () -> Unit = {}
+ ) {
+     val t = stringsFn()
+     val scope = rememberCoroutineScope()
+@@ -1592,8 +1601,8 @@ private fun GozarApp(
+                             onWindscribe = { showWindscribe = true },
+                             onScanQr = { showScanner = true },
+                             onShareFile = { exportConfigs = it },
+-                            onConnectOpenVpn = ::connectSavedOpenVpn,
+-                            onDisconnectOpenVpn = ::disconnectOpenVpn
++                            onConnectOpenVpn = onConnectOpenVpn,
++                            onDisconnectOpenVpn = onDisconnectOpenVpn
+                         )
+                         "projects" -> FreeProjectsScreen(
+                             store = store,
+-- 
+2.55.0
