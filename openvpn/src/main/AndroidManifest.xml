@@ -34,8 +34,7 @@
             android:name=".core.OpenVPNService"
             android:exported="true"
             android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="specialUse"
-            android:process=":openvpn">
+            android:foregroundServiceType="specialUse">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
             </intent-filter>
@@ -44,7 +43,6 @@
         </service>
         <service
             android:name=".api.ExternalOpenVPNService"
-            android:process=":openvpn"
             android:exported="false"
                 tools:ignore="ExportedService">
             <intent-filter>
@@ -53,8 +51,7 @@
         </service>
         <service
             android:name=".core.OpenVPNStatusService"
-            android:exported="false"
-            android:process=":openvpn" />
+            android:exported="false" />
 
         <activity android:name=".api.GrantPermissionsActivity"
                 android:exported="false">
@@ -78,7 +75,6 @@
         </receiver>
 
         <service android:name=".core.keepVPNAlive"
-                android:process=":openvpn"
                 android:exported="false"
                 android:permission="android.permission.BIND_JOB_SERVICE"/>
 

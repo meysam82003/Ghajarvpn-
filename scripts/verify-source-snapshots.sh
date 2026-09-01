@@ -26,9 +26,11 @@ snapshots=(
   "app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt"
   "app/src/main/java/net/gozar/app/GhajarOperation.kt"
   "app/src/main/java/net/gozar/app/GhajarPaymentPolicy.kt"
+  "app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt"
   "app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt"
   "app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt"
   "app/src/test/java/net/gozar/app/GhajarLinkFlowTest.kt"
+  "openvpn/src/main/AndroidManifest.xml"
   "openvpn/src/main/cpp/CMakeLists.txt"
   "openvpn/src/main/cpp/ghajar-openssl-arch.cmake"
 )

@@ -70,6 +70,22 @@ class GhajarUiRulesTest {
     @Test fun malformedCodeIsNeverInjectedIntoDeepLink() {
         assertEquals("https://t.me/Ghajar_vpnbot", GhajarUiRules.botLink(null, "123&x=1"))
     }
+    @Test fun configNamesAlwaysLeadWithGhajarvpnWithoutDoublePrefixing() {
+        assertEquals("Ghajarvpn • Germany 01", GhajarUiRules.brandedConfigName("Germany 01"))
+        assertEquals("Ghajarvpn France", GhajarUiRules.brandedConfigName("Ghajarvpn France"))
+    }
+    @Test fun subscriptionTitleUsesServerQuotaInGb() {
+        assertEquals("Ghajarvpn 10 GB", GhajarUiRules.brandedSubscriptionTitle(10L * 1024 * 1024 * 1024, "anything"))
+        assertEquals("Ghajarvpn 1.5 GB", GhajarUiRules.brandedSubscriptionTitle(1536L * 1024 * 1024, "anything"))
+        assertEquals("Ghajarvpn • Royal", GhajarUiRules.brandedSubscriptionTitle(0, "Royal"))
+    }
+    @Test fun ovpnNamesUseCountryFlagFromHostname() {
+        assertEquals("Ghajarvpn 🇧🇴", GhajarUiRules.ovpnDisplayName("97-1-bo.cg-dialup.net"))
+        assertEquals("Ghajarvpn 🇮🇳", GhajarUiRules.ovpnDisplayName("97-1-in.cg-dialup.net"))
+        assertEquals("Ghajarvpn 🇵🇪", GhajarUiRules.ovpnDisplayName("97-1-pe.cg-dialup.net"))
+        assertEquals("Ghajarvpn 🌐", GhajarUiRules.ovpnDisplayName("vpn.example.invalid"))
+    }
+
     @Test fun persianAndArabicDigitsWorkInCustomPurchase() {
         assertEquals("1234567890", GhajarUiRules.asciiDigits("۱۲۳۴۵٦٧٨٩٠"))
         assertEquals("30", GhajarUiRules.asciiDigits("۳۰ روز"))
