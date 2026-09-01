@@ -405,8 +405,8 @@ internal fun IpLocatorContent(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IpLocatorDot(live, scale)
                 Text(
-                    if (lang == Lang.FA) { if (connected) "IP خروجی اتصال" else "IP اینترنت" }
-                    else if (connected) "Connection exit IP" else "Internet IP",
+                    if (lang == Lang.FA) { if (connected) "خروجی اتصال" else "اینترنت" }
+                    else if (connected) "Connection exit" else "Internet",
                     color = live,
                     fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
                     fontWeight = FontWeight.Bold,
@@ -415,17 +415,9 @@ internal fun IpLocatorContent(
                     maxLines = 1
                 )
             }
-            Text(
-                l.ip,
-                color = onShell,
-                fontFamily = LexendFont,
-                fontWeight = FontWeight.Bold,
-                fontSize = (14.5f * scale).sp,
-                lineHeight = (20f * scale).sp,
-                letterSpacing = 0.2.sp,
-                maxLines = 1,
-                modifier = Modifier.padding(start = (7f * scale).dp, top = (1f * scale).dp)
-            )
+            // The numeric IP is deliberately not rendered on the shell: the
+            // country crest plus place name carry the same information
+            // without an ever-changing identifier. (User request.)
             val flagEmoji = GhajarLocationRules.flag(l.countryCode)
             val place = "${l.country} · ${l.city}".trim().trimEnd('·').trim()
             Text(

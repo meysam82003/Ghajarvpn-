@@ -7,8 +7,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.aspectRatio
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -83,6 +81,9 @@ fun GhajarWelcomeOverlay(onDone: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
+            // Full-bleed story: the poster covers the whole screen so no
+            // letterbox background is ever visible around it. The plain dark
+            // fill only guards the very first frame before the bitmap draws.
             .background(Color(0xFF04070C))
             .alpha(fade)
             .testTag("ghajar_welcome_poster")
@@ -101,8 +102,7 @@ fun GhajarWelcomeOverlay(onDone: () -> Unit) {
     ) {
         Box(
             modifier = Modifier
-                .fillMaxHeight()
-                .aspectRatio(9f / 16f)
+                .fillMaxSize()
                 .padding(GhajarWelcomeOverlayRules.FRAME_GAP_DP.dp)
                 .border(
                     GhajarWelcomeOverlayRules.FRAME_STROKE_DP.dp,
@@ -114,7 +114,7 @@ fun GhajarWelcomeOverlay(onDone: () -> Unit) {
                 painter = painterResource(chosen.resourceId),
                 contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
                 modifier = Modifier.fillMaxSize().testTag("ghajar_welcome_poster_fit"),
-                contentScale = ContentScale.Fit
+                contentScale = ContentScale.Crop
             )
         }
     }

@@ -850,7 +850,7 @@ internal fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> 
                 }
                 Column(Modifier.weight(1f)) {
                     Text(product.name, style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        fontWeight = FontWeight.ExtraBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
                     Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" }
                         ?: "قیمت در دسترس نیست", color = MaterialTheme.colorScheme.primary,
                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)

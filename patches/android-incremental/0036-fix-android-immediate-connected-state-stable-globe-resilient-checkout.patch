@@ -1,0 +1,321 @@
+From 3333333333333333333333333333333333333336 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Tue, 1 Sep 2026 07:47:03 +0330
+Subject: [PATCH] fix(android): immediate connected state, stable globe, resilient checkout
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- setConnected lands CONNECTED as soon as the tunnel confirms (tunnel
+  outranks the UI-side debounce) so the app no longer shows
+  "در حال اتصال" while traffic already flows
+- location lookup publishes only the final result: the IP no longer
+  flickers under the globe and slow lookups stop stealing frames from
+  the globe renderer; the raw IP text is removed from the home status
+  and the globe shell (country flag + place remain)
+- checkout: fatal Errors are caught and surfaced instead of killing the
+  activity; every fatal crash is persisted by a global uncaught-
+  exception handler for post-mortem diagnosis of silent exits
+- welcome poster is full-bleed (story-size, edge to edge) with no
+  letterbox background; hairline frame retained
+- card-to-card receipt preview is hard-bounded in a clipped frame and
+  the treasury card header spacing is tightened
+- product names keep up to three lines instead of truncating early
+---
+ app/src/main/java/net/gozar/app/DotGlobe.kt   | 18 +++-------
+ .../java/net/gozar/app/GhajarCheckoutCards.kt | 14 ++++++--
+ .../net/gozar/app/GhajarCheckoutViewModel.kt  |  6 ++++
+ .../main/java/net/gozar/app/GhajarLocation.kt | 17 ++++-----
+ .../java/net/gozar/app/GhajarShopScreen.kt    |  2 +-
+ .../net/gozar/app/GhajarWelcomeOverlay.kt     | 10 +++---
+ .../java/net/gozar/app/Gozarapplication.kt    | 36 +++++++++++++++++++
+ app/src/main/java/net/gozar/app/VpnState.kt   |  4 ++-
+ .../java/net/gozar/app/VpnStateGateTest.kt    | 11 ++++++
+ 9 files changed, 87 insertions(+), 31 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/DotGlobe.kt b/app/src/main/java/net/gozar/app/DotGlobe.kt
+index 538734c..c10a840 100644
+--- a/app/src/main/java/net/gozar/app/DotGlobe.kt
++++ b/app/src/main/java/net/gozar/app/DotGlobe.kt
+@@ -405,8 +405,8 @@ internal fun IpLocatorContent(
+             Row(verticalAlignment = Alignment.CenterVertically) {
+                 IpLocatorDot(live, scale)
+                 Text(
+-                    if (lang == Lang.FA) { if (connected) "IP خروجی اتصال" else "IP اینترنت" }
+-                    else if (connected) "Connection exit IP" else "Internet IP",
++                    if (lang == Lang.FA) { if (connected) "خروجی اتصال" else "اینترنت" }
++                    else if (connected) "Connection exit" else "Internet",
+                     color = live,
+                     fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
+                     fontWeight = FontWeight.Bold,
+@@ -415,17 +415,9 @@ internal fun IpLocatorContent(
+                     maxLines = 1
+                 )
+             }
+-            Text(
+-                l.ip,
+-                color = onShell,
+-                fontFamily = LexendFont,
+-                fontWeight = FontWeight.Bold,
+-                fontSize = (14.5f * scale).sp,
+-                lineHeight = (20f * scale).sp,
+-                letterSpacing = 0.2.sp,
+-                maxLines = 1,
+-                modifier = Modifier.padding(start = (7f * scale).dp, top = (1f * scale).dp)
+-            )
++            // The numeric IP is deliberately not rendered on the shell: the
++            // country crest plus place name carry the same information
++            // without an ever-changing identifier. (User request.)
+             val flagEmoji = GhajarLocationRules.flag(l.countryCode)
+             val place = "${l.country} · ${l.city}".trim().trimEnd('·').trim()
+             Text(
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+index fe66d76..99e5210 100644
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+@@ -67,7 +67,7 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
+                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
+                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                     Text("خزانهٔ قاجار", color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold,
+-                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 36.dp))
++                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 10.dp))
+                     Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
+                     Row(verticalAlignment = Alignment.CenterVertically) {
+                         Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
+@@ -98,8 +98,16 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
+         copied?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
+         Text("همین مبلغ دقیق را واریز کن؛ ممکن است برای تطبیق خودکار با قیمت پایه تفاوت داشته باشد.",
+             style = MaterialTheme.typography.bodySmall)
+-        preview?.let { Image(it.asImageBitmap(), "پیش‌نمایش رسید انتخاب‌شده",
+-            modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit) }
++        // The receipt preview is hard-bounded inside a clipped frame so a
++        // tall screenshot can never spill out of the card column.
++        preview?.let {
++            Surface(shape = RoundedCornerShape(14.dp), tonalElevation = 1.dp,
++                modifier = Modifier.fillMaxWidth()) {
++                Image(it.asImageBitmap(), "پیش‌نمایش رسید انتخاب‌شده",
++                    modifier = Modifier.fillMaxWidth().height(170.dp),
++                    contentScale = ContentScale.Fit)
++            }
++        }
+         OutlinedButton(onClick = onPickReceipt, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("ghajar_pick_receipt")) {
+             Text(if (receipt == null) "انتخاب عکس رسید از گوشی" else "تغییر عکس رسید")
+         }
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+index 42fdef5..4673093 100644
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+@@ -74,6 +74,12 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
+                 throw cancelled
+             } catch (failure: Exception) {
+                 error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
++            } catch (fatal: Throwable) {
++                // A fatal Error (LinkageError, OOM, WebView/JS glue…) must not
++                // take the whole activity down mid-checkout: surface it and
++                // keep the process alive so the invoice stays resumable.
++                android.util.Log.e("GhajarCheckout", "fatal during checkout", fatal)
++                error.value = "یک خطای غیرمنتظره رخ داد؛ دوباره تلاش کن. وضعیت سفارش ذخیره شده است."
+             } finally {
+                 busy.value = false
+             }
+diff --git a/app/src/main/java/net/gozar/app/GhajarLocation.kt b/app/src/main/java/net/gozar/app/GhajarLocation.kt
+index b2a5b1e..3287537 100644
+--- a/app/src/main/java/net/gozar/app/GhajarLocation.kt
++++ b/app/src/main/java/net/gozar/app/GhajarLocation.kt
+@@ -114,7 +114,6 @@ internal object GhajarLocationMonitor {
+         _snapshot.value = value
+         LocationFetcher.showIp(value.ip)
+     }
+-
+     /** Drops stale IP/country/flag data the moment a disconnect happens. */
+     fun clearStale() {
+         _snapshot.value = GhajarLocationSnapshot()
+@@ -152,20 +151,21 @@ internal fun ObserveGhajarLocation() {
+         if (session.connection !in listOf(Connection.CONNECTED, Connection.DISCONNECTED) ||
+             (session.connection == Connection.DISCONNECTED && session.locked)) return@LaunchedEffect
+         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
++            // Hold the "checking" shell until the full location is resolved:
++            // intermediate IP-only publishes made the IP line flicker under
++            // the globe and stole frames from the globe renderer on slow
++            // lookups (the reported "globe stutter + IP coming and going").
+             var result = GhajarLocationSnapshot(session, loading = true)
+             GhajarLocationMonitor.publish(result)
+             val connected = session.connection == Connection.CONNECTED
+             if (connected) delay(1000)
+             repeat(if (connected) 3 else 1) { attempt ->
+-                val location = LocationFetcher.fetch(connected && !session.nativeTunnel) { ip ->
+-                    currentCoroutineContext().ensureActive()
+-                    result = result.copy(ip = ip)
+-                    GhajarLocationMonitor.publish(result)
+-                }
++                val location = LocationFetcher.fetch(connected && !session.nativeTunnel) { }
+                 currentCoroutineContext().ensureActive()
+                 if (VpnState.lookupGeneration.value != lookupGeneration) return@repeatOnLifecycle
+                 if (location != null) {
+-                    GhajarLocationMonitor.publish(result.copy(ip = location.ip, location = location, loading = false))
++                    GhajarLocationMonitor.publish(GhajarLocationSnapshot(session, ip = location.ip,
++                        location = location, loading = false))
+                     return@repeatOnLifecycle
+                 }
+                 if (connected && attempt < 2) delay(2000L * (attempt + 1))
+@@ -197,7 +197,8 @@ internal fun GhajarLocationStatus(snapshot: GhajarLocationSnapshot, modifier: Mo
+     }
+     Column(modifier.padding(horizontal = 12.dp).testTag("ghajar_location_status"),
+         horizontalAlignment = Alignment.CenterHorizontally) {
+-        if (snapshot.ip.isNotBlank()) Text(snapshot.ip, style = MaterialTheme.typography.labelLarge)
++        // The raw IP is intentionally not shown under the globe: only the
++        // globe/flag state speaks. (User request: remove the IP line.)
+         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
+             Text(label, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center,
+                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index c121166..6e9c5e4 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -850,7 +850,7 @@ internal fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () ->
+                 }
+                 Column(Modifier.weight(1f)) {
+                     Text(product.name, style = MaterialTheme.typography.titleMedium,
+-                        fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
++                        fontWeight = FontWeight.ExtraBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                     Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" }
+                         ?: "قیمت در دسترس نیست", color = MaterialTheme.colorScheme.primary,
+                         style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Black)
+diff --git a/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt b/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
+index e2a4aaa..592f527 100644
+--- a/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
++++ b/app/src/main/java/net/gozar/app/GhajarWelcomeOverlay.kt
+@@ -7,8 +7,6 @@ import androidx.compose.foundation.background
+ import androidx.compose.foundation.border
+ import androidx.compose.foundation.gestures.detectTapGestures
+ import androidx.compose.foundation.layout.Box
+-import androidx.compose.foundation.layout.aspectRatio
+-import androidx.compose.foundation.layout.fillMaxHeight
+ import androidx.compose.foundation.layout.fillMaxSize
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.shape.RoundedCornerShape
+@@ -83,6 +81,9 @@ fun GhajarWelcomeOverlay(onDone: () -> Unit) {
+     Box(
+         modifier = Modifier
+             .fillMaxSize()
++            // Full-bleed story: the poster covers the whole screen so no
++            // letterbox background is ever visible around it. The plain dark
++            // fill only guards the very first frame before the bitmap draws.
+             .background(Color(0xFF04070C))
+             .alpha(fade)
+             .testTag("ghajar_welcome_poster")
+@@ -101,8 +102,7 @@ fun GhajarWelcomeOverlay(onDone: () -> Unit) {
+     ) {
+         Box(
+             modifier = Modifier
+-                .fillMaxHeight()
+-                .aspectRatio(9f / 16f)
++                .fillMaxSize()
+                 .padding(GhajarWelcomeOverlayRules.FRAME_GAP_DP.dp)
+                 .border(
+                     GhajarWelcomeOverlayRules.FRAME_STROKE_DP.dp,
+@@ -114,7 +114,7 @@ fun GhajarWelcomeOverlay(onDone: () -> Unit) {
+                 painter = painterResource(chosen.resourceId),
+                 contentDescription = "تصویر خوش‌آمدگویی قاجار VPN",
+                 modifier = Modifier.fillMaxSize().testTag("ghajar_welcome_poster_fit"),
+-                contentScale = ContentScale.Fit
++                contentScale = ContentScale.Crop
+             )
+         }
+     }
+diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+index c1c1c21..64b2164 100644
+--- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
++++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+@@ -15,8 +15,40 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+     private val foreground = MutableStateFlow(false)
+     private var startedActivities = 0
+ 
++    private val crashFile by lazy { java.io.File(getFilesDir(), "ghajar-crash.txt") }
++    private val systemHandler: Thread.UncaughtExceptionHandler? =
++        Thread.getDefaultUncaughtExceptionHandler()
++
++    private fun writeCrash(thread: Thread, throwable: Throwable) {
++        val stamp = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.US)
++            .format(java.util.Date())
++        val header = "\n===== $stamp  thread=${thread.name}  proc=${android.os.Process.myPid()} =====\n"
++        val trace = android.util.Log.getStackTraceString(throwable)
++        val text = header + trace + "\n"
++        java.io.FileWriter(crashFile, true).use { it.write(text) }
++        // Keep only the most recent tail so the file can never grow unbounded.
++        val max = 96 * 1024
++        if (crashFile.length() > max) {
++            val bytes = crashFile.readBytes()
++            java.io.FileWriter(crashFile, false).use {
++                it.write(String(bytes, Charsets.UTF_8).takeLast(max / 2))
++            }
++        }
++    }
++
++    private fun previousCrash(): String =
++        if (crashFile.isFile) crashFile.readText().takeLast(16 * 1024) else ""
++
+     override fun onCreate() {
+         super.onCreate()
++        // Persist any fatal crash so a silent process death (e.g. the reported
++        // checkout exit to the home screen) leaves a readable trace in the
++        // next launch instead of nothing.
++        previousCrashText.value = runCatching { previousCrash() }.getOrNull().orEmpty()
++        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
++            runCatching { writeCrash(thread, throwable) }
++            systemHandler?.uncaughtException(thread, throwable)
++        }
+         VpnState.initialize(this)
+         GhajarNotificationMonitor.initialize(this)
+         GhajarOpenVpnBridge.initialize(this)
+@@ -50,6 +82,10 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+             override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
+             override fun onActivityDestroyed(activity: Activity) {}
+         })
++    }
+ 
++    companion object {
++        /** Tail of the previous fatal crash, surfaced for diagnostics. */
++        val previousCrashText = MutableStateFlow("")
+     }
+ }
+diff --git a/app/src/main/java/net/gozar/app/VpnState.kt b/app/src/main/java/net/gozar/app/VpnState.kt
+index 493454d..204ff95 100644
+--- a/app/src/main/java/net/gozar/app/VpnState.kt
++++ b/app/src/main/java/net/gozar/app/VpnState.kt
+@@ -98,7 +98,9 @@ object VpnState {
+         synchronized(gate) {
+             val now = clock()
+             if (_state.value != Connection.CONNECTING) return
+-            if (now - lastTransitionAt < TRANSITION_DEBOUNCE_MS) return
++            // The tunnel has spoken: it outranks the UI-side debounce, so
++            // CONNECTED lands immediately instead of bouncing back to
++            // "connecting" while the app continues traffic over the tunnel.
+             lastTransitionAt = now
+             _connectedAt.value = System.currentTimeMillis()
+             _state.value = Connection.CONNECTED
+diff --git a/app/src/test/java/net/gozar/app/VpnStateGateTest.kt b/app/src/test/java/net/gozar/app/VpnStateGateTest.kt
+index 1f0101c..8f41b1d 100644
+--- a/app/src/test/java/net/gozar/app/VpnStateGateTest.kt
++++ b/app/src/test/java/net/gozar/app/VpnStateGateTest.kt
+@@ -53,6 +53,17 @@ class VpnStateGateTest {
+         assertEquals(0L, VpnState.connectedAt.value)
+     }
+ 
++    @Test fun fastConnectedConfirmationLandsImmediately() {
++        // A tunnel that confirms within the transition debounce window must
++        // still flip the UI to CONNECTED — the old debounce silently dropped
++        // the confirmation and left the app on "connecting" forever.
++        VpnState.setConnecting("a")
++        now += 50
++        VpnState.setConnected()
++        assertEquals(Connection.CONNECTED, VpnState.state.value)
++        assertTrue(VpnState.connectedAt.value > 0)
++    }
++
+     @Test fun staleErrorCannotOverwriteConnectedState() {
+         VpnState.setConnecting("a")
+         now += 1_000
+-- 
+2.55.0
+

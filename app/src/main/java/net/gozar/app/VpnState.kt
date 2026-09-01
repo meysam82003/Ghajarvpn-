@@ -98,7 +98,9 @@ object VpnState {
         synchronized(gate) {
             val now = clock()
             if (_state.value != Connection.CONNECTING) return
-            if (now - lastTransitionAt < TRANSITION_DEBOUNCE_MS) return
+            // The tunnel has spoken: it outranks the UI-side debounce, so
+            // CONNECTED lands immediately instead of bouncing back to
+            // "connecting" while the app continues traffic over the tunnel.
             lastTransitionAt = now
             _connectedAt.value = System.currentTimeMillis()
             _state.value = Connection.CONNECTED
