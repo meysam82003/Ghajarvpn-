@@ -74,6 +74,12 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 throw cancelled
             } catch (failure: Exception) {
                 error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
+            } catch (fatal: Throwable) {
+                // A fatal Error (LinkageError, OOM, WebView/JS glue…) must not
+                // take the whole activity down mid-checkout: surface it and
+                // keep the process alive so the invoice stays resumable.
+                android.util.Log.e("GhajarCheckout", "fatal during checkout", fatal)
+                error.value = "یک خطای غیرمنتظره رخ داد؛ دوباره تلاش کن. وضعیت سفارش ذخیره شده است."
             } finally {
                 busy.value = false
             }

@@ -53,6 +53,17 @@ class VpnStateGateTest {
         assertEquals(0L, VpnState.connectedAt.value)
     }
 
+    @Test fun fastConnectedConfirmationLandsImmediately() {
+        // A tunnel that confirms within the transition debounce window must
+        // still flip the UI to CONNECTED — the old debounce silently dropped
+        // the confirmation and left the app on "connecting" forever.
+        VpnState.setConnecting("a")
+        now += 50
+        VpnState.setConnected()
+        assertEquals(Connection.CONNECTED, VpnState.state.value)
+        assertTrue(VpnState.connectedAt.value > 0)
+    }
+
     @Test fun staleErrorCannotOverwriteConnectedState() {
         VpnState.setConnecting("a")
         now += 1_000

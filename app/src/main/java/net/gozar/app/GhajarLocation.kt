@@ -114,7 +114,6 @@ internal object GhajarLocationMonitor {
         _snapshot.value = value
         LocationFetcher.showIp(value.ip)
     }
-
     /** Drops stale IP/country/flag data the moment a disconnect happens. */
     fun clearStale() {
         _snapshot.value = GhajarLocationSnapshot()
@@ -152,20 +151,21 @@ internal fun ObserveGhajarLocation() {
         if (session.connection !in listOf(Connection.CONNECTED, Connection.DISCONNECTED) ||
             (session.connection == Connection.DISCONNECTED && session.locked)) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            // Hold the "checking" shell until the full location is resolved:
+            // intermediate IP-only publishes made the IP line flicker under
+            // the globe and stole frames from the globe renderer on slow
+            // lookups (the reported "globe stutter + IP coming and going").
             var result = GhajarLocationSnapshot(session, loading = true)
             GhajarLocationMonitor.publish(result)
             val connected = session.connection == Connection.CONNECTED
             if (connected) delay(1000)
             repeat(if (connected) 3 else 1) { attempt ->
-                val location = LocationFetcher.fetch(connected && !session.nativeTunnel) { ip ->
-                    currentCoroutineContext().ensureActive()
-                    result = result.copy(ip = ip)
-                    GhajarLocationMonitor.publish(result)
-                }
+                val location = LocationFetcher.fetch(connected && !session.nativeTunnel) { }
                 currentCoroutineContext().ensureActive()
                 if (VpnState.lookupGeneration.value != lookupGeneration) return@repeatOnLifecycle
                 if (location != null) {
-                    GhajarLocationMonitor.publish(result.copy(ip = location.ip, location = location, loading = false))
+                    GhajarLocationMonitor.publish(GhajarLocationSnapshot(session, ip = location.ip,
+                        location = location, loading = false))
                     return@repeatOnLifecycle
                 }
                 if (connected && attempt < 2) delay(2000L * (attempt + 1))
@@ -197,7 +197,8 @@ internal fun GhajarLocationStatus(snapshot: GhajarLocationSnapshot, modifier: Mo
     }
     Column(modifier.padding(horizontal = 12.dp).testTag("ghajar_location_status"),
         horizontalAlignment = Alignment.CenterHorizontally) {
-        if (snapshot.ip.isNotBlank()) Text(snapshot.ip, style = MaterialTheme.typography.labelLarge)
+        // The raw IP is intentionally not shown under the globe: only the
+        // globe/flag state speaks. (User request: remove the IP line.)
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.Center) {
             Text(label, style = MaterialTheme.typography.labelSmall, textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)

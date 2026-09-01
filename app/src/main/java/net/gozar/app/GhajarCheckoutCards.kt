@@ -67,7 +67,7 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
                 Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 18.dp),
                     verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("خزانهٔ قاجار", color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold,
-                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 36.dp))
+                        modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 10.dp))
                     Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
@@ -98,8 +98,16 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
         copied?.let { Text(it, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium) }
         Text("همین مبلغ دقیق را واریز کن؛ ممکن است برای تطبیق خودکار با قیمت پایه تفاوت داشته باشد.",
             style = MaterialTheme.typography.bodySmall)
-        preview?.let { Image(it.asImageBitmap(), "پیش‌نمایش رسید انتخاب‌شده",
-            modifier = Modifier.fillMaxWidth().heightIn(max = 180.dp), contentScale = ContentScale.Fit) }
+        // The receipt preview is hard-bounded inside a clipped frame so a
+        // tall screenshot can never spill out of the card column.
+        preview?.let {
+            Surface(shape = RoundedCornerShape(14.dp), tonalElevation = 1.dp,
+                modifier = Modifier.fillMaxWidth()) {
+                Image(it.asImageBitmap(), "پیش‌نمایش رسید انتخاب‌شده",
+                    modifier = Modifier.fillMaxWidth().height(170.dp),
+                    contentScale = ContentScale.Fit)
+            }
+        }
         OutlinedButton(onClick = onPickReceipt, enabled = !busy, modifier = Modifier.fillMaxWidth().testTag("ghajar_pick_receipt")) {
             Text(if (receipt == null) "انتخاب عکس رسید از گوشی" else "تغییر عکس رسید")
         }
