@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main, develop]
+    branches: [main, develop, ghajar-3.0.4-carousel-33-source]
   pull_request:
     branches: [main]
   workflow_dispatch:
