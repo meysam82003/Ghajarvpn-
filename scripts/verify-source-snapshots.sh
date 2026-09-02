@@ -37,8 +37,13 @@ snapshots=(
   "strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java"
 )
 for path in "${snapshots[@]}"; do
-  if ! cmp -s -- "${package_root}/${path}" "${source_root}/${path}"; then
+  package_file="${package_root}/${path}"
+  source_file="${source_root}/${path}"
+  if ! cmp -s -- "$package_file" "$source_file"; then
     echo "Snapshot differs from materialized source: ${path}" >&2
+    echo "snapshot sha256: $(sha256sum "$package_file" | awk '{print $1}')" >&2
+    echo "materialized sha256: $(sha256sum "$source_file" | awk '{print $1}')" >&2
+    diff -u --label "snapshot/${path}" --label "materialized/${path}" "$package_file" "$source_file" >&2 || true
     exit 1
   fi
 done
