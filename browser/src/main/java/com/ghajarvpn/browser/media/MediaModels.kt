@@ -1,7 +1,7 @@
 package com.ghajarvpn.browser.media
 
-import android.net.Uri
 import java.security.MessageDigest
+import java.net.URI
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -55,7 +55,7 @@ object MediaSourceResolver {
     private val mediaExtensions = Regex("(?i)\\.(mp4|m4v|webm|mkv|m3u8|mpd)(?:$|[?#])")
 
     fun resolve(raw: String, mime: String = ""): MediaCandidate? {
-        val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull() ?: return null
+        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
         if (raw.contains("drm", true) || raw.contains("widevine", true) || mime.contains("encrypted", true)) return null
         val kind = when {
@@ -64,7 +64,7 @@ object MediaSourceResolver {
             mediaExtensions.containsMatchIn(raw) || mime.startsWith("video/", true) -> MediaKind.PROGRESSIVE
             else -> MediaKind.UNKNOWN
         }
-        return MediaCandidate(uri.toString(), mimeType = mime, kind = kind)
+        return MediaCandidate(uri.toASCIIString(), mimeType = mime, kind = kind)
     }
 
     fun looksLikeMedia(raw: String, mime: String = "") = resolve(raw, mime)?.kind != MediaKind.UNKNOWN

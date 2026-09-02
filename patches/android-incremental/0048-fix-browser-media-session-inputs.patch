@@ -1,0 +1,81 @@
+From ea7ea17c350ed08aeae99caa7a871170daa9b541 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 19:36:34 +0200
+Subject: [PATCH] fix(browser): harden media session inputs
+
+---
+ browser/src/main/AndroidManifest.xml                        | 4 ++--
+ .../java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt   | 3 ++-
+ .../main/java/com/ghajarvpn/browser/media/MediaModels.kt    | 6 +++---
+ 3 files changed, 7 insertions(+), 6 deletions(-)
+
+diff --git a/browser/src/main/AndroidManifest.xml b/browser/src/main/AndroidManifest.xml
+index 98fea2b..27ced18 100644
+--- a/browser/src/main/AndroidManifest.xml
++++ b/browser/src/main/AndroidManifest.xml
+@@ -3,14 +3,14 @@
+     <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
+     <application>
+         <activity
+-            android:name=".GhajarBrowserActivity"
++            android:name="com.ghajarvpn.browser.GhajarBrowserActivity"
+             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
+             android:exported="false"
+             android:label="مرورگر قاجار"
+             android:launchMode="singleTop"
+             android:theme="@style/GhajarBrowserTheme" />
+         <activity
+-            android:name=".media.GhajarPlayerActivity"
++            android:name="com.ghajarvpn.browser.media.GhajarPlayerActivity"
+             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
+             android:exported="false"
+             android:label="پلیر قاجار"
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+index 1d7597c..1efa00c 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+@@ -28,7 +28,8 @@ class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
+                 else -> return@mapNotNull null
+             }
+             MediaItem.SubtitleConfiguration.Builder(uri).setMimeType(mime)
+-                .setLabel(subtitle.label.ifBlank { null }).setLanguage(subtitle.language.ifBlank { null }).build()
++                .setLabel(subtitle.label.takeIf(String::isNotBlank))
++                .setLanguage(subtitle.language.takeIf(String::isNotBlank)).build()
+         }
+         val item = MediaItem.Builder().setUri(candidate.url)
+             .setMediaMetadata(androidx.media3.common.MediaMetadata.Builder().setTitle(candidate.title.ifBlank { "ویدیوی قاجار" }).build())
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+index 1d7d0a0..955a9d3 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+@@ -1,7 +1,7 @@
+ package com.ghajarvpn.browser.media
+ 
+-import android.net.Uri
+ import java.security.MessageDigest
++import java.net.URI
+ import java.util.UUID
+ import java.util.concurrent.ConcurrentHashMap
+ 
+@@ -55,7 +55,7 @@ object MediaSourceResolver {
+     private val mediaExtensions = Regex("(?i)\\.(mp4|m4v|webm|mkv|m3u8|mpd)(?:$|[?#])")
+ 
+     fun resolve(raw: String, mime: String = ""): MediaCandidate? {
+-        val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull() ?: return null
++        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
+         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
+         if (raw.contains("drm", true) || raw.contains("widevine", true) || mime.contains("encrypted", true)) return null
+         val kind = when {
+@@ -64,7 +64,7 @@ object MediaSourceResolver {
+             mediaExtensions.containsMatchIn(raw) || mime.startsWith("video/", true) -> MediaKind.PROGRESSIVE
+             else -> MediaKind.UNKNOWN
+         }
+-        return MediaCandidate(uri.toString(), mimeType = mime, kind = kind)
++        return MediaCandidate(uri.toASCIIString(), mimeType = mime, kind = kind)
+     }
+ 
+     fun looksLikeMedia(raw: String, mime: String = "") = resolve(raw, mime)?.kind != MediaKind.UNKNOWN
+-- 
+2.51.1
+
+

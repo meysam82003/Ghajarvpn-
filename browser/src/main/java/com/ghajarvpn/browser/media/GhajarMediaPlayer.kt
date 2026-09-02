@@ -28,7 +28,8 @@ class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
                 else -> return@mapNotNull null
             }
             MediaItem.SubtitleConfiguration.Builder(uri).setMimeType(mime)
-                .setLabel(subtitle.label.ifBlank { null }).setLanguage(subtitle.language.ifBlank { null }).build()
+                .setLabel(subtitle.label.takeIf(String::isNotBlank))
+                .setLanguage(subtitle.language.takeIf(String::isNotBlank)).build()
         }
         val item = MediaItem.Builder().setUri(candidate.url)
             .setMediaMetadata(androidx.media3.common.MediaMetadata.Builder().setTitle(candidate.title.ifBlank { "ویدیوی قاجار" }).build())
