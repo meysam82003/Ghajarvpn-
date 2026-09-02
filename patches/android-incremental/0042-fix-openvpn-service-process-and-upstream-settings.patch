@@ -1,11 +1,17 @@
-From 4a2d7e2a8dd7ddc885681535701699ec736f668a Mon Sep 17 00:00:00 2001
+From 239a1c411f447b033e85701016e72510a8e0252d Mon Sep 17 00:00:00 2001
 From: Ghajarvpn Build <build@ghajarvpn.local>
-Date: Wed, 2 Sep 2026 16:18:00 +0000
+Date: Wed, 2 Sep 2026 16:21:07 +0000
 Subject: [PATCH] fix(openvpn): harden embedded service process
 
 ---
+ .../java/net/gozar/app/GhajarOpenVpnBridge.kt | 30 +++++++++-
+ .../net/gozar/app/GhajarOpenVpnSettings.kt    | 59 +++++++++++++++++++
+ openvpn/src/main/AndroidManifest.xml          |  1 +
+ 3 files changed, 88 insertions(+), 2 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt
+
 diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
-index a4ceb3e..016c681 100644
+index a4ceb3e..12d5ac4 100644
 --- a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
 +++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
 @@ -87,6 +87,7 @@ object GhajarOpenVpnBridge {
@@ -26,7 +32,7 @@ index a4ceb3e..016c681 100644
          } catch (t: Throwable) {
              requestedUuid = null
              connectedConfirmed = false
-@@ -323,6 +323,33 @@ object GhajarOpenVpnBridge {
+@@ -323,6 +323,32 @@ object GhajarOpenVpnBridge {
          }
      }
  
@@ -128,73 +134,13 @@ diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidMani
 index 9de8e40..4adc586 100644
 --- a/openvpn/src/main/AndroidManifest.xml
 +++ b/openvpn/src/main/AndroidManifest.xml
-@@ -83,4 +83,5 @@
+@@ -83,6 +83,7 @@
  
          <service android:name=".core.keepVPNAlive"
                  android:exported="false"
 +                android:process=":openvpn"
                  android:permission="android.permission.BIND_JOB_SERVICE"/>
-diff --git a/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java b/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java
-index a49e1a2..0df1bdc 100644
---- a/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java
-+++ b/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java
-@@ -17,6 +17,7 @@
  
- package org.strongswan.android.logic;
  
-+import android.app.ActivityManager;
- import android.app.Application;
- import android.content.BroadcastReceiver;
- import android.content.Context;
-@@ -24,6 +25,7 @@ import android.content.Intent;
- import android.content.IntentFilter;
- import android.os.Handler;
- import android.os.Looper;
-+import android.os.Process;
- import android.util.Log;
- 
- import org.strongswan.android.data.DatabaseHelper;
-@@ -80,6 +82,16 @@ public class StrongSwanApplication extends Application
- 		StrongSwanApplication.mContext = getApplicationContext();
- 		StrongSwanApplication.mInstance = this;
- 
-+		/* Ghajar hosts ics-openvpn in a dedicated :openvpn process. The system
-+		 * creates the Application object there before OpenVPNService. StrongSwan
-+		 * database/certificate initialisation is unrelated to OpenVPN and can make
-+		 * that service process fail before the VPN service is even created. */
-+		if (isOpenVpnProcess())
-+		{
-+			Log.i(TAG, "Skipping StrongSwan app init in isolated OpenVPN process");
-+			return;
-+		}
-+
- 		mDatabaseHelper = new DatabaseHelper(mContext);
- 
- 		mManagedConfigurationService = new ManagedConfigurationService(mContext);
-@@ -95,6 +107,24 @@ public class StrongSwanApplication extends Application
- 		registerReceiver(mRestrictionsReceiver, restrictionsFilter);
- 	}
- 
-+	private boolean isOpenVpnProcess()
-+	{
-+		ActivityManager manager = (ActivityManager)getSystemService(Context.ACTIVITY_SERVICE);
-+		if (manager == null)
-+		{
-+			return false;
-+		}
-+		int pid = Process.myPid();
-+		for (ActivityManager.RunningAppProcessInfo process : manager.getRunningAppProcesses())
-+		{
-+			if (process.pid == pid)
-+			{
-+				return process.processName != null && process.processName.endsWith(":openvpn");
-+			}
-+		}
-+		return false;
-+	}
-+
- 	private void reloadManagedConfigurationAndNotifyListeners()
- 	{
- 		final Set<String> uuids = new HashSet<>(mManagedConfigurationService.getManagedProfiles().keySet());
 -- 
 2.47.3
