@@ -16,6 +16,8 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
 
     override fun onCreate() {
         super.onCreate()
+        GhajarNotificationMonitor.initialize(this)
+        GhajarOpenVpnBridge.initialize(this)
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
