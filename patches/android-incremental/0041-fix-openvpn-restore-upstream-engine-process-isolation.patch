@@ -1,0 +1,58 @@
+From 4f77f5fc2bfec589c9aa8cf65e06413657e0d841 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 18:22:00 +0330
+Subject: [PATCH] fix(openvpn): restore upstream engine process isolation
+
+Run the native OpenVPN engine and its status/API services in the dedicated
+:openvpn process used by upstream ics-openvpn. Ghajar already initializes
+StatusListener, whose AIDL bridge is specifically designed to mirror state
+from this remote process back into the UI. Keeping the engine in the main
+process meant a native crash or fatal engine failure could terminate the
+entire Ghajar app when Connect was pressed.
+---
+ openvpn/src/main/AndroidManifest.xml | 12 ++++++++++--
+ 1 file changed, 10 insertions(+), 2 deletions(-)
+
+diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidManifest.xml
+index 062dab2..9de8f13 100644
+--- a/openvpn/src/main/AndroidManifest.xml
++++ b/openvpn/src/main/AndroidManifest.xml
+@@ -29,11 +29,14 @@
+             android:theme="@style/blinkt.dialog" />
+ 
+ 
++        <!-- Keep the native OpenVPN engine out of the Ghajar UI process. This mirrors
++             upstream ics-openvpn: a native engine failure must not terminate the app. -->
+         <service
+             android:name=".core.OpenVPNService"
+             android:exported="true"
+             android:permission="android.permission.BIND_VPN_SERVICE"
+-            android:foregroundServiceType="specialUse">
++            android:foregroundServiceType="specialUse"
++            android:process=":openvpn">
+             <intent-filter>
+                 <action android:name="android.net.VpnService" />
+             </intent-filter>
+@@ -43,14 +46,19 @@
+         <service
+             android:name=".api.ExternalOpenVPNService"
+             android:exported="false"
++            android:process=":openvpn"
+                 tools:ignore="ExportedService">
+             <intent-filter>
+                 <action android:name="de.blinkt.openvpn.api.IOpenVPNAPIService" />
+             </intent-filter>
+         </service>
+-        <service
++        <!-- StatusListener is designed to bridge this remote process back to Ghajar
++             through IServiceStatus/IStatusCallbacks instead of static in-process state. -->
++        <service
+             android:name=".core.OpenVPNStatusService"
+-            android:exported="false" />
++            android:exported="false"
++            android:process=":openvpn" />
+ 
+         <activity android:name=".api.GrantPermissionsActivity"
+                 android:exported="false">
+-- 
+2.55.0

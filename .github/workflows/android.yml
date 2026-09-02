@@ -52,6 +52,34 @@ jobs:
           fi
       - name: Verify reviewed snapshots match reconstructed source
         run: bash scripts/verify-source-snapshots.sh "$GHAJAR_SOURCE_ROOT"
+      - name: Verify OpenVPN remote-process contract
+        run: |
+          python3 - <<'PY'
+          import os
+          import xml.etree.ElementTree as ET
+
+          root = os.environ['GHAJAR_SOURCE_ROOT']
+          manifest = os.path.join(root, 'openvpn/src/main/AndroidManifest.xml')
+          tree = ET.parse(manifest)
+          android = '{http://schemas.android.com/apk/res/android}'
+          expected = {
+              '.core.OpenVPNService',
+              '.api.ExternalOpenVPNService',
+              '.core.OpenVPNStatusService',
+          }
+          found = {}
+          for service in tree.getroot().find('application').findall('service'):
+              name = service.attrib.get(android + 'name')
+              if name in expected:
+                  found[name] = service.attrib.get(android + 'process')
+          missing = expected - found.keys()
+          if missing:
+              raise SystemExit(f'Missing OpenVPN services: {sorted(missing)}')
+          wrong = {name: proc for name, proc in found.items() if proc != ':openvpn'}
+          if wrong:
+              raise SystemExit(f'OpenVPN services must run in :openvpn: {wrong}')
+          print('OpenVPN engine/status/API services are isolated in :openvpn')
+          PY
       - name: Upload reconstructed OpenVPN integration sources
         if: env.GHAJAR_SOURCE_ROOT != '.'
         uses: actions/upload-artifact@v4
@@ -115,6 +143,21 @@ jobs:
           GHAJAR_DEMO_KEY_ALIAS: ${{ secrets.GHAJAR_DEMO_KEY_ALIAS }}
           GHAJAR_DEMO_KEY_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEY_PASSWORD }}
         run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true :app:testDebugUnitTest :app:assembleDebug
+      - name: Verify OpenVPN native launcher is packaged
+        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
+        run: |
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/debug/*.apk)
+          if (( ${#apks[@]} == 0 )); then
+            echo 'No debug APKs found.' >&2
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            if ! unzip -l "$apk" | grep -Eq 'lib/[^/]+/libovpnexec\.so$'; then
+              echo "OpenVPN native launcher libovpnexec.so is missing from $apk" >&2
+              exit 1
+            fi
+          done
       - name: Verify APK signatures and hashes
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: |
