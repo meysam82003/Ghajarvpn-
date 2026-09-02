@@ -5,19 +5,16 @@ Subject: [PATCH] fix(openvpn): restore upstream engine process isolation
 
 Run the native OpenVPN engine and its status/API services in the dedicated
 :openvpn process used by upstream ics-openvpn. Ghajar already initializes
-StatusListener, whose AIDL bridge is specifically designed to mirror state
-from this remote process back into the UI. Keeping the engine in the main
-process meant a native crash or fatal engine failure could terminate the
-entire Ghajar app when Connect was pressed.
+StatusListener, whose AIDL bridge mirrors state from the remote process back
+into the UI, so native failures cannot terminate the Ghajar UI process.
 ---
- openvpn/src/main/AndroidManifest.xml | 12 ++++++++++--
- 1 file changed, 10 insertions(+), 2 deletions(-)
+ openvpn/src/main/AndroidManifest.xml | 11 +++++++++--
+ 1 file changed, 9 insertions(+), 2 deletions(-)
 
 diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidManifest.xml
-index 062dab2..9de8f13 100644
 --- a/openvpn/src/main/AndroidManifest.xml
 +++ b/openvpn/src/main/AndroidManifest.xml
-@@ -29,11 +29,14 @@
+@@ -30,11 +30,14 @@
              android:theme="@style/blinkt.dialog" />
  
  
@@ -33,7 +30,7 @@ index 062dab2..9de8f13 100644
              <intent-filter>
                  <action android:name="android.net.VpnService" />
              </intent-filter>
-@@ -43,14 +46,19 @@
+@@ -44,14 +47,18 @@
          <service
              android:name=".api.ExternalOpenVPNService"
              android:exported="false"
@@ -43,10 +40,9 @@ index 062dab2..9de8f13 100644
                  <action android:name="de.blinkt.openvpn.api.IOpenVPNAPIService" />
              </intent-filter>
          </service>
--        <service
 +        <!-- StatusListener is designed to bridge this remote process back to Ghajar
 +             through IServiceStatus/IStatusCallbacks instead of static in-process state. -->
-+        <service
+         <service
              android:name=".core.OpenVPNStatusService"
 -            android:exported="false" />
 +            android:exported="false"

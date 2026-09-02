@@ -127,17 +127,17 @@
             android:exported="false"
             android:targetActivity=".api.RemoteAction" />
         <activity-alias
-            android:name=".api.PauseVPN"
-            android:exported="false"
-            android:targetActivity=".api.RemoteAction" />
+                android:name=".api.PauseVPN"
+                android:exported="false"
+                android:targetActivity=".api.RemoteAction" />
         <activity-alias
-            android:name=".api.ResumeVPN"
-            android:exported="false"
-            android:targetActivity=".api.RemoteAction" />
+                android:name=".api.ResumeVPN"
+                android:exported="false"
+                android:targetActivity=".api.RemoteAction" />
         <activity-alias
-            android:name=".api.SetDefaultVPN"
-            android:exported="false"
-            android:targetActivity=".api.RemoteAction" />
+                android:name=".api.SetDefaultVPN"
+                android:exported="false"
+                android:targetActivity=".api.RemoteAction" />
 
     </application>
 
