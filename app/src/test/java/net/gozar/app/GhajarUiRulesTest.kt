@@ -90,4 +90,47 @@ class GhajarUiRulesTest {
         assertEquals("1234567890", GhajarUiRules.asciiDigits("۱۲۳۴۵٦٧٨٩٠"))
         assertEquals("30", GhajarUiRules.asciiDigits("۳۰ روز"))
     }
+
+    @Test fun ovpnEngineAuthFailureIsReportedAsRejectedCredentials() {
+        assertEquals(
+            "نام کاربری یا رمز OpenVPN رد شد",
+            GhajarUiRules.ovpnEngineMessage("AUTH_FAILED: wrong username/password")
+        )
+    }
+
+    @Test fun ovpnEngineProcessExitReportsTheExitCode() {
+        val message = GhajarUiRules.ovpnEngineMessage(
+            "NOPROCESS: No process running. exit code 1"
+        )
+        assertTrue(message.contains("کد 1"))
+        assertTrue(message.contains("پیکربندی") || message.contains("پردازش"))
+        assertTrue(message.contains("OpenVPN"))
+    }
+
+    @Test fun ovpnEngineServiceIntentFailureIsTranslatedForTheUser() {
+        val message = GhajarUiRules.ovpnEngineMessage(
+            "java.lang.SecurityException: Unable to start service Intent { cmp=com.ghajarvpn.app/de.blinkt.openvpn.core.OpenVPNService }"
+        )
+        assertEquals("موتور OpenVPN اندروید اجرا نشد؛ سرویس داخلی قاجار در دسترس نیست", message)
+    }
+
+    @Test fun ovpnEngineFatalTlsErrorPointsAtTheServerHandshake() {
+        val message = GhajarUiRules.ovpnEngineMessage(
+            "OpenVPN: TLS Error: TLS key negotiation failed to occur within 60 seconds"
+        )
+        assertTrue(message.contains("دست‌دهی"))
+    }
+
+    @Test fun ovpnEngineLongMessagesAreTruncatedButKeepTheirMeaning() {
+        val raw = "A".repeat(500)
+        val message = GhajarUiRules.ovpnEngineMessage(raw)
+        assertTrue(message.length <= 181)
+        assertTrue(message.endsWith("…"))
+    }
+
+    @Test fun ovpnSavedCredentialRequirementMatchesTheBridgeRule() {
+        assertTrue(GhajarUiRules.ovpnNeedsSavedCredentials(null, "secret"))
+        assertTrue(GhajarUiRules.ovpnNeedsSavedCredentials("user", "  "))
+        assertFalse(GhajarUiRules.ovpnNeedsSavedCredentials("user", "secret"))
+    }
 }

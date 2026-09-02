@@ -56,6 +56,42 @@ internal object GhajarUiRules {
     private fun botUsername(username: String?): String = username?.trim()?.removePrefix("@")
         ?.takeIf { it.matches(Regex("[A-Za-z0-9_]{5,32}")) } ?: "Ghajar_vpnbot"
 
+    /** OVPN engine states the UI may only show after a real management handshake. */
+    const val OVPN_MANAGEMENT_CONNECTED_STATE = "CONNECTED"
+
+    /** Pure mapping of raw engine messages to the safe Persian text shown in the UI. */
+    fun ovpnEngineMessage(raw: String): String {
+        val clean = BrandConfig.sanitizePublicText(raw).replace(Regex("\\s+"), " ").trim()
+        return when {
+            clean.contains("Unable to start service Intent", ignoreCase = true) ->
+                "موتور OpenVPN اندروید اجرا نشد؛ سرویس داخلی قاجار در دسترس نیست"
+            clean.contains("AUTH_FAILED", ignoreCase = true) -> "نام کاربری یا رمز OpenVPN رد شد"
+            else -> ovpnExitMessage(clean)
+        }
+    }
+
+    private fun ovpnExitMessage(clean: String): String {
+        val exit = Regex("NOPROCESS.*?exit code (\\d+)", RegexOption.IGNORE_CASE).find(clean)?.groupValues?.get(1)
+        return when {
+            exit != null -> when (exit) {
+                "1", "6" -> "پردازش OpenVPN با خطای پیکربندی بسته شد (کد $exit)"
+                else -> "پردازش OpenVPN بسته شد (کد $exit)"
+            }
+            clean.contains("OPTIONS ERROR", ignoreCase = true) ->
+                "پیکربندی فایل OVPN پذیرفته نشد؛ گزینه‌ای در آن پشتیبانی نمی‌شود"
+            clean.contains("TLS Error", ignoreCase = true) || clean.contains("TLS handshake failed", ignoreCase = true) ->
+                "دست‌دهی امن با سرور برقرار نشد؛ آدرس یا فیلتر را بررسی کن"
+            clean.contains("Connection refused", ignoreCase = true) ->
+                "سرور اتصال را رد کرد؛ پورت یا آدرس را بررسی کن"
+            clean.length > 180 -> clean.take(177) + "…"
+            else -> clean
+        }
+    }
+
+    /** True when the engine can answer a real connection test with saved credentials. */
+    fun ovpnNeedsSavedCredentials(username: String?, password: String?): Boolean =
+        username.isNullOrBlank() || password.isNullOrBlank()
+
     fun botLink(username: String?, code: String?): String {
         val bot = botUsername(username)
         val payload = code?.takeIf { it.matches(Regex("[0-9]{6}")) }?.let { "?start=link_$it" }.orEmpty()
