@@ -16,12 +16,6 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
 
     override fun onCreate() {
         super.onCreate()
-        // Android creates the same Application class in every app process.
-        // The :openvpn process must stay minimal: no Ghajar UI lifecycle, refresh jobs,
-        // or other main-process work should run before OpenVPNService is created.
-        if (currentProcessName().endsWith(OPENVPN_PROCESS_SUFFIX)) return
-
-        GhajarOpenVpnSettings.ensureDefaults(this)
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
@@ -45,19 +39,5 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
             override fun onActivityDestroyed(activity: Activity) {}
         })
 
-    }
-
-
-    private fun currentProcessName(): String {
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-            return android.app.Application.getProcessName().orEmpty()
-        }
-        val pid = android.os.Process.myPid()
-        val manager = getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
-        return manager?.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName.orEmpty()
-    }
-
-    private companion object {
-        const val OPENVPN_PROCESS_SUFFIX = ":openvpn"
     }
 }
