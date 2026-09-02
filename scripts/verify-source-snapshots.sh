@@ -10,6 +10,8 @@ snapshots=(
   "openvpn/build.gradle.kts"
   "strongswan/build.gradle.kts"
   "settings.gradle.kts"
+  "app/src/main/java/net/gozar/app/Gozarapplication.kt"
+  "app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt"
   "app/src/main/java/net/gozar/app/BrandConfig.kt"
   "app/src/main/java/net/gozar/app/GhajarAccountStore.kt"
   "app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt"
@@ -26,13 +28,13 @@ snapshots=(
   "app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt"
   "app/src/main/java/net/gozar/app/GhajarOperation.kt"
   "app/src/main/java/net/gozar/app/GhajarPaymentPolicy.kt"
-  "app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt"
   "app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt"
   "app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt"
   "app/src/test/java/net/gozar/app/GhajarLinkFlowTest.kt"
   "openvpn/src/main/AndroidManifest.xml"
   "openvpn/src/main/cpp/CMakeLists.txt"
   "openvpn/src/main/cpp/ghajar-openssl-arch.cmake"
+  "strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java"
 )
 for path in "${snapshots[@]}"; do
   if ! cmp -s -- "${package_root}/${path}" "${source_root}/${path}"; then

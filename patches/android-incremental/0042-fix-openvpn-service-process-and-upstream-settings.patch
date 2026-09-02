@@ -1,0 +1,361 @@
+From 65f34a3d539f83be7d9bc63e053ad8a3216fd96e Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 15:56:20 +0000
+Subject: [PATCH] fix(openvpn): harden service process and add upstream
+ settings
+
+---
+ .../java/net/gozar/app/GhajarOpenVpnBridge.kt | 31 +++++-
+ .../net/gozar/app/GhajarOpenVpnSettings.kt    | 59 ++++++++++++
+ .../java/net/gozar/app/Gozarapplication.kt    | 19 ++++
+ .../main/java/net/gozar/app/MainActivity.kt   | 95 +++++++++++++++++++
+ openvpn/src/main/AndroidManifest.xml          |  1 +
+ .../android/logic/StrongSwanApplication.java  | 30 ++++++
+ 6 files changed, 233 insertions(+), 2 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+index a4ceb3e..016c681 100644
+--- a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
++++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+@@ -87,6 +87,7 @@ object GhajarOpenVpnBridge {
+ 
+     fun initialize(context: Context) {
+         val app = context.applicationContext
++        GhajarOpenVpnSettings.ensureDefaults(app)
+         if (statusListener == null) {
+             statusListener = StatusListener().also { it.init(app) }
+         }
+@@ -310,8 +311,7 @@ object GhajarOpenVpnBridge {
+         val intent = profile.getStartServiceIntent(app, "Ghajarvpn user request", true)
+             ?: throw IllegalStateException("OpenVPN نتوانست Intent اتصال را بسازد")
+         try {
+-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(intent)
+-            else app.startService(intent)
++            startOpenVpnService(app, intent)
+         } catch (t: Throwable) {
+             requestedUuid = null
+             connectedConfirmed = false
+@@ -323,6 +323,33 @@ object GhajarOpenVpnBridge {
+         }
+     }
+ 
++    /**
++     * Start the exact service component shipped by ics-openvpn.  Some Android
++     * builds incorrectly reject startForegroundService() even while Ghajar is
++     * foreground; in that narrow case startService() is a valid fallback because
++     * OpenVPNService promotes itself to foreground immediately.
++     */
++    private fun startOpenVpnService(app: Context, intent: Intent) {
++        val component = intent.component ?: ComponentName(app, OpenVPNService::class.java)
++        val explicit = Intent(intent).setComponent(component).setPackage(app.packageName)
++        val resolved = runCatching {
++            @Suppress("DEPRECATION")
++            app.packageManager.getServiceInfo(component, PackageManager.GET_META_DATA)
++        }.getOrElse { throw IllegalStateException("OpenVPN service component is missing: ${component.className}", it) }
++        check(resolved.enabled) { "OpenVPN service component is disabled: ${component.className}" }
++
++        try {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(explicit)
++            else app.startService(explicit)
++        } catch (first: IllegalStateException) {
++            val unableToStart = first.message?.contains("Unable to start service Intent", ignoreCase = true) == true
++            if (!unableToStart || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) throw first
++            android.util.Log.w("GhajarOpenVPN", "Foreground start rejected; retrying explicit service start", first)
++            val started = app.startService(explicit)
++            if (started == null) throw first
++        }
++    }
++
+     suspend fun testSaved(context: Context, uuid: String, timeoutMs: Long = 18_000L): GhajarOvpnTestResult = withContext(Dispatchers.IO) {
+         if (_tests.value[uuid]?.running == true) return@withContext _tests.value[uuid]!!
+         _tests.value = _tests.value + (uuid to GhajarOvpnTestResult(running = true, message = "در حال تست اتصال واقعی…"))
+diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt
+new file mode 100644
+index 0000000..0f9e2a6
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt
+@@ -0,0 +1,59 @@
++package net.gozar.app
++
++import android.content.Context
++
++/**
++ * Ghajar-facing view of the real preference keys consumed by ics-openvpn.
++ * Keeping these keys identical to upstream means the engine reads the values
++ * directly; the settings UI is not a disconnected cosmetic layer.
++ */
++object GhajarOpenVpnSettings {
++    private const val KEY_RECONNECT_NETWORK = "netchangereconnect"
++    private const val KEY_SYSTEM_PROXY = "usesystemproxy"
++    private const val KEY_SCREEN_OFF = "screenoff"
++    private const val KEY_ENCRYPT_PROFILES = "preferencryption"
++
++    data class Snapshot(
++        val reconnectOnNetworkChange: Boolean,
++        val useSystemProxy: Boolean,
++        val pauseOnScreenOff: Boolean,
++        val encryptProfiles: Boolean,
++    )
++
++    fun ensureDefaults(context: Context) {
++        val prefs = prefs(context)
++        val edit = prefs.edit()
++        var changed = false
++        if (!prefs.contains(KEY_RECONNECT_NETWORK)) { edit.putBoolean(KEY_RECONNECT_NETWORK, true); changed = true }
++        if (!prefs.contains(KEY_SYSTEM_PROXY)) { edit.putBoolean(KEY_SYSTEM_PROXY, true); changed = true }
++        if (!prefs.contains(KEY_SCREEN_OFF)) { edit.putBoolean(KEY_SCREEN_OFF, false); changed = true }
++        if (!prefs.contains(KEY_ENCRYPT_PROFILES)) { edit.putBoolean(KEY_ENCRYPT_PROFILES, true); changed = true }
++        if (changed) edit.apply()
++    }
++
++    fun read(context: Context): Snapshot {
++        ensureDefaults(context)
++        val prefs = prefs(context)
++        return Snapshot(
++            reconnectOnNetworkChange = prefs.getBoolean(KEY_RECONNECT_NETWORK, true),
++            useSystemProxy = prefs.getBoolean(KEY_SYSTEM_PROXY, true),
++            pauseOnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false),
++            encryptProfiles = prefs.getBoolean(KEY_ENCRYPT_PROFILES, true),
++        )
++    }
++
++    fun setReconnectOnNetworkChange(context: Context, value: Boolean) = put(context, KEY_RECONNECT_NETWORK, value)
++    fun setUseSystemProxy(context: Context, value: Boolean) = put(context, KEY_SYSTEM_PROXY, value)
++    fun setPauseOnScreenOff(context: Context, value: Boolean) = put(context, KEY_SCREEN_OFF, value)
++    fun setEncryptProfiles(context: Context, value: Boolean) = put(context, KEY_ENCRYPT_PROFILES, value)
++
++    private fun put(context: Context, key: String, value: Boolean) {
++        prefs(context).edit().putBoolean(key, value).apply()
++    }
++
++    @Suppress("DEPRECATION")
++    private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(
++        "${context.applicationContext.packageName}_preferences",
++        Context.MODE_MULTI_PROCESS or Context.MODE_PRIVATE,
++    )
++}
+diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+index 94c440e..74bc2d9 100644
+--- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
++++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+@@ -16,6 +16,12 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+ 
+     override fun onCreate() {
+         super.onCreate()
++        // Android creates the same Application class in every app process.
++        // The :openvpn process must stay minimal: no Ghajar UI lifecycle, refresh jobs,
++        // or other main-process work should run before OpenVPNService is created.
++        if (currentProcessName().endsWith(OPENVPN_PROCESS_SUFFIX)) return
++
++        GhajarOpenVpnSettings.ensureDefaults(this)
+ 
+         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+             override fun onActivityStarted(activity: Activity) {
+@@ -40,4 +46,17 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+         })
+ 
+     }
++
++    private fun currentProcessName(): String {
++        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
++            return android.app.Application.getProcessName().orEmpty()
++        }
++        val pid = android.os.Process.myPid()
++        val manager = getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
++        return manager?.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName.orEmpty()
++    }
++
++    private companion object {
++        const val OPENVPN_PROCESS_SUFFIX = ":openvpn"
++    }
+ }
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index b5788a2..511018c 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -6266,6 +6266,11 @@ private fun ConnectionSettingsScreen(
+     val fakeDns by store.fakeDns.collectAsState()
+     val encryptedDns by store.encryptedDns.collectAsState()
+     val settingsContext = androidx.compose.ui.platform.LocalContext.current
++    val openVpnDefaults = remember(settingsContext) { GhajarOpenVpnSettings.read(settingsContext) }
++    var ovpnReconnectOnNetworkChange by remember { mutableStateOf(openVpnDefaults.reconnectOnNetworkChange) }
++    var ovpnUseSystemProxy by remember { mutableStateOf(openVpnDefaults.useSystemProxy) }
++    var ovpnPauseOnScreenOff by remember { mutableStateOf(openVpnDefaults.pauseOnScreenOff) }
++    var ovpnEncryptProfiles by remember { mutableStateOf(openVpnDefaults.encryptProfiles) }
+ 
+     Column(
+         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+@@ -6436,6 +6441,96 @@ private fun ConnectionSettingsScreen(
+             }
+         }
+ 
++        SettingsGroup("OpenVPN") {
++            Text(
++                if (lang == Lang.FA)
++                    "این گزینه‌ها مستقیماً به موتور رسمی OpenVPN for Android وصل هستند."
++                else
++                    "These options are wired directly to the OpenVPN for Android engine.",
++                style = MaterialTheme.typography.bodySmall,
++                color = MaterialTheme.colorScheme.onSurfaceVariant
++            )
++            SettingRow(
++                title = if (lang == Lang.FA) "اتصال مجدد با تغییر شبکه" else "Reconnect on network change",
++                subtitle = if (lang == Lang.FA)
++                    "با جابه‌جایی بین Wi‑Fi و دیتای موبایل، OpenVPN اتصال را دوباره برقرار می‌کند."
++                else "Reconnect OpenVPN when Android switches between Wi-Fi and mobile data.",
++                checked = ovpnReconnectOnNetworkChange,
++                onCheckedChange = { value ->
++                    ovpnReconnectOnNetworkChange = value
++                    GhajarOpenVpnSettings.setReconnectOnNetworkChange(settingsContext, value)
++                }
++            )
++            SettingRow(
++                title = if (lang == Lang.FA) "استفاده از پروکسی سیستم" else "Use system proxy",
++                subtitle = if (lang == Lang.FA)
++                    "تنظیمات HTTP Proxy اندروید را هنگام ساخت کانفیگ OpenVPN اعمال می‌کند."
++                else "Honor Android's HTTP proxy when OpenVPN builds the runtime config.",
++                checked = ovpnUseSystemProxy,
++                onCheckedChange = { value ->
++                    ovpnUseSystemProxy = value
++                    GhajarOpenVpnSettings.setUseSystemProxy(settingsContext, value)
++                }
++            )
++            SettingRow(
++                title = if (lang == Lang.FA) "مکث هنگام خاموش بودن صفحه" else "Pause when screen is off",
++                subtitle = if (lang == Lang.FA)
++                    "برای صرفه‌جویی باتری؛ خاموش باشد تا اتصال پایدارتر بماند."
++                else "Battery-saving mode. Keep this off for the most stable connection.",
++                checked = ovpnPauseOnScreenOff,
++                onCheckedChange = { value ->
++                    ovpnPauseOnScreenOff = value
++                    GhajarOpenVpnSettings.setPauseOnScreenOff(settingsContext, value)
++                }
++            )
++            SettingRow(
++                title = if (lang == Lang.FA) "رمزگذاری پروفایل‌های OpenVPN" else "Encrypt OpenVPN profiles",
++                subtitle = if (lang == Lang.FA)
++                    "در صورت پشتیبانی اندروید، اطلاعات پروفایل‌های ذخیره‌شده محافظت می‌شوند."
++                else "Prefer encrypted profile storage when Android supports it.",
++                checked = ovpnEncryptProfiles,
++                onCheckedChange = { value ->
++                    ovpnEncryptProfiles = value
++                    GhajarOpenVpnSettings.setEncryptProfiles(settingsContext, value)
++                }
++            )
++            Card(
++                modifier = Modifier.fillMaxWidth().clickable {
++                    runCatching {
++                        settingsContext.startActivity(
++                            Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
++                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++                        )
++                    }
++                },
++                shape = RoundedCornerShape(16.dp),
++                colors = CardDefaults.cardColors(
++                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.30f)
++                )
++            ) {
++                Row(
++                    Modifier.fillMaxWidth().padding(14.dp),
++                    verticalAlignment = Alignment.CenterVertically
++                ) {
++                    Icon(Icons.Filled.Lock, contentDescription = null,
++                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
++                    Spacer(Modifier.width(12.dp))
++                    Column(Modifier.weight(1f)) {
++                        Text(
++                            if (lang == Lang.FA) "Always-on VPN و قطع اینترنت بدون VPN" else "Always-on VPN & block without VPN",
++                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold
++                        )
++                        Text(
++                            if (lang == Lang.FA) "باز کردن تنظیمات VPN خود اندروید" else "Open Android VPN settings",
++                            style = MaterialTheme.typography.bodySmall,
++                            color = MaterialTheme.colorScheme.onSurfaceVariant
++                        )
++                    }
++                    Icon(Icons.Filled.ChevronRight, contentDescription = null)
++                }
++            }
++        }
++
+         SettingsHubCard(
+             icon = Icons.Filled.Apps,
+             title = t("per_app"),
+diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidManifest.xml
+index 9de8e40..4adc586 100644
+--- a/openvpn/src/main/AndroidManifest.xml
++++ b/openvpn/src/main/AndroidManifest.xml
+@@ -83,6 +83,7 @@
+ 
+         <service android:name=".core.keepVPNAlive"
+                 android:exported="false"
++                android:process=":openvpn"
+                 android:permission="android.permission.BIND_JOB_SERVICE"/>
+ 
+ 
+diff --git a/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java b/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java
+index a49e1a2..0df1bdc 100644
+--- a/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java
++++ b/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java
+@@ -17,6 +17,7 @@
+ 
+ package org.strongswan.android.logic;
+ 
++import android.app.ActivityManager;
+ import android.app.Application;
+ import android.content.BroadcastReceiver;
+ import android.content.Context;
+@@ -24,6 +25,7 @@ import android.content.Intent;
+ import android.content.IntentFilter;
+ import android.os.Handler;
+ import android.os.Looper;
++import android.os.Process;
+ import android.util.Log;
+ 
+ import org.strongswan.android.data.DatabaseHelper;
+@@ -80,6 +82,16 @@ public class StrongSwanApplication extends Application
+ 		StrongSwanApplication.mContext = getApplicationContext();
+ 		StrongSwanApplication.mInstance = this;
+ 
++		/* Ghajar hosts ics-openvpn in a dedicated :openvpn process.  The system
++		 * creates the Application object there before OpenVPNService.  StrongSwan
++		 * database/certificate initialisation is unrelated to OpenVPN and can make
++		 * that service process fail before the VPN service is even created. */
++		if (isOpenVpnProcess())
++		{
++			Log.i(TAG, "Skipping StrongSwan app init in isolated OpenVPN process");
++			return;
++		}
++
+ 		mDatabaseHelper = new DatabaseHelper(mContext);
+ 
+ 		mManagedConfigurationService = new ManagedConfigurationService(mContext);
+@@ -95,6 +107,24 @@ public class StrongSwanApplication extends Application
+ 		registerReceiver(mRestrictionsReceiver, restrictionsFilter);
+ 	}
+ 
++	private boolean isOpenVpnProcess()
++	{
++		ActivityManager manager = (ActivityManager)getSystemService(Context.ACTIVITY_SERVICE);
++		if (manager == null)
++		{
++			return false;
++		}
++		int pid = Process.myPid();
++		for (ActivityManager.RunningAppProcessInfo process : manager.getRunningAppProcesses())
++		{
++			if (process.pid == pid)
++			{
++				return process.processName != null && process.processName.endsWith(":openvpn");
++			}
++		}
++		return false;
++	}
++
+ 	private void reloadManagedConfigurationAndNotifyListeners()
+ 	{
+ 		final Set<String> uuids = new HashSet<>(mManagedConfigurationService.getManagedProfiles().keySet());
+-- 
+2.47.3
