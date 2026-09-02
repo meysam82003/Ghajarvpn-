@@ -87,6 +87,10 @@ android {
                     rootProject.file("keystore.properties").exists()
             if (hasSigning) {
                 signingConfig = signingConfigs.getByName("release")
+            } else if (ghajarDemoBuild) {
+                // CI/demo release remains installable while being explicitly labelled
+                // as ephemeral-key output; production releases still require owner keys.
+                signingConfig = signingConfigs.getByName("debug")
             }
             isMinifyEnabled = true
             isShrinkResources = true

@@ -1,0 +1,27 @@
+From 989864cc2075c4944b26445e004c1d0f2ba37c58 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 19:17:53 +0200
+Subject: [PATCH] build(ci): produce signed R8 release demo artifacts
+
+---
+ app/build.gradle.kts | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 248d989..7723f6c 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -87,6 +87,10 @@ android {
+                     rootProject.file("keystore.properties").exists()
+             if (hasSigning) {
+                 signingConfig = signingConfigs.getByName("release")
++            } else if (ghajarDemoBuild) {
++                // CI/demo release remains installable while being explicitly labelled
++                // as ephemeral-key output; production releases still require owner keys.
++                signingConfig = signingConfigs.getByName("debug")
+             }
+             isMinifyEnabled = true
+             isShrinkResources = true
+-- 
+2.51.1
+
