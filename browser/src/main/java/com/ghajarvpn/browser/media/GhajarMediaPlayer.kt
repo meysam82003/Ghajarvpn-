@@ -4,10 +4,12 @@ import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 
+@UnstableApi
 class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
     private val headers = MediaHeaderProvider.sanitize(request.headers)
     private val httpFactory = DefaultHttpDataSource.Factory()

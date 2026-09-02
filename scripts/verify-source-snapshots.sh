@@ -6,6 +6,7 @@ source_root="$(cd "${1:?Usage: verify-source-snapshots.sh SOURCE_ROOT}" && pwd)"
 
 # The readable GitHub files must be the same files that the patch series builds.
 snapshots=(
+  "THIRD_PARTY_NOTICES.md"
   "app/src/main/AndroidManifest.xml"
   "app/build.gradle.kts"
   "app/src/main/java/net/gozar/app/MainActivity.kt"
@@ -24,6 +25,7 @@ snapshots=(
   "browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt"
   "browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt"
   "browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt"
+  "browser/src/test/java/com/ghajarvpn/browser/media/MediaHeaderProviderTest.kt"
   "openvpn/build.gradle.kts"
   "strongswan/build.gradle.kts"
   "settings.gradle.kts"

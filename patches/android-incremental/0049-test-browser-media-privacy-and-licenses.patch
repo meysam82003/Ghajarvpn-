@@ -1,0 +1,95 @@
+From 60f4f664ba2b4af10d090bf686f30c7216e24215 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 19:45:34 +0200
+Subject: [PATCH] test(browser): verify media header privacy and licenses
+
+---
+ THIRD_PARTY_NOTICES.md                        | 11 ++++++++++
+ .../browser/media/GhajarMediaPlayer.kt        |  2 ++
+ .../browser/media/GhajarPlayerActivity.kt     |  2 ++
+ .../browser/media/MediaHeaderProviderTest.kt  | 20 +++++++++++++++++++
+ 4 files changed, 35 insertions(+)
+ create mode 100644 THIRD_PARTY_NOTICES.md
+ create mode 100644 browser/src/test/java/com/ghajarvpn/browser/media/MediaHeaderProviderTest.kt
+
+diff --git a/THIRD_PARTY_NOTICES.md b/THIRD_PARTY_NOTICES.md
+new file mode 100644
+index 0000000..cee4d8b
+--- /dev/null
++++ b/THIRD_PARTY_NOTICES.md
+@@ -0,0 +1,11 @@
++# Third-party notices
++
++GhajarVPN uses AndroidX Media3 1.9.0 for standards-based media playback. AndroidX is
++licensed under the Apache License 2.0. Source and license information:
++https://github.com/androidx/media and https://www.apache.org/licenses/LICENSE-2.0
++
++The Browser and Media code in this repository was implemented for GhajarVPN. No code
++was copied from Nira Browser, QDM-Android, Pantegnos, or npvt-terminal-converter.
++Those projects were reviewed only for architecture and format research; their current
++licenses were checked before implementation (MPL-2.0, Apache-2.0, MIT, and MIT,
++respectively).
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+index 1efa00c..63c150f 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+@@ -4,10 +4,12 @@ import android.content.Context
+ import android.net.Uri
+ import androidx.media3.common.MediaItem
+ import androidx.media3.common.MimeTypes
++import androidx.media3.common.util.UnstableApi
+ import androidx.media3.datasource.DefaultHttpDataSource
+ import androidx.media3.exoplayer.ExoPlayer
+ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+ 
++@UnstableApi
+ class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
+     private val headers = MediaHeaderProvider.sanitize(request.headers)
+     private val httpFactory = DefaultHttpDataSource.Factory()
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+index cfaa611..a472e48 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+@@ -30,10 +30,12 @@ import androidx.media3.common.C
+ import androidx.media3.common.PlaybackException
+ import androidx.media3.common.Player
+ import androidx.media3.common.TrackSelectionOverride
++import androidx.media3.common.util.UnstableApi
+ import androidx.media3.ui.AspectRatioFrameLayout
+ import androidx.media3.ui.PlayerView
+ import kotlin.math.abs
+ 
++@UnstableApi
+ class GhajarPlayerActivity : Activity() {
+     private lateinit var request: MediaPlaybackRequest
+     private lateinit var engine: GhajarMediaPlayer
+diff --git a/browser/src/test/java/com/ghajarvpn/browser/media/MediaHeaderProviderTest.kt b/browser/src/test/java/com/ghajarvpn/browser/media/MediaHeaderProviderTest.kt
+new file mode 100644
+index 0000000..5a6eabf
+--- /dev/null
++++ b/browser/src/test/java/com/ghajarvpn/browser/media/MediaHeaderProviderTest.kt
+@@ -0,0 +1,20 @@
++package com.ghajarvpn.browser.media
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Test
++
++class MediaHeaderProviderTest {
++    @Test fun keepsOnlyPlaybackHeadersAndRejectsInjection() {
++        val result = MediaHeaderProvider.sanitize(mapOf(
++            "Cookie" to "session=memory-only",
++            "Referer" to "https://example.com/watch",
++            "X-Unsafe" to "not-forwarded",
++            "Authorization" to "Bearer value\r\nInjected: yes"
++        ))
++        assertEquals("session=memory-only", result["Cookie"])
++        assertEquals("https://example.com/watch", result["Referer"])
++        assertFalse(result.keys.any { it.equals("X-Unsafe", true) })
++        assertFalse(result.keys.any { it.equals("Authorization", true) })
++    }
++}
+-- 
+2.51.1
+
+

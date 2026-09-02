@@ -30,10 +30,12 @@ import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.util.UnstableApi
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlin.math.abs
 
+@UnstableApi
 class GhajarPlayerActivity : Activity() {
     private lateinit var request: MediaPlaybackRequest
     private lateinit var engine: GhajarMediaPlayer
