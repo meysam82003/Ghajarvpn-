@@ -36,4 +36,12 @@ object StoreLinkRouter {
             .putExtra(SecurePaymentActivity.EXTRA_URL, route.uri.toString())
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
+
+    fun browserIntent(context: Context, raw: String): Intent? {
+        val route = classify(raw)
+        if (route.kind !in setOf(StoreLinkKind.TERMS, StoreLinkKind.HELP, StoreLinkKind.USER_PANEL, StoreLinkKind.WEB_SUPPORT)) return null
+        return Intent(context, com.ghajarvpn.browser.GhajarBrowserActivity::class.java)
+            .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_URL, route.uri.toString())
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    }
 }

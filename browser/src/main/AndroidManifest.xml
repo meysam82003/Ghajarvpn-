@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
+    <application>
+        <activity
+            android:name=".GhajarBrowserActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:label="مرورگر قاجار"
+            android:launchMode="singleTop"
+            android:theme="@style/GhajarBrowserTheme" />
+        <activity
+            android:name=".media.GhajarPlayerActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
+            android:exported="false"
+            android:label="پلیر قاجار"
+            android:launchMode="singleTop"
+            android:supportsPictureInPicture="true"
+            android:theme="@style/GhajarPlayerTheme" />
+    </application>
+</manifest>

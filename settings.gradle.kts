@@ -23,3 +23,4 @@ rootProject.name = "Ghajarvpn"
 include(":app")
 include(":strongswan")
 include(":openvpn")
+include(":browser")

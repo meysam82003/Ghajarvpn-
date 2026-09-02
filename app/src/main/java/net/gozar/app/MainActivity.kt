@@ -1,6 +1,3 @@
-Warning: truncated output (original token count: 118695)
-Total output lines: 10705
-
 package net.gozar.app
 
 import android.app.Activity
@@ -4311,7 +4308,1867 @@ private fun WindscribeScreen(store: ConfigStore, modifier: Modifier = Modifier) 
                                 address = node.ip.ifBlank { node.hostname },
                                 port = 500,
                                 uuid = user.trim(),
-              …18695 tokens truncated…wn(
+                                password = pass.trim(),
+                                sni = node.hostname,
+                                network = "ikev2",
+                                security = "none",
+                                source = ConfigSource.COMMUNITY
+                            )
+                        }
+                    )
+                    picked.clear()
+                    status = t("ws_added").format(chosen.size)
+                },
+                enabled = count > 0 && user.isNotBlank() && pass.isNotBlank(),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    if (count > 0) t("ws_add_n").format(localizeDigits("$count", lang))
+                    else t("add"),
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WindscribeLocationsHeader(
+    title: String,
+    total: Int,
+    chosen: Int,
+    expanded: Boolean,
+    searchOpen: Boolean,
+    allSelected: Boolean,
+    onSelectAll: () -> Unit,
+    onToggle: () -> Unit,
+    onToggleSearch: () -> Unit,
+    query: String,
+    onQuery: (String) -> Unit,
+    searchLabel: String
+) {
+    val lang = LocalLang.current
+    val rot by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        label = "wsOuterChevron"
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(22.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onToggle() }
+                    .padding(
+                        start = 16.dp,
+                        end = 8.dp,
+                        top = 14.dp,
+                        bottom = if (expanded && searchOpen) 2.dp else 14.dp
+                    ),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    mixedText(title),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    if (chosen > 0)
+                        localizeDigits("$chosen", lang) + " / " + localizeDigits("$total", lang)
+                    else localizeDigits("$total", lang),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (chosen > 0) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(tween(180)) + expandHorizontally(tween(200)),
+                    exit = fadeOut(tween(120)) + shrinkHorizontally(tween(160))
+                ) {
+                    Icon(
+                        if (allSelected) Icons.Filled.Deselect else Icons.Filled.SelectAll,
+                        contentDescription = null,
+                        tint = if (allSelected) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 6.dp)
+                            .clip(CircleShape)
+                            .clickable { onSelectAll() }
+                            .padding(6.dp)
+                            .size(19.dp)
+                    )
+                }
+                AnimatedVisibility(
+                    visible = expanded,
+                    enter = fadeIn(tween(180)) + expandHorizontally(tween(200)),
+                    exit = fadeOut(tween(120)) + shrinkHorizontally(tween(160))
+                ) {
+                    Icon(
+                        if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
+                        contentDescription = null,
+                        tint = if (searchOpen) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .clickable { onToggleSearch() }
+                            .padding(6.dp)
+                            .size(19.dp)
+                    )
+                }
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp, end = 6.dp)
+                        .size(20.dp)
+                        .graphicsLayer { rotationZ = rot }
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded && searchOpen,
+                enter = fadeIn(tween(180)) +
+                        expandVertically(tween(220, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(120)) +
+                        shrinkVertically(tween(180, easing = FastOutSlowInEasing))
+            ) {
+                OutlinedTextField(
+                    query, onQuery,
+                    label = { Text(searchLabel) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.fillMaxWidth()
+                        .padding(start = 14.dp, end = 14.dp, bottom = 14.dp)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun WindscribeServerRow(
+    label: String,
+    selected: Boolean,
+    accent: Color,
+    onClick: () -> Unit
+) {
+    val onAccent = Color.White
+    val shape = RoundedCornerShape(14.dp)
+    var center by remember { mutableStateOf(Offset.Zero) }
+    var sz by remember { mutableStateOf(IntSize.Zero) }
+
+    val maxR = remember(center, sz) {
+        val dx = maxOf(center.x, sz.width - center.x)
+        val dy = maxOf(center.y, sz.height - center.y)
+        sqrt(dx * dx + dy * dy)
+    }
+    val radius by animateFloatAsState(
+        targetValue = if (selected) maxR else 0f,
+        animationSpec = tween(if (selected) 480 else 300, easing = FastOutSlowInEasing),
+        label = "wsRowFill"
+    )
+    val frac = if (maxR > 0f) (radius / maxR).coerceIn(0f, 1f) else 0f
+    val textColor = lerp(MaterialTheme.colorScheme.onSurface, onAccent, frac)
+
+    Box(
+        Modifier.fillMaxWidth()
+            .clip(shape)
+            .onGloballyPositioned {
+                sz = it.size
+                if (center == Offset.Zero) center = Offset(it.size.width / 2f, it.size.height / 2f)
+            }
+            .drawBehind {
+                if (radius > 0.5f) drawCircle(color = accent, radius = radius, center = center)
+            }
+            .border(
+                1.dp,
+                lerp(
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.18f),
+                    accent.copy(alpha = 0.65f),
+                    frac
+                ),
+                shape
+            )
+            .pointerInput(Unit) {
+                detectTapGestures(onPress = { center = it }, onTap = { onClick() })
+            }
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                mixedText(label),
+                style = MaterialTheme.typography.bodyMedium,
+                color = textColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            Icon(
+                Icons.Filled.Check,
+                contentDescription = null,
+                tint = textColor.copy(alpha = frac),
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
+}
+
+@Composable
+private fun WindscribeCountryCard(
+    country: String,
+    total: Int,
+    chosen: Int,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    val lang = LocalLang.current
+    val rot by animateFloatAsState(
+        targetValue = if (expanded) 90f else 0f,
+        animationSpec = tween(200, easing = FastOutSlowInEasing),
+        label = "wsChevron"
+    )
+    val accent = FlagColors.of(country) ?: MaterialTheme.colorScheme.primary
+    val border by animateColorAsState(
+        targetValue = if (chosen > 0) accent.copy(alpha = 0.75f)
+        else MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+        animationSpec = tween(320, easing = FastOutSlowInEasing),
+        label = "wsBorder"
+    )
+    Card(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.45f)
+        ),
+        border = BorderStroke(1.dp, border)
+    ) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null
+                    ) { onToggle() }
+                    .padding(horizontal = 14.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                CountryFlag(country, height = 16.dp)
+                Spacer(Modifier.width(10.dp))
+                Text(
+                    mixedText(countryName(country).ifBlank { country.uppercase() }),
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    if (chosen > 0)
+                        localizeDigits("$chosen", lang) + " / " + localizeDigits("$total", lang)
+                    else localizeDigits("$total", lang),
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = if (chosen > 0) accent
+                    else MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.width(8.dp))
+                Icon(
+                    Icons.Filled.ChevronRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = rot }
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = fadeIn(tween(180)) +
+                        expandVertically(tween(220, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(120)) +
+                        shrinkVertically(tween(180, easing = FastOutSlowInEasing))
+            ) {
+                Column(
+                    Modifier.fillMaxWidth().padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    content = content
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun TorNodesScreen(store: ConfigStore, modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val ready = remember { TorController.available(context) }
+    var picked by remember { mutableStateOf(setOf<String>()) }
+    val configs by store.configs.collectAsState()
+    val selectedId by store.selectedId.collectAsState()
+    val base = configs.find { it.id == selectedId && it.protocol != "tor" }
+        ?: configs.firstOrNull { it.protocol != "tor" && it.protocol != "aether" }
+    val baseId = base?.id ?: ""
+    var throughVpn by remember { mutableStateOf(false) }
+    var status by remember { mutableStateOf("") }
+    var statusOwner by remember { mutableStateOf("") }
+
+    LaunchedEffect(status) { if (status.isNotEmpty()) { delay(3000); status = "" } }
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            t("tor_nodes_intro"),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        if (!ready) {
+            InfoBox(
+                t("proj_tor_missing"),
+                accent = MaterialTheme.colorScheme.error,
+                centered = true
+            )
+        }
+
+        SettingsGroup {
+            SettingRow(
+                title = t("tor_through_vpn"),
+                subtitle = t("tor_through_vpn_sub"),
+                checked = throughVpn,
+                onCheckedChange = { throughVpn = it }
+            )
+            if (throughVpn) {
+                Text(
+                    if (base != null) t("tor_base_is").format(base.name) else t("tor_base_none"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (base != null) MaterialTheme.colorScheme.onSurfaceVariant
+                    else MaterialTheme.colorScheme.error
+                )
+            }
+        }
+
+        TorCountryGroup(t("tor_exit_country")) {
+            TorController.Countries.filter { it.first.isNotEmpty() }.forEach { (code, label) ->
+                val on = code in picked
+                val boxTint by animateColorAsState(
+                    targetValue = if (on) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                    label = "torCountryTint"
+                )
+                val boxFill by animateFloatAsState(
+                    targetValue = if (on) 1f else 0f,
+                    animationSpec = tween(300, easing = FastOutSlowInEasing),
+                    label = "torCountryFill"
+                )
+                Row(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(boxTint.copy(alpha = 0.05f + 0.09f * boxFill))
+                        .border(
+                            1.dp,
+                            boxTint.copy(alpha = 0.16f + 0.36f * boxFill),
+                            RoundedCornerShape(14.dp)
+                        )
+                        .clickable {
+                            picked = if (on) picked - code else picked + code
+                        }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CountryFlag(code, height = 14.dp)
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    SmoothCheckbox(checked = on)
+                }
+            }
+        }
+
+        BounceButton(
+            onClick = {
+                if (!ready) { status = t("proj_tor_missing"); return@BounceButton }
+                val list = if (picked.isEmpty()) listOf("") else picked.toList()
+                list.forEach { code ->
+                    val label = TorController.Countries.firstOrNull { it.first == code }?.second
+                    store.add(
+                        ProxyConfig(
+                            name = if (code.isEmpty()) "Tor" else "Tor - " + (label ?: code),
+                            protocol = "tor",
+                            address = "127.0.0.1",
+                            port = TorController.SOCKS_PORT,
+                            torCountry = code,
+                            torThroughVpn = throughVpn,
+                            torBaseId = if (throughVpn) baseId else "",
+                            source = ConfigSource.COMMUNITY
+                        )
+                    )
+                }
+                status = t("proj_tor_added")
+            },
+            enabled = ready && (!throughVpn || base != null),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (picked.isEmpty()) t("tor_add_auto")
+                else t("tor_add_n").format(localizeDigits("${picked.size}", LocalLang.current)),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false
+            )
+        }
+
+        AnimatedVisibility(
+            visible = status.isNotEmpty(),
+            enter = fadeIn(tween(220)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(160)) + shrinkVertically(tween(220, easing = FastOutSlowInEasing))
+        ) {
+            InfoBox(status, centered = true)
+        }
+    }
+}
+
+@Composable
+private fun SmoothCheckbox(checked: Boolean, modifier: Modifier = Modifier) {
+    val tint = MaterialTheme.colorScheme.primary
+    val idle = MaterialTheme.colorScheme.onSurfaceVariant
+    val mark = MaterialTheme.colorScheme.onPrimary
+    val p by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = tween(320, easing = FastOutSlowInEasing),
+        label = "checkboxFill"
+    )
+    Canvas(modifier.size(22.dp)) {
+        val stroke = 1.6.dp.toPx()
+        val radius = 7.dp.toPx()
+        drawRoundRect(
+            color = lerp(idle.copy(alpha = 0.50f), tint, p),
+            topLeft = Offset(stroke / 2f, stroke / 2f),
+            size = Size(size.width - stroke, size.height - stroke),
+            cornerRadius = CornerRadius(radius, radius),
+            style = Stroke(width = stroke)
+        )
+        if (p > 0.004f) {
+            val grow = size.minDimension * p
+            drawRoundRect(
+                color = tint.copy(alpha = p),
+                topLeft = Offset((size.width - grow) / 2f, (size.height - grow) / 2f),
+                size = Size(grow, grow),
+                cornerRadius = CornerRadius(radius * p, radius * p)
+            )
+            val tick = Path().apply {
+                moveTo(size.width * 0.27f, size.height * 0.52f)
+                lineTo(size.width * 0.44f, size.height * 0.70f)
+                lineTo(size.width * 0.75f, size.height * 0.32f)
+            }
+            val pm = PathMeasure().apply { setPath(tick, false) }
+            val seg = Path()
+            pm.getSegment(0f, pm.length * p, seg, true)
+            drawPath(
+                seg,
+                color = mark.copy(alpha = p),
+                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+            )
+        }
+    }
+}
+
+@Composable
+private fun CheckHostScreen(modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val scope = rememberCoroutineScope()
+    val focus = LocalFocusManager.current
+    var host by remember { mutableStateOf("") }
+    var kind by remember { mutableStateOf("ping") }
+    var running by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    val currentIp by LocationFetcher.lastIp.collectAsState()
+    var touched by remember { mutableStateOf(false) }
+
+    LaunchedEffect(currentIp) {
+        if (!touched && currentIp.isNotBlank()) host = currentIp
+    }
+    var nodes by remember { mutableStateOf(listOf<CheckHost.Node>()) }
+    var info by remember { mutableStateOf<CheckHost.IpInfo?>(null) }
+    val results = remember { mutableStateMapOf<String, CheckHost.NodeResult>() }
+
+    fun run() {
+        val target = host.trim()
+        if (running || target.isEmpty()) return
+        focus.clearFocus()
+        running = true
+        error = ""
+        nodes = emptyList()
+        info = null
+        results.clear()
+        scope.launch {
+            launch { info = CheckHost.ipInfo(target) }
+            val ok = CheckHost.run(
+                host = target,
+                kind = kind,
+                onNodes = { list ->
+                    nodes = list
+                    list.forEach { results[it.id] = CheckHost.NodeResult.Pending }
+                },
+                onResults = { map -> map.forEach { (k, v) -> results[k] = v } }
+            )
+            if (!ok) error = t("chk_failed")
+            running = false
+        }
+    }
+
+    Column(
+        modifier.fillMaxSize()
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { focus.clearFocus() }
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        OutlinedTextField(
+            value = host,
+            onValueChange = { host = it; touched = true },
+            singleLine = true,
+            label = { Text(t("chk_host")) },
+            placeholder = {
+                Text(
+                    mixedText(currentIp.ifEmpty { "example.com" }),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            },
+            textStyle = LocalTextStyle.current.copy(
+                fontFamily = if (LocalLang.current == Lang.FA) VazirFont else LexendFont
+            ),
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Go),
+            keyboardActions = KeyboardActions(onGo = { run() }, onDone = { focus.clearFocus() }),
+            trailingIcon = {
+                if (host.isNotEmpty()) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = null,
+                        modifier = Modifier.clickable { host = ""; touched = true; focus.clearFocus() }
+                    )
+                }
+            },
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf("ping" to t("chk_ping"), "http" to t("chk_http"), "tcp" to t("chk_tcp")).forEach { (k, label) ->
+                val on = kind == k
+                BounceOutlinedButton(
+                    onClick = { kind = k },
+                    minHeight = 40.dp,
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp),
+                    accent = if (on) MaterialTheme.colorScheme.primary
+                    else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    Text(mixedText(label), maxLines = 1, style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+
+        BounceButton(
+            onClick = { run() },
+            enabled = !running && host.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (running) t("chk_running") else t("chk_start"),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false
+            )
+        }
+
+        if (error.isNotEmpty()) {
+            Text(
+                error,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+
+        info?.let { i ->
+            SettingsGroup(t("chk_info")) {
+                listOf(
+                    t("chk_ip") to i.ip,
+                    t("chk_asn") to i.asn,
+                    t("chk_org") to i.org,
+                    t("chk_country") to i.country,
+                    t("chk_region") to i.region,
+                    t("chk_city") to i.city,
+                    t("chk_tz") to i.timezone
+                ).filter { it.second.isNotBlank() && it.second != " ()" && it.second != ", " }
+                    .forEach { (k, v) ->
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                k,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.width(96.dp)
+                            )
+                            if (k == t("chk_country") && i.countryCode.length == 2) {
+                                CountryFlag(i.countryCode, height = 12.dp)
+                                Spacer(Modifier.width(7.dp))
+                            }
+                            Text(
+                                monoText(v),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+            }
+        }
+
+        if (nodes.isNotEmpty()) {
+            SettingsGroup {
+                nodes.forEach { node ->
+                    val res = results[node.id] ?: CheckHost.NodeResult.Pending
+                    val tint = when (res) {
+                        is CheckHost.NodeResult.Ok -> AppGreen
+                        is CheckHost.NodeResult.Failed -> Color(0xFFE0413C)
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        RadarDot(tint, res is CheckHost.NodeResult.Pending)
+                        Spacer(Modifier.width(8.dp))
+                        Row(
+                            Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (node.countryCode.length == 2) {
+                                CountryFlag(node.countryCode, height = 13.dp)
+                                Spacer(Modifier.width(7.dp))
+                            }
+                            Text(
+                                mixedText(node.city.ifEmpty { node.country.ifEmpty { node.id } }),
+                                style = MaterialTheme.typography.bodyMedium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            if (node.city.isNotEmpty() && node.country.isNotEmpty()) {
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    mixedText(node.country),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false)
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(10.dp))
+                        Row(
+                            Modifier.clip(RoundedCornerShape(8.dp))
+                                .background(tint.copy(alpha = 0.14f))
+                                .border(1.dp, tint.copy(alpha = 0.42f), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 7.dp, vertical = 4.dp)
+                                .animateContentSize(tween(320, easing = FastOutSlowInEasing)),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                when (res) {
+                                    is CheckHost.NodeResult.Ok -> localizeDigits(
+                                        String.format(
+                                            java.util.Locale.US,
+                                            if (res.avgMs < 10) "%.1f" else "%.0f",
+                                            res.avgMs
+                                        ), lang
+                                    ) + " " + t("unit_ms")
+                                    is CheckHost.NodeResult.Failed -> t("netmon_down")
+                                    else -> t("testing")
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = tint,
+                                maxLines = 1
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NetRadarRow(site: NetMonitor.Site, st: NetMonitor.State) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val target = when (st) {
+        is NetMonitor.State.Reachable -> AppGreen
+        is NetMonitor.State.Sanctioned -> Color(0xFFFFA94D)
+        is NetMonitor.State.Unreachable -> Color(0xFFE0413C)
+        is NetMonitor.State.Testing -> MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val tint by animateColorAsState(target, tween(400), label = "radarTint")
+    val label = when (st) {
+        is NetMonitor.State.Reachable -> t("netmon_up")
+        is NetMonitor.State.Sanctioned -> t("netmon_sanctioned")
+        is NetMonitor.State.Unreachable -> t("netmon_down")
+        is NetMonitor.State.Testing -> t("testing")
+        else -> "\u2014"
+    }
+
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        RadarDot(tint, st is NetMonitor.State.Testing)
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(mixedText(site.name), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                scriptRuns(site.host, MonoFont),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Row(
+            Modifier.clip(RoundedCornerShape(9.dp))
+                .background(tint.copy(alpha = 0.12f))
+                .border(1.dp, tint.copy(alpha = 0.38f), RoundedCornerShape(9.dp))
+                .padding(horizontal = 8.dp, vertical = 5.dp)
+                .animateContentSize(tween(320, easing = FastOutSlowInEasing)),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            AnimatedVisibility(
+                visible = st is NetMonitor.State.Reachable,
+                enter = fadeIn(tween(280)) + expandHorizontally(tween(320)),
+                exit = fadeOut(tween(160)) + shrinkHorizontally(tween(240))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        if (st is NetMonitor.State.Reachable)
+                            localizeDigits("${st.ms}", lang) + " " + t("unit_ms") else "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tint.copy(alpha = 0.85f),
+                        maxLines = 1
+                    )
+                    Spacer(Modifier.width(6.dp))
+                }
+            }
+            Crossfade(targetState = label, animationSpec = tween(300), label = "radarLabel") { l ->
+                Text(
+                    l,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = tint,
+                    maxLines = 1
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun RadarDot(tint: Color, pulsing: Boolean) {
+    val transition = rememberInfiniteTransition(label = "radarDot")
+    val ripple by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
+        label = "radarRipple"
+    )
+    Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
+        if (pulsing) {
+            Box(
+                Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        val sc = 0.40f + ripple * 0.60f
+                        scaleX = sc; scaleY = sc
+                        alpha = (1f - ripple) * 0.6f
+                    }
+                    .background(Brush.radialGradient(listOf(tint, Color.Transparent)), CircleShape)
+            )
+        }
+        Box(
+            Modifier
+                .size(16.dp)
+                .background(
+                    Brush.radialGradient(listOf(tint.copy(alpha = 0.40f), Color.Transparent)),
+                    CircleShape
+                )
+        )
+        Box(Modifier.size(9.dp).clip(CircleShape).background(tint))
+    }
+}
+
+@Composable
+private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val states by RadarRunner.states.collectAsState()
+    val running by RadarRunner.running.collectAsState()
+    val conn by VpnState.state.collectAsState()
+    val viaTunnel = conn == Connection.CONNECTED
+
+    fun run() {
+        if (!running) RadarRunner.start(viaTunnel)
+    }
+
+    LaunchedEffect(Unit) {
+        if (states.isEmpty() && !running) RadarRunner.start(viaTunnel)
+    }
+
+    val reachable = states.values.count { it is NetMonitor.State.Reachable }
+    val done = states.values.count { it !is NetMonitor.State.Testing }
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            InfoBox(
+                if (viaTunnel) t("netmon_via_tunnel") else t("netmon_via_direct"),
+                accent = if (viaTunnel) AppGreen else MaterialTheme.colorScheme.primary,
+                modifier = Modifier.weight(1f)
+            )
+            val spin = rememberInfiniteTransition(label = "radarSpin")
+            val angle by spin.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1100, easing = LinearEasing)
+                ),
+                label = "radarSpinAngle"
+            )
+            BounceIconButton(onClick = { run() }, enabled = !running) {
+                Icon(
+                    Icons.Filled.Autorenew,
+                    contentDescription = t("netmon_recheck"),
+                    tint = if (running) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f)
+                    else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(21.dp)
+                        .graphicsLayer { rotationZ = if (running) angle else 0f }
+                )
+            }
+        }
+
+        SettingsGroup {
+            NetMonitor.Essential.forEach { site ->
+                NetRadarRow(site, states[site.host] ?: NetMonitor.State.Idle)
+            }
+        }
+
+        Text(
+            t("netmon_summary").format(
+                localizeDigits("$reachable", lang),
+                localizeDigits("${NetMonitor.Essential.size}", lang)
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        SettingsHubCard(
+            icon = Icons.Filled.Apps,
+            title = t("netcat_title"),
+            subtitle = t("netcat_sub"),
+            onClick = onOpenCategories
+        )
+    }
+}
+
+@Composable
+private fun NetCategoriesScreen(onOpen: (Int) -> Unit, modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        NetMonitor.Categories.forEachIndexed { i, cat ->
+            SettingsHubCard(
+                icon = when (cat.icon) {
+                    "ai" -> Icons.Filled.SmartToy
+                    "social" -> Icons.Filled.Groups
+                    "gaming" -> Icons.Filled.SportsEsports
+                    "trading" -> Icons.Filled.TrendingUp
+                    "news" -> Icons.AutoMirrored.Filled.Article
+                    else -> null
+                },
+                iconRes = if (cat.icon == "iranian") R.drawable.iran else null,
+                title = t(cat.key),
+                subtitle = t("netcat_count").format(
+                    localizeDigits("${cat.sites.size}", LocalLang.current)
+                ),
+                onClick = { onOpen(i) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun NetCategoryScreen(index: Int, modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    val scope = rememberCoroutineScope()
+    val cat = NetMonitor.Categories.getOrNull(index) ?: return
+    val states = remember(index) { mutableStateMapOf<String, NetMonitor.State>() }
+    val conn by VpnState.state.collectAsState()
+    val viaTunnel = conn == Connection.CONNECTED
+
+    LaunchedEffect(index) {
+        cat.sites.forEach { states[it.host] = NetMonitor.State.Testing }
+        NetMonitor.probeAll(viaTunnel, cat.sites) { site, state -> states[site.host] = state }
+    }
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            if (viaTunnel) t("netmon_via_tunnel") else t("netmon_via_direct"),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (viaTunnel) AppGreen else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        SettingsGroup {
+            cat.sites.forEach { site ->
+                NetRadarRow(site, states[site.host] ?: NetMonitor.State.Idle)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SettingsHubCard(
+    icon: ImageVector? = null,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit,
+    tint: Color? = null,
+    iconRes: Int? = null,
+    accents: List<String> = emptyList()
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .clickable { onClick() },
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+        ),
+        border = BorderStroke(1.dp, (tint ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.30f))
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
+                    .background((tint ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                val iconTint = tint ?: MaterialTheme.colorScheme.primary
+                if (iconRes != null) {
+                    Icon(
+                        painter = painterResource(iconRes),
+                        contentDescription = null,
+                        tint = iconTint,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else if (icon != null) {
+                    Icon(icon, contentDescription = null, tint = iconTint,
+                        modifier = Modifier.size(20.dp))
+                }
+            }
+            Spacer(Modifier.width(14.dp))
+            Column(Modifier.weight(1f)) {
+                Text(mixedText(title), style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    if (accents.isEmpty()) mixedText(subtitle)
+                    else accentText(subtitle, *accents.toTypedArray()),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            Icon(
+                Icons.Filled.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun SettingsScreen(
+    store: ConfigStore,
+    scrollState: ScrollState,
+    onOpenUsage: () -> Unit,
+    onOpenTools: () -> Unit,
+    onOpenConnection: () -> Unit,
+    onOpenPreferences: () -> Unit,
+    onOpenAbout: () -> Unit,
+    onOpenNetMon: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val usage by UsageStore.usage.collectAsState()
+    val allTime = remember(usage) { UsageStore.totalAll(usage) }
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SettingsHubCard(
+            icon = Icons.Filled.DataUsage,
+            title = t("data_usage"),
+            subtitle = formatBytes(allTime[0] + allTime[1], lang),
+            onClick = onOpenUsage
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.TravelExplore,
+            title = t("netmon_title"),
+            subtitle = t("netmon_sub"),
+            onClick = onOpenNetMon
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.Build,
+            title = t("tools"),
+            subtitle = t("tools_sub"),
+            onClick = onOpenTools
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.Router,
+            title = t("connection_settings"),
+            subtitle = t("connection_settings_sub"),
+            onClick = onOpenConnection
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.Tune,
+            title = t("preferences"),
+            subtitle = t("preferences_sub"),
+            onClick = onOpenPreferences
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.Info,
+            title = t("about"),
+            subtitle = t("about_sub"),
+            onClick = onOpenAbout
+        )
+
+        BackupRow(store)
+    }
+}
+
+@Composable
+private fun BackupRow(store: ConfigStore) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+
+    var status by remember { mutableStateOf("") }
+    var statusOwner by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var pending by remember { mutableStateOf<ByteArray?>(null) }
+
+    LaunchedEffect(status) {
+        if (status.isNotEmpty()) { delay(3500); status = "" }
+    }
+
+    val saver = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument(ConfigFile.MIME)
+    ) { uri ->
+        if (uri != null) {
+            busy = true
+            scope.launch {
+                val ok = withContext(Dispatchers.IO) {
+                    runCatching {
+                        val data = ConfigFile.encodeBackup(
+                            context,
+                            store.configs.value,
+                            store.subscriptions.value,
+                            store.settingsSnapshot(),
+                            null
+                        )
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
+                        true
+                    }.getOrDefault(false)
+                }
+                status = if (ok) t("backup_done") else t("backup_failed")
+                busy = false
+            }
+        }
+    }
+
+    val opener = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                val bytes = withContext(Dispatchers.IO) {
+                    runCatching {
+                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    }.getOrNull()
+                }
+                when {
+                    bytes == null || bytes.isEmpty() -> status = t("import_bad_file")
+                    runCatching { ConfigFile.isBackup(context, bytes, null) }
+                        .getOrDefault(false) -> pending = bytes
+                    else -> status = t("backup_not_backup")
+                }
+            }
+        }
+    }
+
+    Column(
+        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            BounceOutlinedButton(
+                onClick = {
+                    if (!busy) {
+                        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                            .format(java.util.Date())
+                        saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
+                    }
+                },
+                enabled = !busy,
+                minHeight = 34.dp,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
+            ) {
+                Icon(
+                    Icons.Filled.FileUpload,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    t("backup_export"),
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+            BounceOutlinedButton(
+                onClick = { opener.launch(arrayOf("*/*")) },
+                minHeight = 34.dp,
+                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
+            ) {
+                Icon(
+                    Icons.Filled.FileDownload,
+                    contentDescription = null,
+                    modifier = Modifier.size(15.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    t("backup_import"),
+                    style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1,
+                    softWrap = false
+                )
+            }
+        }
+        AnimatedVisibility(visible = status.isNotEmpty()) {
+            Text(
+                mixedText(status),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+            )
+        }
+    }
+
+    pending?.let { bytes ->
+        GlassDialog(
+            onDismiss = { pending = null },
+            title = t("backup_import"),
+            confirmLabel = t("import_button"),
+            dismissLabel = t("cancel"),
+            accentOverride = AppGreen,
+            onConfirm = {
+                pending = null
+                scope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        runCatching { ConfigFile.decodeBackup(context, bytes, null) }.getOrNull()
+                    }
+                    if (result == null) {
+                        status = t("import_bad_file")
+                    } else {
+                        store.restoreBackup(result.configs, result.subs, result.settings)
+                        status = localizeDigits(
+                            t("backup_restored").format(result.configs.size, result.subs.size),
+                            store.lang.value
+                        )
+                    }
+                }
+            }
+        ) {
+            Text(mixedText(t("backup_restore_q")), style = MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
+@Composable
+private fun ToolsScreen(
+    store: ConfigStore,
+    onOpenStability: () -> Unit,
+    onOpenCleanIp: () -> Unit,
+    onOpenCheckHost: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val autoSelect by store.autoSelect.collectAsState()
+    val onionRouting by store.onionRouting.collectAsState()
+    val adBlock by store.adBlock.collectAsState()
+    val blockWhenOff by store.blockWhenOff.collectAsState()
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SettingsHubCard(
+            icon = Icons.Filled.TravelExplore,
+            title = "مرورگر قاجار",
+            subtitle = "تب‌ها، حالت خصوصی، نشانک، محافظ ردیاب و دانلود امن",
+            onClick = { com.ghajarvpn.browser.BrowserContract.open(context) }
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.FileOpen,
+            title = "ابزار کانفیگ",
+            subtitle = "تشخیص آفلاین، نمایش امن، اعتبارسنجی و افزودن مستقیم فایل‌های پشتیبانی‌شده",
+            onClick = { context.startActivity(Intent(context, net.gozar.app.configtoolkit.ConfigToolkitActivity::class.java)) }
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.NetworkCheck,
+            title = t("stab_title"),
+            subtitle = t("stab_sub"),
+            onClick = onOpenStability
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.Dns,
+            title = t("chk_title"),
+            subtitle = t("chk_sub"),
+            onClick = onOpenCheckHost
+        )
+        SettingsHubCard(
+            iconRes = R.drawable.cloudflare,
+            title = t("scan_warp"),
+            subtitle = t("scan_sub"),
+            onClick = onOpenCleanIp
+        )
+        SettingsGroup {
+            SettingRow(
+                title = t("adblock_title"),
+                subtitle = t("adblock_sub"),
+                checked = adBlock,
+                onCheckedChange = { store.setAdBlock(it) }
+            )
+            AnimatedVisibility(visible = adBlock) {
+                Box(
+                    Modifier.fillMaxWidth()
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
+                            RoundedCornerShape(14.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                ) {
+                    SettingRow(
+                        title = t("adblock_always_title"),
+                        subtitle = t("adblock_always_sub"),
+                        checked = blockWhenOff,
+                        onCheckedChange = { store.setBlockWhenOff(it) }
+                    )
+                }
+            }
+            SettingRow(
+                title = t("onion_title"),
+                subtitle = t("onion_sub"),
+                checked = onionRouting,
+                onCheckedChange = { store.setOnionRouting(it) }
+            )
+            SettingRow(
+                title = t("smart_connect"),
+                subtitle = t("smart_connect_sub"),
+                checked = autoSelect,
+                onCheckedChange = { store.setAutoSelect(it) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun TorCountryGroup(
+    title: String,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
+    ) {
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Text(
+                title,
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(start = 4.dp, bottom = 4.dp)
+            )
+            content()
+        }
+    }
+}
+
+@Composable
+private fun ConfigDebuggerScreen(
+    store: ConfigStore,
+    onSwitch: (ProxyConfig) -> Unit,
+    active: Boolean,
+    modifier: Modifier = Modifier
+) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val configs by store.configs.collectAsState()
+    val selectedId by store.selectedId.collectAsState()
+    val config = configs.find { it.id == selectedId }
+
+    if (config == null) {
+        Column(
+            modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            SettingsGroup {
+                Text(
+                    t("dbg_no_config"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        return
+    }
+
+    val staticChecks = remember(config) { ConfigDebug.inspect(config) }
+
+    var tick by remember { mutableStateOf(0) }
+    var connecting by remember(config.id) { mutableStateOf(false) }
+    val allResults by DebugRunner.results.collectAsState()
+    val runningIds by DebugRunner.running.collectAsState()
+    val result = allResults[config.id]
+    val testing = runningIds.contains(config.id)
+
+    LaunchedEffect(config.id, tick, active) {
+        if (!active) return@LaunchedEffect
+        if (tick == 0) return@LaunchedEffect
+        if (VpnState.activeId.value != config.id ||
+            VpnState.state.value != Connection.CONNECTED
+        ) {
+            connecting = true
+            onSwitch(config)
+            withTimeoutOrNull(30000) {
+                VpnState.state.first {
+                    (it == Connection.CONNECTED && VpnState.activeId.value == config.id) ||
+                            it == Connection.ERROR
+                }
+            }
+            connecting = false
+        }
+        DebugRunner.start(config, store)
+    }
+
+    val info = result?.info
+    var shownInfo by remember(config.id) { mutableStateOf<ProbeInfo?>(null) }
+    if (info != null) shownInfo = info
+
+    val checks = staticChecks + (result?.findings ?: emptyList())
+    val problems = checks.filter { it.level != DebugLevel.OK }
+    val broken = checks.count { it.level == DebugLevel.BAD }
+    val warned = checks.count { it.level == DebugLevel.WARN }
+    val state = result?.state ?: DebugState.TIMEOUT
+    val pingMs = result?.pingMs ?: -1
+    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+
+    val stateColor = when {
+        testing || result == null -> MaterialTheme.colorScheme.primary
+        state == DebugState.HEALTHY -> AppGreen
+        state == DebugState.TIMEOUT -> if (dark) Color(0xFFFFC24D) else Color(0xFF9A6B00)
+        state == DebugState.BLOCKED -> if (dark) Color(0xFFFF8A3D) else Color(0xFFD2620F)
+        state == DebugState.OFFLINE -> if (dark) Color(0xFF8A93A5) else Color(0xFF6B7484)
+        else -> MaterialTheme.colorScheme.error
+    }
+    val stateLabel = when {
+        connecting -> t("dbg_connecting")
+        testing || result == null -> t("dbg_testing")
+        state == DebugState.HEALTHY -> t("dbg_healthy")
+        state == DebugState.TIMEOUT -> t("dbg_timeout")
+        state == DebugState.BLOCKED -> t("dbg_blocked")
+        state == DebugState.OFFLINE -> t("dbg_offline")
+        else -> t("dbg_broken")
+    }
+    val tint by animateColorAsState(stateColor, tween(400), label = "dbgState")
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        SettingsGroup {
+            Row(
+                Modifier.animateContentSize(tween(320, easing = FastOutSlowInEasing)),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                RadarDot(tint, testing)
+                Spacer(Modifier.width(8.dp))
+                Column(Modifier.weight(1f)) {
+                    if (config.locked) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                Icons.Filled.Lock,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Box(Modifier.weight(1f)) {
+                                MarqueeName(GhajarUiRules.brandedConfigName(config.name), MaterialTheme.typography.titleSmall)
+                            }
+                        }
+                    } else {
+                        MarqueeName(GhajarUiRules.brandedConfigName(config.name), MaterialTheme.typography.titleSmall)
+                    }
+                    Text(
+                        if (config.locked) AnnotatedString(t("locked_config"))
+                        else monoText(
+                            localizeDigits(
+                                "${config.protocol} \u00b7 ${config.address}:${config.port}", lang
+                            )
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                BounceIconButton(onClick = { if (!testing) tick++ }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = t("dbg_recheck"))
+                }
+            }
+        }
+
+        SettingsGroup(t("dbg_state")) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                AnimatedContent(
+                    targetState = stateLabel,
+                    transitionSpec = {
+                        (slideInVertically(tween(320, easing = FastOutSlowInEasing)) { it / 2 } +
+                                fadeIn(tween(320))) togetherWith
+                                (slideOutVertically(tween(320, easing = FastOutSlowInEasing)) { -it / 2 } +
+                                        fadeOut(tween(180)))
+                    },
+                    label = "dbgStateLabel",
+                    modifier = Modifier.weight(1f)
+                ) { label ->
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = tint
+                    )
+                }
+                Row(
+                    Modifier.clip(RoundedCornerShape(9.dp))
+                        .background(tint.copy(alpha = 0.12f))
+                        .border(1.dp, tint.copy(alpha = 0.38f), RoundedCornerShape(9.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        monoText(
+                            t("dbg_ping") + "  " + localizeDigits("$pingMs", lang) +
+                                    if (pingMs >= 0) " " + t("unit_ms") else ""
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = tint,
+                        maxLines = 1
+                    )
+                }
+            }
+            Text(
+                if (broken == 0 && warned == 0) t("dbg_all_ok")
+                else t("dbg_issues").format(
+                    localizeDigits("$broken", lang),
+                    localizeDigits("$warned", lang)
+                ),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        AnimatedVisibility(
+            visible = info != null,
+            enter = fadeIn(tween(340)) +
+                    slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it / 4 } +
+                    expandVertically(tween(340, easing = FastOutSlowInEasing)),
+            exit = fadeOut(tween(220)) + shrinkVertically(tween(280, easing = FastOutSlowInEasing))
+        ) {
+            shownInfo?.let { info ->
+                SettingsGroup(t("dbg_info")) {
+                    DebugInfoRow(t("dbg_part_transport"), info.method)
+                    if (info.entryIp.isNotBlank() && !info.entryIp.equals(info.exitIp, true)) DebugInfoRow(
+                        t("dbg_part_entry"),
+                        listOf(info.entryIp, countryName(info.entryCountry), info.entryIsp)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" \u00b7 ")
+                    )
+                    DebugInfoRow(
+                        t("dbg_part_ip"),
+                        if (info.exitIp.isBlank()) t("dbg_exit_offline")
+                        else listOf(info.exitIp, countryName(info.exitCountry), info.exitIsp)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" \u00b7 ")
+                    )
+                    DebugInfoRow(
+                        t("dbg_part_iptype"),
+                        info.kind.ifBlank { t("dbg_rep_unavailable") },
+                        if (info.flagged) MaterialTheme.colorScheme.error else null
+                    )
+                    DebugInfoRow(
+                        t("dbg_part_risk"),
+                        if (info.reputation < 0) t("dbg_rep_unavailable")
+                        else localizeDigits("${info.reputation} / 100", lang) + " \u00b7 " + info.repBand,
+                        when {
+                            info.reputation < 0 -> null
+                            info.reputation >= 60 -> AppGreen
+                            info.reputation >= 40 -> Color(0xFFFF8A3D)
+                            else -> MaterialTheme.colorScheme.error
+                        }
+                    )
+                    if (info.flags.isNotBlank()) DebugInfoRow(
+                        t("dbg_part_flags"), info.flags, MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+        }
+
+        SettingsGroup(t("dbg_client_checks")) {
+            AnimatedVisibility(
+                visible = problems.isEmpty(),
+                enter = fadeIn(tween(280)) + expandVertically(tween(280, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(160)) + shrinkVertically(tween(220, easing = FastOutSlowInEasing))
+            ) {
+                Text(
+                    t("dbg_all_ok"),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            problems.forEach { check ->
+                val color = when (check.level) {
+                    DebugLevel.OK -> AppGreen
+                    DebugLevel.WARN -> Color(0xFFFFA94D)
+                    DebugLevel.BAD -> MaterialTheme.colorScheme.error
+                }
+                val icon = when (check.level) {
+                    DebugLevel.OK -> Icons.Filled.CheckCircle
+                    DebugLevel.WARN -> Icons.Filled.Warning
+                    DebugLevel.BAD -> Icons.Filled.Cancel
+                }
+                Row(
+                    Modifier.fillMaxWidth()
+                        .animateContentSize(tween(300, easing = FastOutSlowInEasing)),
+                    verticalAlignment = Alignment.Top
+                ) {
+                    Icon(
+                        icon,
+                        contentDescription = null,
+                        tint = color,
+                        modifier = Modifier.padding(top = 2.dp).size(18.dp)
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            t(check.partKey),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        Text(
+                            if (check.level == DebugLevel.OK) check.value.ifBlank { "\u2014" }
+                            else t(check.noteKey),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (check.level == DebugLevel.OK)
+                                MaterialTheme.colorScheme.onSurfaceVariant else color
+                        )
+                        if (check.level != DebugLevel.OK && check.value.isNotBlank()) Text(
+                            monoText(check.value),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
+        ServerChecksGroup(config)
+        PanelChecksGroup(config)
+    }
+}
+
+@Composable
+private fun CollapsibleGroup(
+    title: String,
+    expanded: Boolean,
+    onToggle: () -> Unit,
+    content: @Composable ColumnScope.() -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { onToggle() },
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    mixedText(title),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                val angle by animateFloatAsState(
+                    targetValue = if (expanded) -90f else 0f,
+                    animationSpec = tween(260, easing = FastOutSlowInEasing),
+                    label = "groupChevron"
+                )
+                Icon(
+                    Icons.Filled.ChevronLeft,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = angle }
+                )
+            }
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(tween(280, easing = FastOutSlowInEasing)) +
+                        fadeIn(tween(200, delayMillis = 60)),
+                exit = shrinkVertically(tween(240, easing = FastOutSlowInEasing)) +
+                        fadeOut(tween(120))
+            ) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Spacer(Modifier.height(2.dp))
+                    content()
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ProbeCheckRow(check: DebugCheck, index: Int, stamp: Any?) {
+    val t = stringsFn()
+    val color = when (check.level) {
+        DebugLevel.OK -> AppGreen
+        DebugLevel.WARN -> Color(0xFFFFA94D)
+        DebugLevel.BAD -> MaterialTheme.colorScheme.error
+    }
+    val icon = when (check.level) {
+        DebugLevel.OK -> Icons.Filled.CheckCircle
+        DebugLevel.WARN -> Icons.Filled.Warning
+        DebugLevel.BAD -> Icons.Filled.Cancel
+    }
+    var shown by remember(stamp, index) { mutableStateOf(false) }
+    LaunchedEffect(stamp, index) {
+        delay(index * 45L)
+        shown = true
+    }
+    val fade by animateFloatAsState(
+        targetValue = if (shown) 1f else 0f,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "probeFade"
+    )
+    val rise by animateFloatAsState(
+        targetValue = if (shown) 0f else 14f,
+        animationSpec = tween(280, easing = FastOutSlowInEasing),
+        label = "probeRise"
+    )
+    Row(
+        Modifier.fillMaxWidth().graphicsLayer { alpha = fade; translationY = rise },
+        verticalAlignment = Alignment.Top
+    ) {
+        Icon(
+            icon,
+            contentDescription = null,
+            tint = color,
+            modifier = Modifier.padding(top = 2.dp).size(18.dp)
+        )
+        Spacer(Modifier.width(10.dp))
+        Column(Modifier.weight(1f)) {
+            Text(t(check.partKey), style = MaterialTheme.typography.bodyMedium)
+            Text(
+                if (check.noteKey.isBlank()) check.value.ifBlank { "\u2014" } else t(check.noteKey),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (check.level == DebugLevel.OK)
+                    MaterialTheme.colorScheme.onSurfaceVariant else color
+            )
+            if (check.noteKey.isNotBlank() && check.value.isNotBlank()) Text(
+                monoText(check.value),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun PanelChecksGroup(config: ProxyConfig) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val store = remember { SshStore.get(context) }
+    val scope = rememberCoroutineScope()
+
+    var expanded by remember(config.id) { mutableStateOf(false) }
+    var kind by remember(config.id) {
+        mutableStateOf(store.panelKind(config.id).ifBlank { "3x-ui" })
+    }
+    var url by remember(config.id) {
+        mutableStateOf(store.panelUrl(config.id).ifBlank { config.address })
+    }
+    var user by remember(config.id) { mutableStateOf(store.panelUser(config.id)) }
+    var pass by remember(config.id) { mutableStateOf(store.panelPass(config.id)) }
+    var showPass by remember(config.id) { mutableStateOf(false) }
+    var report by remember(config.id) { mutableStateOf<PanelReport?>(null) }
+    var probing by remember(config.id) { mutableStateOf(false) }
+
+    CollapsibleGroup(t("pnl_checks"), expanded, { expanded = !expanded }) {
+        LabeledDropdown(t("pnl_kind"), listOf("3x-ui", "pasarguard"), kind) { kind = it }
+        OutlinedTextField(
+            url, { url = it },
+            label = { Text(t("pnl_url")) },
+            singleLine = true,
+            textStyle = LocalTextStyle.current.copy(fontFamily = monoFont()),
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            user, { user = it },
+            label = { Text(t("pnl_user")) },
+            singleLine = true,
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+        OutlinedTextField(
+            pass, { pass = it },
+            label = { Text(t("pnl_pass")) },
+            singleLine = true,
+            visualTransformation = if (showPass) VisualTransformation.None
+            else PasswordVisualTransformation(),
+            trailingIcon = {
+                IconButton(onClick = { showPass = !showPass }) {
+                    Icon(
+                        if (showPass) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            },
+            shape = RoundedCornerShape(16.dp),
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        report?.checks?.forEachIndexed { i, check -> ProbeCheckRow(check, i, report) }
+
+        BounceOutlinedButton(
+            onClick = {
+                store.savePanel(config.id, kind, url, user, pass)
+                probing = true
+                scope.launch {
+                    report = runCatching {
+                        PanelProbe.run(
+                            if (kind == "pasarguard") PanelKind.PASARGUARD else PanelKind.XUI,
+                            url, user, pass, config
+                        )
+                    }.getOrNull()
+                    probing = false
+                }
+            },
+            enabled = !probing && url.isNotBlank() && user.isNotBlank(),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(if (probing) t("pnl_running") else t("pnl_run"))
+        }
+    }
+}
+
+@Composable
+private fun ServerChecksGroup(config: ProxyConfig) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val sshStore = remember { SshStore.get(context) }
+    val hosts by sshStore.hosts.collectAsState()
+    val statuses by SshManager.status.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    var hostId by remember(config.id) { mutableStateOf<String?>(null) }
+    LaunchedEffect(config.id, hosts) {
+        if (hosts.isEmpty()) {
+            hostId = null
+            return@LaunchedEffect
+        }
+        val saved = sshStore.linkedHostId(config.id)?.takeIf { id -> hosts.any { it.id == id } }
+        hostId = saved ?: ServerProbe.bestMatch(sshStore, config)?.id
+    }
+
+    val host = hosts.firstOrNull { it.id == hostId }
+    val connected = host != null && statuses[host.id] is SshStatus.Up
+
+    var report by remember(hostId) { mutableStateOf<ServerReport?>(null) }
+    var probing by remember(hostId) { mutableStateOf(false) }
+
+    var expanded by remember(config.id) { mutableStateOf(false) }
+    if (hosts.isEmpty() || host == null) return
+
+    CollapsibleGroup(t("srv_checks"), expanded, { expanded = !expanded }) {
+        if (hosts.size > 1) {
+            LabeledDropdown(
                 label = t("srv_host"),
                 options = hosts.map { it.title },
                 selected = host.title,
@@ -4423,6 +6280,11 @@ private fun ConnectionSettingsScreen(
     val fakeDns by store.fakeDns.collectAsState()
     val encryptedDns by store.encryptedDns.collectAsState()
     val settingsContext = androidx.compose.ui.platform.LocalContext.current
+    val openVpnDefaults = remember(settingsContext) { GhajarOpenVpnSettings.read(settingsContext) }
+    var ovpnReconnectOnNetworkChange by remember { mutableStateOf(openVpnDefaults.reconnectOnNetworkChange) }
+    var ovpnUseSystemProxy by remember { mutableStateOf(openVpnDefaults.useSystemProxy) }
+    var ovpnPauseOnScreenOff by remember { mutableStateOf(openVpnDefaults.pauseOnScreenOff) }
+    var ovpnEncryptProfiles by remember { mutableStateOf(openVpnDefaults.encryptProfiles) }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -4590,6 +6452,96 @@ private fun ConnectionSettingsScreen(
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { inner() }
                     }
                 )
+            }
+        }
+
+        SettingsGroup("OpenVPN") {
+            Text(
+                if (lang == Lang.FA)
+                    "این گزینه‌ها مستقیماً به موتور رسمی OpenVPN for Android وصل هستند."
+                else
+                    "These options are wired directly to the OpenVPN for Android engine.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            SettingRow(
+                title = if (lang == Lang.FA) "اتصال مجدد با تغییر شبکه" else "Reconnect on network change",
+                subtitle = if (lang == Lang.FA)
+                    "با جابه‌جایی بین Wi‑Fi و دیتای موبایل، OpenVPN اتصال را دوباره برقرار می‌کند."
+                else "Reconnect OpenVPN when Android switches between Wi-Fi and mobile data.",
+                checked = ovpnReconnectOnNetworkChange,
+                onCheckedChange = { value ->
+                    ovpnReconnectOnNetworkChange = value
+                    GhajarOpenVpnSettings.setReconnectOnNetworkChange(settingsContext, value)
+                }
+            )
+            SettingRow(
+                title = if (lang == Lang.FA) "استفاده از پروکسی سیستم" else "Use system proxy",
+                subtitle = if (lang == Lang.FA)
+                    "تنظیمات HTTP Proxy اندروید را هنگام ساخت کانفیگ OpenVPN اعمال می‌کند."
+                else "Honor Android's HTTP proxy when OpenVPN builds the runtime config.",
+                checked = ovpnUseSystemProxy,
+                onCheckedChange = { value ->
+                    ovpnUseSystemProxy = value
+                    GhajarOpenVpnSettings.setUseSystemProxy(settingsContext, value)
+                }
+            )
+            SettingRow(
+                title = if (lang == Lang.FA) "مکث هنگام خاموش بودن صفحه" else "Pause when screen is off",
+                subtitle = if (lang == Lang.FA)
+                    "برای صرفه‌جویی باتری؛ خاموش باشد تا اتصال پایدارتر بماند."
+                else "Battery-saving mode. Keep this off for the most stable connection.",
+                checked = ovpnPauseOnScreenOff,
+                onCheckedChange = { value ->
+                    ovpnPauseOnScreenOff = value
+                    GhajarOpenVpnSettings.setPauseOnScreenOff(settingsContext, value)
+                }
+            )
+            SettingRow(
+                title = if (lang == Lang.FA) "رمزگذاری پروفایل‌های OpenVPN" else "Encrypt OpenVPN profiles",
+                subtitle = if (lang == Lang.FA)
+                    "در صورت پشتیبانی اندروید، اطلاعات پروفایل‌های ذخیره‌شده محافظت می‌شوند."
+                else "Prefer encrypted profile storage when Android supports it.",
+                checked = ovpnEncryptProfiles,
+                onCheckedChange = { value ->
+                    ovpnEncryptProfiles = value
+                    GhajarOpenVpnSettings.setEncryptProfiles(settingsContext, value)
+                }
+            )
+            Card(
+                modifier = Modifier.fillMaxWidth().clickable {
+                    runCatching {
+                        settingsContext.startActivity(
+                            Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                },
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.30f)
+                )
+            ) {
+                Row(
+                    Modifier.fillMaxWidth().padding(14.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(Icons.Filled.Lock, contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            if (lang == Lang.FA) "Always-on VPN و قطع اینترنت بدون VPN" else "Always-on VPN & block without VPN",
+                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            if (lang == Lang.FA) "باز کردن تنظیمات VPN خود اندروید" else "Open Android VPN settings",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(Icons.Filled.ChevronRight, contentDescription = null)
+                }
             }
         }
 
