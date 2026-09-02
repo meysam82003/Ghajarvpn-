@@ -31,10 +31,9 @@ index a4ceb3e..016c681 100644
      }
  
 +    /**
-+     * Start the exact service component shipped by ics-openvpn.  Some Android
-+     * builds incorrectly reject startForegroundService() even while Ghajar is
-+     * foreground; in that narrow case startService() is a valid fallback because
-+     * OpenVPNService promotes itself to foreground immediately.
++     * Start the exact service component shipped by ics-openvpn. Some Android
++     * builds reject startForegroundService() while the app is foreground; in
++     * that narrow case retry the same explicit component with startService().
 +     */
 +    private fun startOpenVpnService(app: Context, intent: Intent) {
 +        val component = intent.component ?: ComponentName(app, OpenVPNService::class.java)
@@ -125,43 +124,6 @@ index 0000000..0f9e2a6
 +        Context.MODE_MULTI_PROCESS or Context.MODE_PRIVATE,
 +    )
 +}
-diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
-index 9f37ba3..cc166cc 100644
---- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
-+++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
-@@ -16,6 +16,12 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
- 
-     override fun onCreate() {
-         super.onCreate()
-+        // Android creates the same Application class in every app process.
-+        // The :openvpn process must stay minimal: no Ghajar UI lifecycle, refresh jobs,
-+        // or other main-process work should run before OpenVPNService is created.
-+        if (currentProcessName().endsWith(OPENVPN_PROCESS_SUFFIX)) return
-+
-+        GhajarOpenVpnSettings.ensureDefaults(this)
- 
-         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
-             override fun onActivityStarted(activity: Activity) {
-@@ -40,4 +46,18 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
-         })
- 
-     }
-+
-+
-+    private fun currentProcessName(): String {
-+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-+            return android.app.Application.getProcessName().orEmpty()
-+        }
-+        val pid = android.os.Process.myPid()
-+        val manager = getSystemService(android.content.Context.ACTIVITY_SERVICE) as? android.app.ActivityManager
-+        return manager?.runningAppProcesses?.firstOrNull { it.pid == pid }?.processName.orEmpty()
-+    }
-+
-+    private companion object {
-+        const val OPENVPN_PROCESS_SUFFIX = ":openvpn"
-+    }
- }
-\ No newline at end of file
 diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidManifest.xml
 index 9de8e40..4adc586 100644
 --- a/openvpn/src/main/AndroidManifest.xml
@@ -196,8 +158,8 @@ index a49e1a2..0df1bdc 100644
  		StrongSwanApplication.mContext = getApplicationContext();
  		StrongSwanApplication.mInstance = this;
  
-+		/* Ghajar hosts ics-openvpn in a dedicated :openvpn process.  The system
-+		 * creates the Application object there before OpenVPNService.  StrongSwan
++		/* Ghajar hosts ics-openvpn in a dedicated :openvpn process. The system
++		 * creates the Application object there before OpenVPNService. StrongSwan
 +		 * database/certificate initialisation is unrelated to OpenVPN and can make
 +		 * that service process fail before the VPN service is even created. */
 +		if (isOpenVpnProcess())
