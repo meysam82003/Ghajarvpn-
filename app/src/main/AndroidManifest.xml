@@ -81,6 +81,47 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
             android:label="پرداخت امن قاجار وی پی ان"
             android:theme="@style/Theme.Ghajarvpn" />
+        <activity
+            android:name=".configtoolkit.ConfigToolkitActivity"
+            android:exported="true"
+            android:launchMode="singleTop"
+            android:label="ابزار کانفیگ قاجار"
+            android:theme="@style/Theme.Ghajarvpn">
+            <intent-filter android:label="ابزار کانفیگ قاجار">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+            <intent-filter android:label="ابزار کانفیگ قاجار">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.npvt" />
+                <data android:pathPattern=".*\\.npvs" />
+                <data android:pathPattern=".*\\.happ" />
+                <data android:pathPattern=".*\\.nm" />
+                <data android:pathPattern=".*\\.ehi" />
+                <data android:pathPattern=".*\\.slip" />
+                <data android:pathPattern=".*\\.hat" />
+                <data android:pathPattern=".*\\.dark" />
+                <data android:pathPattern=".*\\.json" />
+                <data android:pathPattern=".*\\.txt" />
+            </intent-filter>
+            <intent-filter android:label="ابزار کانفیگ قاجار">
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="text/plain" />
+                <data android:mimeType="application/octet-stream" />
+            </intent-filter>
+        </activity>
         <service
             android:name=".GozarVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"

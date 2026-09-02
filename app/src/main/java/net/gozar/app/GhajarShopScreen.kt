@@ -175,11 +175,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         // The invoice is durable before launch; the payment page must stay in the
         // Ghajar task and a renderer crash must never eject the user to home.
         val launch: () -> Unit = {
-            checkout.launch(
-                Intent(context, SecurePaymentActivity::class.java)
-                    .putExtra(SecurePaymentActivity.EXTRA_URL, url)
-                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
-            )
+            val intent = StoreLinkRouter.securePaymentIntent(context, url)
+                ?: throw IllegalArgumentException("untrusted payment URL")
+            checkout.launch(intent)
         }
         storeResult { launch() }.onFailure {
             error = "صفحهٔ پرداخت امن باز نشد؛ «ادامهٔ همین پرداخت» را دوباره بزن."

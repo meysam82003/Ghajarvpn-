@@ -1,0 +1,1357 @@
+From 4b6d1ada70f1ad0a73d9eb878e081fb919e94718 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 19:07:27 +0200
+Subject: [PATCH] feat(config): add offline toolkit and centralized payment
+ routing
+
+---
+ app/src/main/AndroidManifest.xml              |  41 ++
+ .../java/net/gozar/app/GhajarShopScreen.kt    |   8 +-
+ .../main/java/net/gozar/app/MainActivity.kt   |   8 +
+ .../net/gozar/app/SecurePaymentActivity.kt    |  12 +
+ .../java/net/gozar/app/StoreLinkRouter.kt     |  39 ++
+ .../configtoolkit/ConfigToolkitActivity.kt    | 384 ++++++++++++++++++
+ .../app/configtoolkit/ConfigToolkitModels.kt  | 163 ++++++++
+ .../net/gozar/app/configtoolkit/Decoders.kt   | 244 +++++++++++
+ .../gozar/app/configtoolkit/FormatDetector.kt |  61 +++
+ .../gozar/app/configtoolkit/GhajarImporter.kt |  42 ++
+ .../app/configtoolkit/ProfileValidator.kt     |  56 +++
+ .../app/configtoolkit/V2RayLinkGenerator.kt   | 103 +++++
+ .../app/configtoolkit/ConfigToolkitTest.kt    |  50 +++
+ 13 files changed, 1206 insertions(+), 5 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+ create mode 100644 app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitActivity.kt
+ create mode 100644 app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitModels.kt
+ create mode 100644 app/src/main/java/net/gozar/app/configtoolkit/Decoders.kt
+ create mode 100644 app/src/main/java/net/gozar/app/configtoolkit/FormatDetector.kt
+ create mode 100644 app/src/main/java/net/gozar/app/configtoolkit/GhajarImporter.kt
+ create mode 100644 app/src/main/java/net/gozar/app/configtoolkit/ProfileValidator.kt
+ create mode 100644 app/src/main/java/net/gozar/app/configtoolkit/V2RayLinkGenerator.kt
+ create mode 100644 app/src/test/java/net/gozar/app/configtoolkit/ConfigToolkitTest.kt
+
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 627c967..784dca2 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -81,6 +81,47 @@
+             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+             android:label="پرداخت امن قاجار وی پی ان"
+             android:theme="@style/Theme.Ghajarvpn" />
++        <activity
++            android:name=".configtoolkit.ConfigToolkitActivity"
++            android:exported="true"
++            android:launchMode="singleTop"
++            android:label="ابزار کانفیگ قاجار"
++            android:theme="@style/Theme.Ghajarvpn">
++            <intent-filter android:label="ابزار کانفیگ قاجار">
++                <action android:name="android.intent.action.VIEW" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <data android:scheme="content" />
++                <data android:scheme="file" />
++                <data android:mimeType="application/json" />
++                <data android:mimeType="text/plain" />
++                <data android:mimeType="application/octet-stream" />
++            </intent-filter>
++            <intent-filter android:label="ابزار کانفیگ قاجار">
++                <action android:name="android.intent.action.VIEW" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <data android:scheme="content" />
++                <data android:scheme="file" />
++                <data android:mimeType="*/*" />
++                <data android:pathPattern=".*\\.npvt" />
++                <data android:pathPattern=".*\\.npvs" />
++                <data android:pathPattern=".*\\.happ" />
++                <data android:pathPattern=".*\\.nm" />
++                <data android:pathPattern=".*\\.ehi" />
++                <data android:pathPattern=".*\\.slip" />
++                <data android:pathPattern=".*\\.hat" />
++                <data android:pathPattern=".*\\.dark" />
++                <data android:pathPattern=".*\\.json" />
++                <data android:pathPattern=".*\\.txt" />
++            </intent-filter>
++            <intent-filter android:label="ابزار کانفیگ قاجار">
++                <action android:name="android.intent.action.SEND" />
++                <action android:name="android.intent.action.SEND_MULTIPLE" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <data android:mimeType="application/json" />
++                <data android:mimeType="text/plain" />
++                <data android:mimeType="application/octet-stream" />
++            </intent-filter>
++        </activity>
+         <service
+             android:name=".GozarVpnService"
+             android:permission="android.permission.BIND_VPN_SERVICE"
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index 3aaa386..74816a4 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -175,11 +175,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
+         // The invoice is durable before launch; the payment page must stay in the
+         // Ghajar task and a renderer crash must never eject the user to home.
+         val launch: () -> Unit = {
+-            checkout.launch(
+-                Intent(context, SecurePaymentActivity::class.java)
+-                    .putExtra(SecurePaymentActivity.EXTRA_URL, url)
+-                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+-            )
++            val intent = StoreLinkRouter.securePaymentIntent(context, url)
++                ?: throw IllegalArgumentException("untrusted payment URL")
++            checkout.launch(intent)
+         }
+         storeResult { launch() }.onFailure {
+             error = "صفحهٔ پرداخت امن باز نشد؛ «ادامهٔ همین پرداخت» را دوباره بزن."
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 511018c..c4c02de 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -206,6 +206,7 @@ import androidx.compose.material.icons.filled.EditOff
+ import androidx.compose.material.icons.filled.ErrorOutline
+ import androidx.compose.material.icons.filled.FileUpload
+ import androidx.compose.material.icons.filled.FileDownload
++import androidx.compose.material.icons.filled.FileOpen
+ import androidx.compose.material.icons.filled.Security
+ import androidx.compose.material.icons.filled.Visibility
+ import androidx.compose.material.icons.filled.VisibilityOff
+@@ -5541,6 +5542,7 @@ private fun ToolsScreen(
+     modifier: Modifier = Modifier
+ ) {
+     val t = stringsFn()
++    val context = LocalContext.current
+     val autoSelect by store.autoSelect.collectAsState()
+     val onionRouting by store.onionRouting.collectAsState()
+     val adBlock by store.adBlock.collectAsState()
+@@ -5549,6 +5551,12 @@ private fun ToolsScreen(
+         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+         verticalArrangement = Arrangement.spacedBy(12.dp)
+     ) {
++        SettingsHubCard(
++            icon = Icons.Filled.FileOpen,
++            title = "ابزار کانفیگ",
++            subtitle = "تشخیص آفلاین، نمایش امن، اعتبارسنجی و افزودن مستقیم فایل‌های پشتیبانی‌شده",
++            onClick = { context.startActivity(Intent(context, net.gozar.app.configtoolkit.ConfigToolkitActivity::class.java)) }
++        )
+         SettingsHubCard(
+             icon = Icons.Filled.NetworkCheck,
+             title = t("stab_title"),
+diff --git a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+index c1777a3..6ccda97 100644
+--- a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
++++ b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+@@ -117,6 +117,18 @@ class SecurePaymentActivity : Activity() {
+         }
+     }
+ 
++    override fun onNewIntent(intent: Intent) {
++        super.onNewIntent(intent)
++        val uri = intent.getStringExtra(EXTRA_URL)?.toUri()
++        if (uri == null || !BrandConfig.isTrustedPaymentUri(uri, initialHost)) {
++            Toast.makeText(this, "آدرس پرداخت تازه معتبر نیست؛ همان فاکتور قبلی حفظ شد.", Toast.LENGTH_LONG).show()
++            return
++        }
++        setIntent(intent)
++        initialHost = uri.host
++        if (::webView.isInitialized) webView.loadUrl(uri.toString())
++    }
++
+     @SuppressLint("SetJavaScriptEnabled")
+     private fun buildWebView(): WebView = WebView(this).apply {
+         setBackgroundColor(Color.rgb(7, 27, 46))
+diff --git a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+new file mode 100644
+index 0000000..31c7ca2
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+@@ -0,0 +1,39 @@
++package net.gozar.app
++
++import android.content.Context
++import android.content.Intent
++import android.net.Uri
++
++enum class StoreLinkKind { PAYMENT, TERMS, HELP, USER_PANEL, WEB_SUPPORT, REJECTED }
++
++data class StoreRoute(val kind: StoreLinkKind, val uri: Uri)
++
++/** One audited entry point for every web destination opened by Store/Wallet. */
++object StoreLinkRouter {
++    fun classify(raw: String, payment: Boolean = false): StoreRoute {
++        val uri = runCatching { Uri.parse(raw) }.getOrNull()
++            ?: return StoreRoute(StoreLinkKind.REJECTED, Uri.EMPTY)
++        if (!uri.scheme.equals("https", true) || uri.userInfo != null) return StoreRoute(StoreLinkKind.REJECTED, uri)
++        if (payment) {
++            return if (BrandConfig.isTrustedPaymentUri(uri, uri.host)) StoreRoute(StoreLinkKind.PAYMENT, uri)
++            else StoreRoute(StoreLinkKind.REJECTED, uri)
++        }
++        val path = uri.path.orEmpty().lowercase()
++        val kind = when {
++            path.contains("terms") || path.contains("privacy") -> StoreLinkKind.TERMS
++            path.contains("support") || path.contains("contact") -> StoreLinkKind.WEB_SUPPORT
++            path.contains("help") || path.contains("faq") -> StoreLinkKind.HELP
++            BrandConfig.isTrustedStoreUri(uri) -> StoreLinkKind.USER_PANEL
++            else -> StoreLinkKind.REJECTED
++        }
++        return StoreRoute(kind, uri)
++    }
++
++    fun securePaymentIntent(context: Context, raw: String): Intent? {
++        val route = classify(raw, payment = true)
++        if (route.kind != StoreLinkKind.PAYMENT) return null
++        return Intent(context, SecurePaymentActivity::class.java)
++            .putExtra(SecurePaymentActivity.EXTRA_URL, route.uri.toString())
++            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitActivity.kt b/app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitActivity.kt
+new file mode 100644
+index 0000000..d7ab7fe
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitActivity.kt
+@@ -0,0 +1,384 @@
++package net.gozar.app.configtoolkit
++
++import android.app.Application
++import android.content.Intent
++import android.net.Uri
++import android.os.Bundle
++import android.provider.OpenableColumns
++import androidx.activity.ComponentActivity
++import androidx.activity.compose.rememberLauncherForActivityResult
++import androidx.activity.compose.setContent
++import androidx.activity.result.contract.ActivityResultContracts
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.lazy.LazyColumn
++import androidx.compose.foundation.lazy.items
++import androidx.compose.foundation.rememberScrollState
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.foundation.verticalScroll
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.automirrored.filled.ArrowBack
++import androidx.compose.material.icons.filled.Add
++import androidx.compose.material.icons.filled.FileOpen
++import androidx.compose.material.icons.filled.Save
++import androidx.compose.material.icons.filled.Security
++import androidx.compose.material3.*
++import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import androidx.lifecycle.AndroidViewModel
++import androidx.lifecycle.ViewModelProvider
++import androidx.lifecycle.viewModelScope
++import kotlinx.coroutines.CancellationException
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.flow.MutableStateFlow
++import kotlinx.coroutines.flow.StateFlow
++import kotlinx.coroutines.flow.asStateFlow
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++import net.gozar.app.ConfigStore
++import java.io.ByteArrayOutputStream
++import java.util.UUID
++
++enum class BatchStatus { QUEUED, READING, DETECTING, DECRYPTING, PARSING, VALIDATING, DONE, FAILED, CANCELLED }
++
++data class ToolkitFileState(
++    val id: String = UUID.randomUUID().toString(),
++    val uri: Uri,
++    val displayName: String,
++    val status: BatchStatus = BatchStatus.QUEUED,
++    val format: ConfigFormat = ConfigFormat.UNKNOWN,
++    val parsed: ParsedConfig? = null,
++    val error: String? = null,
++    val sourceBytes: ByteArray? = null
++)
++
++class ConfigToolkitViewModel(application: Application) : AndroidViewModel(application) {
++    private val registry = DecoderRegistry()
++    private val _files = MutableStateFlow<List<ToolkitFileState>>(emptyList())
++    val files: StateFlow<List<ToolkitFileState>> = _files.asStateFlow()
++    private var batch: Job? = null
++
++    fun enqueue(uris: List<Uri>) {
++        val known = _files.value.map { it.uri }.toSet()
++        val additions = uris.distinct().filterNot { it in known }.map { uri ->
++            ToolkitFileState(uri = uri, displayName = displayName(uri))
++        }
++        if (additions.isEmpty()) return
++        _files.value = _files.value + additions
++        processQueued()
++    }
++
++    fun cancel() {
++        batch?.cancel()
++        _files.value = _files.value.map { if (it.status in activeStatuses) it.copy(status = BatchStatus.CANCELLED) else it }
++    }
++
++    fun retryWithPasskey(id: String, passkey: CharArray) {
++        val item = _files.value.firstOrNull { it.id == id } ?: return
++        update(id) { it.copy(status = BatchStatus.DECRYPTING, error = null) }
++        viewModelScope.launch {
++            try {
++                val bytes = item.sourceBytes ?: readBounded(item.uri)
++                val parsed = withContext(Dispatchers.Default) {
++                    registry.decode(ConfigInput(bytes, item.displayName, passkey = passkey))
++                }
++                update(id) { it.copy(status = BatchStatus.DONE, parsed = parsed, format = parsed.sourceFormat, sourceBytes = bytes) }
++            } catch (failure: Exception) {
++                update(id) { it.copy(status = BatchStatus.FAILED, error = publicError(failure)) }
++            } finally {
++                passkey.fill('\u0000')
++            }
++        }
++    }
++
++    fun importProfiles(ids: Set<String>? = null, onDone: (ImportResult) -> Unit) {
++        viewModelScope.launch {
++            val parsed = _files.value.mapNotNull(ToolkitFileState::parsed)
++            val profiles = parsed.flatMap(ParsedConfig::profiles)
++            val synthetic = ParsedConfig(ConfigFormat.UNKNOWN, profiles)
++            val result = withContext(Dispatchers.IO) {
++                GhajarImporter(ConfigStore.get(getApplication())).import(synthetic, ids)
++            }
++            onDone(result)
++        }
++    }
++
++    fun editableCopy(id: String, clearPassword: Boolean): ByteArray? {
++        val item = _files.value.firstOrNull { it.id == id } ?: return null
++        return item.sourceBytes?.let { runCatching { EditableNpvtCopy.create(it, clearPassword) }.getOrNull() }
++    }
++
++    private fun processQueued() {
++        if (batch?.isActive == true) return
++        batch = viewModelScope.launch {
++            val ids = _files.value.filter { it.status == BatchStatus.QUEUED }.map { it.id }
++            for (id in ids) {
++                try {
++                    val item = _files.value.firstOrNull { it.id == id } ?: continue
++                    update(id) { it.copy(status = BatchStatus.READING) }
++                    val bytes = readBounded(item.uri)
++                    update(id) { it.copy(status = BatchStatus.DETECTING, sourceBytes = bytes) }
++                    val detection = withContext(Dispatchers.Default) {
++                        FormatDetector.detect(ConfigInput(bytes, item.displayName))
++                    }
++                    update(id) { it.copy(format = detection.format, status = BatchStatus.PARSING) }
++                    val parsed = withContext(Dispatchers.Default) {
++                        registry.decode(ConfigInput(bytes, item.displayName))
++                    }
++                    update(id) { it.copy(status = BatchStatus.VALIDATING) }
++                    update(id) { it.copy(status = BatchStatus.DONE, parsed = parsed) }
++                } catch (cancelled: CancellationException) {
++                    update(id) { it.copy(status = BatchStatus.CANCELLED) }
++                    throw cancelled
++                } catch (failure: Exception) {
++                    update(id) { it.copy(status = BatchStatus.FAILED, error = publicError(failure)) }
++                }
++            }
++            if (_files.value.any { it.status == BatchStatus.QUEUED }) processQueued()
++        }
++    }
++
++    private suspend fun readBounded(uri: Uri): ByteArray = withContext(Dispatchers.IO) {
++        val resolver = getApplication<Application>().contentResolver
++        val input = resolver.openInputStream(uri) ?: throw ConfigToolkitException.InvalidConfig("فایل باز نشد.")
++        input.use { stream ->
++            val output = ByteArrayOutputStream()
++            val buffer = ByteArray(32 * 1024)
++            var total = 0L
++            while (true) {
++                val count = stream.read(buffer)
++                if (count < 0) break
++                total += count
++                if (total > DecoderRegistry.MAX_FILE_BYTES) throw ConfigToolkitException.TooLarge(DecoderRegistry.MAX_FILE_BYTES)
++                output.write(buffer, 0, count)
++            }
++            output.toByteArray()
++        }
++    }
++
++    private fun displayName(uri: Uri): String {
++        val resolver = getApplication<Application>().contentResolver
++        return runCatching {
++            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
++                if (cursor.moveToFirst()) cursor.getString(0) else null
++            }
++        }.getOrNull().orEmpty().ifBlank { uri.lastPathSegment ?: "config" }
++    }
++
++    private fun update(id: String, transform: (ToolkitFileState) -> ToolkitFileState) {
++        _files.value = _files.value.map { if (it.id == id) transform(it) else it }
++    }
++
++    private fun publicError(failure: Exception): String = when (failure) {
++        is ConfigToolkitException -> failure.message.orEmpty()
++        else -> "پردازش فایل ناموفق بود؛ فایل اصلی تغییری نکرد."
++    }
++
++    companion object {
++        private val activeStatuses = setOf(
++            BatchStatus.QUEUED, BatchStatus.READING, BatchStatus.DETECTING,
++            BatchStatus.DECRYPTING, BatchStatus.PARSING, BatchStatus.VALIDATING
++        )
++    }
++}
++
++class ConfigToolkitActivity : ComponentActivity() {
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        val model = ViewModelProvider(this)[ConfigToolkitViewModel::class.java]
++        initialUris(intent).takeIf(List<Uri>::isNotEmpty)?.let(model::enqueue)
++        setContent {
++            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFC9A54B), secondary = Color(0xFF62D5B1))) {
++                ToolkitScreen(model, onBack = ::finish)
++            }
++        }
++    }
++
++    override fun onNewIntent(intent: Intent) {
++        super.onNewIntent(intent)
++        initialUris(intent).takeIf(List<Uri>::isNotEmpty)?.let {
++            ViewModelProvider(this)[ConfigToolkitViewModel::class.java].enqueue(it)
++        }
++    }
++
++    private fun initialUris(intent: Intent?): List<Uri> = when (intent?.action) {
++        Intent.ACTION_VIEW -> listOfNotNull(intent.data)
++        Intent.ACTION_SEND -> listOfNotNull(streamUri(intent))
++        Intent.ACTION_SEND_MULTIPLE -> if (android.os.Build.VERSION.SDK_INT >= 33) {
++            intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java).orEmpty()
++        } else @Suppress("DEPRECATION") intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM).orEmpty()
++        else -> emptyList()
++    }
++
++    private fun streamUri(intent: Intent): Uri? = if (android.os.Build.VERSION.SDK_INT >= 33) {
++        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
++    } else @Suppress("DEPRECATION") intent.getParcelableExtra(Intent.EXTRA_STREAM)
++}
++
++@OptIn(ExperimentalMaterial3Api::class)
++@Composable
++private fun ToolkitScreen(model: ConfigToolkitViewModel, onBack: () -> Unit) {
++    val files by model.files.collectAsState()
++    var selected by remember { mutableStateOf<Set<String>>(emptySet()) }
++    var passkeyTarget by remember { mutableStateOf<ToolkitFileState?>(null) }
++    var passkey by remember { mutableStateOf("") }
++    var viewer by remember { mutableStateOf<ParsedConfig?>(null) }
++    var notice by remember { mutableStateOf<String?>(null) }
++    var pendingSave by remember { mutableStateOf<ByteArray?>(null) }
++
++    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris -> model.enqueue(uris) }
++    val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
++        val data = pendingSave
++        if (uri != null && data != null) runCatching {
++            model.getApplication<Application>().contentResolver.openOutputStream(uri)?.use { it.write(data) }
++        }.onSuccess { notice = "نسخهٔ جدید ذخیره شد؛ فایل اصلی دست‌نخورده ماند." }
++        pendingSave = null
++    }
++
++    Scaffold(
++        topBar = {
++            TopAppBar(
++                title = { Text("ابزار کانفیگ", fontWeight = FontWeight.Bold) },
++                navigationIcon = { IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, null) } },
++                actions = { IconButton(onClick = { picker.launch(arrayOf("*/*")) }) { Icon(Icons.Filled.FileOpen, "انتخاب فایل") } }
++            )
++        },
++        floatingActionButton = {
++            ExtendedFloatingActionButton(
++                onClick = { picker.launch(arrayOf("*/*")) },
++                icon = { Icon(Icons.Filled.Add, null) }, text = { Text("انتخاب فایل‌ها") }
++            )
++        }
++    ) { padding ->
++        Column(Modifier.fillMaxSize().padding(padding).padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
++            Text("پردازش کاملاً روی گوشی انجام می‌شود. هیچ فایل، رمز یا لینک کانفیگی ارسال نمی‌شود.", style = MaterialTheme.typography.bodySmall)
++            notice?.let { Text(it, color = MaterialTheme.colorScheme.secondary) }
++            if (files.isEmpty()) {
++                Card(Modifier.fillMaxWidth()) { Text("یک یا چند فایل انتخاب کن؛ پردازش دسته‌ای مستقل است و خرابی یک فایل بقیه را متوقف نمی‌کند.", Modifier.padding(20.dp)) }
++            } else {
++                LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                    items(files, key = ToolkitFileState::id) { file ->
++                        ToolkitFileCard(
++                            file = file,
++                            selected = file.parsed?.profiles?.all { it.id in selected } == true,
++                            onToggle = {
++                                val ids = file.parsed?.profiles?.map { it.id }.orEmpty().toSet()
++                                selected = if (ids.all { it in selected }) selected - ids else selected + ids
++                            },
++                            onPassword = { passkeyTarget = file },
++                            onView = { viewer = file.parsed },
++                            onEditable = {
++                                pendingSave = model.editableCopy(file.id, clearPassword = true)
++                                if (pendingSave != null) saver.launch("Ghajar_unlocked_${file.displayName.substringBeforeLast('.')}.npvt")
++                                else notice = "ساخت نسخهٔ قابل ویرایش برای این فایل ممکن نیست."
++                            }
++                        )
++                    }
++                }
++                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
++                    OutlinedButton(onClick = model::cancel, modifier = Modifier.weight(1f)) { Text("لغو پردازش") }
++                    Button(
++                        onClick = {
++                            val ids = selected.takeIf(Set<String>::isNotEmpty)
++                            model.importProfiles(ids) { result -> notice = "${result.imported} پروفایل افزوده شد؛ ${result.rejected} مورد رد شد." }
++                        },
++                        enabled = files.any { it.status == BatchStatus.DONE }, modifier = Modifier.weight(1f)
++                    ) { Text(if (selected.isEmpty()) "افزودن همه" else "افزودن انتخاب‌شده") }
++                }
++            }
++        }
++    }
++
++    passkeyTarget?.let { target ->
++        AlertDialog(
++            onDismissRequest = { passkey = ""; passkeyTarget = null },
++            title = { Text("passkey فایل") },
++            text = { OutlinedTextField(passkey, { passkey = it }, singleLine = true, label = { Text("رمز فقط در حافظه") }) },
++            confirmButton = { TextButton(onClick = {
++                val chars = passkey.toCharArray(); passkey = ""; passkeyTarget = null
++                model.retryWithPasskey(target.id, chars)
++            }, enabled = passkey.isNotEmpty()) { Text("Decode") } },
++            dismissButton = { TextButton(onClick = { passkey = ""; passkeyTarget = null }) { Text("انصراف") } }
++        )
++    }
++    viewer?.let { parsed -> JsonViewerDialog(parsed, onDismiss = { viewer = null }) }
++}
++
++@Composable
++private fun ToolkitFileCard(
++    file: ToolkitFileState,
++    selected: Boolean,
++    onToggle: () -> Unit,
++    onPassword: () -> Unit,
++    onView: () -> Unit,
++    onEditable: () -> Unit
++) {
++    val profiles = file.parsed?.profiles.orEmpty()
++    Card(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp)) {
++        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
++            Row(verticalAlignment = Alignment.CenterVertically) {
++                Checkbox(selected, onCheckedChange = { onToggle() }, enabled = profiles.isNotEmpty())
++                Column(Modifier.weight(1f)) {
++                    Text(file.displayName, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
++                    Text("${file.format.name} • ${statusLabel(file.status)}", style = MaterialTheme.typography.labelSmall)
++                }
++                if (file.status == BatchStatus.DONE) Icon(Icons.Filled.Security, "اعتبارسنجی شد", tint = MaterialTheme.colorScheme.secondary)
++            }
++            if (profiles.isNotEmpty()) Text("${profiles.size} پروفایل معتبر", style = MaterialTheme.typography.bodySmall)
++            file.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
++            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
++                if (file.error?.contains("passkey", true) == true) TextButton(onClick = onPassword) { Text("ورود passkey") }
++                if (file.parsed?.rawJson != null) TextButton(onClick = onView) { Text("نمایش JSON") }
++                if (file.format == ConfigFormat.NPVT && file.parsed != null) TextButton(onClick = onEditable) { Icon(Icons.Filled.Save, null); Text("نسخهٔ قابل ویرایش") }
++            }
++        }
++    }
++}
++
++@Composable
++private fun JsonViewerDialog(parsed: ParsedConfig, onDismiss: () -> Unit) {
++    var query by remember { mutableStateOf("") }
++    var reveal by remember { mutableStateOf(false) }
++    val raw = parsed.rawJson.orEmpty()
++    val masked = remember(raw, reveal) { if (reveal) raw else maskSecrets(raw) }
++    val shown = remember(masked, query) {
++        if (query.isBlank()) masked else masked.lineSequence().filter { it.contains(query, true) }.joinToString("\n")
++    }
++    AlertDialog(
++        onDismissRequest = onDismiss,
++        title = { Text("JSON Viewer") },
++        text = {
++            Column(Modifier.fillMaxWidth().heightIn(max = 520.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                OutlinedTextField(query, { query = it }, label = { Text("جست‌وجو: server, UUID, SNI, Host") }, singleLine = true)
++                Row(verticalAlignment = Alignment.CenterVertically) {
++                    Checkbox(reveal, onCheckedChange = { reveal = it })
++                    Text("نمایش مقادیر حساس")
++                }
++                Text(shown, Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()), style = MaterialTheme.typography.bodySmall)
++            }
++        },
++        confirmButton = { TextButton(onClick = onDismiss) { Text("بستن") } }
++    )
++}
++
++private fun maskSecrets(value: String): String = value.replace(
++    Regex("(?i)(\\\"(?:uuid|id|password|pass|token|authorization|publicKey|privateKey)\\\"\\s*:\\s*\\\")[^\\\"]*(\\\")"),
++    "$1••••••••$2"
++)
++
++private fun statusLabel(status: BatchStatus): String = when (status) {
++    BatchStatus.QUEUED -> "در صف"
++    BatchStatus.READING -> "خواندن"
++    BatchStatus.DETECTING -> "تشخیص فرمت"
++    BatchStatus.DECRYPTING -> "Decode"
++    BatchStatus.PARSING -> "Parse"
++    BatchStatus.VALIDATING -> "اعتبارسنجی"
++    BatchStatus.DONE -> "آماده"
++    BatchStatus.FAILED -> "ناموفق"
++    BatchStatus.CANCELLED -> "لغوشده"
++}
+diff --git a/app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitModels.kt b/app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitModels.kt
+new file mode 100644
+index 0000000..c26253c
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitModels.kt
+@@ -0,0 +1,163 @@
++package net.gozar.app.configtoolkit
++
++import net.gozar.app.ConfigSource
++import net.gozar.app.ProxyConfig
++import org.json.JSONObject
++import java.util.UUID
++
++enum class ConfigFormat(val extensions: Set<String>) {
++    NPVT(setOf("npvt")),
++    NPVS(setOf("npvs")),
++    HAPP(setOf("happ")),
++    NETMOD(setOf("nm")),
++    EHI(setOf("ehi")),
++    SLIPNET(setOf("slip")),
++    HAT(setOf("hat")),
++    DARK(setOf("dark")),
++    JSON(setOf("json")),
++    TEXT(setOf("txt")),
++    UNKNOWN(emptySet())
++}
++
++data class ConfigInput(
++    val bytes: ByteArray,
++    val displayName: String = "config",
++    val mimeType: String? = null,
++    val passkey: CharArray? = null
++)
++
++data class LockConfigInfo(
++    val isLocked: Boolean = false,
++    val password: String? = null,
++    val onlyMobileNetwork: Boolean = false,
++    val blockRootedAndJailbroken: Boolean = false,
++    val onlyOfficialStores: Boolean = false,
++    val expiryDate: String? = null,
++    val deviceIds: List<String> = emptyList(),
++    val message: String? = null,
++    val customServerMessage: String? = null
++) {
++    val hasEmbeddedPassword: Boolean get() = !password.isNullOrEmpty()
++}
++
++data class NormalizedProfile(
++    val id: String = UUID.randomUUID().toString(),
++    val name: String,
++    val protocol: String,
++    val server: String,
++    val port: Int,
++    val uuid: String = "",
++    val password: String = "",
++    val method: String = "",
++    val network: String = "tcp",
++    val security: String = "none",
++    val sni: String = "",
++    val host: String = "",
++    val path: String = "",
++    val alpn: String = "",
++    val fingerprint: String = "chrome",
++    val flow: String = "",
++    val publicKey: String = "",
++    val shortId: String = "",
++    val spiderX: String = "",
++    val grpcServiceName: String = "",
++    val authority: String = "",
++    val allowInsecure: Boolean = false,
++    val encryption: String = "none",
++    val alterId: Int = 0,
++    val rawJson: String = "",
++    val sourceFormat: ConfigFormat
++) {
++    fun toProxyConfig(): ProxyConfig = ProxyConfig(
++        id = id,
++        name = name,
++        protocol = protocol.lowercase(),
++        address = server,
++        port = port,
++        uuid = uuid,
++        password = password,
++        method = method,
++        network = network,
++        security = security,
++        sni = sni,
++        host = authority.ifBlank { host },
++        path = path.ifBlank { spiderX },
++        alpn = alpn,
++        fingerprint = fingerprint,
++        flow = flow,
++        publicKey = publicKey,
++        shortId = shortId,
++        serviceName = grpcServiceName,
++        allowInsecure = allowInsecure,
++        encryption = encryption,
++        alterId = alterId,
++        source = ConfigSource.PERSONAL
++    )
++
++    companion object {
++        fun from(config: ProxyConfig, format: ConfigFormat, rawJson: String = "") = NormalizedProfile(
++            id = config.id,
++            name = config.name,
++            protocol = config.protocol,
++            server = config.address,
++            port = config.port,
++            uuid = config.uuid,
++            password = config.password,
++            method = config.method,
++            network = config.network,
++            security = config.security,
++            sni = config.sni,
++            host = config.host,
++            path = config.path,
++            alpn = config.alpn,
++            fingerprint = config.fingerprint,
++            flow = config.flow,
++            publicKey = config.publicKey,
++            shortId = config.shortId,
++            grpcServiceName = config.serviceName,
++            authority = if (config.network.equals("grpc", true)) config.host else "",
++            allowInsecure = config.allowInsecure,
++            encryption = config.encryption,
++            alterId = config.alterId,
++            rawJson = rawJson,
++            sourceFormat = format
++        )
++    }
++}
++
++data class ParsedConfig(
++    val sourceFormat: ConfigFormat,
++    val profiles: List<NormalizedProfile>,
++    val rawJson: String? = null,
++    val lockConfig: LockConfigInfo? = null,
++    val warnings: List<String> = emptyList()
++)
++
++sealed class ConfigToolkitException(message: String) : Exception(message) {
++    class UnsupportedFormat(format: ConfigFormat) : ConfigToolkitException(
++        if (format == ConfigFormat.UNKNOWN) "این نوع کانفیگ شناسایی نشد."
++        else "این نوع کانفیگ در حال حاضر کامل پشتیبانی نمی‌شود."
++    )
++
++    class PasskeyRequired : ConfigToolkitException("این فایل با passkey محافظت شده است.")
++    class WrongPasskey : ConfigToolkitException("passkey واردشده صحیح نیست.")
++    class InvalidConfig(message: String) : ConfigToolkitException(message)
++    class TooLarge(limit: Long) : ConfigToolkitException("حجم فایل از سقف امن ${limit / 1024 / 1024} مگابایت بیشتر است.")
++}
++
++data class ValidationIssue(val field: String, val message: String)
++
++data class ValidationResult(val issues: List<ValidationIssue>) {
++    val valid: Boolean get() = issues.isEmpty()
++}
++
++interface ConfigDecoder {
++    val format: ConfigFormat
++    fun supports(detection: FormatDetection): Boolean = detection.format == format
++    fun decode(input: ConfigInput): ParsedConfig
++    fun validate(parsed: ParsedConfig): ValidationResult = ProfileValidator.validateAll(parsed.profiles)
++    fun export(parsed: ParsedConfig): ByteArray = (parsed.rawJson ?: JSONObject().apply {
++        put("format", parsed.sourceFormat.name)
++        put("profiles", org.json.JSONArray(parsed.profiles.map { it.toProxyConfig().toJson() }))
++    }.toString(2)).toByteArray(Charsets.UTF_8)
++}
+diff --git a/app/src/main/java/net/gozar/app/configtoolkit/Decoders.kt b/app/src/main/java/net/gozar/app/configtoolkit/Decoders.kt
+new file mode 100644
+index 0000000..08599f3
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configtoolkit/Decoders.kt
+@@ -0,0 +1,244 @@
++package net.gozar.app.configtoolkit
++
++import net.gozar.app.ConfigParser
++import net.gozar.app.GhajarCompatibilityImport
++import org.json.JSONArray
++import org.json.JSONObject
++import java.util.Base64
++import java.util.Locale
++
++class DecoderRegistry(
++    private val decoders: List<ConfigDecoder> = listOf(
++        NpvtDecoder(), NpvsDecoder(), HappDecoder(), NetModDecoder(),
++        SlipNetDecoder(), EhiDecoder(), HatDecoder(), DarkDecoder(),
++        GenericJsonDecoder(), TextLinkDecoder()
++    )
++) {
++    fun decoderFor(detection: FormatDetection): ConfigDecoder? = decoders.firstOrNull { it.supports(detection) }
++
++    fun decode(input: ConfigInput): ParsedConfig {
++        require(input.bytes.size <= MAX_FILE_BYTES) { throw ConfigToolkitException.TooLarge(MAX_FILE_BYTES) }
++        val detection = FormatDetector.detect(input)
++        val decoder = decoderFor(detection) ?: throw ConfigToolkitException.UnsupportedFormat(detection.format)
++        val parsed = decoder.decode(input)
++        val validation = decoder.validate(parsed)
++        if (!validation.valid) throw ConfigToolkitException.InvalidConfig(
++            validation.issues.take(4).joinToString("\n") { it.message }
++        )
++        return parsed
++    }
++
++    companion object { const val MAX_FILE_BYTES = 16L * 1024L * 1024L }
++}
++
++internal object ReadablePayload {
++    fun extract(input: ConfigInput, signature: String? = null): String? {
++        val raw = input.bytes.toString(Charsets.UTF_8).trimStart('\uFEFF', ' ', '\t', '\r', '\n')
++        val body = if (signature != null && raw.startsWith(signature, true)) {
++            raw.substring(signature.length).trimStart(':', '\r', '\n', ' ', '\t')
++        } else raw
++        if (looksReadable(body)) return body
++        val compact = body.filterNot(Char::isWhitespace)
++        if (compact.length < 8) return null
++        val padded = compact + "=".repeat((4 - compact.length % 4) % 4)
++        return sequenceOf(Base64.getUrlDecoder(), Base64.getDecoder()).mapNotNull { decoder ->
++            runCatching { decoder.decode(padded).toString(Charsets.UTF_8) }.getOrNull()
++        }.firstOrNull(::looksReadable)
++    }
++
++    private fun looksReadable(value: String): Boolean {
++        val t = value.trim()
++        return t.startsWith('{') || t.startsWith('[') ||
++            Regex("(?i)^(vless|vmess|trojan|ss|socks|socks5|happ|happ-proxy)://").containsMatchIn(t)
++    }
++}
++
++open class GenericJsonDecoder(override val format: ConfigFormat = ConfigFormat.JSON) : ConfigDecoder {
++    override fun decode(input: ConfigInput): ParsedConfig {
++        val text = ReadablePayload.extract(input) ?: throw ConfigToolkitException.UnsupportedFormat(format)
++        return parseJson(text, format)
++    }
++
++    internal fun parseJson(text: String, source: ConfigFormat): ParsedConfig {
++        val clean = text.trim()
++        val root = runCatching { JSONObject(clean) }.getOrNull()
++        val array = if (root == null) runCatching { JSONArray(clean) }.getOrNull() else null
++        if (root == null && array == null) throw ConfigToolkitException.InvalidConfig("ساختار JSON معتبر نیست.")
++
++        val rawCandidates = linkedSetOf<String>()
++        val directProfiles = mutableListOf<NormalizedProfile>()
++
++        fun walk(value: Any?, inheritedName: String = "", depth: Int = 0) {
++            if (depth > 12) return
++            when (value) {
++                is JSONObject -> {
++                    val name = first(value, "remarks", "remark", "name", "ps").ifBlank { inheritedName }
++                    value.optJSONObject("v2rayJson")?.let { rawCandidates += it.toString() }
++                    value.optJSONObject("v2rayProfile")?.let { profile ->
++                        profile.optJSONObject("v2rayJson")?.let { rawCandidates += it.toString() }
++                    }
++                    if (value.has("outbounds") || value.has("protocol") && value.has("settings")) {
++                        rawCandidates += value.toString()
++                    }
++                    direct(value, name, source)?.let(directProfiles::add)
++                    val keys = value.keys()
++                    while (keys.hasNext()) {
++                        val key = keys.next()
++                        if (key !in setOf("rawJson", "v2rayJson")) walk(value.opt(key), name, depth + 1)
++                    }
++                }
++                is JSONArray -> for (i in 0 until value.length()) walk(value.opt(i), inheritedName, depth + 1)
++            }
++        }
++        walk(root ?: array)
++
++        val parsed = rawCandidates.flatMap { candidate ->
++            ConfigParser.parseJsonOutbounds(candidate).map { NormalizedProfile.from(it, source, candidate) }
++        } + directProfiles
++        val profiles = parsed.distinctBy(::criticalSignature)
++        val lock = root?.let(::readLock)
++        return ParsedConfig(source, profiles, root?.toString(2) ?: array?.toString(2), lock)
++    }
++
++    private fun direct(o: JSONObject, inheritedName: String, source: ConfigFormat): NormalizedProfile? {
++        val protocol = first(o, "protocol", "type").lowercase(Locale.ROOT).let {
++            when (it) { "shadowsocks", "ss" -> "shadowsocks"; "socks5" -> "socks"; else -> it }
++        }
++        if (protocol !in setOf("vless", "vmess", "trojan", "shadowsocks", "socks")) return null
++        val server = first(o, "server", "address", "add", "host")
++        val port = sequenceOf("serverPort", "port").map { o.opt(it) }.mapNotNull {
++            when (it) { is Number -> it.toInt(); is String -> it.toIntOrNull(); else -> null }
++        }.firstOrNull() ?: 0
++        if (server.isBlank() || port <= 0) return null
++        val stream = o.optJSONObject("streamSettings") ?: JSONObject()
++        val network = first(o, "network", "net").ifBlank { stream.optString("network", "tcp") }
++        val tls = stream.optJSONObject("tlsSettings")
++        val reality = stream.optJSONObject("realitySettings")
++        val sec = reality ?: tls ?: JSONObject()
++        val ws = stream.optJSONObject("wsSettings") ?: JSONObject()
++        val grpc = stream.optJSONObject("grpcSettings") ?: JSONObject()
++        return NormalizedProfile(
++            name = inheritedName.ifBlank { "$server:$port" }, protocol = protocol,
++            server = server, port = port,
++            uuid = first(o, "uuid", "id"), password = first(o, "password", "pass"),
++            method = first(o, "method", "cipher"), network = network.ifBlank { "tcp" },
++            security = first(o, "security", "tls").ifBlank {
++                when { reality.length() > 0 -> "reality"; tls != null -> "tls"; else -> "none" }
++            },
++            sni = first(o, "sni", "serverName").ifBlank { sec.optString("serverName") },
++            host = first(o, "host").ifBlank { ws.optJSONObject("headers")?.optString("Host").orEmpty() },
++            path = first(o, "path").ifBlank { ws.optString("path") },
++            alpn = first(o, "alpn").ifBlank { jsonStrings(sec.optJSONArray("alpn")).joinToString(",") },
++            fingerprint = first(o, "fingerprint", "fp").ifBlank { sec.optString("fingerprint", "chrome") },
++            flow = first(o, "flow"), publicKey = first(o, "publicKey", "pbk").ifBlank { reality.optString("publicKey") },
++            shortId = first(o, "shortId", "sid").ifBlank { reality.optString("shortId") },
++            spiderX = first(o, "spiderX", "spx").ifBlank { reality.optString("spiderX") },
++            grpcServiceName = first(o, "serviceName").ifBlank { grpc.optString("serviceName") },
++            authority = first(o, "authority").ifBlank { grpc.optString("authority") },
++            allowInsecure = o.optBoolean("allowInsecure", sec.optBoolean("allowInsecure", false)),
++            encryption = first(o, "encryption", "scy").ifBlank { if (protocol == "vmess") "auto" else "none" },
++            alterId = o.optInt("alterId", o.optInt("aid", 0)), rawJson = o.toString(), sourceFormat = source
++        )
++    }
++
++    private fun readLock(root: JSONObject): LockConfigInfo? {
++        val lock = root.optJSONObject("lockConfig") ?: root.optJSONObject("lock") ?: return null
++        val deviceValue = lock.opt("deviceIds")
++        val devices = when (deviceValue) {
++            is JSONArray -> jsonStrings(deviceValue)
++            is String -> deviceValue.split(',', '\n').map(String::trim).filter(String::isNotEmpty)
++            else -> emptyList()
++        }
++        return LockConfigInfo(
++            isLocked = lock.optBoolean("isLocked", lock.optBoolean("locked", false)),
++            password = lock.optString("password").takeIf(String::isNotEmpty),
++            onlyMobileNetwork = lock.optBoolean("onlyMobileNetwork"),
++            blockRootedAndJailbroken = lock.optBoolean("blockRootedAndJailbroken"),
++            onlyOfficialStores = lock.optBoolean("onlyOfficialStores"),
++            expiryDate = lock.optString("expiryDate").takeIf(String::isNotEmpty),
++            deviceIds = devices,
++            message = lock.optString("message").takeIf(String::isNotEmpty),
++            customServerMessage = lock.optString("customServerMessage").takeIf(String::isNotEmpty)
++        )
++    }
++
++    private fun first(o: JSONObject, vararg keys: String): String = keys.firstNotNullOfOrNull { key ->
++        o.optString(key).takeIf { it.isNotBlank() && it != "null" }
++    }.orEmpty()
++
++    private fun jsonStrings(array: JSONArray?): List<String> = if (array == null) emptyList()
++    else (0 until array.length()).mapNotNull { array.optString(it).takeIf(String::isNotBlank) }
++
++    private fun criticalSignature(p: NormalizedProfile) = listOf(
++        p.protocol, p.server.lowercase(), p.port, p.uuid, p.password, p.method,
++        p.network, p.security, p.sni, p.host, p.path, p.publicKey, p.shortId
++    ).joinToString("\u0000")
++}
++
++class TextLinkDecoder : ConfigDecoder {
++    override val format = ConfigFormat.TEXT
++    override fun decode(input: ConfigInput): ParsedConfig {
++        val text = ReadablePayload.extract(input) ?: input.bytes.toString(Charsets.UTF_8)
++        val profiles = ConfigParser.parseBundle(text).map { NormalizedProfile.from(it, format) }
++        if (profiles.isEmpty()) throw ConfigToolkitException.InvalidConfig("لینک استاندارد قابل استفاده‌ای پیدا نشد.")
++        return ParsedConfig(format, profiles)
++    }
++}
++
++class NpvtDecoder : GenericJsonDecoder(ConfigFormat.NPVT) {
++    override fun decode(input: ConfigInput): ParsedConfig {
++        val text = ReadablePayload.extract(input, "NPVT1")
++            ?: throw protectedOrUnsupported(input)
++        return parseJson(text, format)
++    }
++}
++
++class NpvsDecoder : GenericJsonDecoder(ConfigFormat.NPVS) {
++    override fun decode(input: ConfigInput): ParsedConfig {
++        val text = ReadablePayload.extract(input, "NPVS") ?: throw protectedOrUnsupported(input)
++        return parseJson(text, format)
++    }
++}
++
++class HappDecoder : ConfigDecoder {
++    override val format = ConfigFormat.HAPP
++    override fun decode(input: ConfigInput): ParsedConfig {
++        val text = input.bytes.toString(Charsets.UTF_8).trim()
++        if (text.startsWith("happ://crypt", true)) throw ConfigToolkitException.PasskeyRequired()
++        val configs = if (text.startsWith("happ://", true) || text.startsWith("happ-proxy://", true)) {
++            GhajarCompatibilityImport.parseDeepLink(text)
++        } else {
++            val readable = ReadablePayload.extract(input)
++                ?: throw ConfigToolkitException.UnsupportedFormat(format)
++            ConfigParser.parseBundle(readable)
++        }
++        if (configs.isEmpty()) throw ConfigToolkitException.UnsupportedFormat(format)
++        return ParsedConfig(format, configs.map { NormalizedProfile.from(it, format) })
++    }
++}
++
++abstract class ReadableLegacyDecoder(final override val format: ConfigFormat) : ConfigDecoder {
++    override fun decode(input: ConfigInput): ParsedConfig {
++        val readable = ReadablePayload.extract(input) ?: throw protectedOrUnsupported(input)
++        return if (readable.trimStart().startsWith('{') || readable.trimStart().startsWith('[')) {
++            GenericJsonDecoder(format).parseJson(readable, format)
++        } else {
++            val profiles = ConfigParser.parseBundle(readable).map { NormalizedProfile.from(it, format) }
++            if (profiles.isEmpty()) throw ConfigToolkitException.UnsupportedFormat(format)
++            ParsedConfig(format, profiles)
++        }
++    }
++}
++
++class NetModDecoder : ReadableLegacyDecoder(ConfigFormat.NETMOD)
++class SlipNetDecoder : ReadableLegacyDecoder(ConfigFormat.SLIPNET)
++class EhiDecoder : ReadableLegacyDecoder(ConfigFormat.EHI)
++class HatDecoder : ReadableLegacyDecoder(ConfigFormat.HAT)
++class DarkDecoder : ReadableLegacyDecoder(ConfigFormat.DARK)
++
++private fun protectedOrUnsupported(input: ConfigInput): ConfigToolkitException {
++    // A passkey is never guessed or persisted. Formats without a documented,
++    // credential-based envelope stay unsupported instead of using extracted app keys.
++    return if (input.passkey == null || input.passkey.isEmpty()) ConfigToolkitException.PasskeyRequired()
++    else ConfigToolkitException.UnsupportedFormat(FormatDetector.detect(input).format)
++}
+diff --git a/app/src/main/java/net/gozar/app/configtoolkit/FormatDetector.kt b/app/src/main/java/net/gozar/app/configtoolkit/FormatDetector.kt
+new file mode 100644
+index 0000000..ddb24cb
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configtoolkit/FormatDetector.kt
+@@ -0,0 +1,61 @@
++package net.gozar.app.configtoolkit
++
++import java.util.Locale
++
++data class FormatDetection(
++    val format: ConfigFormat,
++    val confidence: Int,
++    val evidence: Set<String>
++)
++
++/** Bounded content sniffing; detection never trusts a filename by itself. */
++object FormatDetector {
++    private const val SNIFF_LIMIT = 64 * 1024
++
++    fun detect(input: ConfigInput): FormatDetection {
++        val head = input.bytes.copyOfRange(0, minOf(input.bytes.size, SNIFF_LIMIT))
++        val text = head.toString(Charsets.UTF_8).trimStart('\uFEFF', ' ', '\t', '\r', '\n')
++        val lower = text.lowercase(Locale.ROOT)
++        val ext = input.displayName.substringAfterLast('.', "").lowercase(Locale.ROOT)
++        val evidence = linkedSetOf<String>()
++
++        fun result(format: ConfigFormat, base: Int, magic: String? = null): FormatDetection {
++            if (ext in format.extensions) evidence += "extension:$ext"
++            if (magic != null) evidence += "signature:$magic"
++            val extensionBonus = if (ext in format.extensions) 10 else 0
++            return FormatDetection(format, (base + extensionBonus).coerceAtMost(100), evidence)
++        }
++
++        if (text.startsWith("NPVT1", true)) return result(ConfigFormat.NPVT, 90, "NPVT1")
++        if (text.startsWith("NPVS", true)) return result(ConfigFormat.NPVS, 90, "NPVS")
++        if (lower.startsWith("happ://crypt")) return result(ConfigFormat.HAPP, 95, "happ://crypt")
++        if (lower.startsWith("happ://") || lower.startsWith("happ-proxy://")) {
++            return result(ConfigFormat.HAPP, 90, "happ-uri")
++        }
++        if (lower.startsWith("nm-") || lower.startsWith("nm://")) return result(ConfigFormat.NETMOD, 85, "nm-")
++
++        val jsonLike = (text.startsWith("{") && text.endsWith("}")) ||
++            (text.startsWith("[") && text.endsWith("]"))
++        if (jsonLike) {
++            val hinted = when {
++                ext == "npvt" || lower.contains("\"v2rayprofile\"") || lower.contains("\"lockconfig\"") -> ConfigFormat.NPVT
++                ext == "npvs" -> ConfigFormat.NPVS
++                ext == "happ" -> ConfigFormat.HAPP
++                ext == "nm" -> ConfigFormat.NETMOD
++                ext == "ehi" -> ConfigFormat.EHI
++                ext == "slip" -> ConfigFormat.SLIPNET
++                ext == "hat" -> ConfigFormat.HAT
++                ext == "dark" -> ConfigFormat.DARK
++                else -> ConfigFormat.JSON
++            }
++            return result(hinted, if (hinted == ConfigFormat.JSON) 80 else 75, "json")
++        }
++
++        val standardLink = Regex("(?im)^\\s*(vless|vmess|trojan|ss|socks|socks5)://").containsMatchIn(text)
++        if (standardLink) return result(ConfigFormat.TEXT, 90, "standard-link")
++
++        val extensionFormat = ConfigFormat.entries.firstOrNull { ext in it.extensions }
++        if (extensionFormat != null) return result(extensionFormat, 25)
++        return FormatDetection(ConfigFormat.UNKNOWN, 0, emptySet())
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/configtoolkit/GhajarImporter.kt b/app/src/main/java/net/gozar/app/configtoolkit/GhajarImporter.kt
+new file mode 100644
+index 0000000..8a8da2d
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configtoolkit/GhajarImporter.kt
+@@ -0,0 +1,42 @@
++package net.gozar.app.configtoolkit
++
++import net.gozar.app.ConfigStore
++import org.json.JSONObject
++
++data class ImportResult(val requested: Int, val imported: Int, val rejected: Int)
++
++class GhajarImporter(private val store: ConfigStore) {
++    suspend fun import(parsed: ParsedConfig, selectedIds: Set<String>? = null): ImportResult {
++        store.awaitReady()
++        val selected = if (selectedIds == null) parsed.profiles else parsed.profiles.filter { it.id in selectedIds }
++        val valid = selected.filter { ProfileValidator.validate(it).valid }
++        val verified = valid.filter { profile ->
++            // Round-trip is mandatory only for protocols with a share-link representation.
++            RoundTripVerifier.verify(profile).isSuccess
++        }
++        val imported = store.addImported(verified.map(NormalizedProfile::toProxyConfig))
++        return ImportResult(selected.size, imported, selected.size - imported)
++    }
++}
++
++object EditableNpvtCopy {
++    fun create(original: ByteArray, clearPassword: Boolean): ByteArray {
++        val text = ReadablePayload.extract(ConfigInput(original, "owned.npvt"), "NPVT1")
++            ?: throw ConfigToolkitException.UnsupportedFormat(ConfigFormat.NPVT)
++        val root = runCatching { JSONObject(text) }.getOrElse {
++            throw ConfigToolkitException.InvalidConfig("نسخهٔ قابل ویرایش فقط برای NPVT JSON متعلق به کاربر ساخته می‌شود.")
++        }
++        val lock = root.optJSONObject("lockConfig") ?: JSONObject().also { root.put("lockConfig", it) }
++        lock.put("isLocked", false)
++            .put("onlyMobileNetwork", false)
++            .put("blockRootedAndJailbroken", false)
++            .put("onlyOfficialStores", false)
++            .put("deviceIds", "")
++            .put("expiryDate", "")
++        if (clearPassword) lock.put("password", "")
++        val output = root.toString(2).toByteArray(Charsets.UTF_8)
++        val reparsed = NpvtDecoder().decode(ConfigInput(output, "Ghajar_unlocked_owned.npvt"))
++        check(reparsed.profiles.isNotEmpty()) { "نسخهٔ خروجی قابل Parse نیست." }
++        return output
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/configtoolkit/ProfileValidator.kt b/app/src/main/java/net/gozar/app/configtoolkit/ProfileValidator.kt
+new file mode 100644
+index 0000000..3376b8b
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configtoolkit/ProfileValidator.kt
+@@ -0,0 +1,56 @@
++package net.gozar.app.configtoolkit
++
++import java.net.IDN
++import java.util.UUID
++
++object ProfileValidator {
++    private val supported = setOf("vless", "vmess", "trojan", "shadowsocks", "ss", "socks", "socks5")
++    private val networks = setOf("tcp", "ws", "grpc", "http", "h2", "kcp", "quic", "httpupgrade", "xhttp")
++
++    fun validateAll(profiles: List<NormalizedProfile>): ValidationResult {
++        if (profiles.isEmpty()) return ValidationResult(listOf(ValidationIssue("profiles", "هیچ پروفایل قابل اتصالی پیدا نشد.")))
++        return ValidationResult(profiles.flatMapIndexed { index, profile ->
++            validate(profile).issues.map { it.copy(field = "profiles[$index].${it.field}") }
++        })
++    }
++
++    fun validate(profile: NormalizedProfile): ValidationResult {
++        val issues = mutableListOf<ValidationIssue>()
++        val protocol = profile.protocol.lowercase()
++        if (protocol !in supported) issues += ValidationIssue("protocol", "پروتکل ${profile.protocol} پشتیبانی نمی‌شود.")
++        if (!validHost(profile.server)) issues += ValidationIssue("server", "آدرس سرور معتبر نیست.")
++        if (profile.port !in 1..65535) issues += ValidationIssue("port", "پورت باید بین 1 و 65535 باشد.")
++        if (protocol in setOf("vless", "vmess") && !validUuid(profile.uuid)) {
++            issues += ValidationIssue("uuid", "UUID معتبر نیست.")
++        }
++        if (protocol == "trojan" && profile.password.isBlank()) issues += ValidationIssue("password", "رمز Trojan خالی است.")
++        if (protocol in setOf("shadowsocks", "ss")) {
++            if (profile.method.isBlank()) issues += ValidationIssue("method", "روش رمزنگاری Shadowsocks خالی است.")
++            if (profile.password.isBlank()) issues += ValidationIssue("password", "رمز Shadowsocks خالی است.")
++        }
++        if (profile.network.lowercase() !in networks) issues += ValidationIssue("network", "Transport ناشناخته است.")
++        if (profile.network.equals("ws", true) && profile.path.isNotEmpty() && !profile.path.startsWith('/')) {
++            issues += ValidationIssue("path", "مسیر WebSocket باید با / شروع شود.")
++        }
++        if (profile.security.equals("reality", true)) {
++            if (profile.publicKey.isBlank()) issues += ValidationIssue("publicKey", "PublicKey مربوط به REALITY خالی است.")
++            if (profile.sni.isBlank()) issues += ValidationIssue("sni", "SNI مربوط به REALITY خالی است.")
++        }
++        return ValidationResult(issues)
++    }
++
++    private fun validUuid(value: String): Boolean = runCatching { UUID.fromString(value); true }.getOrDefault(false)
++
++    private fun validHost(value: String): Boolean {
++        val host = value.trim().removePrefix("[").removeSuffix("]")
++        if (host.isBlank() || host.any(Char::isWhitespace)) return false
++        if (host.contains(':')) {
++            // Syntax-only IPv6 check: validation must stay offline and never leak a hostname to DNS.
++            return host.count { it == ':' } >= 2 && host.all { it.isDigit() || it.lowercaseChar() in 'a'..'f' || it in ":." }
++        }
++        return runCatching {
++            val ascii = IDN.toASCII(host)
++            ascii.length in 1..253 && ascii.split('.').all { it.isNotBlank() && it.length <= 63 }
++        }.getOrDefault(false)
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/configtoolkit/V2RayLinkGenerator.kt b/app/src/main/java/net/gozar/app/configtoolkit/V2RayLinkGenerator.kt
+new file mode 100644
+index 0000000..0d6793c
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configtoolkit/V2RayLinkGenerator.kt
+@@ -0,0 +1,103 @@
++package net.gozar.app.configtoolkit
++
++import net.gozar.app.ConfigParser
++import org.json.JSONObject
++import java.net.URLEncoder
++import java.util.Base64
++
++object V2RayLinkGenerator {
++    fun generate(profile: NormalizedProfile): String = when (profile.protocol.lowercase()) {
++        "vless" -> userInfoLink("vless", profile.uuid, profile)
++        "trojan" -> userInfoLink("trojan", profile.password, profile)
++        "vmess" -> vmess(profile)
++        "shadowsocks", "ss" -> shadowsocks(profile)
++        "socks", "socks5" -> userInfoLink(
++            "socks", listOf(profile.uuid, profile.password).joinToString(":") { pct(it) }, profile, alreadyEncoded = true
++        )
++        else -> throw ConfigToolkitException.InvalidConfig("برای این پروتکل لینک استاندارد ساخته نمی‌شود.")
++    }
++
++    private fun userInfoLink(
++        scheme: String,
++        credential: String,
++        profile: NormalizedProfile,
++        alreadyEncoded: Boolean = false
++    ): String {
++        val user = if (alreadyEncoded) credential else pct(credential)
++        return "$scheme://$user@${hostPort(profile.server, profile.port)}${query(profile)}#${pct(profile.name)}"
++    }
++
++    private fun query(p: NormalizedProfile): String {
++        val values = linkedMapOf<String, String>()
++        values["type"] = p.network.ifBlank { "tcp" }
++        if (p.security.isNotBlank() && p.security != "none") values["security"] = p.security
++        if (p.sni.isNotBlank()) values["sni"] = p.sni
++        if (p.host.isNotBlank()) values["host"] = p.host
++        if (p.path.isNotBlank()) values["path"] = p.path
++        if (p.alpn.isNotBlank()) values["alpn"] = p.alpn
++        if (p.fingerprint.isNotBlank()) values["fp"] = p.fingerprint
++        if (p.flow.isNotBlank()) values["flow"] = p.flow
++        if (p.publicKey.isNotBlank()) values["pbk"] = p.publicKey
++        if (p.shortId.isNotBlank()) values["sid"] = p.shortId
++        if (p.spiderX.isNotBlank()) values["spx"] = p.spiderX
++        if (p.grpcServiceName.isNotBlank()) values["serviceName"] = p.grpcServiceName
++        if (p.authority.isNotBlank()) values["authority"] = p.authority
++        if (p.allowInsecure) values["allowInsecure"] = "1"
++        if (p.protocol.equals("vless", true)) values["encryption"] = p.encryption.ifBlank { "none" }
++        return if (values.isEmpty()) "" else values.entries.joinToString("&", prefix = "?") { "${pct(it.key)}=${pct(it.value)}" }
++    }
++
++    private fun vmess(p: NormalizedProfile): String {
++        val json = JSONObject()
++            .put("v", "2")
++            .put("ps", p.name)
++            .put("add", p.server)
++            .put("port", p.port.toString())
++            .put("id", p.uuid)
++            .put("aid", p.alterId.toString())
++            .put("scy", p.encryption.ifBlank { "auto" })
++            .put("net", p.network)
++            .put("type", "none")
++            .put("host", p.host.ifBlank { p.authority })
++            .put("path", p.path.ifBlank { p.grpcServiceName })
++            .put("tls", if (p.security == "none") "" else p.security)
++            .put("sni", p.sni)
++            .put("alpn", p.alpn)
++            .put("fp", p.fingerprint)
++        return "vmess://" + Base64.getEncoder().encodeToString(json.toString().toByteArray())
++    }
++
++    private fun shadowsocks(p: NormalizedProfile): String {
++        val credentials = "${p.method}:${p.password}"
++        val user = Base64.getUrlEncoder().withoutPadding().encodeToString(credentials.toByteArray())
++        return "ss://$user@${hostPort(p.server, p.port)}#${pct(p.name)}"
++    }
++
++    private fun hostPort(host: String, port: Int): String {
++        val bare = host.removePrefix("[").removeSuffix("]")
++        return if (bare.contains(':')) "[$bare]:$port" else "$bare:$port"
++    }
++
++    private fun pct(value: String): String = URLEncoder.encode(value, "UTF-8").replace("+", "%20")
++}
++
++object RoundTripVerifier {
++    private val critical = listOf<(NormalizedProfile) -> Any?>(
++        { it.protocol.lowercase() }, { it.server.removePrefix("[").removeSuffix("]").lowercase() }, { it.port },
++        { it.uuid }, { it.password }, { it.method }, { it.network.lowercase() },
++        { it.security.lowercase() }, { it.sni }, { it.host.ifBlank { it.authority } },
++        { it.path.ifBlank { it.grpcServiceName } }, { it.flow }, { it.publicKey }, { it.shortId }
++    )
++
++    fun verify(profile: NormalizedProfile): Result<String> = runCatching {
++        val validation = ProfileValidator.validate(profile)
++        require(validation.valid) { validation.issues.joinToString("; ") { it.message } }
++        val link = V2RayLinkGenerator.generate(profile)
++        val reparsed = ConfigParser.parse(link)
++            ?: throw ConfigToolkitException.InvalidConfig("Parser قاجار لینک تولیدشده را نپذیرفت.")
++        val normalized = NormalizedProfile.from(reparsed, profile.sourceFormat)
++        val mismatch = critical.indices.firstOrNull { critical[it](profile) != critical[it](normalized) }
++        if (mismatch != null) throw ConfigToolkitException.InvalidConfig("Round-trip برای یکی از فیلدهای حیاتی یکسان نبود.")
++        link
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/configtoolkit/ConfigToolkitTest.kt b/app/src/test/java/net/gozar/app/configtoolkit/ConfigToolkitTest.kt
+new file mode 100644
+index 0000000..3241fe9
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/configtoolkit/ConfigToolkitTest.kt
+@@ -0,0 +1,50 @@
++package net.gozar.app.configtoolkit
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class ConfigToolkitTest {
++    @Test fun detectorUsesMagicBeforeExtension() {
++        val detection = FormatDetector.detect(ConfigInput("NPVT1\n{}".toByteArray(), "wrong.txt"))
++        assertEquals(ConfigFormat.NPVT, detection.format)
++        assertTrue(detection.confidence >= 90)
++    }
++
++    @Test fun detectorRecognizesHappCryptWithoutTryingToDecryptIt() {
++        val detection = FormatDetector.detect(ConfigInput("happ://crypt/not-readable".toByteArray(), "config.bin"))
++        assertEquals(ConfigFormat.HAPP, detection.format)
++        assertEquals(95, detection.confidence)
++    }
++
++    @Test fun validatorAcceptsBracketlessIpv6AndRejectsBadPort() {
++        val good = sample(server = "2606:4700:20::ac43:4728", port = 443)
++        assertTrue(ProfileValidator.validate(good).valid)
++        assertFalse(ProfileValidator.validate(good.copy(port = 70000)).valid)
++    }
++
++    @Test fun validatorRequiresRealityKeyAndSni() {
++        val result = ProfileValidator.validate(sample(security = "reality", publicKey = "", sni = ""))
++        assertFalse(result.valid)
++        assertTrue(result.issues.any { it.field == "publicKey" })
++        assertTrue(result.issues.any { it.field == "sni" })
++    }
++
++    @Test fun unsupportedProtocolIsNotImported() {
++        assertFalse(ProfileValidator.validate(sample(protocol = "unknown")).valid)
++    }
++
++    private fun sample(
++        protocol: String = "vless",
++        server: String = "example.com",
++        port: Int = 443,
++        security: String = "tls",
++        publicKey: String = "",
++        sni: String = "example.com"
++    ) = NormalizedProfile(
++        name = "test", protocol = protocol, server = server, port = port,
++        uuid = "123e4567-e89b-12d3-a456-426614174000", security = security,
++        publicKey = publicKey, sni = sni, sourceFormat = ConfigFormat.TEXT
++    )
++}
+-- 
+2.51.1
+

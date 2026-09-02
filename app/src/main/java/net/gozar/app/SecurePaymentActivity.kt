@@ -117,6 +117,18 @@ class SecurePaymentActivity : Activity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val uri = intent.getStringExtra(EXTRA_URL)?.toUri()
+        if (uri == null || !BrandConfig.isTrustedPaymentUri(uri, initialHost)) {
+            Toast.makeText(this, "آدرس پرداخت تازه معتبر نیست؛ همان فاکتور قبلی حفظ شد.", Toast.LENGTH_LONG).show()
+            return
+        }
+        setIntent(intent)
+        initialHost = uri.host
+        if (::webView.isInitialized) webView.loadUrl(uri.toString())
+    }
+
     @SuppressLint("SetJavaScriptEnabled")
     private fun buildWebView(): WebView = WebView(this).apply {
         setBackgroundColor(Color.rgb(7, 27, 46))
