@@ -47,6 +47,7 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
 
     }
 
+
     private fun currentProcessName(): String {
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
             return android.app.Application.getProcessName().orEmpty()

@@ -1,19 +1,9 @@
-From 65f34a3d539f83be7d9bc63e053ad8a3216fd96e Mon Sep 17 00:00:00 2001
+From 4a2d7e2a8dd7ddc885681535701699ec736f668a Mon Sep 17 00:00:00 2001
 From: Ghajarvpn Build <build@ghajarvpn.local>
-Date: Wed, 2 Sep 2026 15:56:20 +0000
-Subject: [PATCH] fix(openvpn): harden service process and add upstream
- settings
+Date: Wed, 2 Sep 2026 16:18:00 +0000
+Subject: [PATCH] fix(openvpn): harden embedded service process
 
 ---
- .../java/net/gozar/app/GhajarOpenVpnBridge.kt | 31 +++++-
- .../net/gozar/app/GhajarOpenVpnSettings.kt    | 59 ++++++++++++
- .../java/net/gozar/app/Gozarapplication.kt    | 19 ++++
- .../main/java/net/gozar/app/MainActivity.kt   | 95 +++++++++++++++++++
- openvpn/src/main/AndroidManifest.xml          |  1 +
- .../android/logic/StrongSwanApplication.java  | 30 ++++++
- 6 files changed, 233 insertions(+), 2 deletions(-)
- create mode 100644 app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt
-
 diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
 index a4ceb3e..016c681 100644
 --- a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
@@ -136,7 +126,7 @@ index 0000000..0f9e2a6
 +    )
 +}
 diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
-index 94c440e..74bc2d9 100644
+index 9f37ba3..cc166cc 100644
 --- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
 +++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
 @@ -16,6 +16,12 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
@@ -152,10 +142,11 @@ index 94c440e..74bc2d9 100644
  
          registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
              override fun onActivityStarted(activity: Activity) {
-@@ -40,4 +46,17 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+@@ -40,4 +46,18 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
          })
  
      }
++
 +
 +    private fun currentProcessName(): String {
 +        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
@@ -170,119 +161,7 @@ index 94c440e..74bc2d9 100644
 +        const val OPENVPN_PROCESS_SUFFIX = ":openvpn"
 +    }
  }
-diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
-index b5788a2..511018c 100644
---- a/app/src/main/java/net/gozar/app/MainActivity.kt
-+++ b/app/src/main/java/net/gozar/app/MainActivity.kt
-@@ -6266,6 +6266,11 @@ private fun ConnectionSettingsScreen(
-     val fakeDns by store.fakeDns.collectAsState()
-     val encryptedDns by store.encryptedDns.collectAsState()
-     val settingsContext = androidx.compose.ui.platform.LocalContext.current
-+    val openVpnDefaults = remember(settingsContext) { GhajarOpenVpnSettings.read(settingsContext) }
-+    var ovpnReconnectOnNetworkChange by remember { mutableStateOf(openVpnDefaults.reconnectOnNetworkChange) }
-+    var ovpnUseSystemProxy by remember { mutableStateOf(openVpnDefaults.useSystemProxy) }
-+    var ovpnPauseOnScreenOff by remember { mutableStateOf(openVpnDefaults.pauseOnScreenOff) }
-+    var ovpnEncryptProfiles by remember { mutableStateOf(openVpnDefaults.encryptProfiles) }
- 
-     Column(
-         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-@@ -6436,6 +6441,96 @@ private fun ConnectionSettingsScreen(
-             }
-         }
- 
-+        SettingsGroup("OpenVPN") {
-+            Text(
-+                if (lang == Lang.FA)
-+                    "این گزینه‌ها مستقیماً به موتور رسمی OpenVPN for Android وصل هستند."
-+                else
-+                    "These options are wired directly to the OpenVPN for Android engine.",
-+                style = MaterialTheme.typography.bodySmall,
-+                color = MaterialTheme.colorScheme.onSurfaceVariant
-+            )
-+            SettingRow(
-+                title = if (lang == Lang.FA) "اتصال مجدد با تغییر شبکه" else "Reconnect on network change",
-+                subtitle = if (lang == Lang.FA)
-+                    "با جابه‌جایی بین Wi‑Fi و دیتای موبایل، OpenVPN اتصال را دوباره برقرار می‌کند."
-+                else "Reconnect OpenVPN when Android switches between Wi-Fi and mobile data.",
-+                checked = ovpnReconnectOnNetworkChange,
-+                onCheckedChange = { value ->
-+                    ovpnReconnectOnNetworkChange = value
-+                    GhajarOpenVpnSettings.setReconnectOnNetworkChange(settingsContext, value)
-+                }
-+            )
-+            SettingRow(
-+                title = if (lang == Lang.FA) "استفاده از پروکسی سیستم" else "Use system proxy",
-+                subtitle = if (lang == Lang.FA)
-+                    "تنظیمات HTTP Proxy اندروید را هنگام ساخت کانفیگ OpenVPN اعمال می‌کند."
-+                else "Honor Android's HTTP proxy when OpenVPN builds the runtime config.",
-+                checked = ovpnUseSystemProxy,
-+                onCheckedChange = { value ->
-+                    ovpnUseSystemProxy = value
-+                    GhajarOpenVpnSettings.setUseSystemProxy(settingsContext, value)
-+                }
-+            )
-+            SettingRow(
-+                title = if (lang == Lang.FA) "مکث هنگام خاموش بودن صفحه" else "Pause when screen is off",
-+                subtitle = if (lang == Lang.FA)
-+                    "برای صرفه‌جویی باتری؛ خاموش باشد تا اتصال پایدارتر بماند."
-+                else "Battery-saving mode. Keep this off for the most stable connection.",
-+                checked = ovpnPauseOnScreenOff,
-+                onCheckedChange = { value ->
-+                    ovpnPauseOnScreenOff = value
-+                    GhajarOpenVpnSettings.setPauseOnScreenOff(settingsContext, value)
-+                }
-+            )
-+            SettingRow(
-+                title = if (lang == Lang.FA) "رمزگذاری پروفایل‌های OpenVPN" else "Encrypt OpenVPN profiles",
-+                subtitle = if (lang == Lang.FA)
-+                    "در صورت پشتیبانی اندروید، اطلاعات پروفایل‌های ذخیره‌شده محافظت می‌شوند."
-+                else "Prefer encrypted profile storage when Android supports it.",
-+                checked = ovpnEncryptProfiles,
-+                onCheckedChange = { value ->
-+                    ovpnEncryptProfiles = value
-+                    GhajarOpenVpnSettings.setEncryptProfiles(settingsContext, value)
-+                }
-+            )
-+            Card(
-+                modifier = Modifier.fillMaxWidth().clickable {
-+                    runCatching {
-+                        settingsContext.startActivity(
-+                            Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
-+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-+                        )
-+                    }
-+                },
-+                shape = RoundedCornerShape(16.dp),
-+                colors = CardDefaults.cardColors(
-+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.30f)
-+                )
-+            ) {
-+                Row(
-+                    Modifier.fillMaxWidth().padding(14.dp),
-+                    verticalAlignment = Alignment.CenterVertically
-+                ) {
-+                    Icon(Icons.Filled.Lock, contentDescription = null,
-+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(20.dp))
-+                    Spacer(Modifier.width(12.dp))
-+                    Column(Modifier.weight(1f)) {
-+                        Text(
-+                            if (lang == Lang.FA) "Always-on VPN و قطع اینترنت بدون VPN" else "Always-on VPN & block without VPN",
-+                            style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold
-+                        )
-+                        Text(
-+                            if (lang == Lang.FA) "باز کردن تنظیمات VPN خود اندروید" else "Open Android VPN settings",
-+                            style = MaterialTheme.typography.bodySmall,
-+                            color = MaterialTheme.colorScheme.onSurfaceVariant
-+                        )
-+                    }
-+                    Icon(Icons.Filled.ChevronRight, contentDescription = null)
-+                }
-+            }
-+        }
-+
-         SettingsHubCard(
-             icon = Icons.Filled.Apps,
-             title = t("per_app"),
+\ No newline at end of file
 diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidManifest.xml
 index 9de8e40..4adc586 100644
 --- a/openvpn/src/main/AndroidManifest.xml
@@ -293,8 +172,6 @@ index 9de8e40..4adc586 100644
                  android:exported="false"
 +                android:process=":openvpn"
                  android:permission="android.permission.BIND_JOB_SERVICE"/>
- 
- 
 diff --git a/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java b/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java
 index a49e1a2..0df1bdc 100644
 --- a/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java
