@@ -166,7 +166,7 @@ diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidMani
 index 9de8e40..4adc586 100644
 --- a/openvpn/src/main/AndroidManifest.xml
 +++ b/openvpn/src/main/AndroidManifest.xml
-@@ -83,6 +83,7 @@
+@@ -83,4 +83,5 @@
  
          <service android:name=".core.keepVPNAlive"
                  android:exported="false"
