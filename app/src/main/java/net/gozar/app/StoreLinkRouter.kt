@@ -15,7 +15,7 @@ object StoreLinkRouter {
             ?: return StoreRoute(StoreLinkKind.REJECTED, Uri.EMPTY)
         if (!uri.scheme.equals("https", true) || uri.userInfo != null) return StoreRoute(StoreLinkKind.REJECTED, uri)
         if (payment) {
-            return if (BrandConfig.isTrustedPaymentUri(uri, uri.host)) StoreRoute(StoreLinkKind.PAYMENT, uri)
+            return if (BrandConfig.isTrustedPaymentUri(uri, null)) StoreRoute(StoreLinkKind.PAYMENT, uri)
             else StoreRoute(StoreLinkKind.REJECTED, uri)
         }
         val path = uri.path.orEmpty().lowercase()

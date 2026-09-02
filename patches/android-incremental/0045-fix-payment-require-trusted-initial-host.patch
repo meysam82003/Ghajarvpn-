@@ -1,0 +1,44 @@
+From 4e97feea0905e9839ee1358d7a1e94d189ea3ff5 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 19:12:45 +0200
+Subject: [PATCH] fix(payment): require trusted host on initial checkout
+
+---
+ app/src/main/java/net/gozar/app/SecurePaymentActivity.kt | 4 ++--
+ app/src/main/java/net/gozar/app/StoreLinkRouter.kt       | 2 +-
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+index 6ccda97..430cb1e 100644
+--- a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
++++ b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+@@ -50,11 +50,11 @@ class SecurePaymentActivity : Activity() {
+         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+ 
+         val checkoutUrl = intent.getStringExtra(EXTRA_URL)?.toUri()
+-        initialHost = checkoutUrl?.host
+-        if (checkoutUrl == null || !BrandConfig.isTrustedPaymentUri(checkoutUrl, initialHost)) {
++        if (checkoutUrl == null || !BrandConfig.isTrustedPaymentUri(checkoutUrl, null)) {
+             finishWithError("آدرس پرداخت امن یا معتبر نیست")
+             return
+         }
++        initialHost = checkoutUrl.host
+         accountToken = GhajarAccountStore(this).token()
+ 
+         webContainer = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 27, 46)) }
+diff --git a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+index 31c7ca2..1c1ac07 100644
+--- a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
++++ b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+@@ -15,7 +15,7 @@ object StoreLinkRouter {
+             ?: return StoreRoute(StoreLinkKind.REJECTED, Uri.EMPTY)
+         if (!uri.scheme.equals("https", true) || uri.userInfo != null) return StoreRoute(StoreLinkKind.REJECTED, uri)
+         if (payment) {
+-            return if (BrandConfig.isTrustedPaymentUri(uri, uri.host)) StoreRoute(StoreLinkKind.PAYMENT, uri)
++            return if (BrandConfig.isTrustedPaymentUri(uri, null)) StoreRoute(StoreLinkKind.PAYMENT, uri)
+             else StoreRoute(StoreLinkKind.REJECTED, uri)
+         }
+         val path = uri.path.orEmpty().lowercase()
+-- 
+2.51.1
+

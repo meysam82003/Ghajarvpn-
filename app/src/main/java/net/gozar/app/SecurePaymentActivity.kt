@@ -50,11 +50,11 @@ class SecurePaymentActivity : Activity() {
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
 
         val checkoutUrl = intent.getStringExtra(EXTRA_URL)?.toUri()
-        initialHost = checkoutUrl?.host
-        if (checkoutUrl == null || !BrandConfig.isTrustedPaymentUri(checkoutUrl, initialHost)) {
+        if (checkoutUrl == null || !BrandConfig.isTrustedPaymentUri(checkoutUrl, null)) {
             finishWithError("آدرس پرداخت امن یا معتبر نیست")
             return
         }
+        initialHost = checkoutUrl.host
         accountToken = GhajarAccountStore(this).token()
 
         webContainer = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 27, 46)) }
