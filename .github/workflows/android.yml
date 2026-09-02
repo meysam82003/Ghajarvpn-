@@ -66,6 +66,7 @@ jobs:
               '.core.OpenVPNService',
               '.api.ExternalOpenVPNService',
               '.core.OpenVPNStatusService',
+              '.core.keepVPNAlive',
           }
           found = {}
           for service in tree.getroot().find('application').findall('service'):
@@ -78,7 +79,23 @@ jobs:
           wrong = {name: proc for name, proc in found.items() if proc != ':openvpn'}
           if wrong:
               raise SystemExit(f'OpenVPN services must run in :openvpn: {wrong}')
-          print('OpenVPN engine/status/API services are isolated in :openvpn')
+          print('OpenVPN engine/status/API/keepalive services are isolated in :openvpn')
+          PY
+      - name: Verify OpenVPN foreground channels are initialized
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+
+          source = Path(os.environ['GHAJAR_SOURCE_ROOT']) / 'app/src/main/java/net/gozar/app/Gozarapplication.kt'
+          text = source.read_text(encoding='utf-8')
+          required = ('openvpn_bg', 'openvpn_newstat', 'openvpn_userreq')
+          missing = [channel for channel in required if channel not in text]
+          if missing:
+              raise SystemExit(f'Missing OpenVPN notification channel IDs: {missing}')
+          if 'ensureOpenVpnNotificationChannels()' not in text or 'createNotificationChannels' not in text:
+              raise SystemExit('Ghajar Application does not initialize OpenVPN foreground channels')
+          print('Ghajar initializes all OpenVPN foreground notification channels')
           PY
       - name: Upload reconstructed OpenVPN integration sources
         if: env.GHAJAR_SOURCE_ROOT != '.'
@@ -86,6 +103,7 @@ jobs:
         with:
           name: Ghajarvpn-openvpn-integration-sources
           path: |
+            ${{ env.GHAJAR_SOURCE_ROOT }}/app/src/main/java/net/gozar/app/Gozarapplication.kt
             ${{ env.GHAJAR_SOURCE_ROOT }}/app/src/main/java/net/gozar/app/MainActivity.kt
             ${{ env.GHAJAR_SOURCE_ROOT }}/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
             ${{ env.GHAJAR_SOURCE_ROOT }}/openvpn/src/main/AndroidManifest.xml

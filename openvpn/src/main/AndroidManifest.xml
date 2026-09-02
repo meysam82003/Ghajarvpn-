@@ -83,6 +83,7 @@
 
         <service android:name=".core.keepVPNAlive"
                 android:exported="false"
+                android:process=":openvpn"
                 android:permission="android.permission.BIND_JOB_SERVICE"/>
 
 
@@ -127,17 +128,17 @@
             android:exported="false"
             android:targetActivity=".api.RemoteAction" />
         <activity-alias
-                android:name=".api.PauseVPN"
-                android:exported="false"
-                android:targetActivity=".api.RemoteAction" />
+            android:name=".api.PauseVPN"
+            android:exported="false"
+            android:targetActivity=".api.RemoteAction" />
         <activity-alias
-                android:name=".api.ResumeVPN"
-                android:exported="false"
-                android:targetActivity=".api.RemoteAction" />
+            android:name=".api.ResumeVPN"
+            android:exported="false"
+            android:targetActivity=".api.RemoteAction" />
         <activity-alias
-                android:name=".api.SetDefaultVPN"
-                android:exported="false"
-                android:targetActivity=".api.RemoteAction" />
+            android:name=".api.SetDefaultVPN"
+            android:exported="false"
+            android:targetActivity=".api.RemoteAction" />
 
     </application>
 

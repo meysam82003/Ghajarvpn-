@@ -1,0 +1,99 @@
+From 30d6a096ea92a475a1033d23f76c443b68431cd9 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Wed, 2 Sep 2026 14:59:43 +0000
+Subject: [PATCH] fix(openvpn): initialize foreground channels and isolate
+ keepalive
+
+---
+ .../java/net/gozar/app/Gozarapplication.kt    | 51 +++++++++++++++++++
+ openvpn/src/main/AndroidManifest.xml          |  1 +
+ 2 files changed, 52 insertions(+)
+
+diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+index c6b7bb6..3174ee0 100644
+--- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
++++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+@@ -1,6 +1,10 @@
+ package net.gozar.app
+ 
+ import android.app.Activity
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.content.Context
++import android.os.Build
+ import android.os.Bundle
+ import kotlinx.coroutines.CoroutineScope
+ import kotlinx.coroutines.Dispatchers
+@@ -16,6 +20,7 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+ 
+     override fun onCreate() {
+         super.onCreate()
++        ensureOpenVpnNotificationChannels()
+ 
+         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+             override fun onActivityStarted(activity: Activity) {
+@@ -36,4 +41,50 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+         })
+ 
+     }
++
++    /**
++     * ics-openvpn normally creates these channels from ICSOpenVPNApplication.
++     * Ghajar has its own Application class, so create the exact channel IDs here
++     * before OpenVPNService calls startForeground() on Android 8+.
++     */
++    private fun ensureOpenVpnNotificationChannels() {
++        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
++
++        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
++        val appName = getString(R.string.app_name)
++
++        val background = NotificationChannel(
++            OPENVPN_CHANNEL_BACKGROUND,
++            "$appName · OpenVPN",
++            NotificationManager.IMPORTANCE_MIN,
++        ).apply {
++            description = "اتصال فعال OpenVPN"
++            enableLights(false)
++        }
++
++        val status = NotificationChannel(
++            OPENVPN_CHANNEL_STATUS,
++            "$appName · وضعیت OpenVPN",
++            NotificationManager.IMPORTANCE_LOW,
++        ).apply {
++            description = "تغییرات وضعیت اتصال OpenVPN"
++        }
++
++        val userRequest = NotificationChannel(
++            OPENVPN_CHANNEL_USER_REQUEST,
++            "$appName · درخواست OpenVPN",
++            NotificationManager.IMPORTANCE_HIGH,
++        ).apply {
++            description = "درخواست‌های ورود و احراز هویت OpenVPN"
++            enableVibration(true)
++        }
++
++        manager.createNotificationChannels(listOf(background, status, userRequest))
++    }
++
++    private companion object {
++        const val OPENVPN_CHANNEL_BACKGROUND = "openvpn_bg"
++        const val OPENVPN_CHANNEL_STATUS = "openvpn_newstat"
++        const val OPENVPN_CHANNEL_USER_REQUEST = "openvpn_userreq"
++    }
+ }
+diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidManifest.xml
+index 9de8e40..4adc586 100644
+--- a/openvpn/src/main/AndroidManifest.xml
++++ b/openvpn/src/main/AndroidManifest.xml
+@@ -83,6 +83,7 @@
+ 
+         <service android:name=".core.keepVPNAlive"
+                 android:exported="false"
++                android:process=":openvpn"
+                 android:permission="android.permission.BIND_JOB_SERVICE"/>
+ 
+ 
+-- 
+2.47.3

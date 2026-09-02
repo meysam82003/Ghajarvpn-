@@ -10,6 +10,7 @@ snapshots=(
   "openvpn/build.gradle.kts"
   "strongswan/build.gradle.kts"
   "settings.gradle.kts"
+  "app/src/main/java/net/gozar/app/Gozarapplication.kt"
   "app/src/main/java/net/gozar/app/BrandConfig.kt"
   "app/src/main/java/net/gozar/app/GhajarAccountStore.kt"
   "app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt"
