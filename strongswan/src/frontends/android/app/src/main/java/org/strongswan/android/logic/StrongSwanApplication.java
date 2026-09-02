@@ -17,7 +17,6 @@
 
 package org.strongswan.android.logic;
 
-import android.app.ActivityManager;
 import android.app.Application;
 import android.content.BroadcastReceiver;
 import android.content.Context;
@@ -25,7 +24,6 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Handler;
 import android.os.Looper;
-import android.os.Process;
 import android.util.Log;
 
 import org.strongswan.android.data.DatabaseHelper;
@@ -82,16 +80,6 @@ public class StrongSwanApplication extends Application
 		StrongSwanApplication.mContext = getApplicationContext();
 		StrongSwanApplication.mInstance = this;
 
-		/* Ghajar hosts ics-openvpn in a dedicated :openvpn process.  The system
-		 * creates the Application object there before OpenVPNService.  StrongSwan
-		 * database/certificate initialisation is unrelated to OpenVPN and can make
-		 * that service process fail before the VPN service is even created. */
-		if (isOpenVpnProcess())
-		{
-			Log.i(TAG, "Skipping StrongSwan app init in isolated OpenVPN process");
-			return;
-		}
-
 		mDatabaseHelper = new DatabaseHelper(mContext);
 
 		mManagedConfigurationService = new ManagedConfigurationService(mContext);
@@ -105,24 +93,6 @@ public class StrongSwanApplication extends Application
 
 		final IntentFilter restrictionsFilter = new IntentFilter(Intent.ACTION_APPLICATION_RESTRICTIONS_CHANGED);
 		registerReceiver(mRestrictionsReceiver, restrictionsFilter);
-	}
-
-	private boolean isOpenVpnProcess()
-	{
-		ActivityManager manager = (ActivityManager)getSystemService(Context.ACTIVITY_SERVICE);
-		if (manager == null)
-		{
-			return false;
-		}
-		int pid = Process.myPid();
-		for (ActivityManager.RunningAppProcessInfo process : manager.getRunningAppProcesses())
-		{
-			if (process.pid == pid)
-			{
-				return process.processName != null && process.processName.endsWith(":openvpn");
-			}
-		}
-		return false;
 	}
 
 	private void reloadManagedConfigurationAndNotifyListeners()
