@@ -376,7 +376,14 @@ class GhajarPlayerActivity : Activity() {
     private val statsUpdater = object : Runnable {
         override fun run() {
             if (::player.isInitialized && ::stats.isInitialized && stats.visibility == View.VISIBLE) {
-                val format = player.videoFormat
+                var format: androidx.media3.common.Format? = null
+                player.currentTracks.groups.forEach { group ->
+                    if (group.type == C.TRACK_TYPE_VIDEO) {
+                        for (index in 0 until group.length) {
+                            if (group.isTrackSelected(index)) format = group.getTrackFormat(index)
+                        }
+                    }
+                }
                 stats.text = "${format?.width ?: 0}×${format?.height ?: 0}  •  ${(format?.bitrate ?: 0) / 1000} kbps  •  buffer ${player.totalBufferedDuration / 1000}s"
             }
             handler.postDelayed(this, 1000)
