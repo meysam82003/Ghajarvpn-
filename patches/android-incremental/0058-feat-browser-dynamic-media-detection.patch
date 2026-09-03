@@ -1,0 +1,235 @@
+From a6a5968f65e22b42d20f1fe05828c1e1bd4438fa Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 3 Sep 2026 14:08:27 -0400
+Subject: [PATCH] feat(browser): detect dynamic page media safely
+
+---
+ .../browser/GhajarBrowserActivity.kt          | 43 +++++++++++-
+ .../browser/media/BrowserMediaBridge.kt       | 65 +++++++++++++++----
+ .../ghajarvpn/browser/media/MediaModels.kt    |  9 ++-
+ .../browser/media/MediaSourceResolverTest.kt  | 11 ++++
+ 4 files changed, 109 insertions(+), 19 deletions(-)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+index 6d157a2..42faa9b 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -82,6 +82,8 @@ class GhajarBrowserActivity : Activity() {
+     private var fullScreenCallback: WebChromeClient.CustomViewCallback? = null
+     private var fileCallback: ValueCallback<Array<Uri>>? = null
+     private var pendingPermission: PermissionRequest? = null
++    private var pendingMediaPermission: Pair<String, MediaCandidate>? = null
++    private var mediaNotificationPrompted = false
+     private var proxyPort = BrowserContract.DEFAULT_PROXY_PORT
+     private var vpnConnected = false
+     private var serverLabel = ""
+@@ -332,7 +334,20 @@ class GhajarBrowserActivity : Activity() {
+ 
+     private fun registerMedia(tab: BrowserTab, candidate: MediaCandidate) {
+         val values = mediaCandidates.getOrPut(tab.id) { mutableListOf() }
+-        if (values.none { it.url == candidate.url }) values += candidate
++        val existingIndex = values.indexOfFirst { it.url == candidate.url }
++        if (existingIndex >= 0) {
++            val existing = values[existingIndex]
++            values[existingIndex] = candidate.copy(
++                title = candidate.title.ifBlank { existing.title },
++                mimeType = candidate.mimeType.ifBlank { existing.mimeType },
++                kind = candidate.kind.takeUnless { it == MediaKind.UNKNOWN } ?: existing.kind,
++                subtitles = (existing.subtitles + candidate.subtitles)
++                    .distinctBy { it.url }
++                    .take(BrowserMediaBridge.MAX_SUBTITLE_TRACKS)
++            )
++        } else if (values.size < MAX_MEDIA_CANDIDATES) {
++            values += candidate
++        }
+         if (tab.id == activeId && values.isNotEmpty()) videoButton.visibility = View.VISIBLE
+     }
+ 
+@@ -354,7 +369,20 @@ class GhajarBrowserActivity : Activity() {
+             toast("پخش مستقیم مسدود شد؛ ابتدا مسیر VPN مرورگر را آماده کنید")
+             return
+         }
+-        val web = currentWebView() ?: return
++        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
++            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
++            !mediaNotificationPrompted
++        ) {
++            mediaNotificationPrompted = true
++            pendingMediaPermission = tab.id to candidate
++            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), MEDIA_NOTIFICATION_REQUEST)
++            return
++        }
++        startMedia(tab, candidate)
++    }
++
++    private fun startMedia(tab: BrowserTab, candidate: MediaCandidate) {
++        val web = webViews[tab.id] ?: return
+         val headers = linkedMapOf(
+             "User-Agent" to web.settings.userAgentString,
+             "Referer" to tab.url
+@@ -765,7 +793,14 @@ class GhajarBrowserActivity : Activity() {
+ 
+     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+-        if (requestCode == CAMERA_REQUEST) {
++        if (requestCode == MEDIA_NOTIFICATION_REQUEST) {
++            val pending = pendingMediaPermission
++            pendingMediaPermission = null
++            if (grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED) {
++                toast("پخش ادامه دارد؛ اعلان کنترل رسانه غیرفعال است")
++            }
++            pending?.let { (tabId, candidate) -> tabs.firstOrNull { it.id == tabId }?.let { startMedia(it, candidate) } }
++        } else if (requestCode == CAMERA_REQUEST) {
+             val request = pendingPermission; pendingPermission = null
+             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) request?.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) else request?.deny()
+         }
+@@ -819,6 +854,8 @@ class GhajarBrowserActivity : Activity() {
+     companion object {
+         private const val FILE_REQUEST = 731
+         private const val CAMERA_REQUEST = 732
++        private const val MEDIA_NOTIFICATION_REQUEST = 733
++        private const val MAX_MEDIA_CANDIDATES = 24
+         private const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
+         private val READER_SCRIPT = """
+             (()=>{const a=document.querySelector('article,main,[role=main]')||document.body;document.body.innerHTML='';document.body.appendChild(a);document.body.style='max-width:760px;margin:auto;padding:24px;font:19px/1.8 sans-serif';document.querySelectorAll('script,style,nav,aside,footer,iframe').forEach(x=>x.remove())})()
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt b/browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt
+index a635087..00e3217 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt
+@@ -7,36 +7,75 @@ import org.json.JSONObject
+ class BrowserMediaBridge(private val deliver: (MediaCandidate) -> Unit) {
+     @JavascriptInterface
+     fun found(value: String) {
++        if (value.length > MAX_BRIDGE_MESSAGE_LENGTH) return
+         val parsed = runCatching {
+             val json = JSONObject(value)
+             val base = MediaSourceResolver.resolve(json.optString("url"), json.optString("type")) ?: return
+             val tracks = json.optJSONArray("tracks")
+-            val subtitles = (0 until (tracks?.length() ?: 0)).mapNotNull { i ->
++            val subtitles = (0 until minOf(tracks?.length() ?: 0, MAX_SUBTITLE_TRACKS)).mapNotNull { i ->
+                 val item = tracks?.optJSONObject(i) ?: return@mapNotNull null
+                 val source = MediaSourceResolver.resolve(item.optString("url"))?.url ?: return@mapNotNull null
+                 SubtitleCandidate(source, item.optString("label"), item.optString("lang"))
+-            }
++            }.distinctBy(SubtitleCandidate::url)
+             base.copy(title = json.optString("title").take(200), subtitles = subtitles)
+         }.getOrNull() ?: return
+         deliver(parsed)
+     }
+ 
+     companion object {
++        internal const val MAX_BRIDGE_MESSAGE_LENGTH = 64 * 1024
++        internal const val MAX_SUBTITLE_TRACKS = 16
++
+         val DISCOVERY_SCRIPT = """
+             (() => {
+-              const seen = new Set();
++              if (window.__ghajarMediaObserverInstalled) return;
++              window.__ghajarMediaObserverInstalled = true;
++              const seen = new Set(), watched = new WeakSet();
++              const absolute = value => {
++                try {
++                  const url = new URL(value, location.href).href;
++                  return url.length <= 8192 && !/^(blob|data|file):/i.test(url) ? url : '';
++                } catch (_) { return ''; }
++              };
+               const send = (url, type, video) => {
+-                if (!url || seen.has(url) || /^(blob|data|file):/i.test(url)) return;
+-                seen.add(url);
+-                const tracks = video ? Array.from(video.querySelectorAll('track[kind="subtitles"],track[kind="captions"]')).map(t => ({url:new URL(t.src,location.href).href,label:t.label||'',lang:t.srclang||''})) : [];
+-                try { GhajarMedia.found(JSON.stringify({url:new URL(url,location.href).href,type:type||'',title:document.title||'',tracks})); } catch (_) {}
++                const resolved = absolute(url);
++                if (!resolved) return;
++                const tracks = video ? Array.from(video.querySelectorAll('track[kind="subtitles"],track[kind="captions"]')).slice(0,16).map(t => ({url:absolute(t.src),label:(t.label||'').slice(0,100),lang:(t.srclang||'').slice(0,35)})).filter(t => t.url) : [];
++                const signature = resolved + '|' + tracks.map(t => t.url).join('|');
++                if (seen.has(signature)) return;
++                if (seen.size >= 128) seen.clear();
++                seen.add(signature);
++                try { GhajarMedia.found(JSON.stringify({url:resolved,type:(type||'').slice(0,100),title:(document.title||'').slice(0,200),tracks})); } catch (_) {}
++              };
++              const inspectVideo = video => {
++                if (!video || video.tagName !== 'VIDEO') return;
++                const report = () => send(video.currentSrc || video.src, video.getAttribute('type') || '', video);
++                report();
++                video.querySelectorAll('source').forEach(source => send(source.src, source.type, video));
++                if (watched.has(video)) return;
++                watched.add(video);
++                video.addEventListener('play', report);
++                video.addEventListener('loadedmetadata', report);
++                video.addEventListener('durationchange', report);
++              };
++              const inspectNode = node => {
++                if (!node || node.nodeType !== Node.ELEMENT_NODE) return;
++                inspectVideo(node);
++                node.querySelectorAll && node.querySelectorAll('video').forEach(inspectVideo);
+               };
+-              document.querySelectorAll('video').forEach(v => {
+-                send(v.currentSrc || v.src, v.getAttribute('type') || '', v);
+-                v.querySelectorAll('source').forEach(s => send(s.src, s.type, v));
+-                v.addEventListener('loadedmetadata', () => send(v.currentSrc || v.src, '', v), {once:true});
+-              });
+-              performance.getEntriesByType('resource').forEach(e => { if (/\\.(mp4|webm|m3u8|mpd)(?:$|[?#])/i.test(e.name)) send(e.name,'',null); });
++              document.querySelectorAll('video').forEach(inspectVideo);
++              const inspectResource = entry => { if (/\\.(mp4|webm|m3u8|mpd)(?:$|[?#])/i.test(entry.name)) send(entry.name,'',null); };
++              performance.getEntriesByType('resource').forEach(inspectResource);
++              try {
++                const performanceObserver = new PerformanceObserver(list => list.getEntries().forEach(inspectResource));
++                performanceObserver.observe({type:'resource', buffered:true});
++              } catch (_) {}
++              const mutationObserver = new MutationObserver(mutations => mutations.forEach(mutation => {
++                mutation.addedNodes.forEach(inspectNode);
++                const target = mutation.target;
++                inspectVideo(target && target.tagName === 'SOURCE' ? target.parentElement : target);
++              }));
++              mutationObserver.observe(document.documentElement || document, {subtree:true, childList:true, attributes:true, attributeFilter:['src','type']});
+             })()
+         """.trimIndent()
+     }
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+index d2c63ca..7117eac 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+@@ -63,16 +63,19 @@ object MediaSessionVault {
+ }
+ 
+ object MediaSourceResolver {
++    const val MAX_MEDIA_URL_LENGTH = 8192
+     private val mediaExtensions = Regex("(?i)\\.(mp4|m4v|webm|mkv|m3u8|mpd)(?:$|[?#])")
+ 
+     fun resolve(raw: String, mime: String = ""): MediaCandidate? {
+-        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
++        val clean = raw.trim()
++        if (clean.isEmpty() || clean.length > MAX_MEDIA_URL_LENGTH || raw.any(Char::isISOControl)) return null
++        val uri = runCatching { URI(clean) }.getOrNull() ?: return null
+         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
+-        if (raw.contains("drm", true) || raw.contains("widevine", true) || mime.contains("encrypted", true)) return null
++        if (clean.contains("drm", true) || clean.contains("widevine", true) || mime.contains("encrypted", true)) return null
+         val kind = when {
+             uri.path.orEmpty().endsWith(".m3u8", true) || mime.contains("mpegurl", true) -> MediaKind.HLS
+             uri.path.orEmpty().endsWith(".mpd", true) || mime.contains("dash", true) -> MediaKind.DASH
+-            mediaExtensions.containsMatchIn(raw) || mime.startsWith("video/", true) -> MediaKind.PROGRESSIVE
++            mediaExtensions.containsMatchIn(clean) || mime.startsWith("video/", true) -> MediaKind.PROGRESSIVE
+             else -> MediaKind.UNKNOWN
+         }
+         return MediaCandidate(uri.toASCIIString(), mimeType = mime, kind = kind)
+diff --git a/browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt b/browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt
+index 27a78ce..83941d2 100644
+--- a/browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt
++++ b/browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt
+@@ -15,5 +15,16 @@ class MediaSourceResolverTest {
+         assertNull(MediaSourceResolver.resolve("file:///secret.mp4"))
+         assertNull(MediaSourceResolver.resolve("https://user:pass@example.com/video.mp4"))
+         assertNull(MediaSourceResolver.resolve("https://example.com/widevine/video.mpd"))
++        assertNull(MediaSourceResolver.resolve("https://example.com/video.mp4\n"))
++        assertNull(MediaSourceResolver.resolve("https://example.com/" + "a".repeat(MediaSourceResolver.MAX_MEDIA_URL_LENGTH)))
++    }
++
++    @Test fun discoveryObservesDynamicMediaWithoutInterceptingPageRequests() {
++        val script = BrowserMediaBridge.DISCOVERY_SCRIPT
++        assertTrue(script.contains("new MutationObserver"))
++        assertTrue(script.contains("new PerformanceObserver"))
++        assertTrue(script.contains("addEventListener('play'"))
++        assertFalse(script.contains("window.fetch ="))
++        assertFalse(script.contains("XMLHttpRequest.prototype"))
+     }
+ }

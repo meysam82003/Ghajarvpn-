@@ -82,6 +82,8 @@ class GhajarBrowserActivity : Activity() {
     private var fullScreenCallback: WebChromeClient.CustomViewCallback? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermission: PermissionRequest? = null
+    private var pendingMediaPermission: Pair<String, MediaCandidate>? = null
+    private var mediaNotificationPrompted = false
     private var proxyPort = BrowserContract.DEFAULT_PROXY_PORT
     private var vpnConnected = false
     private var serverLabel = ""
@@ -332,7 +334,20 @@ class GhajarBrowserActivity : Activity() {
 
     private fun registerMedia(tab: BrowserTab, candidate: MediaCandidate) {
         val values = mediaCandidates.getOrPut(tab.id) { mutableListOf() }
-        if (values.none { it.url == candidate.url }) values += candidate
+        val existingIndex = values.indexOfFirst { it.url == candidate.url }
+        if (existingIndex >= 0) {
+            val existing = values[existingIndex]
+            values[existingIndex] = candidate.copy(
+                title = candidate.title.ifBlank { existing.title },
+                mimeType = candidate.mimeType.ifBlank { existing.mimeType },
+                kind = candidate.kind.takeUnless { it == MediaKind.UNKNOWN } ?: existing.kind,
+                subtitles = (existing.subtitles + candidate.subtitles)
+                    .distinctBy { it.url }
+                    .take(BrowserMediaBridge.MAX_SUBTITLE_TRACKS)
+            )
+        } else if (values.size < MAX_MEDIA_CANDIDATES) {
+            values += candidate
+        }
         if (tab.id == activeId && values.isNotEmpty()) videoButton.visibility = View.VISIBLE
     }
 
@@ -354,7 +369,20 @@ class GhajarBrowserActivity : Activity() {
             toast("پخش مستقیم مسدود شد؛ ابتدا مسیر VPN مرورگر را آماده کنید")
             return
         }
-        val web = currentWebView() ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !mediaNotificationPrompted
+        ) {
+            mediaNotificationPrompted = true
+            pendingMediaPermission = tab.id to candidate
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), MEDIA_NOTIFICATION_REQUEST)
+            return
+        }
+        startMedia(tab, candidate)
+    }
+
+    private fun startMedia(tab: BrowserTab, candidate: MediaCandidate) {
+        val web = webViews[tab.id] ?: return
         val headers = linkedMapOf(
             "User-Agent" to web.settings.userAgentString,
             "Referer" to tab.url
@@ -765,7 +793,14 @@ class GhajarBrowserActivity : Activity() {
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == CAMERA_REQUEST) {
+        if (requestCode == MEDIA_NOTIFICATION_REQUEST) {
+            val pending = pendingMediaPermission
+            pendingMediaPermission = null
+            if (grantResults.firstOrNull() != PackageManager.PERMISSION_GRANTED) {
+                toast("پخش ادامه دارد؛ اعلان کنترل رسانه غیرفعال است")
+            }
+            pending?.let { (tabId, candidate) -> tabs.firstOrNull { it.id == tabId }?.let { startMedia(it, candidate) } }
+        } else if (requestCode == CAMERA_REQUEST) {
             val request = pendingPermission; pendingPermission = null
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) request?.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) else request?.deny()
         }
@@ -819,6 +854,8 @@ class GhajarBrowserActivity : Activity() {
     companion object {
         private const val FILE_REQUEST = 731
         private const val CAMERA_REQUEST = 732
+        private const val MEDIA_NOTIFICATION_REQUEST = 733
+        private const val MAX_MEDIA_CANDIDATES = 24
         private const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
         private val READER_SCRIPT = """
             (()=>{const a=document.querySelector('article,main,[role=main]')||document.body;document.body.innerHTML='';document.body.appendChild(a);document.body.style='max-width:760px;margin:auto;padding:24px;font:19px/1.8 sans-serif';document.querySelectorAll('script,style,nav,aside,footer,iframe').forEach(x=>x.remove())})()

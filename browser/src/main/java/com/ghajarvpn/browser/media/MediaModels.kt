@@ -63,16 +63,19 @@ object MediaSessionVault {
 }
 
 object MediaSourceResolver {
+    const val MAX_MEDIA_URL_LENGTH = 8192
     private val mediaExtensions = Regex("(?i)\\.(mp4|m4v|webm|mkv|m3u8|mpd)(?:$|[?#])")
 
     fun resolve(raw: String, mime: String = ""): MediaCandidate? {
-        val uri = runCatching { URI(raw.trim()) }.getOrNull() ?: return null
+        val clean = raw.trim()
+        if (clean.isEmpty() || clean.length > MAX_MEDIA_URL_LENGTH || raw.any(Char::isISOControl)) return null
+        val uri = runCatching { URI(clean) }.getOrNull() ?: return null
         if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
-        if (raw.contains("drm", true) || raw.contains("widevine", true) || mime.contains("encrypted", true)) return null
+        if (clean.contains("drm", true) || clean.contains("widevine", true) || mime.contains("encrypted", true)) return null
         val kind = when {
             uri.path.orEmpty().endsWith(".m3u8", true) || mime.contains("mpegurl", true) -> MediaKind.HLS
             uri.path.orEmpty().endsWith(".mpd", true) || mime.contains("dash", true) -> MediaKind.DASH
-            mediaExtensions.containsMatchIn(raw) || mime.startsWith("video/", true) -> MediaKind.PROGRESSIVE
+            mediaExtensions.containsMatchIn(clean) || mime.startsWith("video/", true) -> MediaKind.PROGRESSIVE
             else -> MediaKind.UNKNOWN
         }
         return MediaCandidate(uri.toASCIIString(), mimeType = mime, kind = kind)
