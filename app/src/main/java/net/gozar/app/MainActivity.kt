@@ -991,6 +991,13 @@ class MainActivity : ComponentActivity() {
             var previous: Connection? = null
             VpnState.state.collect { state ->
                 val activeId = VpnState.activeId.value ?: store.selectedId.value
+                val activeServer = store.configs.value.firstOrNull { it.id == activeId }?.name.orEmpty()
+                com.ghajarvpn.browser.BrowserContract.notifyNetworkState(
+                    applicationContext,
+                    proxyPort = store.mixedPort.value,
+                    vpnConnected = state == Connection.CONNECTED,
+                    serverLabel = activeServer
+                )
                 val unexpectedFailure = !userDisconnectRequested &&
                         activeId?.startsWith("ovpn:") != true &&
                         state in setOf(Connection.ERROR, Connection.DISCONNECTED) &&
@@ -5594,7 +5601,16 @@ private fun ToolsScreen(
             icon = Icons.Filled.TravelExplore,
             title = "مرورگر قاجار",
             subtitle = "تب‌ها، حالت خصوصی، نشانک، محافظ ردیاب و دانلود امن",
-            onClick = { com.ghajarvpn.browser.BrowserContract.open(context) }
+            onClick = {
+                val activeId = VpnState.activeId.value ?: store.selectedId.value
+                val server = store.configs.value.firstOrNull { it.id == activeId }?.name.orEmpty()
+                com.ghajarvpn.browser.BrowserContract.open(
+                    context,
+                    proxyPort = store.mixedPort.value,
+                    vpnConnected = VpnState.state.value == Connection.CONNECTED,
+                    serverLabel = server
+                )
+            }
         )
         SettingsHubCard(
             icon = Icons.Filled.FileOpen,

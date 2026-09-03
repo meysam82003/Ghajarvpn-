@@ -8,6 +8,7 @@
             android:exported="false"
             android:label="مرورگر قاجار"
             android:launchMode="singleTop"
+            android:process=":browser"
             android:theme="@style/GhajarBrowserTheme" />
         <activity
             android:name="com.ghajarvpn.browser.media.GhajarPlayerActivity"
@@ -15,6 +16,7 @@
             android:exported="false"
             android:label="پلیر قاجار"
             android:launchMode="singleTop"
+            android:process=":browser"
             android:supportsPictureInPicture="true"
             android:theme="@style/GhajarPlayerTheme" />
     </application>

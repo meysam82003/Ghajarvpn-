@@ -5,15 +5,25 @@ import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.util.UnstableApi
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import okhttp3.OkHttpClient
+import java.net.InetSocketAddress
+import java.net.Proxy
 
 @UnstableApi
 class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
     private val headers = MediaHeaderProvider.sanitize(request.headers)
-    private val httpFactory = DefaultHttpDataSource.Factory()
-        .setAllowCrossProtocolRedirects(false)
+    private val client = OkHttpClient.Builder()
+        .followSslRedirects(false)
+        .apply {
+            if (request.route.requireLocalProxy) {
+                proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", request.route.proxyPort)))
+            }
+        }
+        .build()
+    private val httpFactory = OkHttpDataSource.Factory(client)
         .setDefaultRequestProperties(headers)
         .setUserAgent(headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value ?: "GhajarBrowser")
 
@@ -40,5 +50,9 @@ class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
         player.prepare()
     }
 
-    fun release() = player.release()
+    fun release() {
+        player.release()
+        client.connectionPool.evictAll()
+        client.dispatcher.executorService.shutdown()
+    }
 }

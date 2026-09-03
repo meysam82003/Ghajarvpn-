@@ -30,7 +30,9 @@ class DownloadEnqueueReceiver : BroadcastReceiver() {
                         "Cookie" to intent.getStringExtra(DownloadContract.EXTRA_COOKIES).orEmpty(),
                         "Referer" to intent.getStringExtra(DownloadContract.EXTRA_REFERER).orEmpty(),
                         "User-Agent" to intent.getStringExtra(DownloadContract.EXTRA_USER_AGENT).orEmpty()
-                    )
+                    ),
+                    proxyPort = if (intent.getBooleanExtra(DownloadContract.EXTRA_REQUIRE_PROXY, false))
+                        intent.getIntExtra(DownloadContract.EXTRA_PROXY_PORT, 0) else 0
                 )
                 if (DownloadRepository.get(context).enqueue(request) != null) start(context)
             } finally { pending.finish() }

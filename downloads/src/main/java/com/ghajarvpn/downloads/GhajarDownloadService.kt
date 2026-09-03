@@ -21,6 +21,8 @@ import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URI
 import java.net.URL
 import java.security.MessageDigest
@@ -240,7 +242,10 @@ class GhajarDownloadService : Service() {
         repeat(6) { redirectCount ->
             val target = URI(current)
             val sameOrigin = original.scheme.equals(target.scheme, true) && original.host.equals(target.host, true) && effectivePort(original) == effectivePort(target)
-            val connection = URL(current).openConnection() as HttpURLConnection
+            val proxy = if (task.proxyPort in 1024..65535) {
+                Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", task.proxyPort))
+            } else Proxy.NO_PROXY
+            val connection = URL(current).openConnection(proxy) as HttpURLConnection
             connection.connectTimeout = 15_000; connection.readTimeout = 30_000; connection.instanceFollowRedirects = false
             connection.setRequestProperty("Accept-Encoding", "identity")
             repository.headers(task).forEach { (name, value) ->

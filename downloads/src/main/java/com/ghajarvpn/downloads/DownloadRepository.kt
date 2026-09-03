@@ -21,6 +21,7 @@ class DownloadRepository private constructor(context: Context) {
             id = taskId, url = request.url, fileName = safeName, mimeType = request.mimeType.ifBlank { "application/octet-stream" },
             headerToken = headerToken, requestedConnections = request.requestedConnections.coerceIn(0, 8),
             priority = request.priority.coerceIn(-10, 10), wifiOnly = request.wifiOnly,
+            proxyPort = request.proxyPort.takeIf { it in 1024..65535 } ?: 0,
             expectedSha256 = request.expectedSha256.trim().lowercase().takeIf { it.matches(Regex("[0-9a-f]{64}")) }.orEmpty()
         )
         writeAll(current + task)
@@ -61,7 +62,8 @@ class DownloadRepository private constructor(context: Context) {
         put("id", id); put("url", url); put("fileName", fileName); put("mimeType", mimeType); put("headerToken", headerToken)
         put("state", state.name); put("downloadedBytes", downloadedBytes); put("totalBytes", totalBytes); put("speed", speedBytesPerSecond)
         put("requestedConnections", requestedConnections); put("activeConnections", activeConnections); put("priority", priority); put("retries", retries)
-        put("wifiOnly", wifiOnly); put("expectedSha256", expectedSha256); put("outputUri", outputUri); put("error", error)
+        put("wifiOnly", wifiOnly); put("expectedSha256", expectedSha256); put("proxyPort", proxyPort)
+        put("outputUri", outputUri); put("error", error)
         put("createdAt", createdAt); put("updatedAt", updatedAt)
     }
 
@@ -71,6 +73,7 @@ class DownloadRepository private constructor(context: Context) {
         downloadedBytes = optLong("downloadedBytes"), totalBytes = optLong("totalBytes", -1), speedBytesPerSecond = optLong("speed"),
         requestedConnections = optInt("requestedConnections"), activeConnections = optInt("activeConnections", 1), priority = optInt("priority"),
         retries = optInt("retries"), wifiOnly = optBoolean("wifiOnly"), expectedSha256 = optString("expectedSha256"),
+        proxyPort = optInt("proxyPort"),
         outputUri = optString("outputUri"), error = optString("error"), createdAt = optLong("createdAt"), updatedAt = optLong("updatedAt")
     )
 

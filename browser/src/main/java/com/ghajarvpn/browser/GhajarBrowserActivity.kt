@@ -6,8 +6,10 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.app.DownloadManager
 import android.content.ActivityNotFoundException
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
@@ -42,6 +44,7 @@ import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import com.ghajarvpn.browser.media.BrowserMediaBridge
 import com.ghajarvpn.browser.media.GhajarPlayerActivity
 import com.ghajarvpn.browser.media.MediaCandidate
@@ -65,34 +68,65 @@ class GhajarBrowserActivity : Activity() {
     private lateinit var progress: ProgressBar
     private lateinit var tabCounter: TextView
     private lateinit var videoButton: TextView
+    private lateinit var networkStatus: TextView
+    private val networkController by lazy { BrowserNetworkController(this) }
     private val mediaCandidates = linkedMapOf<String, MutableList<MediaCandidate>>()
     private var activeId = ""
     private var fullScreenView: View? = null
     private var fullScreenCallback: WebChromeClient.CustomViewCallback? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermission: PermissionRequest? = null
+    private var proxyPort = BrowserContract.DEFAULT_PROXY_PORT
+    private var vpnConnected = false
+    private var serverLabel = ""
+    private var routingReady = false
+    private var routeDecision = BrowserRouteDecision(false, false, "در حال بررسی مسیر")
+    private var networkReceiverRegistered = false
+    private val networkReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action != BrowserContract.ACTION_NETWORK_STATE) return
+            updateConnectionExtras(intent)
+            webViews.values.forEach { it.stopLoading() }
+            applyNetworkMode {
+                if (!routingReady) currentWebView()?.let(::showHome)
+            }
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = Color.rgb(7, 27, 46)
         window.navigationBarColor = Color.rgb(7, 27, 46)
         settings = repository.settings()
+        updateConnectionExtras(intent)
+        ContextCompat.registerReceiver(
+            this,
+            networkReceiver,
+            IntentFilter(BrowserContract.ACTION_NETWORK_STATE),
+            ContextCompat.RECEIVER_NOT_EXPORTED
+        )
+        networkReceiverRegistered = true
         tabs += repository.restoreTabs()
         setContentView(buildUi())
-        val requested = intent.getStringExtra(BrowserContract.EXTRA_URL)
-        val private = intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false)
-        if (private || !requested.isNullOrBlank()) {
-            newTab(requested ?: BrowserTab.HOME_URL, private)
-        } else {
-            showTab(tabs.maxByOrNull { it.lastUsed } ?: tabs.first())
+        applyNetworkMode {
+            val requested = intent.getStringExtra(BrowserContract.EXTRA_URL)
+            val private = intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false)
+            if (private || !requested.isNullOrBlank()) {
+                newTab(requested ?: BrowserTab.HOME_URL, private)
+            } else {
+                showTab(tabs.maxByOrNull { it.lastUsed } ?: tabs.first())
+            }
         }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        updateConnectionExtras(intent)
         val url = intent.getStringExtra(BrowserContract.EXTRA_URL) ?: return
-        newTab(url, intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false))
+        applyNetworkMode {
+            newTab(url, intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false))
+        }
     }
 
     private fun buildUi(): View {
@@ -153,8 +187,18 @@ class GhajarBrowserActivity : Activity() {
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100; visibility = View.GONE
         }
+        networkStatus = TextView(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(12), 0, dp(12), 0)
+            setTextColor(Color.rgb(242, 226, 185))
+            setBackgroundColor(Color.rgb(14, 45, 69))
+            textSize = 12f
+            text = "محافظ قاجار · در حال بررسی مسیر"
+            setOnClickListener { showNetworkModeDialog() }
+        }
         webContainer = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
         root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
+        root.addView(networkStatus, LinearLayout.LayoutParams(-1, dp(30)))
         root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
         root.addView(webContainer, LinearLayout.LayoutParams(-1, 0, 1f))
         return root
@@ -230,13 +274,23 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun openMedia(tab: BrowserTab, candidate: MediaCandidate) {
+        if (!routingReady) {
+            toast("پخش مستقیم مسدود شد؛ ابتدا مسیر VPN مرورگر را آماده کنید")
+            return
+        }
         val web = currentWebView() ?: return
         val headers = linkedMapOf(
             "User-Agent" to web.settings.userAgentString,
             "Referer" to tab.url
         )
         CookieManager.getInstance().getCookie(candidate.url)?.takeIf(String::isNotBlank)?.let { headers["Cookie"] = it }
-        val token = MediaSessionVault.put(MediaPlaybackRequest(candidate, headers, tab.private))
+        val route = BrowserNetworkRoute(
+            settings.networkMode,
+            proxyPort,
+            vpnConnected,
+            routeDecision.useLocalProxy
+        )
+        val token = MediaSessionVault.put(MediaPlaybackRequest(candidate, headers, tab.private, route))
         // Prevent duplicate audio; returning to the site keeps the page and tab intact.
         web.evaluateJavascript("document.querySelectorAll('video,audio').forEach(v=>v.pause())", null)
         startActivity(Intent(this, GhajarPlayerActivity::class.java).putExtra(GhajarPlayerActivity.EXTRA_SESSION, token))
@@ -272,7 +326,14 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun loadInto(web: WebView, raw: String) {
-        if (raw == BrowserTab.HOME_URL) showHome(web) else web.loadUrl(BrowserRequestPolicy.normalizeInput(raw, settings))
+        if (raw == BrowserTab.HOME_URL) {
+            showHome(web)
+        } else if (!routingReady) {
+            showHome(web)
+            toast("مسیر شبکه آماده نیست؛ حالت شبکه را تغییر دهید یا VPN را وصل کنید")
+        } else {
+            web.loadUrl(BrowserRequestPolicy.normalizeInput(raw, settings))
+        }
     }
 
     private fun showHome(web: WebView) {
@@ -306,6 +367,7 @@ class GhajarBrowserActivity : Activity() {
             menu.add("اشتراک‌گذاری")
             menu.add("باز کردن در مرورگر دیگر")
             menu.add("تاریخچه و نشانک‌ها")
+            menu.add("حالت شبکهٔ مرورگر")
             menu.add("تنظیمات حریم خصوصی")
             menu.add("پاک‌سازی داده‌های مرور")
             setOnMenuItemClickListener {
@@ -321,6 +383,7 @@ class GhajarBrowserActivity : Activity() {
                     "اشتراک‌گذاری" -> share(web.url)
                     "باز کردن در مرورگر دیگر" -> openExternal(web.url)
                     "تاریخچه و نشانک‌ها" -> showLibrary()
+                    "حالت شبکهٔ مرورگر" -> showNetworkModeDialog()
                     "تنظیمات حریم خصوصی" -> showSettings()
                     "پاک‌سازی داده‌های مرور" -> confirmClear()
                 }; true
@@ -409,6 +472,49 @@ class GhajarBrowserActivity : Activity() {
             }.setNegativeButton("لغو", null).show()
     }
 
+    private fun showNetworkModeDialog() {
+        val modes = BrowserNetworkMode.entries
+        val labels = arrayOf("مستقیم", "VPN فقط مرورگر", "VPN کل دستگاه")
+        var selected = modes.indexOf(settings.networkMode).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle("محافظ قاجار · حالت شبکه")
+            .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
+            .setPositiveButton("اعمال") { _, _ ->
+                val mode = modes[selected]
+                if (mode == settings.networkMode) return@setPositiveButton
+                webViews.values.forEach { it.stopLoading(); it.onPause() }
+                settings = settings.copy(networkMode = mode)
+                repository.saveSettings(settings)
+                applyNetworkMode {
+                    webViews.values.forEach(WebView::onResume)
+                    if (routingReady) currentWebView()?.reload()
+                    else currentWebView()?.let(::showHome)
+                }
+            }
+            .setMessage("در حالت‌های VPN اگر مسیر امن آماده نباشد، مرورگر Fail-Closed می‌شود و مستقیم وصل نخواهد شد.")
+            .setNegativeButton("لغو", null)
+            .show()
+    }
+
+    private fun updateConnectionExtras(source: Intent) {
+        proxyPort = source.getIntExtra(BrowserContract.EXTRA_PROXY_PORT, proxyPort).coerceIn(1024, 65535)
+        vpnConnected = source.getBooleanExtra(BrowserContract.EXTRA_VPN_CONNECTED, vpnConnected)
+        serverLabel = source.getStringExtra(BrowserContract.EXTRA_SERVER_LABEL)?.take(80).orEmpty()
+    }
+
+    private fun applyNetworkMode(after: () -> Unit) {
+        routingReady = false
+        if (::networkStatus.isInitialized) networkStatus.text = "محافظ قاجار · در حال بررسی مسیر"
+        networkController.apply(settings.networkMode, proxyPort, vpnConnected) route@{ decision ->
+            if (isFinishing || isDestroyed) return@route
+            routeDecision = decision
+            routingReady = decision.ready
+            val server = serverLabel.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
+            networkStatus.text = "محافظ قاجار · ${decision.message}$server · ${if (decision.ready) "متصل" else "مسدود"}"
+            after()
+        }
+    }
+
     private fun confirmClear() {
         AlertDialog.Builder(this).setTitle("جلاد قاجار · پاک‌سازی")
             .setMessage("تاریخچه، نشانک‌ها، Cookieها و Cache مرورگر پاک شوند؟ گذرواژه‌های سیستم پاک نمی‌شوند.")
@@ -430,9 +536,13 @@ class GhajarBrowserActivity : Activity() {
             putExtra(BrowserContract.EXTRA_USER_AGENT, userAgent.orEmpty())
             putExtra(BrowserContract.EXTRA_CONTENT_DISPOSITION, disposition.orEmpty())
             putExtra(BrowserContract.EXTRA_CONTENT_TYPE, mime.orEmpty())
+            putExtra(BrowserContract.EXTRA_PROXY_PORT, proxyPort)
+            putExtra(BrowserContract.EXTRA_REQUIRE_PROXY, routeDecision.useLocalProxy)
         }
         if (packageManager.queryBroadcastReceivers(handoff, 0).isNotEmpty()) {
             sendBroadcast(handoff); toast("به مدیر دانلود افزوده شد")
+        } else if (routeDecision.useLocalProxy) {
+            toast("مدیر دانلود امن در دسترس نیست؛ برای جلوگیری از نشت، دانلود مستقیم شروع نشد")
         } else {
             fallbackDownload(url, userAgent, disposition, mime, tab.url)
         }
@@ -596,7 +706,13 @@ class GhajarBrowserActivity : Activity() {
 
     override fun onDestroy() {
         fileCallback?.onReceiveValue(null); pendingPermission?.deny()
-        webViews.values.toList().forEach(::destroyWebView); webViews.clear(); super.onDestroy()
+        webViews.values.toList().forEach(::destroyWebView); webViews.clear()
+        if (networkReceiverRegistered) {
+            unregisterReceiver(networkReceiver)
+            networkReceiverRegistered = false
+        }
+        networkController.clear()
+        super.onDestroy()
     }
 
     private fun destroyWebView(web: WebView) {

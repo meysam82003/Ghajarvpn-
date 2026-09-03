@@ -1,5 +1,6 @@
 package com.ghajarvpn.browser.media
 
+import com.ghajarvpn.browser.BrowserNetworkRoute
 import java.security.MessageDigest
 import java.net.URI
 import java.util.UUID
@@ -21,6 +22,7 @@ data class MediaPlaybackRequest(
     val media: MediaCandidate,
     val headers: Map<String, String>,
     val private: Boolean,
+    val route: BrowserNetworkRoute,
     val createdAt: Long = System.currentTimeMillis()
 )
 

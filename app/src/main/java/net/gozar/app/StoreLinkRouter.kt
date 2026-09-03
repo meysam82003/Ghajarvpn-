@@ -40,8 +40,17 @@ object StoreLinkRouter {
     fun browserIntent(context: Context, raw: String): Intent? {
         val route = classify(raw)
         if (route.kind !in setOf(StoreLinkKind.TERMS, StoreLinkKind.HELP, StoreLinkKind.USER_PANEL, StoreLinkKind.WEB_SUPPORT)) return null
+        val store = ConfigStore.get(context.applicationContext)
+        val activeId = VpnState.activeId.value ?: store.selectedId.value
+        val server = store.configs.value.firstOrNull { it.id == activeId }?.name.orEmpty()
         return Intent(context, com.ghajarvpn.browser.GhajarBrowserActivity::class.java)
             .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_URL, route.uri.toString())
+            .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_PROXY_PORT, store.mixedPort.value)
+            .putExtra(
+                com.ghajarvpn.browser.BrowserContract.EXTRA_VPN_CONNECTED,
+                VpnState.state.value == Connection.CONNECTED
+            )
+            .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_SERVER_LABEL, server.take(80))
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
 }

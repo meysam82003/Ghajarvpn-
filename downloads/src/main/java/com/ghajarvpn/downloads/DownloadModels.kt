@@ -20,6 +20,7 @@ data class DownloadTask(
     val retries: Int = 0,
     val wifiOnly: Boolean = false,
     val expectedSha256: String = "",
+    val proxyPort: Int = 0,
     val outputUri: String = "",
     val error: String = "",
     val createdAt: Long = System.currentTimeMillis(),
@@ -34,5 +35,6 @@ data class EnqueueRequest(
     val requestedConnections: Int = 0,
     val priority: Int = 0,
     val wifiOnly: Boolean = false,
-    val expectedSha256: String = ""
+    val expectedSha256: String = "",
+    val proxyPort: Int = 0
 )

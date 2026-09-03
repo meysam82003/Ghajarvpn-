@@ -16,6 +16,8 @@ object DownloadContract {
     const val EXTRA_USER_AGENT = "user_agent"
     const val EXTRA_CONTENT_DISPOSITION = "content_disposition"
     const val EXTRA_CONTENT_TYPE = "content_type"
+    const val EXTRA_PROXY_PORT = "proxy_port"
+    const val EXTRA_REQUIRE_PROXY = "require_proxy"
 
     fun open(context: Context) = context.startActivity(Intent(context, DownloadManagerActivity::class.java))
 }

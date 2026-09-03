@@ -1,0 +1,790 @@
+From 8893c992ef413053a8b32da8022ff572015a043c Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 3 Sep 2026 11:50:23 +0100
+Subject: [PATCH] feat(browser): route media and downloads through VPN
+
+---
+ THIRD_PARTY_NOTICES.md                        |   7 +
+ .../main/java/net/gozar/app/MainActivity.kt   |  18 ++-
+ .../java/net/gozar/app/StoreLinkRouter.kt     |   9 ++
+ browser/build.gradle.kts                      |   3 +
+ browser/src/main/AndroidManifest.xml          |   2 +
+ .../com/ghajarvpn/browser/BrowserContract.kt  |  34 ++++-
+ .../com/ghajarvpn/browser/BrowserModels.kt    |   9 +-
+ .../browser/BrowserNetworkController.kt       |  95 ++++++++++++
+ .../browser/GhajarBrowserActivity.kt          | 136 ++++++++++++++++--
+ .../browser/media/GhajarMediaPlayer.kt        |  22 ++-
+ .../ghajarvpn/browser/media/MediaModels.kt    |   2 +
+ .../browser/BrowserNetworkPolicyTest.kt       |  37 +++++
+ .../ghajarvpn/downloads/DownloadContract.kt   |   2 +
+ .../downloads/DownloadEnqueueReceiver.kt      |   4 +-
+ .../com/ghajarvpn/downloads/DownloadModels.kt |   4 +-
+ .../ghajarvpn/downloads/DownloadRepository.kt |   5 +-
+ .../downloads/GhajarDownloadService.kt        |   7 +-
+ 17 files changed, 374 insertions(+), 22 deletions(-)
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/BrowserNetworkController.kt
+ create mode 100644 browser/src/test/java/com/ghajarvpn/browser/BrowserNetworkPolicyTest.kt
+
+diff --git a/THIRD_PARTY_NOTICES.md b/THIRD_PARTY_NOTICES.md
+index cee4d8b..2cbfb6f 100644
+--- a/THIRD_PARTY_NOTICES.md
++++ b/THIRD_PARTY_NOTICES.md
+@@ -9,3 +9,10 @@ was copied from Nira Browser, QDM-Android, Pantegnos, or npvt-terminal-converter
+ Those projects were reviewed only for architecture and format research; their current
+ licenses were checked before implementation (MPL-2.0, Apache-2.0, MIT, and MIT,
+ respectively).
++
++Ghajar Browser uses AndroidX WebKit for the process-isolated WebView proxy
++override and OkHttp through AndroidX Media3's OkHttp data source so Browser-only
++video requests follow the same SOCKS route. AndroidX WebKit, AndroidX Media3 and
++OkHttp are licensed under the Apache License 2.0. Source and license information:
++https://github.com/androidx/androidx, https://github.com/androidx/media,
++https://github.com/square/okhttp, and https://www.apache.org/licenses/LICENSE-2.0
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 2821b6b..8c0d3ba 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -991,6 +991,13 @@ class MainActivity : ComponentActivity() {
+             var previous: Connection? = null
+             VpnState.state.collect { state ->
+                 val activeId = VpnState.activeId.value ?: store.selectedId.value
++                val activeServer = store.configs.value.firstOrNull { it.id == activeId }?.name.orEmpty()
++                com.ghajarvpn.browser.BrowserContract.notifyNetworkState(
++                    applicationContext,
++                    proxyPort = store.mixedPort.value,
++                    vpnConnected = state == Connection.CONNECTED,
++                    serverLabel = activeServer
++                )
+                 val unexpectedFailure = !userDisconnectRequested &&
+                         activeId?.startsWith("ovpn:") != true &&
+                         state in setOf(Connection.ERROR, Connection.DISCONNECTED) &&
+@@ -5594,7 +5601,16 @@ private fun ToolsScreen(
+             icon = Icons.Filled.TravelExplore,
+             title = "مرورگر قاجار",
+             subtitle = "تب‌ها، حالت خصوصی، نشانک، محافظ ردیاب و دانلود امن",
+-            onClick = { com.ghajarvpn.browser.BrowserContract.open(context) }
++            onClick = {
++                val activeId = VpnState.activeId.value ?: store.selectedId.value
++                val server = store.configs.value.firstOrNull { it.id == activeId }?.name.orEmpty()
++                com.ghajarvpn.browser.BrowserContract.open(
++                    context,
++                    proxyPort = store.mixedPort.value,
++                    vpnConnected = VpnState.state.value == Connection.CONNECTED,
++                    serverLabel = server
++                )
++            }
+         )
+         SettingsHubCard(
+             icon = Icons.Filled.FileOpen,
+diff --git a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+index e0fa3cb..c03a72c 100644
+--- a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
++++ b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+@@ -40,8 +40,17 @@ object StoreLinkRouter {
+     fun browserIntent(context: Context, raw: String): Intent? {
+         val route = classify(raw)
+         if (route.kind !in setOf(StoreLinkKind.TERMS, StoreLinkKind.HELP, StoreLinkKind.USER_PANEL, StoreLinkKind.WEB_SUPPORT)) return null
++        val store = ConfigStore.get(context.applicationContext)
++        val activeId = VpnState.activeId.value ?: store.selectedId.value
++        val server = store.configs.value.firstOrNull { it.id == activeId }?.name.orEmpty()
+         return Intent(context, com.ghajarvpn.browser.GhajarBrowserActivity::class.java)
+             .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_URL, route.uri.toString())
++            .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_PROXY_PORT, store.mixedPort.value)
++            .putExtra(
++                com.ghajarvpn.browser.BrowserContract.EXTRA_VPN_CONNECTED,
++                VpnState.state.value == Connection.CONNECTED
++            )
++            .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_SERVER_LABEL, server.take(80))
+             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+     }
+ }
+diff --git a/browser/build.gradle.kts b/browser/build.gradle.kts
+index 94570c5..045a751 100644
+--- a/browser/build.gradle.kts
++++ b/browser/build.gradle.kts
+@@ -15,11 +15,14 @@ android {
+ 
+ dependencies {
+     implementation("androidx.core:core-ktx:1.17.0")
++    implementation("androidx.webkit:webkit:1.14.0")
+     val media3Version = "1.9.0"
+     implementation("androidx.media3:media3-exoplayer:$media3Version")
+     implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
+     implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
+     implementation("androidx.media3:media3-ui:$media3Version")
+     implementation("androidx.media3:media3-session:$media3Version")
++    implementation("androidx.media3:media3-datasource-okhttp:$media3Version")
++    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+     testImplementation("junit:junit:4.13.2")
+ }
+diff --git a/browser/src/main/AndroidManifest.xml b/browser/src/main/AndroidManifest.xml
+index 27ced18..069cdc6 100644
+--- a/browser/src/main/AndroidManifest.xml
++++ b/browser/src/main/AndroidManifest.xml
+@@ -8,6 +8,7 @@
+             android:exported="false"
+             android:label="مرورگر قاجار"
+             android:launchMode="singleTop"
++            android:process=":browser"
+             android:theme="@style/GhajarBrowserTheme" />
+         <activity
+             android:name="com.ghajarvpn.browser.media.GhajarPlayerActivity"
+@@ -15,6 +16,7 @@
+             android:exported="false"
+             android:label="پلیر قاجار"
+             android:launchMode="singleTop"
++            android:process=":browser"
+             android:supportsPictureInPicture="true"
+             android:theme="@style/GhajarPlayerTheme" />
+     </application>
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
+index 4f45b1a..980bb46 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
+@@ -4,6 +4,7 @@ import android.content.Context
+ import android.content.Intent
+ 
+ object BrowserContract {
++    const val ACTION_NETWORK_STATE = "com.ghajarvpn.browser.NETWORK_STATE"
+     const val ACTION_ENQUEUE_DOWNLOAD = "com.ghajarvpn.downloads.ENQUEUE"
+     const val EXTRA_URL = "url"
+     const val EXTRA_COOKIES = "cookies"
+@@ -12,11 +13,42 @@ object BrowserContract {
+     const val EXTRA_CONTENT_DISPOSITION = "content_disposition"
+     const val EXTRA_CONTENT_TYPE = "content_type"
+     const val EXTRA_PRIVATE = "private"
++    const val EXTRA_PROXY_PORT = "proxy_port"
++    const val EXTRA_REQUIRE_PROXY = "require_proxy"
++    const val EXTRA_VPN_CONNECTED = "vpn_connected"
++    const val EXTRA_SERVER_LABEL = "server_label"
+ 
+-    fun open(context: Context, url: String? = null, private: Boolean = false) {
++    fun open(
++        context: Context,
++        url: String? = null,
++        private: Boolean = false,
++        proxyPort: Int = DEFAULT_PROXY_PORT,
++        vpnConnected: Boolean = false,
++        serverLabel: String = ""
++    ) {
+         context.startActivity(Intent(context, GhajarBrowserActivity::class.java).apply {
+             url?.let { putExtra(EXTRA_URL, it) }
+             putExtra(EXTRA_PRIVATE, private)
++            putExtra(EXTRA_PROXY_PORT, proxyPort.coerceIn(1024, 65535))
++            putExtra(EXTRA_VPN_CONNECTED, vpnConnected)
++            putExtra(EXTRA_SERVER_LABEL, serverLabel.take(80))
+         })
+     }
++
++    /** Sends only non-sensitive route metadata to the isolated browser process. */
++    fun notifyNetworkState(
++        context: Context,
++        proxyPort: Int,
++        vpnConnected: Boolean,
++        serverLabel: String = ""
++    ) {
++        context.sendBroadcast(Intent(ACTION_NETWORK_STATE).apply {
++            setPackage(context.packageName)
++            putExtra(EXTRA_PROXY_PORT, proxyPort.coerceIn(1024, 65535))
++            putExtra(EXTRA_VPN_CONNECTED, vpnConnected)
++            putExtra(EXTRA_SERVER_LABEL, serverLabel.take(80))
++        })
++    }
++
++    const val DEFAULT_PROXY_PORT = 10626
+ }
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+index 558cf99..686c6f5 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+@@ -26,7 +26,8 @@ data class BrowserSettings(
+     val httpsPreference: Boolean = true,
+     val desktopMode: Boolean = false,
+     val darkPages: Boolean = false,
+-    val searchEngine: String = "https://www.google.com/search?q=%s"
++    val searchEngine: String = "https://www.google.com/search?q=%s",
++    val networkMode: BrowserNetworkMode = BrowserNetworkMode.DIRECT
+ )
+ 
+ data class BrowserHistory(val title: String, val url: String, val at: Long)
+@@ -41,7 +42,10 @@ class BrowserRepository(context: Context) {
+             trackerBlocking = o.optBoolean("trackers", true), adBlocking = o.optBoolean("ads", false),
+             httpsPreference = o.optBoolean("https", true), desktopMode = o.optBoolean("desktop", false),
+             darkPages = o.optBoolean("dark", false),
+-            searchEngine = o.optString("search", "https://www.google.com/search?q=%s")
++            searchEngine = o.optString("search", "https://www.google.com/search?q=%s"),
++            networkMode = runCatching {
++                BrowserNetworkMode.valueOf(o.optString("network", BrowserNetworkMode.DIRECT.name))
++            }.getOrDefault(BrowserNetworkMode.DIRECT)
+         )
+     }.getOrDefault(BrowserSettings())
+ 
+@@ -50,6 +54,7 @@ class BrowserRepository(context: Context) {
+             .put("trackers", value.trackerBlocking).put("ads", value.adBlocking)
+             .put("https", value.httpsPreference).put("desktop", value.desktopMode)
+             .put("dark", value.darkPages).put("search", value.searchEngine)
++            .put("network", value.networkMode.name)
+         prefs.edit().putString("settings", o.toString()).apply()
+     }
+ 
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserNetworkController.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserNetworkController.kt
+new file mode 100644
+index 0000000..a225ca9
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserNetworkController.kt
+@@ -0,0 +1,95 @@
++package com.ghajarvpn.browser
++
++import android.content.Context
++import androidx.core.content.ContextCompat
++import androidx.webkit.ProxyConfig
++import androidx.webkit.ProxyController
++import androidx.webkit.WebViewFeature
++import java.net.InetSocketAddress
++import java.net.Socket
++import java.util.concurrent.ExecutorService
++import java.util.concurrent.Executors
++
++data class BrowserNetworkRoute(
++    val mode: BrowserNetworkMode,
++    val proxyPort: Int,
++    val vpnConnected: Boolean,
++    val requireLocalProxy: Boolean
++)
++
++data class BrowserRouteDecision(
++    val ready: Boolean,
++    val useLocalProxy: Boolean,
++    val message: String
++)
++
++/** Pure fail-closed policy shared by the WebView and Media3 hand-off. */
++object BrowserNetworkPolicy {
++    fun decide(
++        mode: BrowserNetworkMode,
++        vpnConnected: Boolean,
++        localProxyReachable: Boolean,
++        proxyOverrideSupported: Boolean
++    ): BrowserRouteDecision = when (mode) {
++        BrowserNetworkMode.DIRECT -> BrowserRouteDecision(true, false, "مستقیم")
++        BrowserNetworkMode.BROWSER_ONLY -> when {
++            !vpnConnected -> BrowserRouteDecision(false, false, "ابتدا اتصال قاجار را برقرار کنید")
++            !proxyOverrideSupported -> BrowserRouteDecision(false, false, "WebView این دستگاه از پراکسی اختصاصی پشتیبانی نمی‌کند")
++            !localProxyReachable -> BrowserRouteDecision(false, false, "ابتدا اتصال قاجار را برقرار کنید")
++            else -> BrowserRouteDecision(true, true, "VPN فقط مرورگر")
++        }
++        BrowserNetworkMode.FULL_DEVICE -> when {
++            vpnConnected && localProxyReachable && proxyOverrideSupported -> BrowserRouteDecision(true, true, "VPN کل دستگاه")
++            vpnConnected && !localProxyReachable -> BrowserRouteDecision(true, false, "VPN کل دستگاه")
++            else -> BrowserRouteDecision(false, false, "VPN کل دستگاه متصل نیست")
++        }
++    }
++}
++
++/**
++ * Owns Chromium's process-wide proxy override. Browser activities run in the
++ * isolated :browser process so Store/Payment WebViews cannot inherit it.
++ */
++class BrowserNetworkController(context: Context) {
++    private val main = ContextCompat.getMainExecutor(context)
++    private val io: ExecutorService = Executors.newSingleThreadExecutor { task ->
++        Thread(task, "ghajar-browser-route").apply { isDaemon = true }
++    }
++
++    fun apply(
++        mode: BrowserNetworkMode,
++        proxyPort: Int,
++        vpnConnected: Boolean,
++        callback: (BrowserRouteDecision) -> Unit
++    ) {
++        val supported = WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)
++        io.execute {
++            val reachable = localProxyReachable(proxyPort)
++            val decision = BrowserNetworkPolicy.decide(mode, vpnConnected, reachable, supported)
++            main.execute {
++                if (!supported) {
++                    callback(decision)
++                } else if (decision.useLocalProxy) {
++                    val config = ProxyConfig.Builder()
++                        .addProxyRule("socks://127.0.0.1:$proxyPort")
++                        .build()
++                    ProxyController.getInstance().setProxyOverride(config, main) { callback(decision) }
++                } else {
++                    ProxyController.getInstance().clearProxyOverride(main) { callback(decision) }
++                }
++            }
++        }
++    }
++
++    fun clear() {
++        if (WebViewFeature.isFeatureSupported(WebViewFeature.PROXY_OVERRIDE)) {
++            ProxyController.getInstance().clearProxyOverride(main) {}
++        }
++        io.shutdownNow()
++    }
++
++    private fun localProxyReachable(port: Int): Boolean = runCatching {
++        Socket().use { it.connect(InetSocketAddress("127.0.0.1", port), 600) }
++        true
++    }.getOrDefault(false)
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+index 771faf3..4130833 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -6,8 +6,10 @@ import android.app.Activity
+ import android.app.AlertDialog
+ import android.app.DownloadManager
+ import android.content.ActivityNotFoundException
++import android.content.BroadcastReceiver
+ import android.content.Context
+ import android.content.Intent
++import android.content.IntentFilter
+ import android.content.pm.PackageManager
+ import android.graphics.Bitmap
+ import android.graphics.Color
+@@ -42,6 +44,7 @@ import android.widget.PopupMenu
+ import android.widget.ProgressBar
+ import android.widget.TextView
+ import android.widget.Toast
++import androidx.core.content.ContextCompat
+ import com.ghajarvpn.browser.media.BrowserMediaBridge
+ import com.ghajarvpn.browser.media.GhajarPlayerActivity
+ import com.ghajarvpn.browser.media.MediaCandidate
+@@ -65,34 +68,65 @@ class GhajarBrowserActivity : Activity() {
+     private lateinit var progress: ProgressBar
+     private lateinit var tabCounter: TextView
+     private lateinit var videoButton: TextView
++    private lateinit var networkStatus: TextView
++    private val networkController by lazy { BrowserNetworkController(this) }
+     private val mediaCandidates = linkedMapOf<String, MutableList<MediaCandidate>>()
+     private var activeId = ""
+     private var fullScreenView: View? = null
+     private var fullScreenCallback: WebChromeClient.CustomViewCallback? = null
+     private var fileCallback: ValueCallback<Array<Uri>>? = null
+     private var pendingPermission: PermissionRequest? = null
++    private var proxyPort = BrowserContract.DEFAULT_PROXY_PORT
++    private var vpnConnected = false
++    private var serverLabel = ""
++    private var routingReady = false
++    private var routeDecision = BrowserRouteDecision(false, false, "در حال بررسی مسیر")
++    private var networkReceiverRegistered = false
++    private val networkReceiver = object : BroadcastReceiver() {
++        override fun onReceive(context: Context?, intent: Intent?) {
++            if (intent?.action != BrowserContract.ACTION_NETWORK_STATE) return
++            updateConnectionExtras(intent)
++            webViews.values.forEach { it.stopLoading() }
++            applyNetworkMode {
++                if (!routingReady) currentWebView()?.let(::showHome)
++            }
++        }
++    }
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+         window.statusBarColor = Color.rgb(7, 27, 46)
+         window.navigationBarColor = Color.rgb(7, 27, 46)
+         settings = repository.settings()
++        updateConnectionExtras(intent)
++        ContextCompat.registerReceiver(
++            this,
++            networkReceiver,
++            IntentFilter(BrowserContract.ACTION_NETWORK_STATE),
++            ContextCompat.RECEIVER_NOT_EXPORTED
++        )
++        networkReceiverRegistered = true
+         tabs += repository.restoreTabs()
+         setContentView(buildUi())
+-        val requested = intent.getStringExtra(BrowserContract.EXTRA_URL)
+-        val private = intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false)
+-        if (private || !requested.isNullOrBlank()) {
+-            newTab(requested ?: BrowserTab.HOME_URL, private)
+-        } else {
+-            showTab(tabs.maxByOrNull { it.lastUsed } ?: tabs.first())
++        applyNetworkMode {
++            val requested = intent.getStringExtra(BrowserContract.EXTRA_URL)
++            val private = intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false)
++            if (private || !requested.isNullOrBlank()) {
++                newTab(requested ?: BrowserTab.HOME_URL, private)
++            } else {
++                showTab(tabs.maxByOrNull { it.lastUsed } ?: tabs.first())
++            }
+         }
+     }
+ 
+     override fun onNewIntent(intent: Intent) {
+         super.onNewIntent(intent)
+         setIntent(intent)
++        updateConnectionExtras(intent)
+         val url = intent.getStringExtra(BrowserContract.EXTRA_URL) ?: return
+-        newTab(url, intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false))
++        applyNetworkMode {
++            newTab(url, intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false))
++        }
+     }
+ 
+     private fun buildUi(): View {
+@@ -153,8 +187,18 @@ class GhajarBrowserActivity : Activity() {
+         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+             max = 100; visibility = View.GONE
+         }
++        networkStatus = TextView(this).apply {
++            gravity = Gravity.CENTER_VERTICAL
++            setPadding(dp(12), 0, dp(12), 0)
++            setTextColor(Color.rgb(242, 226, 185))
++            setBackgroundColor(Color.rgb(14, 45, 69))
++            textSize = 12f
++            text = "محافظ قاجار · در حال بررسی مسیر"
++            setOnClickListener { showNetworkModeDialog() }
++        }
+         webContainer = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
+         root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
++        root.addView(networkStatus, LinearLayout.LayoutParams(-1, dp(30)))
+         root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
+         root.addView(webContainer, LinearLayout.LayoutParams(-1, 0, 1f))
+         return root
+@@ -230,13 +274,23 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun openMedia(tab: BrowserTab, candidate: MediaCandidate) {
++        if (!routingReady) {
++            toast("پخش مستقیم مسدود شد؛ ابتدا مسیر VPN مرورگر را آماده کنید")
++            return
++        }
+         val web = currentWebView() ?: return
+         val headers = linkedMapOf(
+             "User-Agent" to web.settings.userAgentString,
+             "Referer" to tab.url
+         )
+         CookieManager.getInstance().getCookie(candidate.url)?.takeIf(String::isNotBlank)?.let { headers["Cookie"] = it }
+-        val token = MediaSessionVault.put(MediaPlaybackRequest(candidate, headers, tab.private))
++        val route = BrowserNetworkRoute(
++            settings.networkMode,
++            proxyPort,
++            vpnConnected,
++            routeDecision.useLocalProxy
++        )
++        val token = MediaSessionVault.put(MediaPlaybackRequest(candidate, headers, tab.private, route))
+         // Prevent duplicate audio; returning to the site keeps the page and tab intact.
+         web.evaluateJavascript("document.querySelectorAll('video,audio').forEach(v=>v.pause())", null)
+         startActivity(Intent(this, GhajarPlayerActivity::class.java).putExtra(GhajarPlayerActivity.EXTRA_SESSION, token))
+@@ -272,7 +326,14 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun loadInto(web: WebView, raw: String) {
+-        if (raw == BrowserTab.HOME_URL) showHome(web) else web.loadUrl(BrowserRequestPolicy.normalizeInput(raw, settings))
++        if (raw == BrowserTab.HOME_URL) {
++            showHome(web)
++        } else if (!routingReady) {
++            showHome(web)
++            toast("مسیر شبکه آماده نیست؛ حالت شبکه را تغییر دهید یا VPN را وصل کنید")
++        } else {
++            web.loadUrl(BrowserRequestPolicy.normalizeInput(raw, settings))
++        }
+     }
+ 
+     private fun showHome(web: WebView) {
+@@ -306,6 +367,7 @@ class GhajarBrowserActivity : Activity() {
+             menu.add("اشتراک‌گذاری")
+             menu.add("باز کردن در مرورگر دیگر")
+             menu.add("تاریخچه و نشانک‌ها")
++            menu.add("حالت شبکهٔ مرورگر")
+             menu.add("تنظیمات حریم خصوصی")
+             menu.add("پاک‌سازی داده‌های مرور")
+             setOnMenuItemClickListener {
+@@ -321,6 +383,7 @@ class GhajarBrowserActivity : Activity() {
+                     "اشتراک‌گذاری" -> share(web.url)
+                     "باز کردن در مرورگر دیگر" -> openExternal(web.url)
+                     "تاریخچه و نشانک‌ها" -> showLibrary()
++                    "حالت شبکهٔ مرورگر" -> showNetworkModeDialog()
+                     "تنظیمات حریم خصوصی" -> showSettings()
+                     "پاک‌سازی داده‌های مرور" -> confirmClear()
+                 }; true
+@@ -409,6 +472,49 @@ class GhajarBrowserActivity : Activity() {
+             }.setNegativeButton("لغو", null).show()
+     }
+ 
++    private fun showNetworkModeDialog() {
++        val modes = BrowserNetworkMode.entries
++        val labels = arrayOf("مستقیم", "VPN فقط مرورگر", "VPN کل دستگاه")
++        var selected = modes.indexOf(settings.networkMode).coerceAtLeast(0)
++        AlertDialog.Builder(this)
++            .setTitle("محافظ قاجار · حالت شبکه")
++            .setSingleChoiceItems(labels, selected) { _, which -> selected = which }
++            .setPositiveButton("اعمال") { _, _ ->
++                val mode = modes[selected]
++                if (mode == settings.networkMode) return@setPositiveButton
++                webViews.values.forEach { it.stopLoading(); it.onPause() }
++                settings = settings.copy(networkMode = mode)
++                repository.saveSettings(settings)
++                applyNetworkMode {
++                    webViews.values.forEach(WebView::onResume)
++                    if (routingReady) currentWebView()?.reload()
++                    else currentWebView()?.let(::showHome)
++                }
++            }
++            .setMessage("در حالت‌های VPN اگر مسیر امن آماده نباشد، مرورگر Fail-Closed می‌شود و مستقیم وصل نخواهد شد.")
++            .setNegativeButton("لغو", null)
++            .show()
++    }
++
++    private fun updateConnectionExtras(source: Intent) {
++        proxyPort = source.getIntExtra(BrowserContract.EXTRA_PROXY_PORT, proxyPort).coerceIn(1024, 65535)
++        vpnConnected = source.getBooleanExtra(BrowserContract.EXTRA_VPN_CONNECTED, vpnConnected)
++        serverLabel = source.getStringExtra(BrowserContract.EXTRA_SERVER_LABEL)?.take(80).orEmpty()
++    }
++
++    private fun applyNetworkMode(after: () -> Unit) {
++        routingReady = false
++        if (::networkStatus.isInitialized) networkStatus.text = "محافظ قاجار · در حال بررسی مسیر"
++        networkController.apply(settings.networkMode, proxyPort, vpnConnected) route@{ decision ->
++            if (isFinishing || isDestroyed) return@route
++            routeDecision = decision
++            routingReady = decision.ready
++            val server = serverLabel.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
++            networkStatus.text = "محافظ قاجار · ${decision.message}$server · ${if (decision.ready) "متصل" else "مسدود"}"
++            after()
++        }
++    }
++
+     private fun confirmClear() {
+         AlertDialog.Builder(this).setTitle("جلاد قاجار · پاک‌سازی")
+             .setMessage("تاریخچه، نشانک‌ها، Cookieها و Cache مرورگر پاک شوند؟ گذرواژه‌های سیستم پاک نمی‌شوند.")
+@@ -430,9 +536,13 @@ class GhajarBrowserActivity : Activity() {
+             putExtra(BrowserContract.EXTRA_USER_AGENT, userAgent.orEmpty())
+             putExtra(BrowserContract.EXTRA_CONTENT_DISPOSITION, disposition.orEmpty())
+             putExtra(BrowserContract.EXTRA_CONTENT_TYPE, mime.orEmpty())
++            putExtra(BrowserContract.EXTRA_PROXY_PORT, proxyPort)
++            putExtra(BrowserContract.EXTRA_REQUIRE_PROXY, routeDecision.useLocalProxy)
+         }
+         if (packageManager.queryBroadcastReceivers(handoff, 0).isNotEmpty()) {
+             sendBroadcast(handoff); toast("به مدیر دانلود افزوده شد")
++        } else if (routeDecision.useLocalProxy) {
++            toast("مدیر دانلود امن در دسترس نیست؛ برای جلوگیری از نشت، دانلود مستقیم شروع نشد")
+         } else {
+             fallbackDownload(url, userAgent, disposition, mime, tab.url)
+         }
+@@ -596,7 +706,13 @@ class GhajarBrowserActivity : Activity() {
+ 
+     override fun onDestroy() {
+         fileCallback?.onReceiveValue(null); pendingPermission?.deny()
+-        webViews.values.toList().forEach(::destroyWebView); webViews.clear(); super.onDestroy()
++        webViews.values.toList().forEach(::destroyWebView); webViews.clear()
++        if (networkReceiverRegistered) {
++            unregisterReceiver(networkReceiver)
++            networkReceiverRegistered = false
++        }
++        networkController.clear()
++        super.onDestroy()
+     }
+ 
+     private fun destroyWebView(web: WebView) {
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+index 63c150f..5479939 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+@@ -5,15 +5,25 @@ import android.net.Uri
+ import androidx.media3.common.MediaItem
+ import androidx.media3.common.MimeTypes
+ import androidx.media3.common.util.UnstableApi
+-import androidx.media3.datasource.DefaultHttpDataSource
++import androidx.media3.datasource.okhttp.OkHttpDataSource
+ import androidx.media3.exoplayer.ExoPlayer
+ import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
++import okhttp3.OkHttpClient
++import java.net.InetSocketAddress
++import java.net.Proxy
+ 
+ @UnstableApi
+ class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
+     private val headers = MediaHeaderProvider.sanitize(request.headers)
+-    private val httpFactory = DefaultHttpDataSource.Factory()
+-        .setAllowCrossProtocolRedirects(false)
++    private val client = OkHttpClient.Builder()
++        .followSslRedirects(false)
++        .apply {
++            if (request.route.requireLocalProxy) {
++                proxy(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", request.route.proxyPort)))
++            }
++        }
++        .build()
++    private val httpFactory = OkHttpDataSource.Factory(client)
+         .setDefaultRequestProperties(headers)
+         .setUserAgent(headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value ?: "GhajarBrowser")
+ 
+@@ -40,5 +50,9 @@ class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
+         player.prepare()
+     }
+ 
+-    fun release() = player.release()
++    fun release() {
++        player.release()
++        client.connectionPool.evictAll()
++        client.dispatcher.executorService.shutdown()
++    }
+ }
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+index 955a9d3..755910e 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+@@ -1,5 +1,6 @@
+ package com.ghajarvpn.browser.media
+ 
++import com.ghajarvpn.browser.BrowserNetworkRoute
+ import java.security.MessageDigest
+ import java.net.URI
+ import java.util.UUID
+@@ -21,6 +22,7 @@ data class MediaPlaybackRequest(
+     val media: MediaCandidate,
+     val headers: Map<String, String>,
+     val private: Boolean,
++    val route: BrowserNetworkRoute,
+     val createdAt: Long = System.currentTimeMillis()
+ )
+ 
+diff --git a/browser/src/test/java/com/ghajarvpn/browser/BrowserNetworkPolicyTest.kt b/browser/src/test/java/com/ghajarvpn/browser/BrowserNetworkPolicyTest.kt
+new file mode 100644
+index 0000000..9f86fbd
+--- /dev/null
++++ b/browser/src/test/java/com/ghajarvpn/browser/BrowserNetworkPolicyTest.kt
+@@ -0,0 +1,37 @@
++package com.ghajarvpn.browser
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class BrowserNetworkPolicyTest {
++    @Test
++    fun browserOnly_requires_reachable_proxy_and_webview_support() {
++        assertFalse(BrowserNetworkPolicy.decide(BrowserNetworkMode.BROWSER_ONLY, true, false, true).ready)
++        assertFalse(BrowserNetworkPolicy.decide(BrowserNetworkMode.BROWSER_ONLY, true, true, false).ready)
++        val ready = BrowserNetworkPolicy.decide(BrowserNetworkMode.BROWSER_ONLY, true, true, true)
++        assertTrue(ready.ready)
++        assertTrue(ready.useLocalProxy)
++    }
++
++    @Test
++    fun fullDevice_prefers_local_proxy_for_the_excluded_app_uid() {
++        val route = BrowserNetworkPolicy.decide(BrowserNetworkMode.FULL_DEVICE, true, true, true)
++        assertTrue(route.ready)
++        assertTrue(route.useLocalProxy)
++    }
++
++    @Test
++    fun fullDevice_fails_closed_when_no_vpn_route_exists() {
++        val route = BrowserNetworkPolicy.decide(BrowserNetworkMode.FULL_DEVICE, false, false, true)
++        assertFalse(route.ready)
++        assertFalse(route.useLocalProxy)
++    }
++
++    @Test
++    fun direct_never_requires_the_local_proxy() {
++        val route = BrowserNetworkPolicy.decide(BrowserNetworkMode.DIRECT, false, false, false)
++        assertTrue(route.ready)
++        assertFalse(route.useLocalProxy)
++    }
++}
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadContract.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadContract.kt
+index 3c1e7cb..51184d8 100644
+--- a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadContract.kt
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadContract.kt
+@@ -16,6 +16,8 @@ object DownloadContract {
+     const val EXTRA_USER_AGENT = "user_agent"
+     const val EXTRA_CONTENT_DISPOSITION = "content_disposition"
+     const val EXTRA_CONTENT_TYPE = "content_type"
++    const val EXTRA_PROXY_PORT = "proxy_port"
++    const val EXTRA_REQUIRE_PROXY = "require_proxy"
+ 
+     fun open(context: Context) = context.startActivity(Intent(context, DownloadManagerActivity::class.java))
+ }
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadEnqueueReceiver.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadEnqueueReceiver.kt
+index 3328c70..088661a 100644
+--- a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadEnqueueReceiver.kt
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadEnqueueReceiver.kt
+@@ -30,7 +30,9 @@ class DownloadEnqueueReceiver : BroadcastReceiver() {
+                         "Cookie" to intent.getStringExtra(DownloadContract.EXTRA_COOKIES).orEmpty(),
+                         "Referer" to intent.getStringExtra(DownloadContract.EXTRA_REFERER).orEmpty(),
+                         "User-Agent" to intent.getStringExtra(DownloadContract.EXTRA_USER_AGENT).orEmpty()
+-                    )
++                    ),
++                    proxyPort = if (intent.getBooleanExtra(DownloadContract.EXTRA_REQUIRE_PROXY, false))
++                        intent.getIntExtra(DownloadContract.EXTRA_PROXY_PORT, 0) else 0
+                 )
+                 if (DownloadRepository.get(context).enqueue(request) != null) start(context)
+             } finally { pending.finish() }
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadModels.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadModels.kt
+index a5f35b6..1b0cae6 100644
+--- a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadModels.kt
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadModels.kt
+@@ -20,6 +20,7 @@ data class DownloadTask(
+     val retries: Int = 0,
+     val wifiOnly: Boolean = false,
+     val expectedSha256: String = "",
++    val proxyPort: Int = 0,
+     val outputUri: String = "",
+     val error: String = "",
+     val createdAt: Long = System.currentTimeMillis(),
+@@ -34,5 +35,6 @@ data class EnqueueRequest(
+     val requestedConnections: Int = 0,
+     val priority: Int = 0,
+     val wifiOnly: Boolean = false,
+-    val expectedSha256: String = ""
++    val expectedSha256: String = "",
++    val proxyPort: Int = 0
+ )
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadRepository.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadRepository.kt
+index b4864c6..b794a26 100644
+--- a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadRepository.kt
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadRepository.kt
+@@ -21,6 +21,7 @@ class DownloadRepository private constructor(context: Context) {
+             id = taskId, url = request.url, fileName = safeName, mimeType = request.mimeType.ifBlank { "application/octet-stream" },
+             headerToken = headerToken, requestedConnections = request.requestedConnections.coerceIn(0, 8),
+             priority = request.priority.coerceIn(-10, 10), wifiOnly = request.wifiOnly,
++            proxyPort = request.proxyPort.takeIf { it in 1024..65535 } ?: 0,
+             expectedSha256 = request.expectedSha256.trim().lowercase().takeIf { it.matches(Regex("[0-9a-f]{64}")) }.orEmpty()
+         )
+         writeAll(current + task)
+@@ -61,7 +62,8 @@ class DownloadRepository private constructor(context: Context) {
+         put("id", id); put("url", url); put("fileName", fileName); put("mimeType", mimeType); put("headerToken", headerToken)
+         put("state", state.name); put("downloadedBytes", downloadedBytes); put("totalBytes", totalBytes); put("speed", speedBytesPerSecond)
+         put("requestedConnections", requestedConnections); put("activeConnections", activeConnections); put("priority", priority); put("retries", retries)
+-        put("wifiOnly", wifiOnly); put("expectedSha256", expectedSha256); put("outputUri", outputUri); put("error", error)
++        put("wifiOnly", wifiOnly); put("expectedSha256", expectedSha256); put("proxyPort", proxyPort)
++        put("outputUri", outputUri); put("error", error)
+         put("createdAt", createdAt); put("updatedAt", updatedAt)
+     }
+ 
+@@ -71,6 +73,7 @@ class DownloadRepository private constructor(context: Context) {
+         downloadedBytes = optLong("downloadedBytes"), totalBytes = optLong("totalBytes", -1), speedBytesPerSecond = optLong("speed"),
+         requestedConnections = optInt("requestedConnections"), activeConnections = optInt("activeConnections", 1), priority = optInt("priority"),
+         retries = optInt("retries"), wifiOnly = optBoolean("wifiOnly"), expectedSha256 = optString("expectedSha256"),
++        proxyPort = optInt("proxyPort"),
+         outputUri = optString("outputUri"), error = optString("error"), createdAt = optLong("createdAt"), updatedAt = optLong("updatedAt")
+     )
+ 
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/GhajarDownloadService.kt b/downloads/src/main/java/com/ghajarvpn/downloads/GhajarDownloadService.kt
+index f8748fb..7315028 100644
+--- a/downloads/src/main/java/com/ghajarvpn/downloads/GhajarDownloadService.kt
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/GhajarDownloadService.kt
+@@ -21,6 +21,8 @@ import java.io.File
+ import java.io.FileInputStream
+ import java.io.FileOutputStream
+ import java.net.HttpURLConnection
++import java.net.InetSocketAddress
++import java.net.Proxy
+ import java.net.URI
+ import java.net.URL
+ import java.security.MessageDigest
+@@ -240,7 +242,10 @@ class GhajarDownloadService : Service() {
+         repeat(6) { redirectCount ->
+             val target = URI(current)
+             val sameOrigin = original.scheme.equals(target.scheme, true) && original.host.equals(target.host, true) && effectivePort(original) == effectivePort(target)
+-            val connection = URL(current).openConnection() as HttpURLConnection
++            val proxy = if (task.proxyPort in 1024..65535) {
++                Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", task.proxyPort))
++            } else Proxy.NO_PROXY
++            val connection = URL(current).openConnection(proxy) as HttpURLConnection
+             connection.connectTimeout = 15_000; connection.readTimeout = 30_000; connection.instanceFollowRedirects = false
+             connection.setRequestProperty("Accept-Encoding", "identity")
+             repository.headers(task).forEach { (name, value) ->

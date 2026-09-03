@@ -26,7 +26,8 @@ data class BrowserSettings(
     val httpsPreference: Boolean = true,
     val desktopMode: Boolean = false,
     val darkPages: Boolean = false,
-    val searchEngine: String = "https://www.google.com/search?q=%s"
+    val searchEngine: String = "https://www.google.com/search?q=%s",
+    val networkMode: BrowserNetworkMode = BrowserNetworkMode.DIRECT
 )
 
 data class BrowserHistory(val title: String, val url: String, val at: Long)
@@ -41,7 +42,10 @@ class BrowserRepository(context: Context) {
             trackerBlocking = o.optBoolean("trackers", true), adBlocking = o.optBoolean("ads", false),
             httpsPreference = o.optBoolean("https", true), desktopMode = o.optBoolean("desktop", false),
             darkPages = o.optBoolean("dark", false),
-            searchEngine = o.optString("search", "https://www.google.com/search?q=%s")
+            searchEngine = o.optString("search", "https://www.google.com/search?q=%s"),
+            networkMode = runCatching {
+                BrowserNetworkMode.valueOf(o.optString("network", BrowserNetworkMode.DIRECT.name))
+            }.getOrDefault(BrowserNetworkMode.DIRECT)
         )
     }.getOrDefault(BrowserSettings())
 
@@ -50,6 +54,7 @@ class BrowserRepository(context: Context) {
             .put("trackers", value.trackerBlocking).put("ads", value.adBlocking)
             .put("https", value.httpsPreference).put("desktop", value.desktopMode)
             .put("dark", value.darkPages).put("search", value.searchEngine)
+            .put("network", value.networkMode.name)
         prefs.edit().putString("settings", o.toString()).apply()
     }
 
