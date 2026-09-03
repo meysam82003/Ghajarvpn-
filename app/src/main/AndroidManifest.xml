@@ -82,6 +82,11 @@
             android:label="پرداخت امن قاجار وی پی ان"
             android:theme="@style/Theme.Ghajarvpn" />
         <activity
+            android:name=".SmartConnectActivity"
+            android:exported="false"
+            android:label="تنظیمات اتصال هوشمند"
+            android:theme="@style/Theme.Ghajarvpn" />
+        <activity
             android:name=".configtoolkit.ConfigToolkitActivity"
             android:exported="true"
             android:launchMode="singleTop"

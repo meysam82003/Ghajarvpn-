@@ -1,0 +1,480 @@
+From 523dd9a750c4f36a96aa5afbbb709bf4c382ebe9 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 3 Sep 2026 11:21:31 +0800
+Subject: [PATCH] feat(vpn): add health-aware smart connect modes
+
+---
+ app/src/main/AndroidManifest.xml              |   5 +
+ .../main/java/net/gozar/app/AutoSelector.kt   |  58 ++++++---
+ .../main/java/net/gozar/app/MainActivity.kt   |  28 ++--
+ .../net/gozar/app/SmartConnectActivity.kt     |  65 +++++++++
+ .../java/net/gozar/app/SmartConnectEngine.kt  | 123 ++++++++++++++++++
+ .../net/gozar/app/SmartConnectEngineTest.kt   |  38 ++++++
+ 6 files changed, 288 insertions(+), 29 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/SmartConnectActivity.kt
+ create mode 100644 app/src/main/java/net/gozar/app/SmartConnectEngine.kt
+ create mode 100644 app/src/test/java/net/gozar/app/SmartConnectEngineTest.kt
+
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+index 784dca2..bbdf875 100644
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -81,6 +81,11 @@
+             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+             android:label="پرداخت امن قاجار وی پی ان"
+             android:theme="@style/Theme.Ghajarvpn" />
++        <activity
++            android:name=".SmartConnectActivity"
++            android:exported="false"
++            android:label="تنظیمات اتصال هوشمند"
++            android:theme="@style/Theme.Ghajarvpn" />
+         <activity
+             android:name=".configtoolkit.ConfigToolkitActivity"
+             android:exported="true"
+diff --git a/app/src/main/java/net/gozar/app/AutoSelector.kt b/app/src/main/java/net/gozar/app/AutoSelector.kt
+index fc02081..a1b251a 100644
+--- a/app/src/main/java/net/gozar/app/AutoSelector.kt
++++ b/app/src/main/java/net/gozar/app/AutoSelector.kt
+@@ -32,6 +32,10 @@ class AutoSelector(
+ 
+     private val _results = MutableStateFlow<Map<String, PingResult>>(emptyMap())
+     val results: StateFlow<Map<String, PingResult>> = _results.asStateFlow()
++    private val health = ServerHealthRepository(appContext)
++    private val preferences = SmartConnectPreferences(appContext)
++    private val _scores = MutableStateFlow<Map<String, Double>>(emptyMap())
++    val scores: StateFlow<Map<String, Double>> = _scores.asStateFlow()
+ 
+     fun start(scope: CoroutineScope) {
+         if (loopJob?.isActive == true) {
+@@ -65,22 +69,23 @@ class AutoSelector(
+         configs.map { cfg ->
+             launch {
+                 sem.withPermit {
+-                    val r = if (cfg.protocol.trim().lowercase() == "ikev2") {
+-                        Pinger.pingIke(cfg.address)
+-                    } else {
+-                        val ms = withContext(Dispatchers.IO) {
+-                            runCatching { Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg)) }
+-                                .getOrDefault(-1L)
++                    val samples = List(PROBE_SAMPLES) {
++                        if (cfg.protocol.trim().lowercase() == "ikev2") {
++                            (Pinger.pingIke(cfg.address) as? PingResult.Ok)?.ms?.toLong()
++                        } else withContext(Dispatchers.IO) {
++                            runCatching { Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg)) }.getOrNull()?.takeIf { it >= 0 }
+                         }
+-                        if (ms >= 0) PingResult.Ok(ms.toInt()) else PingResult.Failed
+                     }
++                    health.recordProbe(cfg.id, samples)
++                    val valid = samples.filterNotNull()
++                    val r = if (valid.isNotEmpty()) PingResult.Ok(valid.average().toInt()) else PingResult.Failed
+                     _results.value = _results.value.toMutableMap().apply { put(cfg.id, r) }
+                 }
+             }
+         }.joinAll()
+     }
+ 
+-    suspend fun pickFastest(timeoutMs: Long = 6_000L): ProxyConfig? {
++    suspend fun pickFastest(timeoutMs: Long = 15_000L): ProxyConfig? {
+         store.awaitReady()
+         val configs = selectable(store.configs.value)
+         android.util.Log.d(TAG, "pickFastest: ${configs.size} candidates")
+@@ -89,12 +94,12 @@ class AutoSelector(
+ 
+         withTimeoutOrNull(timeoutMs) { measureAll(configs) }
+ 
+-        val snap = _results.value
+-        val best = configs
+-            .mapNotNull { c -> (snap[c.id] as? PingResult.Ok)?.let { c to it.ms } }
+-            .minByOrNull { it.second }
+-        android.util.Log.d(TAG, "pickFastest: ${best?.first?.name} at ${best?.second}ms")
+-        return best?.first
++        if (preferences.mode != SmartMode.EMERGENCY && _results.value.values.none { it is PingResult.Ok }) return null
++
++        val ranked = rank(configs)
++        val best = ranked.firstOrNull()?.let { item -> configs.firstOrNull { it.id == item.candidate.id } }
++        android.util.Log.d(TAG, "smart pick: ${best?.name} mode=${preferences.mode}")
++        return best
+     }
+ 
+     private suspend fun runOnce() = coroutineScope {
+@@ -106,9 +111,11 @@ class AutoSelector(
+         measureAll(configs)
+ 
+         val snapshot = _results.value
+-        val best = configs
+-            .mapNotNull { c -> (snapshot[c.id] as? PingResult.Ok)?.let { c to it.ms } }
+-            .minByOrNull { it.second }
++        if (preferences.mode != SmartMode.EMERGENCY && snapshot.values.none { it is PingResult.Ok }) return@coroutineScope
++        val ranked = rank(configs)
++        val best = ranked.firstOrNull()?.let { item -> configs.firstOrNull { it.id == item.candidate.id } }?.let { config ->
++            config to ((snapshot[config.id] as? PingResult.Ok)?.ms ?: Int.MAX_VALUE)
++        }
+         if (best == null) {
+             android.util.Log.w(TAG, "no config responded, nothing to switch to")
+             return@coroutineScope
+@@ -125,10 +132,11 @@ class AutoSelector(
+             return@coroutineScope
+         }
+ 
+-        val currentPing = (snapshot[selectedId] as? PingResult.Ok)?.ms
+-        val shouldSwitch = currentPing == null || currentPing - best.second >= SWITCH_MARGIN_MS
++        val bestScore = _scores.value[best.first.id] ?: return@coroutineScope
++        val currentScore = _scores.value[selectedId]
++        val shouldSwitch = currentScore == null || bestScore - currentScore >= SWITCH_SCORE_MARGIN
+         if (!shouldSwitch) {
+-            android.util.Log.d(TAG, "margin too small: current=${currentPing}ms best=${best.second}ms")
++            android.util.Log.d(TAG, "smart score margin too small")
+             return@coroutineScope
+         }
+ 
+@@ -142,6 +150,13 @@ class AutoSelector(
+         }
+     }
+ 
++    private fun rank(configs: List<ProxyConfig>): List<RankedServer> {
++        val states = health.snapshot(configs.map { it.id })
++        val ranked = SmartConnectScorer.rank(configs.map { ServerCandidate(it.id) }, states, preferences.mode)
++        _scores.value = ranked.associate { it.candidate.id to it.score }
++        return ranked
++    }
++
+     private suspend fun reconnectIfConnected(config: ProxyConfig) {
+         if (VpnState.state.value != Connection.CONNECTED) return
+         if (VpnService.prepare(appContext) != null) return
+@@ -184,6 +199,7 @@ class AutoSelector(
+         const val TAG = "GhajarAuto"
+         const val INTERVAL_MS = 60_000L
+         const val MAX_CONCURRENCY = 4
+-        const val SWITCH_MARGIN_MS = 40
++        const val PROBE_SAMPLES = 3
++        const val SWITCH_SCORE_MARGIN = 0.08
+     }
+ }
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index f787f39..0e3bd59 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -986,6 +986,8 @@ class MainActivity : ComponentActivity() {
+ 
+     private fun watchTunnel() {
+         lifecycleScope.launch {
++            val health = ServerHealthRepository(applicationContext)
++            var previous: Connection? = null
+             VpnState.state.collect { state ->
+                 if (state == Connection.CONNECTED && !IkeController.active) {
+                     // OpenVPN drives VpnState through its own bridge; the Xray-based
+@@ -998,12 +1000,17 @@ class MainActivity : ComponentActivity() {
+                     store.configs.value.find { it.id == id }?.let {
+                         DebugRunner.start(it, store)
+                     }
++                    if (previous != Connection.CONNECTED) id?.let(health::recordConnectionSuccess)
+                 } else if (state == Connection.DISCONNECTED) {
+                     TunnelHealth.reset()
+                     RadarRunner.start(false)
+                 } else {
+                     TunnelHealth.reset()
+                 }
++                if (state == Connection.ERROR && previous != Connection.ERROR) {
++                    (VpnState.activeId.value ?: store.selectedId.value)?.let(health::recordConnectionFailure)
++                }
++                previous = state
+             }
+         }
+     }
+@@ -1014,7 +1021,7 @@ class MainActivity : ComponentActivity() {
+     private var pickJob: Job? = null
+     private var autoSwitchJob: Job? = null
+     private val AUTO_SWITCH_MS = 60_000L
+-    private val AUTO_SWITCH_MARGIN_MS = 40
++    private val AUTO_SWITCH_SCORE_MARGIN = 0.08
+     private val AUTO_SWITCH_PROBE_MS = 25_000L
+ 
+     private fun startAutoSwitch() {
+@@ -1056,6 +1063,8 @@ class MainActivity : ComponentActivity() {
+                 val results = selector.results.value
+                 val bestMs = (results[best.id] as? PingResult.Ok)?.ms
+                 val currentMs = (results[activeId] as? PingResult.Ok)?.ms
++                val bestScore = selector.scores.value[best.id]
++                val currentScore = selector.scores.value[activeId]
+                 android.util.Log.d(
+                     tag,
+                     "active=${activeCfg?.name} ${currentMs}ms  best=${best.name} ${bestMs}ms"
+@@ -1064,14 +1073,11 @@ class MainActivity : ComponentActivity() {
+                 if (best.id == activeId) {
+                     android.util.Log.d(tag, "skip: already on the fastest"); continue
+                 }
+-                if (bestMs == null) {
+-                    android.util.Log.d(tag, "skip: best has no timing"); continue
++                if (bestScore == null) {
++                    android.util.Log.d(tag, "skip: best has no smart score"); continue
+                 }
+-                if (currentMs != null && currentMs - bestMs < AUTO_SWITCH_MARGIN_MS) {
+-                    android.util.Log.d(
+-                        tag,
+-                        "skip: gain ${currentMs - bestMs}ms under margin $AUTO_SWITCH_MARGIN_MS"
+-                    ); continue
++                if (currentScore != null && bestScore - currentScore < AUTO_SWITCH_SCORE_MARGIN) {
++                    android.util.Log.d(tag, "skip: smart score gain is under safety margin"); continue
+                 }
+ 
+                 android.util.Log.d(tag, "SWITCHING to ${best.name}")
+@@ -5575,6 +5581,12 @@ private fun ToolsScreen(
+             subtitle = t("stab_sub"),
+             onClick = onOpenStability
+         )
++        SettingsHubCard(
++            icon = Icons.Filled.SmartToy,
++            title = "تنظیمات پیشرفتهٔ اتصال هوشمند",
++            subtitle = "Auto، سریع‌ترین، پایدار، بازی، دانلود، وب‌گردی، استریم و اضطراری",
++            onClick = { context.startActivity(Intent(context, SmartConnectActivity::class.java)) }
++        )
+         SettingsHubCard(
+             icon = Icons.Filled.Dns,
+             title = t("chk_title"),
+diff --git a/app/src/main/java/net/gozar/app/SmartConnectActivity.kt b/app/src/main/java/net/gozar/app/SmartConnectActivity.kt
+new file mode 100644
+index 0000000..3d4470a
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/SmartConnectActivity.kt
+@@ -0,0 +1,65 @@
++package net.gozar.app
++
++import android.app.Activity
++import android.graphics.Color
++import android.os.Bundle
++import android.view.Gravity
++import android.widget.LinearLayout
++import android.widget.RadioButton
++import android.widget.RadioGroup
++import android.widget.ScrollView
++import android.widget.TextView
++
++class SmartConnectActivity : Activity() {
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        val preferences = SmartConnectPreferences(this)
++        val content = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            setPadding(dp(20), dp(20), dp(20), dp(24))
++            setBackgroundColor(Color.rgb(7, 27, 46))
++            addView(TextView(context).apply {
++                text = "وزیر ارتباطات · اتصال هوشمند"
++                textSize = 22f; setTextColor(Color.rgb(248, 237, 210)); gravity = Gravity.CENTER_HORIZONTAL
++            })
++            addView(TextView(context).apply {
++                text = "برای استفادهٔ معمولی Auto مناسب است. حالت‌ها فقط وزن معیارهای اندازه‌گیری‌شده را تغییر می‌دهند و تضمین کاهش پینگ یا بازشدن سرویس خاصی نمی‌دهند."
++                setTextColor(Color.LTGRAY); setPadding(0, dp(10), 0, dp(14)); textSize = 14f
++            })
++            addView(RadioGroup(context).apply {
++                SmartMode.entries.forEach { mode ->
++                    addView(RadioButton(context).apply {
++                        id = android.view.View.generateViewId(); tag = mode; text = "${label(mode)}\n${description(mode)}"
++                        setTextColor(Color.WHITE); textSize = 15f; setPadding(dp(8), dp(8), dp(8), dp(8)); isChecked = mode == preferences.mode
++                        setOnClickListener { preferences.mode = mode }
++                    })
++                }
++            })
++        }
++        setContentView(ScrollView(this).apply { addView(content) })
++    }
++
++    private fun label(mode: SmartMode) = when (mode) {
++        SmartMode.AUTO -> "Auto"
++        SmartMode.FASTEST -> "سریع‌ترین"
++        SmartMode.STABLE -> "پایدار"
++        SmartMode.GAMING -> "بازی"
++        SmartMode.DOWNLOAD -> "دانلود"
++        SmartMode.BROWSING -> "وب‌گردی"
++        SmartMode.STREAMING -> "استریم"
++        SmartMode.EMERGENCY -> "اضطراری"
++    }
++
++    private fun description(mode: SmartMode) = when (mode) {
++        SmartMode.AUTO -> "تعادل latency، پایداری و سابقهٔ موفق"
++        SmartMode.FASTEST -> "اولویت بیشتر برای latency اندازه‌گیری‌شده"
++        SmartMode.STABLE -> "اولویت jitter، packet loss و success rate"
++        SmartMode.GAMING -> "latency و jitter پایین؛ تعویض فقط با برتری روشن"
++        SmartMode.DOWNLOAD -> "throughput واقعی در صورت وجود، همراه با پایداری"
++        SmartMode.BROWSING -> "تعادل پاسخ‌گویی و موفقیت اتصال"
++        SmartMode.STREAMING -> "throughput و packet loss؛ بدون ادعای سرویس خاص"
++        SmartMode.EMERGENCY -> "استفاده از گزینه‌های سالم و fallbackهای اخیر با محدودیت"
++    }
++
++    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
++}
+diff --git a/app/src/main/java/net/gozar/app/SmartConnectEngine.kt b/app/src/main/java/net/gozar/app/SmartConnectEngine.kt
+new file mode 100644
+index 0000000..f6e64ee
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/SmartConnectEngine.kt
+@@ -0,0 +1,123 @@
++package net.gozar.app
++
++import android.content.Context
++import org.json.JSONObject
++import java.security.MessageDigest
++import kotlin.math.abs
++import kotlin.math.ln
++
++enum class SmartMode { AUTO, FASTEST, STABLE, GAMING, DOWNLOAD, BROWSING, STREAMING, EMERGENCY }
++
++data class ServerHealth(
++    val latencyMs: Double = -1.0,
++    val jitterMs: Double = -1.0,
++    val packetLossPercent: Double = 100.0,
++    val successCount: Int = 0,
++    val failureCount: Int = 0,
++    val recentFailures: Int = 0,
++    val throughputBytesPerSecond: Long = -1,
++    val lastSuccessfulAt: Long = 0,
++    val unhealthyUntil: Long = 0,
++    val updatedAt: Long = 0
++) {
++    val successRate: Double get() = successCount.toDouble() / (successCount + failureCount).coerceAtLeast(1)
++    fun unavailable(now: Long) = unhealthyUntil > now
++}
++
++data class ServerCandidate(
++    val id: String,
++    val protocolAvailable: Boolean = true,
++    val serverCountry: String = "",
++    val userCountry: String = ""
++)
++
++data class RankedServer(val candidate: ServerCandidate, val health: ServerHealth, val score: Double)
++
++object SmartConnectScorer {
++    fun rank(candidates: List<ServerCandidate>, health: Map<String, ServerHealth>, mode: SmartMode, now: Long = System.currentTimeMillis()): List<RankedServer> {
++        val ranked = candidates.map { candidate ->
++            val state = health[candidate.id] ?: ServerHealth()
++            RankedServer(candidate, state, score(candidate, state, mode, now))
++        }
++        val healthy = ranked.filterNot { it.health.unavailable(now) }
++        return (if (healthy.isEmpty() || mode == SmartMode.EMERGENCY) ranked else healthy).sortedByDescending { it.score }
++    }
++
++    fun score(candidate: ServerCandidate, health: ServerHealth, mode: SmartMode, now: Long): Double {
++        if (!candidate.protocolAvailable) return -1.0
++        val latency = if (health.latencyMs >= 0) (1.0 - health.latencyMs / 2_000.0).coerceIn(0.0, 1.0) else 0.15
++        val jitter = if (health.jitterMs >= 0) (1.0 - health.jitterMs / 500.0).coerceIn(0.0, 1.0) else 0.15
++        val loss = (1.0 - health.packetLossPercent / 100.0).coerceIn(0.0, 1.0)
++        val success = health.successRate
++        val throughput = if (health.throughputBytesPerSecond > 0) (ln(1.0 + health.throughputBytesPerSecond) / ln(1.0 + 50_000_000.0)).coerceIn(0.0, 1.0) else 0.0
++        val recent = if (health.lastSuccessfulAt <= 0) 0.0 else (1.0 - (now - health.lastSuccessfulAt).coerceAtLeast(0) / (7.0 * 24 * 60 * 60 * 1000)).coerceIn(0.0, 1.0)
++        val sameCountry = if (candidate.userCountry.isNotBlank() && candidate.userCountry.equals(candidate.serverCountry, true)) 1.0 else 0.0
++        val weights = when (mode) {
++            SmartMode.FASTEST -> Weights(.58, .10, .08, .12, .04, .04, .04)
++            SmartMode.STABLE -> Weights(.18, .23, .23, .24, .02, .08, .02)
++            SmartMode.GAMING -> Weights(.38, .29, .17, .10, .00, .04, .02)
++            SmartMode.DOWNLOAD -> Weights(.16, .12, .13, .18, .34, .05, .02)
++            SmartMode.BROWSING -> Weights(.27, .14, .14, .24, .08, .09, .04)
++            SmartMode.STREAMING -> Weights(.13, .15, .18, .18, .29, .05, .02)
++            SmartMode.EMERGENCY -> Weights(.11, .08, .13, .52, .02, .12, .02)
++            SmartMode.AUTO -> Weights(.25, .16, .16, .24, .08, .08, .03)
++        }
++        val failurePenalty = health.recentFailures.coerceAtMost(5) * if (mode == SmartMode.EMERGENCY) .025 else .075
++        return weights.latency * latency + weights.jitter * jitter + weights.loss * loss + weights.success * success +
++                weights.throughput * throughput + weights.recent * recent + weights.location * sameCountry - failurePenalty
++    }
++
++    private data class Weights(val latency: Double, val jitter: Double, val loss: Double, val success: Double, val throughput: Double, val recent: Double, val location: Double)
++}
++
++class SmartConnectPreferences(context: Context) {
++    private val prefs = context.getSharedPreferences("ghajar_smart_connect", Context.MODE_PRIVATE)
++    var mode: SmartMode
++        get() = runCatching { SmartMode.valueOf(prefs.getString("mode", SmartMode.AUTO.name).orEmpty()) }.getOrDefault(SmartMode.AUTO)
++        set(value) { prefs.edit().putString("mode", value.name).apply() }
++}
++
++class ServerHealthRepository(context: Context) {
++    private val prefs = context.getSharedPreferences("ghajar_server_health", Context.MODE_PRIVATE)
++    private val lock = Any()
++
++    fun get(configId: String): ServerHealth = synchronized(lock) { read(key(configId)) }
++    fun snapshot(configIds: Collection<String>): Map<String, ServerHealth> = configIds.associateWith(::get)
++
++    fun recordProbe(configId: String, samples: List<Long?>) = update(configId) { old ->
++        val valid = samples.filterNotNull().filter { it >= 0 }
++        val loss = (samples.size - valid.size) * 100.0 / samples.size.coerceAtLeast(1)
++        val jitter = valid.zipWithNext().map { (a, b) -> abs(a - b).toDouble() }.averageDoubleOr(-1.0)
++        val failures = if (valid.isEmpty()) (old.recentFailures + 1).coerceAtMost(10) else (old.recentFailures - 1).coerceAtLeast(0)
++        old.copy(
++            latencyMs = valid.averageLongOr(old.latencyMs), jitterMs = jitter, packetLossPercent = loss,
++            recentFailures = failures, unhealthyUntil = if (failures >= 3) System.currentTimeMillis() + UNHEALTHY_MS else 0,
++            updatedAt = System.currentTimeMillis()
++        )
++    }
++
++    fun recordConnectionSuccess(configId: String) = update(configId) { it.copy(successCount = capped(it.successCount + 1), recentFailures = 0, lastSuccessfulAt = System.currentTimeMillis(), unhealthyUntil = 0, updatedAt = System.currentTimeMillis()) }
++    fun recordConnectionFailure(configId: String) = update(configId) {
++        val failures = (it.recentFailures + 1).coerceAtMost(10)
++        it.copy(failureCount = capped(it.failureCount + 1), recentFailures = failures, unhealthyUntil = if (failures >= 3) System.currentTimeMillis() + UNHEALTHY_MS else it.unhealthyUntil, updatedAt = System.currentTimeMillis())
++    }
++    fun recordThroughput(configId: String, bytesPerSecond: Long) {
++        if (bytesPerSecond > 0) update(configId) { it.copy(throughputBytesPerSecond = bytesPerSecond, updatedAt = System.currentTimeMillis()) }
++    }
++
++    private fun update(configId: String, transform: (ServerHealth) -> ServerHealth) = synchronized(lock) {
++        val storageKey = key(configId); prefs.edit().putString(storageKey, transform(read(storageKey)).toJson().toString()).apply()
++    }
++    private fun read(storageKey: String): ServerHealth = runCatching { JSONObject(prefs.getString(storageKey, "{}")).toHealth() }.getOrDefault(ServerHealth())
++    private fun key(id: String) = "server_" + MessageDigest.getInstance("SHA-256").digest(id.toByteArray()).joinToString("") { "%02x".format(it) }.take(24)
++    private fun capped(value: Int) = if (value > 10_000) value / 2 else value
++    private fun List<Long>.averageLongOr(fallback: Double) = if (isEmpty()) fallback else average()
++    private fun List<Double>.averageDoubleOr(fallback: Double) = if (isEmpty()) fallback else average()
++    private fun ServerHealth.toJson() = JSONObject().put("latency", latencyMs).put("jitter", jitterMs).put("loss", packetLossPercent)
++        .put("success", successCount).put("failure", failureCount).put("recentFailures", recentFailures).put("throughput", throughputBytesPerSecond)
++        .put("lastSuccess", lastSuccessfulAt).put("unhealthyUntil", unhealthyUntil).put("updatedAt", updatedAt)
++    private fun JSONObject.toHealth() = ServerHealth(optDouble("latency", -1.0), optDouble("jitter", -1.0), optDouble("loss", 100.0),
++        optInt("success"), optInt("failure"), optInt("recentFailures"), optLong("throughput", -1), optLong("lastSuccess"), optLong("unhealthyUntil"), optLong("updatedAt"))
++
++    private companion object { const val UNHEALTHY_MS = 10 * 60 * 1000L }
++}
+diff --git a/app/src/test/java/net/gozar/app/SmartConnectEngineTest.kt b/app/src/test/java/net/gozar/app/SmartConnectEngineTest.kt
+new file mode 100644
+index 0000000..8472c1d
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/SmartConnectEngineTest.kt
+@@ -0,0 +1,38 @@
++package net.gozar.app
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class SmartConnectEngineTest {
++    @Test fun gamingPrefersLowerLatencyAndJitter() {
++        val a = ServerCandidate("a"); val b = ServerCandidate("b")
++        val health = mapOf(
++            "a" to ServerHealth(latencyMs = 55.0, jitterMs = 8.0, packetLossPercent = 1.0, successCount = 8, failureCount = 2),
++            "b" to ServerHealth(latencyMs = 130.0, jitterMs = 70.0, packetLossPercent = 0.0, successCount = 10)
++        )
++        assertEquals("a", SmartConnectScorer.rank(listOf(a, b), health, SmartMode.GAMING).first().candidate.id)
++    }
++
++    @Test fun downloadUsesMeasuredThroughputWithoutInventingIt() {
++        val slow = ServerCandidate("slow"); val fast = ServerCandidate("fast")
++        val base = ServerHealth(latencyMs = 80.0, jitterMs = 10.0, packetLossPercent = 0.0, successCount = 10)
++        val ranked = SmartConnectScorer.rank(listOf(slow, fast), mapOf("slow" to base.copy(throughputBytesPerSecond = 1_000_000), "fast" to base.copy(throughputBytesPerSecond = 20_000_000)), SmartMode.DOWNLOAD)
++        assertEquals("fast", ranked.first().candidate.id)
++    }
++
++    @Test fun unhealthyServersAreTemporarilyExcludedButEmergencyCanUseThem() {
++        val now = 1_000_000L
++        val bad = ServerCandidate("bad"); val weak = ServerCandidate("weak")
++        val health = mapOf(
++            "bad" to ServerHealth(latencyMs = 10.0, jitterMs = 1.0, packetLossPercent = 0.0, successCount = 10, unhealthyUntil = now + 1000),
++            "weak" to ServerHealth(latencyMs = 400.0, jitterMs = 50.0, packetLossPercent = 5.0, successCount = 5, failureCount = 1)
++        )
++        assertEquals("weak", SmartConnectScorer.rank(listOf(bad, weak), health, SmartMode.AUTO, now).first().candidate.id)
++        assertTrue(SmartConnectScorer.rank(listOf(bad, weak), health, SmartMode.EMERGENCY, now).any { it.candidate.id == "bad" })
++    }
++
++    @Test fun unavailableProtocolNeverWins() {
++        val ranked = SmartConnectScorer.rank(listOf(ServerCandidate("off", false), ServerCandidate("on")), emptyMap(), SmartMode.AUTO)
++        assertEquals("on", ranked.first().candidate.id)
++    }
++}
+-- 
+2.51.1
+

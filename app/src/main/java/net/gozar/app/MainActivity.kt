@@ -986,6 +986,8 @@ class MainActivity : ComponentActivity() {
 
     private fun watchTunnel() {
         lifecycleScope.launch {
+            val health = ServerHealthRepository(applicationContext)
+            var previous: Connection? = null
             VpnState.state.collect { state ->
                 if (state == Connection.CONNECTED && !IkeController.active) {
                     // OpenVPN drives VpnState through its own bridge; the Xray-based
@@ -998,12 +1000,17 @@ class MainActivity : ComponentActivity() {
                     store.configs.value.find { it.id == id }?.let {
                         DebugRunner.start(it, store)
                     }
+                    if (previous != Connection.CONNECTED) id?.let(health::recordConnectionSuccess)
                 } else if (state == Connection.DISCONNECTED) {
                     TunnelHealth.reset()
                     RadarRunner.start(false)
                 } else {
                     TunnelHealth.reset()
                 }
+                if (state == Connection.ERROR && previous != Connection.ERROR) {
+                    (VpnState.activeId.value ?: store.selectedId.value)?.let(health::recordConnectionFailure)
+                }
+                previous = state
             }
         }
     }
@@ -1014,7 +1021,7 @@ class MainActivity : ComponentActivity() {
     private var pickJob: Job? = null
     private var autoSwitchJob: Job? = null
     private val AUTO_SWITCH_MS = 60_000L
-    private val AUTO_SWITCH_MARGIN_MS = 40
+    private val AUTO_SWITCH_SCORE_MARGIN = 0.08
     private val AUTO_SWITCH_PROBE_MS = 25_000L
 
     private fun startAutoSwitch() {
@@ -1056,6 +1063,8 @@ class MainActivity : ComponentActivity() {
                 val results = selector.results.value
                 val bestMs = (results[best.id] as? PingResult.Ok)?.ms
                 val currentMs = (results[activeId] as? PingResult.Ok)?.ms
+                val bestScore = selector.scores.value[best.id]
+                val currentScore = selector.scores.value[activeId]
                 android.util.Log.d(
                     tag,
                     "active=${activeCfg?.name} ${currentMs}ms  best=${best.name} ${bestMs}ms"
@@ -1064,14 +1073,11 @@ class MainActivity : ComponentActivity() {
                 if (best.id == activeId) {
                     android.util.Log.d(tag, "skip: already on the fastest"); continue
                 }
-                if (bestMs == null) {
-                    android.util.Log.d(tag, "skip: best has no timing"); continue
+                if (bestScore == null) {
+                    android.util.Log.d(tag, "skip: best has no smart score"); continue
                 }
-                if (currentMs != null && currentMs - bestMs < AUTO_SWITCH_MARGIN_MS) {
-                    android.util.Log.d(
-                        tag,
-                        "skip: gain ${currentMs - bestMs}ms under margin $AUTO_SWITCH_MARGIN_MS"
-                    ); continue
+                if (currentScore != null && bestScore - currentScore < AUTO_SWITCH_SCORE_MARGIN) {
+                    android.util.Log.d(tag, "skip: smart score gain is under safety margin"); continue
                 }
 
                 android.util.Log.d(tag, "SWITCHING to ${best.name}")
@@ -5574,6 +5580,12 @@ private fun ToolsScreen(
             title = t("stab_title"),
             subtitle = t("stab_sub"),
             onClick = onOpenStability
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.SmartToy,
+            title = "تنظیمات پیشرفتهٔ اتصال هوشمند",
+            subtitle = "Auto، سریع‌ترین، پایدار، بازی، دانلود، وب‌گردی، استریم و اضطراری",
+            onClick = { context.startActivity(Intent(context, SmartConnectActivity::class.java)) }
         )
         SettingsHubCard(
             icon = Icons.Filled.Dns,
