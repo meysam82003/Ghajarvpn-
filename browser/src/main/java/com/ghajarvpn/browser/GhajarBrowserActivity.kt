@@ -615,6 +615,7 @@ class GhajarBrowserActivity : Activity() {
             routingReady = decision.ready
             val server = serverLabel.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty()
             networkStatus.text = "محافظ قاجار · ${decision.message}$server · ${if (decision.ready) "متصل" else "مسدود"}"
+            GhajarPlaybackCoordinator.onBrowserRouteStateChanged(decision.ready)
             after()
         }
     }

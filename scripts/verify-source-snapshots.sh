@@ -37,6 +37,7 @@ snapshots=(
   "browser/src/main/java/com/ghajarvpn/browser/media/MediaHeaderProvider.kt"
   "browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt"
   "browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/media/MediaRecoveryController.kt"
   "browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt"
   "browser/src/test/java/com/ghajarvpn/browser/media/MediaHeaderProviderTest.kt"
   "browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt"

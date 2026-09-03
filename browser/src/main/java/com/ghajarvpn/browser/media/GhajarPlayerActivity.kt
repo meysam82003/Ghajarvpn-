@@ -49,14 +49,17 @@ class GhajarPlayerActivity : Activity() {
     private var aspectIndex = 0
     private var screenLocked = false
     private var mutedVolume = 1f
-    private var retryCount = 0
     private var resumePrompted = false
     private var returningToBrowser = false
+    private var playbackErrorDialog: AlertDialog? = null
     private var initialY = 0f
     private var initialX = 0f
     private var initialPosition = 0L
     private var initialBrightness = .5f
     private var initialVolume = 0
+    private val terminalErrorListener: (PlaybackException) -> Unit = { error ->
+        runOnUiThread { showPlaybackError(error) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -79,6 +82,7 @@ class GhajarPlayerActivity : Activity() {
         setContentView(buildUi())
         playerListener = PlayerListener()
         player.addListener(playerListener)
+        GhajarPlaybackCoordinator.addErrorListener(terminalErrorListener)
         if (attach) player.play()
         handler.post(statsUpdater)
     }
@@ -311,6 +315,9 @@ class GhajarPlayerActivity : Activity() {
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
+        playbackErrorDialog?.dismiss()
+        playbackErrorDialog = null
+        GhajarPlaybackCoordinator.removeErrorListener(terminalErrorListener)
         if (::player.isInitialized) {
             saveResume()
             if (::playerListener.isInitialized) player.removeListener(playerListener)
@@ -345,31 +352,34 @@ class GhajarPlayerActivity : Activity() {
             .setNegativeButton("از ابتدا", null).show()
     }
 
+    private fun showPlaybackError(error: PlaybackException) {
+        if (isFinishing || isDestroyed || playbackErrorDialog?.isShowing == true) return
+        val message = when (error.errorCode) {
+            PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+            PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "کُدک این ویدیو روی دستگاه پشتیبانی نمی‌شود."
+            PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "دسترسی Media رد شد یا نشست آن منقضی شده است."
+            PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+            PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "ساختار Media معتبر نیست."
+            PlaybackException.ERROR_CODE_DRM_CONTENT_ERROR,
+            PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED,
+            PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED -> "این Media با DRM محافظت شده و در پلیر قاجار باز نمی‌شود."
+            else -> "پخش ویدیو ممکن نشد؛ Player اصلی سایت همچنان قابل استفاده است."
+        }
+        playbackErrorDialog = AlertDialog.Builder(this).setTitle("شهربان · خطای پخش").setMessage(message)
+            .setPositiveButton("تلاش دوباره") { _, _ -> GhajarPlaybackCoordinator.retryPlayback() }
+            .setNegativeButton("بازگشت به سایت") { _, _ -> returnToBrowser() }
+            .setOnDismissListener { playbackErrorDialog = null }
+            .show()
+    }
+
     private inner class PlayerListener : Player.Listener {
         override fun onPlaybackStateChanged(state: Int) {
             buffering.visibility = if (state == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
-            if (state == Player.STATE_READY) { retryCount = 0; offerResume() }
+            if (state == Player.STATE_READY) {
+                playbackErrorDialog?.dismiss()
+                offerResume()
+            }
             if (state == Player.STATE_ENDED && !request.private) preferences.saveResume(request.media.url, 0)
-        }
-
-        override fun onPlayerError(error: PlaybackException) {
-            if (retryCount++ < 2 && error.errorCode in RETRYABLE_ERRORS) {
-                val position = player.currentPosition; player.prepare(); player.seekTo(position); player.play(); return
-            }
-            val message = when (error.errorCode) {
-                PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
-                PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "کُدک این ویدیو روی دستگاه پشتیبانی نمی‌شود."
-                PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "دسترسی Media رد شد یا نشست آن منقضی شده است."
-                PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
-                PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "ساختار Media معتبر نیست."
-                PlaybackException.ERROR_CODE_DRM_CONTENT_ERROR,
-                PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED,
-                PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED -> "این Media با DRM محافظت شده و در پلیر قاجار باز نمی‌شود."
-                else -> "پخش ویدیو ممکن نشد؛ Player اصلی سایت همچنان قابل استفاده است."
-            }
-            AlertDialog.Builder(this@GhajarPlayerActivity).setTitle("شهربان · خطای پخش").setMessage(message)
-                .setPositiveButton("تلاش دوباره") { _, _ -> retryCount = 0; player.prepare(); player.play() }
-                .setNegativeButton("بازگشت به سایت") { _, _ -> returnToBrowser() }.show()
         }
     }
 
@@ -399,10 +409,5 @@ class GhajarPlayerActivity : Activity() {
         const val EXTRA_ATTACH = "attach_active_playback"
         private val SPEEDS = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
         private val SEEK_SECONDS = intArrayOf(5, 10, 15, 30)
-        private val RETRYABLE_ERRORS = setOf(
-            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
-            PlaybackException.ERROR_CODE_IO_UNSPECIFIED
-        )
     }
 }
