@@ -16,6 +16,9 @@ class MediaPreferences(context: Context) {
     var backgroundPlayback: Boolean
         get() = prefs.getBoolean("background", false)
         set(value) { prefs.edit().putBoolean("background", value).apply() }
+    var autoPictureInPicture: Boolean
+        get() = prefs.getBoolean("auto_pip", false)
+        set(value) { prefs.edit().putBoolean("auto_pip", value).apply() }
     var continueOnNavigate: Boolean
         get() = prefs.getBoolean("continue", true)
         set(value) { prefs.edit().putBoolean("continue", value).apply() }

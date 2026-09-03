@@ -44,6 +44,7 @@ class GhajarPlayerActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var stats: TextView
     private lateinit var buffering: ProgressBar
+    private val playerChrome = mutableListOf<View>()
     private val preferences by lazy { MediaPreferences(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var aspectIndex = 0
@@ -52,6 +53,7 @@ class GhajarPlayerActivity : Activity() {
     private var resumePrompted = false
     private var returningToBrowser = false
     private var playbackErrorDialog: AlertDialog? = null
+    private var statsVisibleBeforePip = false
     private var initialY = 0f
     private var initialX = 0f
     private var initialPosition = 0L
@@ -119,6 +121,7 @@ class GhajarPlayerActivity : Activity() {
             }
         }
         root.addView(top, FrameLayout.LayoutParams(-1, dp(60), Gravity.TOP))
+        playerChrome += top
 
         val side = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -131,6 +134,7 @@ class GhajarPlayerActivity : Activity() {
             addView(icon(android.R.drawable.ic_menu_always_landscape_portrait, "چرخش صفحه") { toggleOrientation() })
         }
         root.addView(side, FrameLayout.LayoutParams(dp(54), -2, Gravity.END or Gravity.CENTER_VERTICAL))
+        playerChrome += side
 
         stats = TextView(this).apply {
             setTextColor(Color.WHITE); textSize = 12f; setPadding(dp(8), dp(5), dp(8), dp(5))
@@ -155,10 +159,13 @@ class GhajarPlayerActivity : Activity() {
             SEEK_SECONDS.forEachIndexed { index, value -> seek.add(2, 200 + index, index, "$value ثانیه") }
             menu.add(3, 300, 0, if (preferences.gestures) "خاموش‌کردن Gestureها" else "روشن‌کردن Gestureها")
             menu.add(3, 301, 1, if (preferences.backgroundPlayback) "توقف پخش پس‌زمینه" else "اجازهٔ پخش پس‌زمینه")
-            menu.add(3, 302, 2, if (stats.visibility == View.VISIBLE) "بستن آمار فنی" else "نمایش آمار فنی")
-            menu.add(3, 303, 3, if (preferences.continueOnNavigate) "توقف هنگام بازگشت به مرورگر" else "ادامه در Mini Player")
-            menu.add(3, 304, 4, "توقف کامل پخش")
-            if (!request.private) menu.add(3, 305, 5, "حذف سابقهٔ این ویدیو")
+            if (packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+                menu.add(3, 306, 2, if (preferences.autoPictureInPicture) "خاموش‌کردن PiP خودکار" else "روشن‌کردن PiP خودکار")
+            }
+            menu.add(3, 302, 3, if (stats.visibility == View.VISIBLE) "بستن آمار فنی" else "نمایش آمار فنی")
+            menu.add(3, 303, 4, if (preferences.continueOnNavigate) "توقف هنگام بازگشت به مرورگر" else "ادامه در Mini Player")
+            menu.add(3, 304, 5, "توقف کامل پخش")
+            if (!request.private) menu.add(3, 305, 6, "حذف سابقهٔ این ویدیو")
             setOnMenuItemClickListener { item ->
                 when {
                     item.itemId in 100 until 100 + SPEEDS.size -> {
@@ -168,6 +175,7 @@ class GhajarPlayerActivity : Activity() {
                     item.itemId in 200 until 200 + SEEK_SECONDS.size -> preferences.seekSeconds = SEEK_SECONDS[item.itemId - 200]
                     item.itemId == 300 -> preferences.gestures = !preferences.gestures
                     item.itemId == 301 -> preferences.backgroundPlayback = !preferences.backgroundPlayback
+                    item.itemId == 306 -> preferences.autoPictureInPicture = !preferences.autoPictureInPicture
                     item.itemId == 302 -> stats.visibility = if (stats.visibility == View.VISIBLE) View.GONE else View.VISIBLE
                     item.itemId == 303 -> preferences.continueOnNavigate = !preferences.continueOnNavigate
                     item.itemId == 304 -> {
@@ -282,19 +290,48 @@ class GhajarPlayerActivity : Activity() {
     }
 
     private fun enterPip() {
-        if (Build.VERSION.SDK_INT < 26 || !player.isPlaying) { toast("ابتدا ویدیو را پخش کنید"); return }
+        if (Build.VERSION.SDK_INT < 26 || !packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
+            toast("تصویر در تصویر روی این دستگاه پشتیبانی نمی‌شود")
+            return
+        }
+        if (!player.isPlaying) { toast("ابتدا ویدیو را پخش کنید"); return }
+        enterPictureInPictureMode(buildPipParams())
+    }
+
+    private fun buildPipParams(): PictureInPictureParams {
         val ratio = player.videoSize.let { if (it.width > 0 && it.height > 0) Rational(it.width, it.height) else Rational(16, 9) }
-        enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(ratio).build())
+        return PictureInPictureParams.Builder()
+            .setAspectRatio(ratio)
+            .setActions(GhajarPlaybackService.pictureInPictureActions(this, player))
+            .build()
+    }
+
+    private fun updatePipControls() {
+        if (Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode) {
+            setPictureInPictureParams(buildPipParams())
+        }
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= 26 && preferences.backgroundPlayback && player.isPlaying) enterPip()
+        if (Build.VERSION.SDK_INT >= 26 &&
+            packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE) &&
+            preferences.autoPictureInPicture && player.isPlaying
+        ) enterPip()
     }
 
     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
         super.onPictureInPictureModeChanged(inPip, newConfig)
         playerView.useController = !inPip && !screenLocked
+        if (inPip) {
+            statsVisibleBeforePip = stats.visibility == View.VISIBLE
+            stats.visibility = View.GONE
+            playerChrome.forEach { it.visibility = View.GONE }
+        } else {
+            playerChrome.forEach { it.visibility = View.VISIBLE }
+            if (statsVisibleBeforePip) stats.visibility = View.VISIBLE
+            statsVisibleBeforePip = false
+        }
     }
 
     override fun onStart() {
@@ -379,6 +416,8 @@ class GhajarPlayerActivity : Activity() {
     }
 
     private inner class PlayerListener : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) = updatePipControls()
+
         override fun onPlaybackStateChanged(state: Int) {
             buffering.visibility = if (state == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
             if (state == Player.STATE_READY) {

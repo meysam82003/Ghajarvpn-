@@ -4,11 +4,13 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
+import android.app.RemoteAction
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.IBinder
+import android.graphics.drawable.Icon
 import androidx.core.content.ContextCompat
 import androidx.media3.common.Player
 
@@ -134,9 +136,9 @@ class GhajarPlaybackService : Service() {
     companion object {
         private const val CHANNEL_ID = "ghajar_media_playback"
         private const val NOTIFICATION_ID = 7341
-        private const val ACTION_PLAY_PAUSE = "com.ghajarvpn.browser.media.PLAY_PAUSE"
-        private const val ACTION_SEEK_BACK = "com.ghajarvpn.browser.media.SEEK_BACK"
-        private const val ACTION_SEEK_FORWARD = "com.ghajarvpn.browser.media.SEEK_FORWARD"
+        internal const val ACTION_PLAY_PAUSE = "com.ghajarvpn.browser.media.PLAY_PAUSE"
+        internal const val ACTION_SEEK_BACK = "com.ghajarvpn.browser.media.SEEK_BACK"
+        internal const val ACTION_SEEK_FORWARD = "com.ghajarvpn.browser.media.SEEK_FORWARD"
         private const val ACTION_STOP = "com.ghajarvpn.browser.media.STOP"
 
         fun start(context: Context) {
@@ -148,5 +150,22 @@ class GhajarPlaybackService : Service() {
         fun requestStop(context: Context) {
             context.startService(Intent(context, GhajarPlaybackService::class.java).setAction(ACTION_STOP))
         }
+
+        fun pictureInPictureActions(context: Context, player: Player): List<RemoteAction> =
+            PictureInPictureControlPolicy.controls(player.isPlaying).mapIndexed { index, control ->
+                val (icon, label, action) = when (control) {
+                    PictureInPictureControl.SEEK_BACK -> Triple(android.R.drawable.ic_media_rew, "عقب", ACTION_SEEK_BACK)
+                    PictureInPictureControl.PLAY -> Triple(android.R.drawable.ic_media_play, "پخش", ACTION_PLAY_PAUSE)
+                    PictureInPictureControl.PAUSE -> Triple(android.R.drawable.ic_media_pause, "مکث", ACTION_PLAY_PAUSE)
+                    PictureInPictureControl.SEEK_FORWARD -> Triple(android.R.drawable.ic_media_ff, "جلو", ACTION_SEEK_FORWARD)
+                }
+                val pending = PendingIntent.getService(
+                    context,
+                    80 + index,
+                    Intent(context, GhajarPlaybackService::class.java).setAction(action),
+                    PendingIntent.FLAG_UPDATE_CURRENT or if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
+                )
+                RemoteAction(Icon.createWithResource(context, icon), label, label, pending)
+            }
     }
 }

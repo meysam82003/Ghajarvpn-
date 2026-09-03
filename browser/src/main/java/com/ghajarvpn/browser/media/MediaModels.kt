@@ -34,6 +34,16 @@ data class VideoPlaybackState(
     val speed: Float = 1f
 )
 
+enum class PictureInPictureControl { SEEK_BACK, PLAY, PAUSE, SEEK_FORWARD }
+
+object PictureInPictureControlPolicy {
+    fun controls(isPlaying: Boolean): List<PictureInPictureControl> = listOf(
+        PictureInPictureControl.SEEK_BACK,
+        if (isPlaying) PictureInPictureControl.PAUSE else PictureInPictureControl.PLAY,
+        PictureInPictureControl.SEEK_FORWARD
+    )
+}
+
 object PlaybackLifecyclePolicy {
     fun shouldPause(
         backgroundAllowed: Boolean,

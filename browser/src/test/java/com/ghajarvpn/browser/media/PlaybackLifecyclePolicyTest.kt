@@ -40,4 +40,12 @@ class PlaybackLifecyclePolicyTest {
         assertFalse(key.contains("secret"))
         assertFalse(MediaPrivacyPolicy.isResumeStorageKey("speed"))
     }
+
+    @Test fun picture_in_picture_has_only_real_single_player_controls() {
+        assertEquals(
+            listOf(PictureInPictureControl.SEEK_BACK, PictureInPictureControl.PAUSE, PictureInPictureControl.SEEK_FORWARD),
+            PictureInPictureControlPolicy.controls(isPlaying = true)
+        )
+        assertEquals(PictureInPictureControl.PLAY, PictureInPictureControlPolicy.controls(isPlaying = false)[1])
+    }
 }
