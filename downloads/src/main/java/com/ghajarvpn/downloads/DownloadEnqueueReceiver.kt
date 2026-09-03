@@ -3,12 +3,19 @@ package com.ghajarvpn.downloads
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.os.Build
 import android.webkit.URLUtil
+import androidx.core.content.ContextCompat
 
 class DownloadEnqueueReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action != DownloadContract.ACTION_ENQUEUE) return
+        if (intent.action != DownloadContract.ACTION_ENQUEUE) {
+            if (intent.action in setOf(DownloadContract.ACTION_PAUSE, DownloadContract.ACTION_RESUME, DownloadContract.ACTION_CANCEL)) {
+                val service = Intent(context, GhajarDownloadService::class.java).setAction(intent.action)
+                    .putExtra(DownloadContract.EXTRA_ID, intent.getStringExtra(DownloadContract.EXTRA_ID).orEmpty())
+                ContextCompat.startForegroundService(context, service)
+            }
+            return
+        }
         val pending = goAsync()
         Thread {
             try {
@@ -32,6 +39,6 @@ class DownloadEnqueueReceiver : BroadcastReceiver() {
 
     private fun start(context: Context) {
         val service = Intent(context, GhajarDownloadService::class.java).setAction(DownloadContract.ACTION_RUN)
-        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(service) else context.startService(service)
+        ContextCompat.startForegroundService(context, service)
     }
 }

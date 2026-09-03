@@ -15,6 +15,9 @@
             android:exported="false">
             <intent-filter>
                 <action android:name="com.ghajarvpn.downloads.ENQUEUE" />
+                <action android:name="com.ghajarvpn.downloads.PAUSE" />
+                <action android:name="com.ghajarvpn.downloads.RESUME" />
+                <action android:name="com.ghajarvpn.downloads.CANCEL" />
             </intent-filter>
         </receiver>
         <service

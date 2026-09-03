@@ -334,12 +334,19 @@ class GhajarDownloadService : Service() {
         DownloadState.CANCELED -> "لغو شد"
     }
 
-    private fun updateSummary() { notifications.notify(SUMMARY_ID, summaryNotification(if (active.isEmpty()) "صف دانلود" else "${active.size} دانلود فعال")) }
+    private fun updateSummary() {
+        val tasks = repository.all()
+        val waitingForNetwork = tasks.any { it.state == DownloadState.PAUSED && it.error in setOf(WAIT_NETWORK, WAIT_WIFI) }
+        if (active.isEmpty() && tasks.none { it.state == DownloadState.QUEUED } && !waitingForNetwork) {
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        } else notifications.notify(SUMMARY_ID, summaryNotification(if (active.isEmpty()) "در انتظار شبکه" else "${active.size} دانلود فعال"))
+    }
     private fun summaryNotification(text: String) = NotificationCompat.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_sys_download)
         .setContentTitle("مدیر دانلود قاجار").setContentText(text).setOngoing(active.isNotEmpty()).setContentIntent(openManagerIntent()).build()
     private fun openManagerIntent() = PendingIntent.getActivity(this, 0, Intent(this, DownloadManagerActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-    private fun actionIntent(id: String, action: String, suffix: Int) = PendingIntent.getService(this, id.hashCode() + suffix,
-        Intent(this, GhajarDownloadService::class.java).setAction(action).putExtra(DownloadContract.EXTRA_ID, id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+    private fun actionIntent(id: String, action: String, suffix: Int) = PendingIntent.getBroadcast(this, id.hashCode() + suffix,
+        Intent(this, DownloadEnqueueReceiver::class.java).setAction(action).putExtra(DownloadContract.EXTRA_ID, id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT >= 26) notifications.createNotificationChannel(NotificationChannel(CHANNEL, "دانلودهای قاجار", NotificationManager.IMPORTANCE_LOW))
