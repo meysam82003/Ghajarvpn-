@@ -120,6 +120,7 @@ dependencies {
     implementation(project(":strongswan"))
     implementation(project(":openvpn"))
     implementation(project(":browser"))
+    implementation(project(":downloads"))
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)

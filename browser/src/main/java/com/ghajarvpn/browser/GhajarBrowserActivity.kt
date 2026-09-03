@@ -45,6 +45,7 @@ import android.widget.Toast
 import com.ghajarvpn.browser.media.BrowserMediaBridge
 import com.ghajarvpn.browser.media.GhajarPlayerActivity
 import com.ghajarvpn.browser.media.MediaCandidate
+import com.ghajarvpn.browser.media.MediaKind
 import com.ghajarvpn.browser.media.MediaPlaybackRequest
 import com.ghajarvpn.browser.media.MediaSessionVault
 import com.ghajarvpn.browser.media.MediaSourceResolver
@@ -301,6 +302,7 @@ class GhajarBrowserActivity : Activity() {
             menu.add("حالت مطالعه")
             menu.add(if (settings.desktopMode) "نسخهٔ موبایل" else "نسخهٔ دسکتاپ")
             menu.add("ذخیره به PDF")
+            menu.add("دانلود ویدیوی شناسایی‌شده")
             menu.add("اشتراک‌گذاری")
             menu.add("باز کردن در مرورگر دیگر")
             menu.add("تاریخچه و نشانک‌ها")
@@ -315,6 +317,7 @@ class GhajarBrowserActivity : Activity() {
                     "حالت مطالعه" -> readerMode(web)
                     "نسخهٔ موبایل", "نسخهٔ دسکتاپ" -> toggleDesktop(web)
                     "ذخیره به PDF" -> savePdf(web)
+                    "دانلود ویدیوی شناسایی‌شده" -> chooseMediaDownload()
                     "اشتراک‌گذاری" -> share(web.url)
                     "باز کردن در مرورگر دیگر" -> openExternal(web.url)
                     "تاریخچه و نشانک‌ها" -> showLibrary()
@@ -432,6 +435,24 @@ class GhajarBrowserActivity : Activity() {
             sendBroadcast(handoff); toast("به مدیر دانلود افزوده شد")
         } else {
             fallbackDownload(url, userAgent, disposition, mime, tab.url)
+        }
+    }
+
+    private fun chooseMediaDownload() {
+        val tab = currentTab() ?: return
+        if (tab.private) { toast("دانلود در تب خصوصی غیرفعال است"); return }
+        val values = mediaCandidates[tab.id].orEmpty().filter { it.kind == MediaKind.PROGRESSIVE && BrowserRequestPolicy.safeExternal(it.url) }
+        if (values.isEmpty()) { toast("فایل مستقیم قابل دانلود پیدا نشد؛ HLS/DASH فقط پخش می‌شوند"); return }
+        fun confirm(candidate: MediaCandidate) {
+            AlertDialog.Builder(this).setTitle("دانلود جدا از پخش")
+                .setMessage("فقط اگر اجازهٔ دریافت این رسانه را دارید آن را به مدیر دانلود بفرستید. DRM یا حفاظت سایت دور زده نمی‌شود.")
+                .setPositiveButton("افزودن") { _, _ ->
+                    downloadListener(tab).onDownloadStart(candidate.url, currentWebView()?.settings?.userAgentString, "", candidate.mimeType, -1)
+                }.setNegativeButton("لغو", null).show()
+        }
+        if (values.size == 1) confirm(values.first()) else {
+            val labels = values.mapIndexed { index, item -> item.title.ifBlank { Uri.parse(item.url).lastPathSegment ?: "ویدیو ${index + 1}" }.take(80) }.toTypedArray()
+            AlertDialog.Builder(this).setTitle("انتخاب رسانه برای دانلود").setItems(labels) { _, index -> confirm(values[index]) }.setNegativeButton("لغو", null).show()
         }
     }
 

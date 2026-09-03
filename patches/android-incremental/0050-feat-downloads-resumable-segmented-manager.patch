@@ -1,0 +1,1092 @@
+From b074248152d6ebc49b908f8e227981629c6fe184 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 3 Sep 2026 10:49:47 +0800
+Subject: [PATCH] feat(downloads): add resumable segmented manager
+
+---
+ app/build.gradle.kts                          |   1 +
+ .../main/java/net/gozar/app/MainActivity.kt   |   6 +
+ .../browser/GhajarBrowserActivity.kt          |  21 +
+ downloads/build.gradle.kts                    |  19 +
+ downloads/src/main/AndroidManifest.xml        |  25 ++
+ .../ghajarvpn/downloads/DownloadContract.kt   |  21 +
+ .../downloads/DownloadEnqueueReceiver.kt      |  37 ++
+ .../downloads/DownloadHeaderVault.kt          |  63 +++
+ .../downloads/DownloadManagerActivity.kt      | 116 ++++++
+ .../com/ghajarvpn/downloads/DownloadModels.kt |  38 ++
+ .../ghajarvpn/downloads/DownloadPlanning.kt   |  75 ++++
+ .../ghajarvpn/downloads/DownloadRepository.kt |  85 ++++
+ .../downloads/GhajarDownloadService.kt        | 369 ++++++++++++++++++
+ .../downloads/DownloadPlanningTest.kt         |  50 +++
+ settings.gradle.kts                           |   1 +
+ 15 files changed, 927 insertions(+)
+ create mode 100644 downloads/build.gradle.kts
+ create mode 100644 downloads/src/main/AndroidManifest.xml
+ create mode 100644 downloads/src/main/java/com/ghajarvpn/downloads/DownloadContract.kt
+ create mode 100644 downloads/src/main/java/com/ghajarvpn/downloads/DownloadEnqueueReceiver.kt
+ create mode 100644 downloads/src/main/java/com/ghajarvpn/downloads/DownloadHeaderVault.kt
+ create mode 100644 downloads/src/main/java/com/ghajarvpn/downloads/DownloadManagerActivity.kt
+ create mode 100644 downloads/src/main/java/com/ghajarvpn/downloads/DownloadModels.kt
+ create mode 100644 downloads/src/main/java/com/ghajarvpn/downloads/DownloadPlanning.kt
+ create mode 100644 downloads/src/main/java/com/ghajarvpn/downloads/DownloadRepository.kt
+ create mode 100644 downloads/src/main/java/com/ghajarvpn/downloads/GhajarDownloadService.kt
+ create mode 100644 downloads/src/test/java/com/ghajarvpn/downloads/DownloadPlanningTest.kt
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index cbbfee2..b708152 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -120,6 +120,7 @@ dependencies {
+     implementation(project(":strongswan"))
+     implementation(project(":openvpn"))
+     implementation(project(":browser"))
++    implementation(project(":downloads"))
+     implementation(platform(libs.androidx.compose.bom))
+     implementation(libs.androidx.activity.compose)
+     implementation(libs.androidx.compose.material3)
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index deb7627..f787f39 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -5563,6 +5563,12 @@ private fun ToolsScreen(
+             subtitle = "تشخیص آفلاین، نمایش امن، اعتبارسنجی و افزودن مستقیم فایل‌های پشتیبانی‌شده",
+             onClick = { context.startActivity(Intent(context, net.gozar.app.configtoolkit.ConfigToolkitActivity::class.java)) }
+         )
++        SettingsHubCard(
++            icon = Icons.Filled.FileDownload,
++            title = "مدیر دانلود قاجار",
++            subtitle = "دانلود چندبخشی واقعی، صف، توقف، ادامه، بازیابی و SHA-256",
++            onClick = { com.ghajarvpn.downloads.DownloadContract.open(context) }
++        )
+         SettingsHubCard(
+             icon = Icons.Filled.NetworkCheck,
+             title = t("stab_title"),
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+index 0fbe729..771faf3 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -45,6 +45,7 @@ import android.widget.Toast
+ import com.ghajarvpn.browser.media.BrowserMediaBridge
+ import com.ghajarvpn.browser.media.GhajarPlayerActivity
+ import com.ghajarvpn.browser.media.MediaCandidate
++import com.ghajarvpn.browser.media.MediaKind
+ import com.ghajarvpn.browser.media.MediaPlaybackRequest
+ import com.ghajarvpn.browser.media.MediaSessionVault
+ import com.ghajarvpn.browser.media.MediaSourceResolver
+@@ -301,6 +302,7 @@ class GhajarBrowserActivity : Activity() {
+             menu.add("حالت مطالعه")
+             menu.add(if (settings.desktopMode) "نسخهٔ موبایل" else "نسخهٔ دسکتاپ")
+             menu.add("ذخیره به PDF")
++            menu.add("دانلود ویدیوی شناسایی‌شده")
+             menu.add("اشتراک‌گذاری")
+             menu.add("باز کردن در مرورگر دیگر")
+             menu.add("تاریخچه و نشانک‌ها")
+@@ -315,6 +317,7 @@ class GhajarBrowserActivity : Activity() {
+                     "حالت مطالعه" -> readerMode(web)
+                     "نسخهٔ موبایل", "نسخهٔ دسکتاپ" -> toggleDesktop(web)
+                     "ذخیره به PDF" -> savePdf(web)
++                    "دانلود ویدیوی شناسایی‌شده" -> chooseMediaDownload()
+                     "اشتراک‌گذاری" -> share(web.url)
+                     "باز کردن در مرورگر دیگر" -> openExternal(web.url)
+                     "تاریخچه و نشانک‌ها" -> showLibrary()
+@@ -435,6 +438,24 @@ class GhajarBrowserActivity : Activity() {
+         }
+     }
+ 
++    private fun chooseMediaDownload() {
++        val tab = currentTab() ?: return
++        if (tab.private) { toast("دانلود در تب خصوصی غیرفعال است"); return }
++        val values = mediaCandidates[tab.id].orEmpty().filter { it.kind == MediaKind.PROGRESSIVE && BrowserRequestPolicy.safeExternal(it.url) }
++        if (values.isEmpty()) { toast("فایل مستقیم قابل دانلود پیدا نشد؛ HLS/DASH فقط پخش می‌شوند"); return }
++        fun confirm(candidate: MediaCandidate) {
++            AlertDialog.Builder(this).setTitle("دانلود جدا از پخش")
++                .setMessage("فقط اگر اجازهٔ دریافت این رسانه را دارید آن را به مدیر دانلود بفرستید. DRM یا حفاظت سایت دور زده نمی‌شود.")
++                .setPositiveButton("افزودن") { _, _ ->
++                    downloadListener(tab).onDownloadStart(candidate.url, currentWebView()?.settings?.userAgentString, "", candidate.mimeType, -1)
++                }.setNegativeButton("لغو", null).show()
++        }
++        if (values.size == 1) confirm(values.first()) else {
++            val labels = values.mapIndexed { index, item -> item.title.ifBlank { Uri.parse(item.url).lastPathSegment ?: "ویدیو ${index + 1}" }.take(80) }.toTypedArray()
++            AlertDialog.Builder(this).setTitle("انتخاب رسانه برای دانلود").setItems(labels) { _, index -> confirm(values[index]) }.setNegativeButton("لغو", null).show()
++        }
++    }
++
+     private fun fallbackDownload(url: String, userAgent: String?, disposition: String?, mime: String?, referer: String) {
+         runCatching {
+             val request = DownloadManager.Request(Uri.parse(url)).apply {
+diff --git a/downloads/build.gradle.kts b/downloads/build.gradle.kts
+new file mode 100644
+index 0000000..da63b00
+--- /dev/null
++++ b/downloads/build.gradle.kts
+@@ -0,0 +1,19 @@
++plugins {
++    alias(libs.plugins.android.library)
++}
++
++android {
++    namespace = "com.ghajarvpn.downloads"
++    compileSdk { version = release(36) { minorApiLevel = 1 } }
++    defaultConfig { minSdk = 26 }
++    compileOptions {
++        sourceCompatibility = JavaVersion.VERSION_17
++        targetCompatibility = JavaVersion.VERSION_17
++    }
++    lint { abortOnError = false }
++}
++
++dependencies {
++    implementation("androidx.core:core-ktx:1.17.0")
++    testImplementation("junit:junit:4.13.2")
++}
+diff --git a/downloads/src/main/AndroidManifest.xml b/downloads/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..db20820
+--- /dev/null
++++ b/downloads/src/main/AndroidManifest.xml
+@@ -0,0 +1,25 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++    <uses-permission android:name="android.permission.INTERNET" />
++    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
++    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
++    <application>
++        <activity
++            android:name="com.ghajarvpn.downloads.DownloadManagerActivity"
++            android:exported="false"
++            android:label="مدیر دانلود قاجار" />
++        <receiver
++            android:name="com.ghajarvpn.downloads.DownloadEnqueueReceiver"
++            android:exported="false">
++            <intent-filter>
++                <action android:name="com.ghajarvpn.downloads.ENQUEUE" />
++            </intent-filter>
++        </receiver>
++        <service
++            android:name="com.ghajarvpn.downloads.GhajarDownloadService"
++            android:exported="false"
++            android:foregroundServiceType="dataSync" />
++    </application>
++</manifest>
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadContract.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadContract.kt
+new file mode 100644
+index 0000000..3c1e7cb
+--- /dev/null
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadContract.kt
+@@ -0,0 +1,21 @@
++package com.ghajarvpn.downloads
++
++import android.content.Context
++import android.content.Intent
++
++object DownloadContract {
++    const val ACTION_ENQUEUE = "com.ghajarvpn.downloads.ENQUEUE"
++    const val ACTION_RUN = "com.ghajarvpn.downloads.RUN"
++    const val ACTION_PAUSE = "com.ghajarvpn.downloads.PAUSE"
++    const val ACTION_RESUME = "com.ghajarvpn.downloads.RESUME"
++    const val ACTION_CANCEL = "com.ghajarvpn.downloads.CANCEL"
++    const val EXTRA_ID = "download_id"
++    const val EXTRA_URL = "url"
++    const val EXTRA_COOKIES = "cookies"
++    const val EXTRA_REFERER = "referer"
++    const val EXTRA_USER_AGENT = "user_agent"
++    const val EXTRA_CONTENT_DISPOSITION = "content_disposition"
++    const val EXTRA_CONTENT_TYPE = "content_type"
++
++    fun open(context: Context) = context.startActivity(Intent(context, DownloadManagerActivity::class.java))
++}
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadEnqueueReceiver.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadEnqueueReceiver.kt
+new file mode 100644
+index 0000000..f238710
+--- /dev/null
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadEnqueueReceiver.kt
+@@ -0,0 +1,37 @@
++package com.ghajarvpn.downloads
++
++import android.content.BroadcastReceiver
++import android.content.Context
++import android.content.Intent
++import android.os.Build
++import android.webkit.URLUtil
++
++class DownloadEnqueueReceiver : BroadcastReceiver() {
++    override fun onReceive(context: Context, intent: Intent) {
++        if (intent.action != DownloadContract.ACTION_ENQUEUE) return
++        val pending = goAsync()
++        Thread {
++            try {
++                val url = intent.getStringExtra(DownloadContract.EXTRA_URL).orEmpty()
++                val mime = intent.getStringExtra(DownloadContract.EXTRA_CONTENT_TYPE).orEmpty()
++                val disposition = intent.getStringExtra(DownloadContract.EXTRA_CONTENT_DISPOSITION).orEmpty()
++                val request = EnqueueRequest(
++                    url = url,
++                    fileName = URLUtil.guessFileName(url, disposition, mime),
++                    mimeType = mime,
++                    headers = mapOf(
++                        "Cookie" to intent.getStringExtra(DownloadContract.EXTRA_COOKIES).orEmpty(),
++                        "Referer" to intent.getStringExtra(DownloadContract.EXTRA_REFERER).orEmpty(),
++                        "User-Agent" to intent.getStringExtra(DownloadContract.EXTRA_USER_AGENT).orEmpty()
++                    )
++                )
++                if (DownloadRepository.get(context).enqueue(request) != null) start(context)
++            } finally { pending.finish() }
++        }.start()
++    }
++
++    private fun start(context: Context) {
++        val service = Intent(context, GhajarDownloadService::class.java).setAction(DownloadContract.ACTION_RUN)
++        if (Build.VERSION.SDK_INT >= 26) context.startForegroundService(service) else context.startService(service)
++    }
++}
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadHeaderVault.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadHeaderVault.kt
+new file mode 100644
+index 0000000..dbb6d6e
+--- /dev/null
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadHeaderVault.kt
+@@ -0,0 +1,63 @@
++package com.ghajarvpn.downloads
++
++import android.content.Context
++import android.security.keystore.KeyGenParameterSpec
++import android.security.keystore.KeyProperties
++import android.util.Base64
++import org.json.JSONObject
++import java.security.KeyStore
++import javax.crypto.Cipher
++import javax.crypto.KeyGenerator
++import javax.crypto.SecretKey
++import javax.crypto.spec.GCMParameterSpec
++
++/** Persists session headers only as Android-Keystore AES-GCM ciphertext. */
++internal class DownloadHeaderVault(context: Context) {
++    private val prefs = context.getSharedPreferences("ghajar_download_headers", Context.MODE_PRIVATE)
++
++    fun put(taskId: String, source: Map<String, String>): String {
++        val headers = DownloadHeaderPolicy.sanitize(source)
++        if (headers.isEmpty()) return ""
++        val cipher = Cipher.getInstance(TRANSFORMATION).apply { init(Cipher.ENCRYPT_MODE, key()) }
++        val clear = JSONObject(headers).toString().toByteArray(Charsets.UTF_8)
++        val encrypted = cipher.doFinal(clear)
++        clear.fill(0)
++        val token = taskId
++        prefs.edit().putString(token, Base64.encodeToString(cipher.iv + encrypted, Base64.NO_WRAP)).apply()
++        return token
++    }
++
++    fun get(token: String): Map<String, String> {
++        if (token.isBlank()) return emptyMap()
++        val packed = runCatching { Base64.decode(prefs.getString(token, null), Base64.NO_WRAP) }.getOrNull() ?: return emptyMap()
++        if (packed.size <= IV_BYTES) return emptyMap()
++        return runCatching {
++            val cipher = Cipher.getInstance(TRANSFORMATION).apply {
++                init(Cipher.DECRYPT_MODE, key(), GCMParameterSpec(128, packed.copyOfRange(0, IV_BYTES)))
++            }
++            val clear = cipher.doFinal(packed.copyOfRange(IV_BYTES, packed.size))
++            try {
++                val json = JSONObject(String(clear, Charsets.UTF_8))
++                json.keys().asSequence().associateWith { json.getString(it) }
++            } finally { clear.fill(0) }
++        }.getOrDefault(emptyMap())
++    }
++
++    fun remove(token: String) { if (token.isNotBlank()) prefs.edit().remove(token).apply() }
++
++    private fun key(): SecretKey {
++        val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }
++        (store.getKey(ALIAS, null) as? SecretKey)?.let { return it }
++        return KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore").apply {
++            init(KeyGenParameterSpec.Builder(ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
++                .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
++                .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE).build())
++        }.generateKey()
++    }
++
++    companion object {
++        private const val ALIAS = "ghajar_download_headers_v1"
++        private const val TRANSFORMATION = "AES/GCM/NoPadding"
++        private const val IV_BYTES = 12
++    }
++}
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadManagerActivity.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadManagerActivity.kt
+new file mode 100644
+index 0000000..e344b17
+--- /dev/null
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadManagerActivity.kt
+@@ -0,0 +1,116 @@
++package com.ghajarvpn.downloads
++
++import android.app.AlertDialog
++import android.app.NotificationManager
++import android.content.Context
++import android.graphics.Color
++import android.os.Bundle
++import android.os.Handler
++import android.os.Looper
++import android.view.Gravity
++import android.view.View
++import android.widget.*
++
++class DownloadManagerActivity : android.app.Activity() {
++    private lateinit var repository: DownloadRepository
++    private lateinit var list: LinearLayout
++    private lateinit var empty: TextView
++    private val handler = Handler(Looper.getMainLooper())
++    private val refresher = object : Runnable { override fun run() { render(); handler.postDelayed(this, 1_000) } }
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        repository = DownloadRepository.get(this)
++        setContentView(buildUi())
++    }
++
++    override fun onResume() { super.onResume(); handler.post(refresher) }
++    override fun onPause() { handler.removeCallbacks(refresher); super.onPause() }
++
++    private fun buildUi(): View {
++        val root = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setBackgroundColor(Color.rgb(7, 27, 46)); setPadding(dp(16), dp(16), dp(16), dp(16)) }
++        root.addView(LinearLayout(this).apply {
++            gravity = Gravity.CENTER_VERTICAL
++            addView(TextView(this@DownloadManagerActivity).apply { text = "وزیر خزانه · مدیر دانلود"; textSize = 21f; setTextColor(Color.rgb(248, 237, 210)) }, LinearLayout.LayoutParams(0, -2, 1f))
++            addView(Button(this@DownloadManagerActivity).apply { text = "+ لینک"; setOnClickListener { showAddDialog() } })
++        })
++        root.addView(TextView(this).apply {
++            text = "Range واقعی، ادامه پس از بسته‌شدن برنامه و بررسی SHA-256"; setTextColor(Color.LTGRAY); setPadding(0, dp(8), 0, dp(12))
++        })
++        empty = TextView(this).apply { text = "صف دانلود خالی است"; gravity = Gravity.CENTER; textSize = 16f; setTextColor(Color.LTGRAY); setPadding(0, dp(60), 0, dp(20)) }
++        list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
++        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; addView(empty); addView(list) }
++        root.addView(ScrollView(this).apply { addView(content) }, LinearLayout.LayoutParams(-1, 0, 1f))
++        return root
++    }
++
++    private fun render() {
++        val tasks = repository.all()
++        empty.visibility = if (tasks.isEmpty()) View.VISIBLE else View.GONE
++        list.removeAllViews()
++        tasks.forEach { list.addView(taskCard(it), LinearLayout.LayoutParams(-1, -2).apply { bottomMargin = dp(10) }) }
++    }
++
++    private fun taskCard(task: DownloadTask): View = LinearLayout(this).apply {
++        orientation = LinearLayout.VERTICAL; setPadding(dp(14), dp(12), dp(14), dp(12)); setBackgroundColor(Color.rgb(19, 51, 75))
++        addView(TextView(context).apply { text = task.fileName; textSize = 16f; setTextColor(Color.WHITE); maxLines = 2 })
++        val progress = if (task.totalBytes > 0) (task.downloadedBytes * 100 / task.totalBytes).coerceIn(0, 100).toInt() else 0
++        addView(ProgressBar(context, null, android.R.attr.progressBarStyleHorizontal).apply { isIndeterminate = task.totalBytes <= 0 && task.state in ACTIVE; this.progress = progress }, LinearLayout.LayoutParams(-1, dp(14)))
++        addView(TextView(context).apply {
++            val total = if (task.totalBytes > 0) GhajarDownloadService.formatBytes(task.totalBytes) else "نامشخص"
++            text = "${stateLabel(task)} · ${GhajarDownloadService.formatBytes(task.downloadedBytes)} / $total" +
++                    if (task.speedBytesPerSecond > 0) " · ${GhajarDownloadService.formatBytes(task.speedBytesPerSecond)}/s" else ""
++            setTextColor(Color.LTGRAY); setPadding(0, dp(5), 0, 0)
++        })
++        if (task.error.isNotBlank()) addView(TextView(context).apply { text = task.error; setTextColor(Color.rgb(255, 190, 130)) })
++        addView(LinearLayout(context).apply {
++            gravity = Gravity.END
++            when (task.state) {
++                DownloadState.QUEUED, DownloadState.PROBING, DownloadState.DOWNLOADING -> addView(actionButton("توقف") { command(task.id, DownloadContract.ACTION_PAUSE) })
++                DownloadState.PAUSED, DownloadState.FAILED -> addView(actionButton("ادامه") { command(task.id, DownloadContract.ACTION_RESUME) })
++                else -> Unit
++            }
++            if (task.state !in setOf(DownloadState.COMPLETED, DownloadState.CANCELED)) addView(actionButton("لغو") { command(task.id, DownloadContract.ACTION_CANCEL) })
++            if (task.state in setOf(DownloadState.COMPLETED, DownloadState.CANCELED, DownloadState.FAILED)) addView(actionButton("حذف رکورد") {
++                repository.remove(task.id); (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(task.id.hashCode()); render()
++            })
++        })
++    }
++
++    private fun actionButton(label: String, action: () -> Unit) = Button(this).apply { text = label; textSize = 12f; setOnClickListener { action() } }
++
++    private fun showAddDialog() {
++        val url = EditText(this).apply { hint = "https://example.com/file"; inputType = android.text.InputType.TYPE_TEXT_VARIATION_URI }
++        val checksum = EditText(this).apply { hint = "SHA-256 اختیاری"; inputType = android.text.InputType.TYPE_CLASS_TEXT }
++        val connections = Spinner(this).apply { adapter = ArrayAdapter(this@DownloadManagerActivity, android.R.layout.simple_spinner_dropdown_item, listOf("هوشمند", "1 اتصال", "2 اتصال", "4 اتصال", "6 اتصال", "8 اتصال")) }
++        val wifi = CheckBox(this).apply { text = "فقط Wi-Fi بدون محدودیت مصرف" }
++        val content = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(dp(20), 0, dp(20), 0); addView(url); addView(checksum); addView(connections); addView(wifi) }
++        val dialog = AlertDialog.Builder(this).setTitle("افزودن دانلود").setView(content).setNegativeButton("لغو", null)
++            .setPositiveButton("افزودن", null).create()
++        dialog.setOnShowListener {
++            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
++                val raw = url.text.toString().trim()
++                val selected = listOf(0, 1, 2, 4, 6, 8)[connections.selectedItemPosition]
++                val task = repository.enqueue(EnqueueRequest(raw, DownloadNames.sanitize(raw), "application/octet-stream", emptyMap(), selected, wifiOnly = wifi.isChecked, expectedSha256 = checksum.text.toString()))
++                if (task == null) url.error = "فقط نشانی معتبر HTTP/HTTPS پذیرفته می‌شود"
++                else { GhajarDownloadService.start(this); dialog.dismiss(); render() }
++            }
++        }
++        dialog.show()
++    }
++
++    private fun command(id: String, action: String) { GhajarDownloadService.start(this, action, id); handler.postDelayed({ render() }, 150) }
++
++    private fun stateLabel(task: DownloadTask) = when (task.state) {
++        DownloadState.QUEUED -> "در صف"
++        DownloadState.PROBING -> "بررسی سرور"
++        DownloadState.DOWNLOADING -> "در حال دانلود · ${task.activeConnections} اتصال"
++        DownloadState.PAUSED -> "متوقف"
++        DownloadState.COMPLETED -> "کامل"
++        DownloadState.FAILED -> "ناموفق"
++        DownloadState.CANCELED -> "لغوشده"
++    }
++
++    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
++    private companion object { val ACTIVE = setOf(DownloadState.QUEUED, DownloadState.PROBING, DownloadState.DOWNLOADING) }
++}
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadModels.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadModels.kt
+new file mode 100644
+index 0000000..a5f35b6
+--- /dev/null
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadModels.kt
+@@ -0,0 +1,38 @@
++package com.ghajarvpn.downloads
++
++import java.util.UUID
++
++enum class DownloadState { QUEUED, PROBING, DOWNLOADING, PAUSED, COMPLETED, FAILED, CANCELED }
++
++data class DownloadTask(
++    val id: String = UUID.randomUUID().toString(),
++    val url: String,
++    val fileName: String,
++    val mimeType: String = "application/octet-stream",
++    val headerToken: String = "",
++    val state: DownloadState = DownloadState.QUEUED,
++    val downloadedBytes: Long = 0,
++    val totalBytes: Long = -1,
++    val speedBytesPerSecond: Long = 0,
++    val requestedConnections: Int = 0,
++    val activeConnections: Int = 1,
++    val priority: Int = 0,
++    val retries: Int = 0,
++    val wifiOnly: Boolean = false,
++    val expectedSha256: String = "",
++    val outputUri: String = "",
++    val error: String = "",
++    val createdAt: Long = System.currentTimeMillis(),
++    val updatedAt: Long = System.currentTimeMillis()
++)
++
++data class EnqueueRequest(
++    val url: String,
++    val fileName: String,
++    val mimeType: String,
++    val headers: Map<String, String>,
++    val requestedConnections: Int = 0,
++    val priority: Int = 0,
++    val wifiOnly: Boolean = false,
++    val expectedSha256: String = ""
++)
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadPlanning.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadPlanning.kt
+new file mode 100644
+index 0000000..c3ed52a
+--- /dev/null
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadPlanning.kt
+@@ -0,0 +1,75 @@
++package com.ghajarvpn.downloads
++
++import java.net.URI
++
++data class ByteRange(val start: Long, val endInclusive: Long) {
++    init { require(start >= 0 && endInclusive >= start) }
++    val length: Long get() = endInclusive - start + 1
++}
++
++object DownloadPlanning {
++    private val contentRange = Regex("(?i)^bytes\\s+\\d+-\\d+/(\\d+)$")
++
++    fun smartConnections(size: Long): Int = when {
++        size <= 0 || size < 8L * 1024 * 1024 -> 1
++        size < 64L * 1024 * 1024 -> 2
++        size < 256L * 1024 * 1024 -> 4
++        else -> 6
++    }
++
++    fun ranges(size: Long, requestedConnections: Int): List<ByteRange> {
++        require(size > 0)
++        val count = requestedConnections.coerceIn(1, 8).coerceAtMost(size.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
++        val base = size / count
++        val remainder = size % count
++        var cursor = 0L
++        return List(count) { index ->
++            val length = base + if (index < remainder) 1 else 0
++            ByteRange(cursor, cursor + length - 1).also { cursor += length }
++        }
++    }
++
++    fun totalFromContentRange(value: String?): Long? = value?.trim()?.let { raw ->
++        contentRange.matchEntire(raw)?.groupValues?.get(1)?.toLongOrNull()?.takeIf { it > 0 }
++    }
++
++    fun safeHttpUrl(raw: String): Boolean = runCatching {
++        val uri = URI(raw.trim())
++        uri.scheme?.lowercase() in setOf("http", "https") && !uri.host.isNullOrBlank() && uri.userInfo == null
++    }.getOrDefault(false)
++}
++
++object DownloadNames {
++    fun sanitize(input: String, fallback: String = "download.bin"): String {
++        val cleaned = input.substringAfterLast('/').substringBefore('?')
++            .replace(Regex("[\\u0000-\\u001f\\u007f/\\\\:*?\"<>|]"), "_")
++            .trim().trim('.').take(160)
++        return cleaned.ifBlank { fallback }
++    }
++
++    fun collisionFree(name: String, existing: Set<String>): String {
++        if (name !in existing) return name
++        val dot = name.lastIndexOf('.').takeIf { it > 0 } ?: name.length
++        val base = name.substring(0, dot)
++        val suffix = name.substring(dot)
++        var index = 1
++        while ("$base ($index)$suffix" in existing) index++
++        return "$base ($index)$suffix"
++    }
++}
++
++object DownloadHeaderPolicy {
++    private val allowed = setOf("cookie", "referer", "user-agent", "authorization", "origin", "accept-language")
++
++    fun sanitize(source: Map<String, String>): Map<String, String> = source.mapNotNull { (name, value) ->
++        val normalized = name.trim().lowercase()
++        if (normalized !in allowed || value.isBlank() || value.length > 16_384 || '\n' in value || '\r' in value) null
++        else canonical(normalized) to value
++    }.toMap()
++
++    private fun canonical(value: String) = when (value) {
++        "user-agent" -> "User-Agent"
++        "accept-language" -> "Accept-Language"
++        else -> value.replaceFirstChar { it.uppercase() }
++    }
++}
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/DownloadRepository.kt b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadRepository.kt
+new file mode 100644
+index 0000000..b4864c6
+--- /dev/null
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/DownloadRepository.kt
+@@ -0,0 +1,85 @@
++package com.ghajarvpn.downloads
++
++import android.content.Context
++import org.json.JSONArray
++import org.json.JSONObject
++
++class DownloadRepository private constructor(context: Context) {
++    private val prefs = context.getSharedPreferences("ghajar_download_tasks", Context.MODE_PRIVATE)
++    private val vault = DownloadHeaderVault(context)
++    private val lock = Any()
++
++    fun enqueue(request: EnqueueRequest): DownloadTask? = synchronized(lock) {
++        if (!DownloadPlanning.safeHttpUrl(request.url)) return null
++        val current = readAll()
++        current.firstOrNull { it.url == request.url && it.state in ACTIVE_STATES }?.let { return it }
++        val existingNames = current.mapTo(mutableSetOf()) { it.fileName }
++        val taskId = java.util.UUID.randomUUID().toString()
++        val safeName = DownloadNames.collisionFree(DownloadNames.sanitize(request.fileName), existingNames)
++        val headerToken = vault.put(taskId, request.headers)
++        val task = DownloadTask(
++            id = taskId, url = request.url, fileName = safeName, mimeType = request.mimeType.ifBlank { "application/octet-stream" },
++            headerToken = headerToken, requestedConnections = request.requestedConnections.coerceIn(0, 8),
++            priority = request.priority.coerceIn(-10, 10), wifiOnly = request.wifiOnly,
++            expectedSha256 = request.expectedSha256.trim().lowercase().takeIf { it.matches(Regex("[0-9a-f]{64}")) }.orEmpty()
++        )
++        writeAll(current + task)
++        task
++    }
++
++    fun all(): List<DownloadTask> = synchronized(lock) { readAll().sortedWith(compareByDescending<DownloadTask> { it.priority }.thenByDescending { it.createdAt }) }
++    fun get(id: String): DownloadTask? = synchronized(lock) { readAll().firstOrNull { it.id == id } }
++    internal fun headers(task: DownloadTask): Map<String, String> = vault.get(task.headerToken)
++    internal fun clearHeaders(task: DownloadTask) = vault.remove(task.headerToken)
++
++    fun update(id: String, transform: (DownloadTask) -> DownloadTask): DownloadTask? = synchronized(lock) {
++        val values = readAll().toMutableList()
++        val index = values.indexOfFirst { it.id == id }
++        if (index < 0) return null
++        values[index] = transform(values[index]).copy(updatedAt = System.currentTimeMillis())
++        writeAll(values)
++        values[index]
++    }
++
++    fun remove(id: String): Boolean = synchronized(lock) {
++        val values = readAll().toMutableList()
++        val task = values.firstOrNull { it.id == id } ?: return false
++        values.remove(task); writeAll(values); vault.remove(task.headerToken); true
++    }
++
++    private fun readAll(): List<DownloadTask> = runCatching {
++        val array = JSONArray(prefs.getString(KEY_TASKS, "[]"))
++        List(array.length()) { index -> array.getJSONObject(index).toTask() }
++    }.getOrDefault(emptyList())
++
++    private fun writeAll(tasks: List<DownloadTask>) {
++        val array = JSONArray(); tasks.forEach { array.put(it.toJson()) }
++        prefs.edit().putString(KEY_TASKS, array.toString()).commit()
++    }
++
++    private fun DownloadTask.toJson() = JSONObject().apply {
++        put("id", id); put("url", url); put("fileName", fileName); put("mimeType", mimeType); put("headerToken", headerToken)
++        put("state", state.name); put("downloadedBytes", downloadedBytes); put("totalBytes", totalBytes); put("speed", speedBytesPerSecond)
++        put("requestedConnections", requestedConnections); put("activeConnections", activeConnections); put("priority", priority); put("retries", retries)
++        put("wifiOnly", wifiOnly); put("expectedSha256", expectedSha256); put("outputUri", outputUri); put("error", error)
++        put("createdAt", createdAt); put("updatedAt", updatedAt)
++    }
++
++    private fun JSONObject.toTask() = DownloadTask(
++        id = getString("id"), url = getString("url"), fileName = getString("fileName"), mimeType = optString("mimeType", "application/octet-stream"),
++        headerToken = optString("headerToken"), state = runCatching { DownloadState.valueOf(optString("state")) }.getOrDefault(DownloadState.FAILED),
++        downloadedBytes = optLong("downloadedBytes"), totalBytes = optLong("totalBytes", -1), speedBytesPerSecond = optLong("speed"),
++        requestedConnections = optInt("requestedConnections"), activeConnections = optInt("activeConnections", 1), priority = optInt("priority"),
++        retries = optInt("retries"), wifiOnly = optBoolean("wifiOnly"), expectedSha256 = optString("expectedSha256"),
++        outputUri = optString("outputUri"), error = optString("error"), createdAt = optLong("createdAt"), updatedAt = optLong("updatedAt")
++    )
++
++    companion object {
++        private const val KEY_TASKS = "tasks_v1"
++        private val ACTIVE_STATES = setOf(DownloadState.QUEUED, DownloadState.PROBING, DownloadState.DOWNLOADING, DownloadState.PAUSED)
++        @Volatile private var instance: DownloadRepository? = null
++        fun get(context: Context): DownloadRepository = instance ?: synchronized(this) {
++            instance ?: DownloadRepository(context.applicationContext).also { instance = it }
++        }
++    }
++}
+diff --git a/downloads/src/main/java/com/ghajarvpn/downloads/GhajarDownloadService.kt b/downloads/src/main/java/com/ghajarvpn/downloads/GhajarDownloadService.kt
+new file mode 100644
+index 0000000..34ffbad
+--- /dev/null
++++ b/downloads/src/main/java/com/ghajarvpn/downloads/GhajarDownloadService.kt
+@@ -0,0 +1,369 @@
++package com.ghajarvpn.downloads
++
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.PendingIntent
++import android.app.Service
++import android.content.ContentValues
++import android.content.Context
++import android.content.Intent
++import android.net.ConnectivityManager
++import android.net.NetworkCapabilities
++import android.net.Network
++import android.net.Uri
++import android.os.Build
++import android.os.Environment
++import android.os.IBinder
++import android.provider.MediaStore
++import androidx.core.app.NotificationCompat
++import androidx.core.content.ContextCompat
++import java.io.File
++import java.io.FileInputStream
++import java.io.FileOutputStream
++import java.net.HttpURLConnection
++import java.net.URI
++import java.net.URL
++import java.security.MessageDigest
++import java.util.concurrent.ConcurrentHashMap
++import java.util.concurrent.Executors
++import java.util.concurrent.Future
++import java.util.concurrent.atomic.AtomicBoolean
++import kotlin.math.max
++
++class GhajarDownloadService : Service() {
++    private val coordinator = Executors.newSingleThreadExecutor()
++    private val workers = Executors.newFixedThreadPool(8)
++    private val controls = ConcurrentHashMap<String, AtomicBoolean>()
++    private val active = ConcurrentHashMap.newKeySet<String>()
++    private lateinit var repository: DownloadRepository
++    private lateinit var notifications: NotificationManager
++    private lateinit var connectivity: ConnectivityManager
++    private val networkCallback = object : ConnectivityManager.NetworkCallback() {
++        override fun onAvailable(network: Network) {
++            repository.all().filter { it.state == DownloadState.PAUSED && it.error in setOf(WAIT_NETWORK, WAIT_WIFI) }.forEach { task ->
++                if (task.error == WAIT_NETWORK || onUnmeteredWifi()) repository.update(task.id) { it.copy(state = DownloadState.QUEUED, error = "") }
++            }
++            kick()
++        }
++    }
++
++    override fun onCreate() {
++        super.onCreate()
++        repository = DownloadRepository.get(this)
++        notifications = getSystemService(NotificationManager::class.java)
++        connectivity = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
++        createChannel()
++        startForeground(SUMMARY_ID, summaryNotification("صف دانلود آماده است"))
++        // A process death while transferring is restart-safe: completed part files are retained.
++        repository.all().filter { it.state in setOf(DownloadState.PROBING, DownloadState.DOWNLOADING) }
++            .forEach { task -> repository.update(task.id) { it.copy(state = DownloadState.QUEUED, error = "") } }
++        runCatching { connectivity.registerDefaultNetworkCallback(networkCallback) }
++    }
++
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        val id = intent?.getStringExtra(DownloadContract.EXTRA_ID).orEmpty()
++        when (intent?.action) {
++            DownloadContract.ACTION_PAUSE -> pause(id)
++            DownloadContract.ACTION_CANCEL -> cancel(id)
++            DownloadContract.ACTION_RESUME -> repository.update(id) { it.copy(state = DownloadState.QUEUED, error = "") }
++        }
++        kick()
++        return START_STICKY
++    }
++
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    override fun onDestroy() {
++        controls.values.forEach { it.set(true) }
++        runCatching { connectivity.unregisterNetworkCallback(networkCallback) }
++        coordinator.shutdownNow(); workers.shutdownNow()
++        super.onDestroy()
++    }
++
++    private fun pause(id: String) {
++        controls[id]?.set(true)
++        repository.update(id) { if (it.state == DownloadState.COMPLETED) it else it.copy(state = DownloadState.PAUSED, speedBytesPerSecond = 0) }
++        notifyTask(repository.get(id))
++    }
++
++    private fun cancel(id: String) {
++        controls[id]?.set(true)
++        val task = repository.get(id)
++        repository.update(id) { if (it.state == DownloadState.COMPLETED) it else it.copy(state = DownloadState.CANCELED, speedBytesPerSecond = 0) }
++        task?.takeIf { it.state != DownloadState.COMPLETED }?.let(repository::clearHeaders)
++        tempDirectory(id).deleteRecursively()
++        notifyTask(repository.get(id))
++    }
++
++    private fun kick() = coordinator.execute {
++        while (active.size < MAX_CONCURRENT) {
++            val next = repository.all().filter { it.state == DownloadState.QUEUED }
++                .sortedWith(compareByDescending<DownloadTask> { it.priority }.thenBy { it.createdAt }).firstOrNull() ?: break
++            if (!active.add(next.id)) continue
++            coordinator.executeTask(next)
++        }
++        updateSummary()
++    }
++
++    private fun java.util.concurrent.ExecutorService.executeTask(task: DownloadTask) {
++        workers.execute {
++            try { transfer(task.id) }
++            finally { active.remove(task.id); controls.remove(task.id); kick() }
++        }
++    }
++
++    private fun transfer(id: String) {
++        var task = repository.get(id) ?: return
++        if (task.wifiOnly && !onUnmeteredWifi()) {
++            repository.update(id) { it.copy(state = DownloadState.PAUSED, error = WAIT_WIFI) }; notifyTask(repository.get(id)); return
++        }
++        val stop = AtomicBoolean(false); controls[id] = stop
++        try {
++            repository.update(id) { it.copy(state = DownloadState.PROBING, error = "") }; notifyTask(repository.get(id))
++            val probe = probe(task)
++            val requested = if (task.requestedConnections == 0) DownloadPlanning.smartConnections(probe.total) else task.requestedConnections
++            val connections = if (probe.rangeSupported && probe.total > 0) requested.coerceIn(1, 8) else 1
++            task = repository.update(id) { it.copy(totalBytes = probe.total, activeConnections = connections, state = DownloadState.DOWNLOADING) } ?: return
++            notifyTask(task)
++            val dir = tempDirectory(id).apply { mkdirs() }
++            if (connections > 1) {
++                try { downloadSegments(task, DownloadPlanning.ranges(probe.total, connections), dir, stop) }
++                catch (failure: Throwable) {
++                    if (stop.get()) return
++                    // A few servers advertise Range on the probe but reject parallel ranges.
++                    // Wait for every segment first, then safely restart once in single mode.
++                    dir.deleteRecursively(); dir.mkdirs()
++                    task = repository.update(id) { it.copy(activeConnections = 1, downloadedBytes = 0, speedBytesPerSecond = 0) } ?: return
++                    downloadSingle(task, dir, stop)
++                }
++            } else downloadSingle(task, dir, stop)
++            if (stop.get()) return
++            task = repository.get(id) ?: return
++            if (task.state != DownloadState.DOWNLOADING) return
++            val assembled = assemble(task, dir)
++            if (task.expectedSha256.isNotBlank() && sha256(assembled) != task.expectedSha256) {
++                throw DownloadFailure("هش SHA-256 فایل با مقدار مورد انتظار یکسان نیست")
++            }
++            val output = publish(task, assembled)
++            repository.update(id) { it.copy(state = DownloadState.COMPLETED, downloadedBytes = assembled.length(), totalBytes = assembled.length(), speedBytesPerSecond = 0, outputUri = output.toString(), error = "") }
++            repository.clearHeaders(task)
++            dir.deleteRecursively(); notifyTask(repository.get(id))
++        } catch (failure: Throwable) {
++            if (stop.get()) return
++            val current = repository.get(id) ?: return
++            val cause = generateSequence(failure) { it.cause }.last()
++            val message = when (cause) {
++                is AccessDenied -> "دسترسی دانلود رد شد یا نشست منقضی شده است"
++                is DownloadFailure -> cause.message.orEmpty()
++                else -> "ارتباط دانلود قطع شد"
++            }
++            if (!hasValidatedNetwork()) {
++                repository.update(id) { it.copy(state = DownloadState.PAUSED, speedBytesPerSecond = 0, error = WAIT_NETWORK) }
++            } else if (current.retries < MAX_RETRIES) {
++                repository.update(id) { it.copy(state = DownloadState.QUEUED, retries = it.retries + 1, speedBytesPerSecond = 0, error = "تلاش دوباره ${it.retries + 1} از $MAX_RETRIES") }
++            } else repository.update(id) { it.copy(state = DownloadState.FAILED, speedBytesPerSecond = 0, error = message) }
++            notifyTask(repository.get(id))
++        }
++    }
++
++    private data class Probe(val total: Long, val rangeSupported: Boolean)
++
++    private fun probe(task: DownloadTask): Probe {
++        val connection = connection(task, "bytes=0-0")
++        return try {
++            val code = connection.responseCode
++            if (code == 401 || code == 403) throw AccessDenied()
++            if (code !in 200..299) throw DownloadFailure("سرور با خطای HTTP $code پاسخ داد")
++            val rangeTotal = DownloadPlanning.totalFromContentRange(connection.getHeaderField("Content-Range"))
++            val length = rangeTotal ?: connection.contentLengthLong
++            Probe(length, code == HttpURLConnection.HTTP_PARTIAL && rangeTotal != null)
++        } finally { connection.disconnect() }
++    }
++
++    private fun downloadSegments(task: DownloadTask, ranges: List<ByteRange>, dir: File, stop: AtomicBoolean) {
++        val futures = ranges.mapIndexed { index, range -> workers.submit { downloadRange(task, range, File(dir, "part-$index"), stop) } }
++        var failure: Throwable? = null
++        futures.forEach { future -> runCatching { future.get() }.onFailure { if (failure == null) failure = it } }
++        failure?.let { throw it }
++    }
++
++    private fun downloadRange(task: DownloadTask, range: ByteRange, part: File, stop: AtomicBoolean) {
++        val existing = part.length().coerceAtMost(range.length)
++        if (existing == range.length) return
++        val requested = ByteRange(range.start + existing, range.endInclusive)
++        val connection = connection(task, "bytes=${requested.start}-${requested.endInclusive}")
++        try {
++            if (connection.responseCode == 401 || connection.responseCode == 403) throw AccessDenied()
++            if (connection.responseCode != HttpURLConnection.HTTP_PARTIAL) throw DownloadFailure("سرور ادامهٔ چندبخشی را نپذیرفت")
++            FileOutputStream(part, true).use { output -> copy(task.id, connection, output, stop) }
++        } finally { connection.disconnect() }
++    }
++
++    private fun downloadSingle(task: DownloadTask, dir: File, stop: AtomicBoolean) {
++        val part = File(dir, "part-0")
++        var existing = part.length()
++        var connection = connection(task, existing.takeIf { it > 0 }?.let { "bytes=$it-" })
++        if (existing > 0 && connection.responseCode != HttpURLConnection.HTTP_PARTIAL) {
++            connection.disconnect(); part.delete(); existing = 0
++            connection = connection(task, null)
++        }
++        try {
++            if (connection.responseCode == 401 || connection.responseCode == 403) throw AccessDenied()
++            if (connection.responseCode !in 200..299) throw DownloadFailure("سرور با خطای HTTP ${connection.responseCode} پاسخ داد")
++            FileOutputStream(part, existing > 0).use { output -> copy(task.id, connection, output, stop) }
++        } finally { connection.disconnect() }
++    }
++
++    private fun copy(id: String, connection: HttpURLConnection, output: FileOutputStream, stop: AtomicBoolean) {
++        val buffer = ByteArray(64 * 1024)
++        var lastUpdate = System.currentTimeMillis(); var intervalBytes = 0L
++        connection.inputStream.use { input ->
++            while (!stop.get()) {
++                val count = input.read(buffer)
++                if (count < 0) break
++                output.write(buffer, 0, count); intervalBytes += count
++                val now = System.currentTimeMillis()
++                if (now - lastUpdate >= 700) {
++                    val speed = intervalBytes * 1000 / max(1, now - lastUpdate)
++                    val downloaded = tempDirectory(id).listFiles()?.sumOf(File::length) ?: 0
++                    repository.update(id) { it.copy(downloadedBytes = downloaded, speedBytesPerSecond = speed) }
++                    notifyTask(repository.get(id)); lastUpdate = now; intervalBytes = 0
++                }
++            }
++        }
++        output.fd.sync()
++    }
++
++    private fun connection(task: DownloadTask, range: String?): HttpURLConnection {
++        val original = URI(task.url)
++        var current = task.url
++        repeat(6) { redirectCount ->
++            val target = URI(current)
++            val sameOrigin = original.scheme.equals(target.scheme, true) && original.host.equals(target.host, true) && effectivePort(original) == effectivePort(target)
++            val connection = URL(current).openConnection() as HttpURLConnection
++            connection.connectTimeout = 15_000; connection.readTimeout = 30_000; connection.instanceFollowRedirects = false
++            connection.setRequestProperty("Accept-Encoding", "identity")
++            repository.headers(task).forEach { (name, value) ->
++                val sensitive = name.equals("Cookie", true) || name.equals("Authorization", true) || name.equals("Origin", true)
++                if (sameOrigin || !sensitive) connection.setRequestProperty(name, value)
++            }
++            range?.let { connection.setRequestProperty("Range", it) }
++            val code = connection.responseCode
++            if (code !in setOf(301, 302, 303, 307, 308)) return connection
++            val location = connection.getHeaderField("Location") ?: throw DownloadFailure("تغییر مسیر دانلود معتبر نیست")
++            if (redirectCount == 5) throw DownloadFailure("تعداد تغییر مسیرهای دانلود بیش از حد است")
++            val resolved = URL(URL(current), location).toString()
++            connection.disconnect()
++            if (!DownloadPlanning.safeHttpUrl(resolved)) throw DownloadFailure("تغییر مسیر دانلود امن نیست")
++            current = resolved
++        }
++        throw DownloadFailure("تغییر مسیر دانلود کامل نشد")
++    }
++
++    private fun effectivePort(uri: URI): Int = if (uri.port >= 0) uri.port else if (uri.scheme.equals("https", true)) 443 else 80
++
++    private fun assemble(task: DownloadTask, dir: File): File {
++        val parts = dir.listFiles { file -> file.name.startsWith("part-") }.orEmpty().sortedBy { it.name.substringAfter('-').toIntOrNull() ?: 0 }
++        if (parts.isEmpty()) throw DownloadFailure("داده‌ای برای ذخیره دریافت نشد")
++        val target = File(dir, "assembled")
++        FileOutputStream(target).use { output -> parts.forEach { part -> FileInputStream(part).use { it.copyTo(output, 128 * 1024) } } }
++        if (task.totalBytes > 0 && target.length() != task.totalBytes) throw DownloadFailure("اندازهٔ فایل دریافت‌شده کامل نیست")
++        return target
++    }
++
++    private fun publish(task: DownloadTask, source: File): Uri {
++        if (Build.VERSION.SDK_INT >= 29) {
++            val values = ContentValues().apply {
++                put(MediaStore.Downloads.DISPLAY_NAME, task.fileName); put(MediaStore.Downloads.MIME_TYPE, task.mimeType)
++                put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/GhajarVPN"); put(MediaStore.Downloads.IS_PENDING, 1)
++            }
++            val uri = contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: throw DownloadFailure("فضای ذخیره‌سازی در دسترس نیست")
++            try {
++                contentResolver.openOutputStream(uri, "w")?.use { output -> source.inputStream().use { it.copyTo(output, 128 * 1024) } }
++                    ?: throw DownloadFailure("نوشتن فایل ممکن نشد")
++                values.clear(); values.put(MediaStore.Downloads.IS_PENDING, 0); contentResolver.update(uri, values, null, null)
++                return uri
++            } catch (error: Throwable) { contentResolver.delete(uri, null, null); throw error }
++        }
++        val root = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
++        val folder = File(root, "GhajarVPN").apply { mkdirs() }
++        val target = File(folder, DownloadNames.collisionFree(task.fileName, folder.list()?.toSet().orEmpty()))
++        source.inputStream().use { input -> target.outputStream().use { input.copyTo(it, 128 * 1024) } }
++        return Uri.fromFile(target)
++    }
++
++    private fun sha256(file: File): String {
++        val digest = MessageDigest.getInstance("SHA-256")
++        file.inputStream().use { input -> val buffer = ByteArray(128 * 1024); while (true) { val n = input.read(buffer); if (n < 0) break; digest.update(buffer, 0, n) } }
++        return digest.digest().joinToString("") { "%02x".format(it) }
++    }
++
++    private fun onUnmeteredWifi(): Boolean {
++        val caps = connectivity.getNetworkCapabilities(connectivity.activeNetwork) ?: return false
++        return caps.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) && caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_NOT_METERED)
++    }
++
++    private fun hasValidatedNetwork(): Boolean = connectivity.getNetworkCapabilities(connectivity.activeNetwork)
++        ?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
++
++    private fun tempDirectory(id: String) = File(cacheDir, "ghajar-downloads/$id")
++
++    private fun notifyTask(task: DownloadTask?) {
++        task ?: return
++        val progress = if (task.totalBytes > 0) ((task.downloadedBytes * 100 / task.totalBytes).coerceIn(0, 100)).toInt() else 0
++        val builder = NotificationCompat.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_sys_download)
++            .setContentTitle(task.fileName).setOnlyAlertOnce(true).setContentIntent(openManagerIntent())
++            .setContentText(notificationText(task)).setProgress(100, progress, task.totalBytes <= 0)
++        when (task.state) {
++            DownloadState.DOWNLOADING, DownloadState.PROBING -> builder.setOngoing(true).addAction(0, "توقف", actionIntent(task.id, DownloadContract.ACTION_PAUSE, 1))
++            DownloadState.PAUSED, DownloadState.FAILED -> builder.addAction(0, "ادامه", actionIntent(task.id, DownloadContract.ACTION_RESUME, 2))
++            DownloadState.COMPLETED -> builder.setSmallIcon(android.R.drawable.stat_sys_download_done).setProgress(0, 0, false)
++            else -> Unit
++        }
++        if (task.state !in setOf(DownloadState.COMPLETED, DownloadState.CANCELED)) builder.addAction(0, "لغو", actionIntent(task.id, DownloadContract.ACTION_CANCEL, 3))
++        notifications.notify(task.id.hashCode(), builder.build())
++    }
++
++    private fun notificationText(task: DownloadTask) = when (task.state) {
++        DownloadState.QUEUED -> "در صف"
++        DownloadState.PROBING -> "بررسی پشتیبانی سرور"
++        DownloadState.DOWNLOADING -> "${formatBytes(task.speedBytesPerSecond)}/s · ${task.activeConnections} اتصال"
++        DownloadState.PAUSED -> task.error.ifBlank { "متوقف شده" }
++        DownloadState.COMPLETED -> "دانلود کامل شد"
++        DownloadState.FAILED -> task.error.ifBlank { "دانلود ناموفق بود" }
++        DownloadState.CANCELED -> "لغو شد"
++    }
++
++    private fun updateSummary() { notifications.notify(SUMMARY_ID, summaryNotification(if (active.isEmpty()) "صف دانلود" else "${active.size} دانلود فعال")) }
++    private fun summaryNotification(text: String) = NotificationCompat.Builder(this, CHANNEL).setSmallIcon(android.R.drawable.stat_sys_download)
++        .setContentTitle("مدیر دانلود قاجار").setContentText(text).setOngoing(active.isNotEmpty()).setContentIntent(openManagerIntent()).build()
++    private fun openManagerIntent() = PendingIntent.getActivity(this, 0, Intent(this, DownloadManagerActivity::class.java), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
++    private fun actionIntent(id: String, action: String, suffix: Int) = PendingIntent.getService(this, id.hashCode() + suffix,
++        Intent(this, GhajarDownloadService::class.java).setAction(action).putExtra(DownloadContract.EXTRA_ID, id), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
++
++    private fun createChannel() {
++        if (Build.VERSION.SDK_INT >= 26) notifications.createNotificationChannel(NotificationChannel(CHANNEL, "دانلودهای قاجار", NotificationManager.IMPORTANCE_LOW))
++    }
++
++    companion object {
++        private const val CHANNEL = "ghajar_downloads"
++        private const val SUMMARY_ID = 72340
++        private const val MAX_CONCURRENT = 2
++        private const val MAX_RETRIES = 3
++        private const val WAIT_NETWORK = "در انتظار شبکه"
++        private const val WAIT_WIFI = "در انتظار Wi-Fi"
++        fun start(context: Context, action: String = DownloadContract.ACTION_RUN, id: String = "") {
++            val intent = Intent(context, GhajarDownloadService::class.java).setAction(action).putExtra(DownloadContract.EXTRA_ID, id)
++            ContextCompat.startForegroundService(context, intent)
++        }
++        fun formatBytes(value: Long): String = when {
++            value < 1024 -> "$value B"
++            value < 1024 * 1024 -> "%.1f KB".format(value / 1024.0)
++            value < 1024L * 1024 * 1024 -> "%.1f MB".format(value / 1024.0 / 1024)
++            else -> "%.1f GB".format(value / 1024.0 / 1024 / 1024)
++        }
++    }
++
++    private class DownloadFailure(message: String) : Exception(message)
++    private class AccessDenied : Exception()
++}
+diff --git a/downloads/src/test/java/com/ghajarvpn/downloads/DownloadPlanningTest.kt b/downloads/src/test/java/com/ghajarvpn/downloads/DownloadPlanningTest.kt
+new file mode 100644
+index 0000000..88fa28c
+--- /dev/null
++++ b/downloads/src/test/java/com/ghajarvpn/downloads/DownloadPlanningTest.kt
+@@ -0,0 +1,50 @@
++package com.ghajarvpn.downloads
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class DownloadPlanningTest {
++    @Test fun rangesCoverEveryByteExactlyOnce() {
++        val ranges = DownloadPlanning.ranges(101, 6)
++        assertEquals(0L, ranges.first().start)
++        assertEquals(100L, ranges.last().endInclusive)
++        assertEquals(101L, ranges.sumOf { it.length })
++        ranges.zipWithNext().forEach { (left, right) -> assertEquals(left.endInclusive + 1, right.start) }
++    }
++
++    @Test fun connectionCountIsBoundedAndSizeAware() {
++        assertEquals(1, DownloadPlanning.smartConnections(1024))
++        assertEquals(2, DownloadPlanning.smartConnections(16L * 1024 * 1024))
++        assertEquals(4, DownloadPlanning.smartConnections(128L * 1024 * 1024))
++        assertEquals(6, DownloadPlanning.smartConnections(512L * 1024 * 1024))
++        assertEquals(8, DownloadPlanning.ranges(80, 99).size)
++    }
++
++    @Test fun parsesOnlyValidContentRangeTotals() {
++        assertEquals(900L, DownloadPlanning.totalFromContentRange("bytes 0-0/900"))
++        assertNull(DownloadPlanning.totalFromContentRange("bytes */900"))
++        assertNull(DownloadPlanning.totalFromContentRange("900"))
++    }
++
++    @Test fun filenamesArePortableAndCollisionFree() {
++        assertEquals("video_clip.mp4", DownloadNames.sanitize("video:clip.mp4"))
++        assertEquals("video (2).mp4", DownloadNames.collisionFree("video.mp4", setOf("video.mp4", "video (1).mp4")))
++    }
++
++    @Test fun rejectsCredentialsAndNonHttpUrls() {
++        assertTrue(DownloadPlanning.safeHttpUrl("https://example.test/file"))
++        assertFalse(DownloadPlanning.safeHttpUrl("https://user:pass@example.test/file"))
++        assertFalse(DownloadPlanning.safeHttpUrl("file:///tmp/file"))
++    }
++
++    @Test fun acceptsOnlyRequiredHeadersAndRejectsInjection() {
++        val clean = DownloadHeaderPolicy.sanitize(mapOf(
++            "Cookie" to "sid=secret",
++            "Authorization" to "Bearer secret",
++            "X-Debug" to "leak",
++            "Referer" to "https://example.test/\r\nInjected: yes"
++        ))
++        assertEquals(setOf("Cookie", "Authorization"), clean.keys)
++        assertFalse(clean.toString().contains("X-Debug"))
++    }
++}
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index bc38045..87f5f3c 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -24,3 +24,4 @@ include(":app")
+ include(":strongswan")
+ include(":openvpn")
+ include(":browser")
++include(":downloads")
+-- 
+2.51.1
+

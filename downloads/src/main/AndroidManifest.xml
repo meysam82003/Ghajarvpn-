@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <application>
+        <activity
+            android:name="com.ghajarvpn.downloads.DownloadManagerActivity"
+            android:exported="false"
+            android:label="مدیر دانلود قاجار" />
+        <receiver
+            android:name="com.ghajarvpn.downloads.DownloadEnqueueReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.ghajarvpn.downloads.ENQUEUE" />
+            </intent-filter>
+        </receiver>
+        <service
+            android:name="com.ghajarvpn.downloads.GhajarDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+    </application>
+</manifest>

@@ -5564,6 +5564,12 @@ private fun ToolsScreen(
             onClick = { context.startActivity(Intent(context, net.gozar.app.configtoolkit.ConfigToolkitActivity::class.java)) }
         )
         SettingsHubCard(
+            icon = Icons.Filled.FileDownload,
+            title = "مدیر دانلود قاجار",
+            subtitle = "دانلود چندبخشی واقعی، صف، توقف، ادامه، بازیابی و SHA-256",
+            onClick = { com.ghajarvpn.downloads.DownloadContract.open(context) }
+        )
+        SettingsHubCard(
             icon = Icons.Filled.NetworkCheck,
             title = t("stab_title"),
             subtitle = t("stab_sub"),

@@ -114,7 +114,7 @@ jobs:
       - name: Build Android 8+ Debug and R8 Release APKs (ephemeral test key)
         if: github.event_name != 'workflow_dispatch' || !inputs.signed_demo
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
-        run: ./gradlew --no-daemon -Pghajar.demo=true :browser:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+        run: ./gradlew --no-daemon -Pghajar.demo=true :browser:testDebugUnitTest :downloads:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
       - name: Prepare private demo signing key
         if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref == 'refs/heads/main'
         env:
@@ -142,7 +142,7 @@ jobs:
           GHAJAR_DEMO_KEYSTORE_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEYSTORE_PASSWORD }}
           GHAJAR_DEMO_KEY_ALIAS: ${{ secrets.GHAJAR_DEMO_KEY_ALIAS }}
           GHAJAR_DEMO_KEY_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true :browser:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
+        run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true :browser:testDebugUnitTest :downloads:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
       - name: Verify OpenVPN native launcher is packaged
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: |
@@ -179,5 +179,6 @@ jobs:
           path: |
             ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/test-results/testDebugUnitTest/*.xml
             ${{ env.GHAJAR_SOURCE_ROOT }}/browser/build/test-results/testDebugUnitTest/*.xml
+            ${{ env.GHAJAR_SOURCE_ROOT }}/downloads/build/test-results/testDebugUnitTest/*.xml
             ${{ runner.temp }}/ghajar-native-arch-tests/Testing/Temporary/LastTest.log
           if-no-files-found: warn
