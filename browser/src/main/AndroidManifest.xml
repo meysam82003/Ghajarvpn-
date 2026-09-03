@@ -1,7 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
     <application>
+        <service
+            android:name="com.ghajarvpn.browser.media.GhajarPlaybackService"
+            android:exported="false"
+            android:foregroundServiceType="mediaPlayback"
+            android:process=":browser" />
         <activity
             android:name="com.ghajarvpn.browser.GhajarBrowserActivity"
             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"

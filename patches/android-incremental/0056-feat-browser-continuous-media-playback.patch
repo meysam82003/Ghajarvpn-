@@ -1,0 +1,770 @@
+From 1677c6c8075309000a02e32e9b8b383b1ec6252c Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 3 Sep 2026 12:20:30 +0100
+Subject: [PATCH] feat(browser): keep video playback across player surfaces
+
+---
+ browser/src/main/AndroidManifest.xml          |   7 +
+ .../browser/GhajarBrowserActivity.kt          |  91 +++++++++++
+ .../browser/media/GhajarMediaPlayer.kt        |   5 +
+ .../media/GhajarPlaybackCoordinator.kt        |  60 +++++++
+ .../browser/media/GhajarPlaybackService.kt    | 152 ++++++++++++++++++
+ .../browser/media/GhajarPlayerActivity.kt     | 114 ++++++++-----
+ .../ghajarvpn/browser/media/MediaModels.kt    |   9 ++
+ .../media/PlaybackLifecyclePolicyTest.kt      |  18 +++
+ 8 files changed, 418 insertions(+), 38 deletions(-)
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlaybackCoordinator.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlaybackService.kt
+ create mode 100644 browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt
+
+diff --git a/browser/src/main/AndroidManifest.xml b/browser/src/main/AndroidManifest.xml
+index 069cdc6..a5ef264 100644
+--- a/browser/src/main/AndroidManifest.xml
++++ b/browser/src/main/AndroidManifest.xml
+@@ -1,7 +1,14 @@
+ <?xml version="1.0" encoding="utf-8"?>
+ <manifest xmlns:android="http://schemas.android.com/apk/res/android">
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
++    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+     <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
+     <application>
++        <service
++            android:name="com.ghajarvpn.browser.media.GhajarPlaybackService"
++            android:exported="false"
++            android:foregroundServiceType="mediaPlayback"
++            android:process=":browser" />
+         <activity
+             android:name="com.ghajarvpn.browser.GhajarBrowserActivity"
+             android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+index 4130833..6d157a2 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -47,11 +47,14 @@ import android.widget.Toast
+ import androidx.core.content.ContextCompat
+ import com.ghajarvpn.browser.media.BrowserMediaBridge
+ import com.ghajarvpn.browser.media.GhajarPlayerActivity
++import com.ghajarvpn.browser.media.GhajarPlaybackCoordinator
++import com.ghajarvpn.browser.media.GhajarPlaybackService
+ import com.ghajarvpn.browser.media.MediaCandidate
+ import com.ghajarvpn.browser.media.MediaKind
+ import com.ghajarvpn.browser.media.MediaPlaybackRequest
+ import com.ghajarvpn.browser.media.MediaSessionVault
+ import com.ghajarvpn.browser.media.MediaSourceResolver
++import androidx.media3.common.Player
+ import java.io.ByteArrayInputStream
+ 
+ /**
+@@ -69,6 +72,9 @@ class GhajarBrowserActivity : Activity() {
+     private lateinit var tabCounter: TextView
+     private lateinit var videoButton: TextView
+     private lateinit var networkStatus: TextView
++    private lateinit var miniBar: LinearLayout
++    private lateinit var miniTitle: TextView
++    private lateinit var miniToggle: TextView
+     private val networkController by lazy { BrowserNetworkController(this) }
+     private val mediaCandidates = linkedMapOf<String, MutableList<MediaCandidate>>()
+     private var activeId = ""
+@@ -82,6 +88,14 @@ class GhajarBrowserActivity : Activity() {
+     private var routingReady = false
+     private var routeDecision = BrowserRouteDecision(false, false, "در حال بررسی مسیر")
+     private var networkReceiverRegistered = false
++    private var miniBoundPlayer: Player? = null
++    private val miniPlayerListener = object : Player.Listener {
++        override fun onIsPlayingChanged(isPlaying: Boolean) = updateMiniPlayer()
++        override fun onPlaybackStateChanged(playbackState: Int) = updateMiniPlayer()
++    }
++    private val playbackOwnerListener: (Player?) -> Unit = { player ->
++        runOnUiThread { bindMiniPlayer(player) }
++    }
+     private val networkReceiver = object : BroadcastReceiver() {
+         override fun onReceive(context: Context?, intent: Intent?) {
+             if (intent?.action != BrowserContract.ACTION_NETWORK_STATE) return
+@@ -108,6 +122,7 @@ class GhajarBrowserActivity : Activity() {
+         networkReceiverRegistered = true
+         tabs += repository.restoreTabs()
+         setContentView(buildUi())
++        GhajarPlaybackCoordinator.addListener(playbackOwnerListener)
+         applyNetworkMode {
+             val requested = intent.getStringExtra(BrowserContract.EXTRA_URL)
+             val private = intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false)
+@@ -197,13 +212,74 @@ class GhajarBrowserActivity : Activity() {
+             setOnClickListener { showNetworkModeDialog() }
+         }
+         webContainer = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
++        miniBar = LinearLayout(this).apply {
++            gravity = Gravity.CENTER_VERTICAL
++            setPadding(dp(10), dp(4), dp(8), dp(4))
++            setBackgroundColor(Color.rgb(7, 27, 46))
++            visibility = View.GONE
++        }
++        miniToggle = TextView(this).apply {
++            gravity = Gravity.CENTER
++            textSize = 20f
++            setTextColor(Color.WHITE)
++            contentDescription = "پخش یا مکث Mini Player"
++            setOnClickListener {
++                GhajarPlaybackCoordinator.player()?.let { player -> if (player.isPlaying) player.pause() else player.play() }
++            }
++        }
++        miniTitle = TextView(this).apply {
++            setTextColor(Color.WHITE)
++            textSize = 13f
++            maxLines = 1
++            setPadding(dp(8), 0, dp(8), 0)
++            setOnClickListener { reopenPlayer() }
++        }
++        miniBar.addView(miniToggle, LinearLayout.LayoutParams(dp(44), dp(44)))
++        miniBar.addView(miniTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
++        miniBar.addView(miniAction("تمام‌صفحه") { reopenPlayer() }, LinearLayout.LayoutParams(dp(52), dp(44)))
++        miniBar.addView(miniAction("بستن") { GhajarPlaybackService.requestStop(this) }, LinearLayout.LayoutParams(dp(52), dp(44)))
+         root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
+         root.addView(networkStatus, LinearLayout.LayoutParams(-1, dp(30)))
+         root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
+         root.addView(webContainer, LinearLayout.LayoutParams(-1, 0, 1f))
++        root.addView(miniBar, LinearLayout.LayoutParams(-1, dp(54)))
+         return root
+     }
+ 
++    private fun miniAction(label: String, action: () -> Unit) = TextView(this).apply {
++        text = label
++        gravity = Gravity.CENTER
++        textSize = 11f
++        setTextColor(Color.rgb(242, 226, 185))
++        contentDescription = label
++        setOnClickListener { action() }
++    }
++
++    private fun bindMiniPlayer(player: Player?) {
++        if (!::miniBar.isInitialized) return
++        if (miniBoundPlayer !== player) {
++            miniBoundPlayer?.removeListener(miniPlayerListener)
++            miniBoundPlayer = player
++            player?.addListener(miniPlayerListener)
++        }
++        updateMiniPlayer()
++    }
++
++    private fun updateMiniPlayer() {
++        if (!::miniBar.isInitialized) return
++        val player = miniBoundPlayer
++        val request = GhajarPlaybackCoordinator.currentRequest
++        miniBar.visibility = if (player == null || request == null) View.GONE else View.VISIBLE
++        if (player == null || request == null) return
++        miniToggle.text = if (player.isPlaying) "Ⅱ" else "▶"
++        miniTitle.text = request.media.title.ifBlank { Uri.parse(request.media.url).host ?: "Ghajar Player" }
++    }
++
++    private fun reopenPlayer() {
++        if (GhajarPlaybackCoordinator.player() == null) return
++        startActivity(Intent(this, GhajarPlayerActivity::class.java).putExtra(GhajarPlayerActivity.EXTRA_ATTACH, true))
++    }
++
+     private fun iconButton(icon: Int, description: String, action: (View) -> Unit) = ImageButton(this).apply {
+         setImageResource(icon); setColorFilter(Color.WHITE); setBackgroundColor(Color.TRANSPARENT)
+         contentDescription = description; setOnClickListener(action)
+@@ -704,9 +780,24 @@ class GhajarBrowserActivity : Activity() {
+ 
+     override fun onPause() { repository.saveTabs(tabs); CookieManager.getInstance().flush(); super.onPause() }
+ 
++    override fun onStop() {
++        super.onStop()
++        networkStatus.postDelayed({
++            if (!GhajarPlaybackCoordinator.playerSurfaceVisible &&
++                !com.ghajarvpn.browser.media.MediaPreferences(this).backgroundPlayback
++            ) GhajarPlaybackCoordinator.player()?.pause()
++        }, 250)
++    }
++
+     override fun onDestroy() {
+         fileCallback?.onReceiveValue(null); pendingPermission?.deny()
+         webViews.values.toList().forEach(::destroyWebView); webViews.clear()
++        GhajarPlaybackCoordinator.removeListener(playbackOwnerListener)
++        miniBoundPlayer?.removeListener(miniPlayerListener)
++        miniBoundPlayer = null
++        if (isFinishing && !com.ghajarvpn.browser.media.MediaPreferences(this).backgroundPlayback) {
++            GhajarPlaybackService.requestStop(this)
++        }
+         if (networkReceiverRegistered) {
+             unregisterReceiver(networkReceiver)
+             networkReceiverRegistered = false
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+index 5479939..ff65c7c 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+@@ -4,6 +4,7 @@ import android.content.Context
+ import android.net.Uri
+ import androidx.media3.common.MediaItem
+ import androidx.media3.common.MimeTypes
++import androidx.media3.common.AudioAttributes
+ import androidx.media3.common.util.UnstableApi
+ import androidx.media3.datasource.okhttp.OkHttpDataSource
+ import androidx.media3.exoplayer.ExoPlayer
+@@ -30,6 +31,10 @@ class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
+     val player: ExoPlayer = ExoPlayer.Builder(context)
+         .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(httpFactory))
+         .build()
++        .apply {
++            setAudioAttributes(AudioAttributes.DEFAULT, true)
++            setHandleAudioBecomingNoisy(true)
++        }
+ 
+     fun prepare(candidate: MediaCandidate, startPositionMs: Long = 0L) {
+         val subtitles = candidate.subtitles.mapNotNull { subtitle ->
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlaybackCoordinator.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlaybackCoordinator.kt
+new file mode 100644
+index 0000000..8dc31d7
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlaybackCoordinator.kt
+@@ -0,0 +1,60 @@
++package com.ghajarvpn.browser.media
++
++import android.content.Context
++import androidx.media3.common.Player
++import androidx.media3.common.util.UnstableApi
++import java.util.concurrent.CopyOnWriteArraySet
++
++/**
++ * Owns exactly one Media3 player in the isolated browser process. Player,
++ * full-screen activity, mini-player and notification all control this instance.
++ */
++@OptIn(UnstableApi::class)
++object GhajarPlaybackCoordinator {
++    private var engine: GhajarMediaPlayer? = null
++    private var mediaSession: GhajarMediaSession? = null
++    private val listeners = CopyOnWriteArraySet<(Player?) -> Unit>()
++
++    var currentRequest: MediaPlaybackRequest? = null
++        private set
++    @Volatile var playerSurfaceVisible: Boolean = false
++        internal set
++
++    fun start(context: Context, request: MediaPlaybackRequest): Player {
++        releasePlayback()
++        val next = GhajarMediaPlayer(context.applicationContext, request)
++        engine = next
++        mediaSession = GhajarMediaSession(context.applicationContext, next.player)
++        currentRequest = request
++        next.prepare(request.media)
++        next.player.playWhenReady = true
++        notifyChanged(next.player)
++        GhajarPlaybackService.start(context.applicationContext)
++        return next.player
++    }
++
++    fun player(): Player? = engine?.player
++
++    fun addListener(listener: (Player?) -> Unit) {
++        listeners += listener
++        listener(player())
++    }
++
++    fun removeListener(listener: (Player?) -> Unit) {
++        listeners -= listener
++    }
++
++    internal fun releasePlayback() {
++        mediaSession?.release()
++        mediaSession = null
++        engine?.release()
++        engine = null
++        currentRequest = null
++        playerSurfaceVisible = false
++        notifyChanged(null)
++    }
++
++    private fun notifyChanged(player: Player?) = listeners.forEach { listener ->
++        runCatching { listener(player) }
++    }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlaybackService.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlaybackService.kt
+new file mode 100644
+index 0000000..73f03a9
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlaybackService.kt
+@@ -0,0 +1,152 @@
++package com.ghajarvpn.browser.media
++
++import android.app.Notification
++import android.app.NotificationChannel
++import android.app.NotificationManager
++import android.app.PendingIntent
++import android.app.Service
++import android.content.Context
++import android.content.Intent
++import android.os.Build
++import android.os.IBinder
++import androidx.core.content.ContextCompat
++import androidx.media3.common.Player
++
++/** Foreground owner for user-started playback and real media controls. */
++class GhajarPlaybackService : Service() {
++    private var observed: Player? = null
++    private val listener = object : Player.Listener {
++        override fun onIsPlayingChanged(isPlaying: Boolean) = publish()
++        override fun onPlaybackStateChanged(playbackState: Int) = publish()
++    }
++
++    override fun onCreate() {
++        super.onCreate()
++        createChannel()
++    }
++
++    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
++        when (intent?.action) {
++            ACTION_PLAY_PAUSE -> GhajarPlaybackCoordinator.player()?.let { if (it.isPlaying) it.pause() else it.play() }
++            ACTION_SEEK_BACK -> seekBy(-MediaPreferences(this).seekSeconds * 1000L)
++            ACTION_SEEK_FORWARD -> seekBy(MediaPreferences(this).seekSeconds * 1000L)
++            ACTION_STOP -> {
++                stopPlayback()
++                return START_NOT_STICKY
++            }
++        }
++        val player = GhajarPlaybackCoordinator.player()
++        if (player == null) {
++            stopSelf()
++            return START_NOT_STICKY
++        }
++        if (observed !== player) {
++            observed?.removeListener(listener)
++            observed = player
++            player.addListener(listener)
++        }
++        startForeground(NOTIFICATION_ID, notification(player))
++        return START_NOT_STICKY
++    }
++
++    override fun onTaskRemoved(rootIntent: Intent?) {
++        if (!MediaPreferences(this).backgroundPlayback) stopPlayback()
++        super.onTaskRemoved(rootIntent)
++    }
++
++    override fun onDestroy() {
++        observed?.removeListener(listener)
++        observed = null
++        if (GhajarPlaybackCoordinator.player() != null) GhajarPlaybackCoordinator.releasePlayback()
++        super.onDestroy()
++    }
++
++    override fun onBind(intent: Intent?): IBinder? = null
++
++    private fun seekBy(delta: Long) = GhajarPlaybackCoordinator.player()?.let { player ->
++        val duration = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
++        player.seekTo((player.currentPosition + delta).coerceIn(0L, duration))
++    }
++
++    private fun stopPlayback() {
++        GhajarPlaybackCoordinator.releasePlayback()
++        stopForeground(STOP_FOREGROUND_REMOVE)
++        stopSelf()
++    }
++
++    private fun publish() {
++        val player = GhajarPlaybackCoordinator.player() ?: return
++        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).notify(NOTIFICATION_ID, notification(player))
++    }
++
++    private fun notification(player: Player): Notification {
++        val title = GhajarPlaybackCoordinator.currentRequest?.media?.title.orEmpty().ifBlank { "Ghajar Player" }
++        val content = PendingIntent.getActivity(
++            this,
++            40,
++            Intent(this, GhajarPlayerActivity::class.java)
++                .putExtra(GhajarPlayerActivity.EXTRA_ATTACH, true)
++                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP),
++            pendingFlags()
++        )
++        return Notification.Builder(this, CHANNEL_ID)
++            .setSmallIcon(android.R.drawable.ic_media_play)
++            .setContentTitle(title.take(100))
++            .setContentText(if (player.isPlaying) "در حال پخش با قاجار" else "پخش متوقف است")
++            .setContentIntent(content)
++            .setOnlyAlertOnce(true)
++            .setOngoing(player.isPlaying)
++            .setCategory(Notification.CATEGORY_TRANSPORT)
++            .addAction(android.R.drawable.ic_media_rew, "عقب", serviceAction(ACTION_SEEK_BACK, 41))
++            .addAction(
++                if (player.isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_media_play,
++                if (player.isPlaying) "مکث" else "پخش",
++                serviceAction(ACTION_PLAY_PAUSE, 42)
++            )
++            .addAction(android.R.drawable.ic_media_ff, "جلو", serviceAction(ACTION_SEEK_FORWARD, 43))
++            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "توقف", serviceAction(ACTION_STOP, 44))
++            .setStyle(Notification.MediaStyle().setShowActionsInCompactView(0, 1, 3))
++            .build()
++    }
++
++    private fun serviceAction(action: String, requestCode: Int) = PendingIntent.getService(
++        this,
++        requestCode,
++        Intent(this, GhajarPlaybackService::class.java).setAction(action),
++        pendingFlags()
++    )
++
++    private fun pendingFlags() = PendingIntent.FLAG_UPDATE_CURRENT or
++        if (Build.VERSION.SDK_INT >= 23) PendingIntent.FLAG_IMMUTABLE else 0
++
++    private fun createChannel() {
++        if (Build.VERSION.SDK_INT >= 26) {
++            val manager = getSystemService(NOTIFICATION_SERVICE) as NotificationManager
++            manager.createNotificationChannel(
++                NotificationChannel(CHANNEL_ID, "پخش رسانه قاجار", NotificationManager.IMPORTANCE_LOW).apply {
++                    description = "کنترل پخش رسانه‌ای که کاربر در مرورگر قاجار شروع کرده است"
++                    setSound(null, null)
++                }
++            )
++        }
++    }
++
++    companion object {
++        private const val CHANNEL_ID = "ghajar_media_playback"
++        private const val NOTIFICATION_ID = 7341
++        private const val ACTION_PLAY_PAUSE = "com.ghajarvpn.browser.media.PLAY_PAUSE"
++        private const val ACTION_SEEK_BACK = "com.ghajarvpn.browser.media.SEEK_BACK"
++        private const val ACTION_SEEK_FORWARD = "com.ghajarvpn.browser.media.SEEK_FORWARD"
++        private const val ACTION_STOP = "com.ghajarvpn.browser.media.STOP"
++
++        fun start(context: Context) {
++            val intent = Intent(context, GhajarPlaybackService::class.java)
++            if (Build.VERSION.SDK_INT >= 26) ContextCompat.startForegroundService(context, intent)
++            else context.startService(intent)
++        }
++
++        fun requestStop(context: Context) {
++            context.startService(Intent(context, GhajarPlaybackService::class.java).setAction(ACTION_STOP))
++        }
++    }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+index a472e48..860a095 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+@@ -38,8 +38,8 @@ import kotlin.math.abs
+ @UnstableApi
+ class GhajarPlayerActivity : Activity() {
+     private lateinit var request: MediaPlaybackRequest
+-    private lateinit var engine: GhajarMediaPlayer
+-    private lateinit var mediaSession: GhajarMediaSession
++    private lateinit var player: Player
++    private lateinit var playerListener: PlayerListener
+     private lateinit var playerView: PlayerView
+     private lateinit var root: FrameLayout
+     private lateinit var stats: TextView
+@@ -51,6 +51,7 @@ class GhajarPlayerActivity : Activity() {
+     private var mutedVolume = 1f
+     private var retryCount = 0
+     private var resumePrompted = false
++    private var returningToBrowser = false
+     private var initialY = 0f
+     private var initialX = 0f
+     private var initialPosition = 0L
+@@ -60,27 +61,32 @@ class GhajarPlayerActivity : Activity() {
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
++        val attach = intent.getBooleanExtra(EXTRA_ATTACH, false)
+         val token = intent.getStringExtra(EXTRA_SESSION).orEmpty()
+-        val resolved = MediaSessionVault.take(token)
++        val resolved = if (attach) GhajarPlaybackCoordinator.currentRequest else MediaSessionVault.take(token)
+         if (resolved == null) {
+             Toast.makeText(this, "نشست امن ویدیو منقضی شده است؛ از صفحه دوباره پلیر را باز کنید.", Toast.LENGTH_LONG).show()
+             finish(); return
+         }
+         request = resolved
+-        engine = GhajarMediaPlayer(this, request)
+-        mediaSession = GhajarMediaSession(this, engine.player)
+-        engine.player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
++        val activePlayer = if (attach) GhajarPlaybackCoordinator.player() else GhajarPlaybackCoordinator.start(this, request)
++        if (activePlayer == null) {
++            Toast.makeText(this, "پخش فعالی برای بازگشت وجود ندارد.", Toast.LENGTH_LONG).show()
++            finish(); return
++        }
++        player = activePlayer
++        player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
+         setContentView(buildUi())
+-        engine.player.addListener(PlayerListener())
+-        engine.prepare(request.media)
+-        engine.player.playWhenReady = true
++        playerListener = PlayerListener()
++        player.addListener(playerListener)
++        if (attach) player.play()
+         handler.post(statsUpdater)
+     }
+ 
+     private fun buildUi(): View {
+         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
+         playerView = PlayerView(this).apply {
+-            player = engine.player
++            player = this@GhajarPlayerActivity.player
+             useController = true
+             controllerShowTimeoutMs = 3500
+             setShowSubtitleButton(true)
+@@ -97,7 +103,7 @@ class GhajarPlayerActivity : Activity() {
+             gravity = Gravity.CENTER_VERTICAL
+             setPadding(dp(8), dp(8), dp(8), dp(8))
+             setBackgroundColor(Color.argb(145, 0, 0, 0))
+-            addView(icon(android.R.drawable.ic_media_previous, "بازگشت به سایت") { finish() })
++            addView(icon(android.R.drawable.ic_media_previous, "بازگشت به سایت") { returnToBrowser() })
+             addView(TextView(this@GhajarPlayerActivity).apply {
+                 text = request.media.title.ifBlank { "شاه قاجار · پخش امن" }
+                 setTextColor(Color.WHITE); textSize = 16f; maxLines = 1; setPadding(dp(8), 0, dp(8), 0)
+@@ -146,16 +152,23 @@ class GhajarPlayerActivity : Activity() {
+             menu.add(3, 300, 0, if (preferences.gestures) "خاموش‌کردن Gestureها" else "روشن‌کردن Gestureها")
+             menu.add(3, 301, 1, if (preferences.backgroundPlayback) "توقف پخش پس‌زمینه" else "اجازهٔ پخش پس‌زمینه")
+             menu.add(3, 302, 2, if (stats.visibility == View.VISIBLE) "بستن آمار فنی" else "نمایش آمار فنی")
++            menu.add(3, 303, 3, if (preferences.continueOnNavigate) "توقف هنگام بازگشت به مرورگر" else "ادامه در Mini Player")
++            menu.add(3, 304, 4, "توقف کامل پخش")
+             setOnMenuItemClickListener { item ->
+                 when {
+                     item.itemId in 100 until 100 + SPEEDS.size -> {
+                         preferences.speed = SPEEDS[item.itemId - 100]
+-                        engine.player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
++                        player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
+                     }
+                     item.itemId in 200 until 200 + SEEK_SECONDS.size -> preferences.seekSeconds = SEEK_SECONDS[item.itemId - 200]
+                     item.itemId == 300 -> preferences.gestures = !preferences.gestures
+                     item.itemId == 301 -> preferences.backgroundPlayback = !preferences.backgroundPlayback
+                     item.itemId == 302 -> stats.visibility = if (stats.visibility == View.VISIBLE) View.GONE else View.VISIBLE
++                    item.itemId == 303 -> preferences.continueOnNavigate = !preferences.continueOnNavigate
++                    item.itemId == 304 -> {
++                        GhajarPlaybackService.requestStop(this@GhajarPlayerActivity)
++                        finish()
++                    }
+                 }; true
+             }; show()
+         }
+@@ -169,7 +182,7 @@ class GhajarPlayerActivity : Activity() {
+             val current = id++
+             popup.menu.add(type, current, 0, label)
+             actions[current] = {
+-                engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon()
++                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                     .clearOverridesOfType(type).setTrackTypeDisabled(type, false).build()
+             }
+         }
+@@ -177,8 +190,8 @@ class GhajarPlayerActivity : Activity() {
+         addAuto(C.TRACK_TYPE_AUDIO, "صدا: خودکار")
+         val subtitleOff = id++
+         popup.menu.add(C.TRACK_TYPE_TEXT, subtitleOff, 0, "زیرنویس: خاموش")
+-        actions[subtitleOff] = { engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
+-        engine.player.currentTracks.groups.forEach { group ->
++        actions[subtitleOff] = { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
++        player.currentTracks.groups.forEach { group ->
+             val type = group.type
+             if (type !in setOf(C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT) || !group.isSupported) return@forEach
+             for (index in 0 until group.length) {
+@@ -192,7 +205,7 @@ class GhajarPlayerActivity : Activity() {
+                 val current = id++
+                 popup.menu.add(type, current, index + 1, label)
+                 actions[current] = {
+-                    engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon()
++                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                         .setTrackTypeDisabled(type, false)
+                         .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(index))).build()
+                 }
+@@ -207,7 +220,7 @@ class GhajarPlayerActivity : Activity() {
+         val audio = getSystemService(AUDIO_SERVICE) as AudioManager
+         val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
+             override fun onDown(e: MotionEvent): Boolean {
+-                initialX = e.x; initialY = e.y; initialPosition = engine.player.currentPosition
++                initialX = e.x; initialY = e.y; initialPosition = player.currentPosition
+                 initialBrightness = window.attributes.screenBrightness.takeIf { it >= 0 } ?: .5f
+                 initialVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
+                 return true
+@@ -223,8 +236,8 @@ class GhajarPlayerActivity : Activity() {
+                 if (!preferences.gestures || screenLocked || first == null) return false
+                 val dx = current.x - initialX; val dy = current.y - initialY
+                 if (abs(dx) > abs(dy) * 1.25f) {
+-                    val delta = (dx / root.width * (engine.player.duration.takeIf { it > 0 } ?: 60_000L)).toLong()
+-                    engine.player.seekTo((initialPosition + delta).coerceIn(0L, engine.player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE))
++                    val delta = (dx / root.width * (player.duration.takeIf { it > 0 } ?: 60_000L)).toLong()
++                    player.seekTo((initialPosition + delta).coerceIn(0L, player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE))
+                 } else if (initialX < root.width / 2f) {
+                     val value = (initialBrightness - dy / root.height).coerceIn(.05f, 1f)
+                     window.attributes = window.attributes.apply { screenBrightness = value }
+@@ -239,13 +252,13 @@ class GhajarPlayerActivity : Activity() {
+     }
+ 
+     private fun seekBy(delta: Long) {
+-        val limit = engine.player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+-        engine.player.seekTo((engine.player.currentPosition + delta).coerceIn(0L, limit))
++        val limit = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
++        player.seekTo((player.currentPosition + delta).coerceIn(0L, limit))
+     }
+ 
+     private fun toggleMute() {
+-        if (engine.player.volume > 0f) { mutedVolume = engine.player.volume; engine.player.volume = 0f }
+-        else engine.player.volume = mutedVolume.coerceAtLeast(.1f)
++        if (player.volume > 0f) { mutedVolume = player.volume; player.volume = 0f }
++        else player.volume = mutedVolume.coerceAtLeast(.1f)
+     }
+ 
+     private fun cycleAspect() {
+@@ -260,14 +273,14 @@ class GhajarPlayerActivity : Activity() {
+     }
+ 
+     private fun enterPip() {
+-        if (Build.VERSION.SDK_INT < 26 || !engine.player.isPlaying) { toast("ابتدا ویدیو را پخش کنید"); return }
+-        val ratio = engine.player.videoSize.let { if (it.width > 0 && it.height > 0) Rational(it.width, it.height) else Rational(16, 9) }
++        if (Build.VERSION.SDK_INT < 26 || !player.isPlaying) { toast("ابتدا ویدیو را پخش کنید"); return }
++        val ratio = player.videoSize.let { if (it.width > 0 && it.height > 0) Rational(it.width, it.height) else Rational(16, 9) }
+         enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(ratio).build())
+     }
+ 
+     override fun onUserLeaveHint() {
+         super.onUserLeaveHint()
+-        if (Build.VERSION.SDK_INT >= 26 && preferences.backgroundPlayback && engine.player.isPlaying) enterPip()
++        if (Build.VERSION.SDK_INT >= 26 && preferences.backgroundPlayback && player.isPlaying) enterPip()
+     }
+ 
+     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
+@@ -275,36 +288,60 @@ class GhajarPlayerActivity : Activity() {
+         playerView.useController = !inPip && !screenLocked
+     }
+ 
++    override fun onStart() {
++        super.onStart()
++        GhajarPlaybackCoordinator.playerSurfaceVisible = true
++    }
++
++    override fun onStop() {
++        GhajarPlaybackCoordinator.playerSurfaceVisible = false
++        super.onStop()
++    }
++
+     override fun onPause() {
+         saveResume()
+-        if (!preferences.backgroundPlayback && !(Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode)) engine.player.pause()
++        if (PlaybackLifecyclePolicy.shouldPause(
++                preferences.backgroundPlayback,
++                Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode,
++                returningToBrowser,
++                preferences.continueOnNavigate
++            )) player.pause()
+         super.onPause()
+     }
+ 
+     override fun onDestroy() {
+         handler.removeCallbacksAndMessages(null)
+-        if (::engine.isInitialized) { saveResume(); mediaSession.release(); engine.release() }
++        if (::player.isInitialized) {
++            saveResume()
++            if (::playerListener.isInitialized) player.removeListener(playerListener)
++            playerView.player = null
++        }
+         super.onDestroy()
+     }
+ 
+     @Deprecated("Deprecated in Android")
+     override fun onBackPressed() {
+         if (screenLocked) { toggleLock(); return }
+-        super.onBackPressed()
++        returnToBrowser()
++    }
++
++    private fun returnToBrowser() {
++        returningToBrowser = true
++        finish()
+     }
+ 
+     private fun saveResume() {
+-        if (::request.isInitialized && !request.private && ::engine.isInitialized) preferences.saveResume(request.media.url, engine.player.currentPosition)
++        if (::request.isInitialized && !request.private && ::player.isInitialized) preferences.saveResume(request.media.url, player.currentPosition)
+     }
+ 
+     private fun offerResume() {
+         if (resumePrompted || request.private) return
+         resumePrompted = true
+         val position = preferences.resumePosition(request.media.url)
+-        if (position < 30_000 || position >= engine.player.duration - 10_000) return
++        if (position < 30_000 || position >= player.duration - 10_000) return
+         AlertDialog.Builder(this).setTitle("ادامهٔ پخش؟")
+             .setMessage("از ${formatTime(position)} ادامه داده شود؟")
+-            .setPositiveButton("ادامه") { _, _ -> engine.player.seekTo(position) }
++            .setPositiveButton("ادامه") { _, _ -> player.seekTo(position) }
+             .setNegativeButton("از ابتدا", null).show()
+     }
+ 
+@@ -317,7 +354,7 @@ class GhajarPlayerActivity : Activity() {
+ 
+         override fun onPlayerError(error: PlaybackException) {
+             if (retryCount++ < 2 && error.errorCode in RETRYABLE_ERRORS) {
+-                val position = engine.player.currentPosition; engine.player.prepare(); engine.player.seekTo(position); engine.player.play(); return
++                val position = player.currentPosition; player.prepare(); player.seekTo(position); player.play(); return
+             }
+             val message = when (error.errorCode) {
+                 PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
+@@ -331,16 +368,16 @@ class GhajarPlayerActivity : Activity() {
+                 else -> "پخش ویدیو ممکن نشد؛ Player اصلی سایت همچنان قابل استفاده است."
+             }
+             AlertDialog.Builder(this@GhajarPlayerActivity).setTitle("شهربان · خطای پخش").setMessage(message)
+-                .setPositiveButton("تلاش دوباره") { _, _ -> retryCount = 0; engine.player.prepare(); engine.player.play() }
+-                .setNegativeButton("بازگشت به سایت") { _, _ -> finish() }.show()
++                .setPositiveButton("تلاش دوباره") { _, _ -> retryCount = 0; player.prepare(); player.play() }
++                .setNegativeButton("بازگشت به سایت") { _, _ -> returnToBrowser() }.show()
+         }
+     }
+ 
+     private val statsUpdater = object : Runnable {
+         override fun run() {
+-            if (::engine.isInitialized && ::stats.isInitialized && stats.visibility == View.VISIBLE) {
+-                val format = engine.player.videoFormat
+-                stats.text = "${format?.width ?: 0}×${format?.height ?: 0}  •  ${(format?.bitrate ?: 0) / 1000} kbps  •  buffer ${engine.player.totalBufferedDuration / 1000}s"
++            if (::player.isInitialized && ::stats.isInitialized && stats.visibility == View.VISIBLE) {
++                val format = player.videoFormat
++                stats.text = "${format?.width ?: 0}×${format?.height ?: 0}  •  ${(format?.bitrate ?: 0) / 1000} kbps  •  buffer ${player.totalBufferedDuration / 1000}s"
+             }
+             handler.postDelayed(this, 1000)
+         }
+@@ -352,6 +389,7 @@ class GhajarPlayerActivity : Activity() {
+ 
+     companion object {
+         const val EXTRA_SESSION = "media_session"
++        const val EXTRA_ATTACH = "attach_active_playback"
+         private val SPEEDS = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
+         private val SEEK_SECONDS = intArrayOf(5, 10, 15, 30)
+         private val RETRYABLE_ERRORS = setOf(
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+index 755910e..d2c63ca 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+@@ -34,6 +34,15 @@ data class VideoPlaybackState(
+     val speed: Float = 1f
+ )
+ 
++object PlaybackLifecyclePolicy {
++    fun shouldPause(
++        backgroundAllowed: Boolean,
++        inPictureInPicture: Boolean,
++        returningToBrowser: Boolean,
++        continueOnNavigate: Boolean
++    ): Boolean = !backgroundAllowed && !inPictureInPicture && !(returningToBrowser && continueOnNavigate)
++}
++
+ /** Sensitive request headers stay in process memory and never enter an Intent or Bundle. */
+ object MediaSessionVault {
+     private const val MAX_AGE_MS = 30 * 60 * 1000L
+diff --git a/browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt b/browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt
+new file mode 100644
+index 0000000..7b8cf9b
+--- /dev/null
++++ b/browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt
+@@ -0,0 +1,18 @@
++package com.ghajarvpn.browser.media
++
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class PlaybackLifecyclePolicyTest {
++    @Test fun keeps_one_player_for_pip_background_or_browser_mini_player() {
++        assertFalse(PlaybackLifecyclePolicy.shouldPause(false, true, false, false))
++        assertFalse(PlaybackLifecyclePolicy.shouldPause(true, false, false, false))
++        assertFalse(PlaybackLifecyclePolicy.shouldPause(false, false, true, true))
++    }
++
++    @Test fun pauses_when_the_user_leaves_without_permission() {
++        assertTrue(PlaybackLifecyclePolicy.shouldPause(false, false, false, true))
++        assertTrue(PlaybackLifecyclePolicy.shouldPause(false, false, true, false))
++    }
++}

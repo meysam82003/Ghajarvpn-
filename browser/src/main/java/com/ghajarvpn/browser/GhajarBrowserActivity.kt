@@ -47,11 +47,14 @@ import android.widget.Toast
 import androidx.core.content.ContextCompat
 import com.ghajarvpn.browser.media.BrowserMediaBridge
 import com.ghajarvpn.browser.media.GhajarPlayerActivity
+import com.ghajarvpn.browser.media.GhajarPlaybackCoordinator
+import com.ghajarvpn.browser.media.GhajarPlaybackService
 import com.ghajarvpn.browser.media.MediaCandidate
 import com.ghajarvpn.browser.media.MediaKind
 import com.ghajarvpn.browser.media.MediaPlaybackRequest
 import com.ghajarvpn.browser.media.MediaSessionVault
 import com.ghajarvpn.browser.media.MediaSourceResolver
+import androidx.media3.common.Player
 import java.io.ByteArrayInputStream
 
 /**
@@ -69,6 +72,9 @@ class GhajarBrowserActivity : Activity() {
     private lateinit var tabCounter: TextView
     private lateinit var videoButton: TextView
     private lateinit var networkStatus: TextView
+    private lateinit var miniBar: LinearLayout
+    private lateinit var miniTitle: TextView
+    private lateinit var miniToggle: TextView
     private val networkController by lazy { BrowserNetworkController(this) }
     private val mediaCandidates = linkedMapOf<String, MutableList<MediaCandidate>>()
     private var activeId = ""
@@ -82,6 +88,14 @@ class GhajarBrowserActivity : Activity() {
     private var routingReady = false
     private var routeDecision = BrowserRouteDecision(false, false, "در حال بررسی مسیر")
     private var networkReceiverRegistered = false
+    private var miniBoundPlayer: Player? = null
+    private val miniPlayerListener = object : Player.Listener {
+        override fun onIsPlayingChanged(isPlaying: Boolean) = updateMiniPlayer()
+        override fun onPlaybackStateChanged(playbackState: Int) = updateMiniPlayer()
+    }
+    private val playbackOwnerListener: (Player?) -> Unit = { player ->
+        runOnUiThread { bindMiniPlayer(player) }
+    }
     private val networkReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != BrowserContract.ACTION_NETWORK_STATE) return
@@ -108,6 +122,7 @@ class GhajarBrowserActivity : Activity() {
         networkReceiverRegistered = true
         tabs += repository.restoreTabs()
         setContentView(buildUi())
+        GhajarPlaybackCoordinator.addListener(playbackOwnerListener)
         applyNetworkMode {
             val requested = intent.getStringExtra(BrowserContract.EXTRA_URL)
             val private = intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false)
@@ -197,11 +212,72 @@ class GhajarBrowserActivity : Activity() {
             setOnClickListener { showNetworkModeDialog() }
         }
         webContainer = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
+        miniBar = LinearLayout(this).apply {
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(10), dp(4), dp(8), dp(4))
+            setBackgroundColor(Color.rgb(7, 27, 46))
+            visibility = View.GONE
+        }
+        miniToggle = TextView(this).apply {
+            gravity = Gravity.CENTER
+            textSize = 20f
+            setTextColor(Color.WHITE)
+            contentDescription = "پخش یا مکث Mini Player"
+            setOnClickListener {
+                GhajarPlaybackCoordinator.player()?.let { player -> if (player.isPlaying) player.pause() else player.play() }
+            }
+        }
+        miniTitle = TextView(this).apply {
+            setTextColor(Color.WHITE)
+            textSize = 13f
+            maxLines = 1
+            setPadding(dp(8), 0, dp(8), 0)
+            setOnClickListener { reopenPlayer() }
+        }
+        miniBar.addView(miniToggle, LinearLayout.LayoutParams(dp(44), dp(44)))
+        miniBar.addView(miniTitle, LinearLayout.LayoutParams(0, dp(44), 1f))
+        miniBar.addView(miniAction("تمام‌صفحه") { reopenPlayer() }, LinearLayout.LayoutParams(dp(52), dp(44)))
+        miniBar.addView(miniAction("بستن") { GhajarPlaybackService.requestStop(this) }, LinearLayout.LayoutParams(dp(52), dp(44)))
         root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
         root.addView(networkStatus, LinearLayout.LayoutParams(-1, dp(30)))
         root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
         root.addView(webContainer, LinearLayout.LayoutParams(-1, 0, 1f))
+        root.addView(miniBar, LinearLayout.LayoutParams(-1, dp(54)))
         return root
+    }
+
+    private fun miniAction(label: String, action: () -> Unit) = TextView(this).apply {
+        text = label
+        gravity = Gravity.CENTER
+        textSize = 11f
+        setTextColor(Color.rgb(242, 226, 185))
+        contentDescription = label
+        setOnClickListener { action() }
+    }
+
+    private fun bindMiniPlayer(player: Player?) {
+        if (!::miniBar.isInitialized) return
+        if (miniBoundPlayer !== player) {
+            miniBoundPlayer?.removeListener(miniPlayerListener)
+            miniBoundPlayer = player
+            player?.addListener(miniPlayerListener)
+        }
+        updateMiniPlayer()
+    }
+
+    private fun updateMiniPlayer() {
+        if (!::miniBar.isInitialized) return
+        val player = miniBoundPlayer
+        val request = GhajarPlaybackCoordinator.currentRequest
+        miniBar.visibility = if (player == null || request == null) View.GONE else View.VISIBLE
+        if (player == null || request == null) return
+        miniToggle.text = if (player.isPlaying) "Ⅱ" else "▶"
+        miniTitle.text = request.media.title.ifBlank { Uri.parse(request.media.url).host ?: "Ghajar Player" }
+    }
+
+    private fun reopenPlayer() {
+        if (GhajarPlaybackCoordinator.player() == null) return
+        startActivity(Intent(this, GhajarPlayerActivity::class.java).putExtra(GhajarPlayerActivity.EXTRA_ATTACH, true))
     }
 
     private fun iconButton(icon: Int, description: String, action: (View) -> Unit) = ImageButton(this).apply {
@@ -704,9 +780,24 @@ class GhajarBrowserActivity : Activity() {
 
     override fun onPause() { repository.saveTabs(tabs); CookieManager.getInstance().flush(); super.onPause() }
 
+    override fun onStop() {
+        super.onStop()
+        networkStatus.postDelayed({
+            if (!GhajarPlaybackCoordinator.playerSurfaceVisible &&
+                !com.ghajarvpn.browser.media.MediaPreferences(this).backgroundPlayback
+            ) GhajarPlaybackCoordinator.player()?.pause()
+        }, 250)
+    }
+
     override fun onDestroy() {
         fileCallback?.onReceiveValue(null); pendingPermission?.deny()
         webViews.values.toList().forEach(::destroyWebView); webViews.clear()
+        GhajarPlaybackCoordinator.removeListener(playbackOwnerListener)
+        miniBoundPlayer?.removeListener(miniPlayerListener)
+        miniBoundPlayer = null
+        if (isFinishing && !com.ghajarvpn.browser.media.MediaPreferences(this).backgroundPlayback) {
+            GhajarPlaybackService.requestStop(this)
+        }
         if (networkReceiverRegistered) {
             unregisterReceiver(networkReceiver)
             networkReceiverRegistered = false

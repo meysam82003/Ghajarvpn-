@@ -34,6 +34,15 @@ data class VideoPlaybackState(
     val speed: Float = 1f
 )
 
+object PlaybackLifecyclePolicy {
+    fun shouldPause(
+        backgroundAllowed: Boolean,
+        inPictureInPicture: Boolean,
+        returningToBrowser: Boolean,
+        continueOnNavigate: Boolean
+    ): Boolean = !backgroundAllowed && !inPictureInPicture && !(returningToBrowser && continueOnNavigate)
+}
+
 /** Sensitive request headers stay in process memory and never enter an Intent or Bundle. */
 object MediaSessionVault {
     private const val MAX_AGE_MS = 30 * 60 * 1000L

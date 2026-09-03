@@ -4,6 +4,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MimeTypes
+import androidx.media3.common.AudioAttributes
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -30,6 +31,10 @@ class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
     val player: ExoPlayer = ExoPlayer.Builder(context)
         .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(httpFactory))
         .build()
+        .apply {
+            setAudioAttributes(AudioAttributes.DEFAULT, true)
+            setHandleAudioBecomingNoisy(true)
+        }
 
     fun prepare(candidate: MediaCandidate, startPositionMs: Long = 0L) {
         val subtitles = candidate.subtitles.mapNotNull { subtitle ->

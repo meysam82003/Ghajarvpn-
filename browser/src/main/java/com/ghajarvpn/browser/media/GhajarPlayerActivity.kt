@@ -38,8 +38,8 @@ import kotlin.math.abs
 @UnstableApi
 class GhajarPlayerActivity : Activity() {
     private lateinit var request: MediaPlaybackRequest
-    private lateinit var engine: GhajarMediaPlayer
-    private lateinit var mediaSession: GhajarMediaSession
+    private lateinit var player: Player
+    private lateinit var playerListener: PlayerListener
     private lateinit var playerView: PlayerView
     private lateinit var root: FrameLayout
     private lateinit var stats: TextView
@@ -51,6 +51,7 @@ class GhajarPlayerActivity : Activity() {
     private var mutedVolume = 1f
     private var retryCount = 0
     private var resumePrompted = false
+    private var returningToBrowser = false
     private var initialY = 0f
     private var initialX = 0f
     private var initialPosition = 0L
@@ -60,27 +61,32 @@ class GhajarPlayerActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        val attach = intent.getBooleanExtra(EXTRA_ATTACH, false)
         val token = intent.getStringExtra(EXTRA_SESSION).orEmpty()
-        val resolved = MediaSessionVault.take(token)
+        val resolved = if (attach) GhajarPlaybackCoordinator.currentRequest else MediaSessionVault.take(token)
         if (resolved == null) {
             Toast.makeText(this, "نشست امن ویدیو منقضی شده است؛ از صفحه دوباره پلیر را باز کنید.", Toast.LENGTH_LONG).show()
             finish(); return
         }
         request = resolved
-        engine = GhajarMediaPlayer(this, request)
-        mediaSession = GhajarMediaSession(this, engine.player)
-        engine.player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
+        val activePlayer = if (attach) GhajarPlaybackCoordinator.player() else GhajarPlaybackCoordinator.start(this, request)
+        if (activePlayer == null) {
+            Toast.makeText(this, "پخش فعالی برای بازگشت وجود ندارد.", Toast.LENGTH_LONG).show()
+            finish(); return
+        }
+        player = activePlayer
+        player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
         setContentView(buildUi())
-        engine.player.addListener(PlayerListener())
-        engine.prepare(request.media)
-        engine.player.playWhenReady = true
+        playerListener = PlayerListener()
+        player.addListener(playerListener)
+        if (attach) player.play()
         handler.post(statsUpdater)
     }
 
     private fun buildUi(): View {
         root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
         playerView = PlayerView(this).apply {
-            player = engine.player
+            player = this@GhajarPlayerActivity.player
             useController = true
             controllerShowTimeoutMs = 3500
             setShowSubtitleButton(true)
@@ -97,7 +103,7 @@ class GhajarPlayerActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(8), dp(8), dp(8))
             setBackgroundColor(Color.argb(145, 0, 0, 0))
-            addView(icon(android.R.drawable.ic_media_previous, "بازگشت به سایت") { finish() })
+            addView(icon(android.R.drawable.ic_media_previous, "بازگشت به سایت") { returnToBrowser() })
             addView(TextView(this@GhajarPlayerActivity).apply {
                 text = request.media.title.ifBlank { "شاه قاجار · پخش امن" }
                 setTextColor(Color.WHITE); textSize = 16f; maxLines = 1; setPadding(dp(8), 0, dp(8), 0)
@@ -146,16 +152,23 @@ class GhajarPlayerActivity : Activity() {
             menu.add(3, 300, 0, if (preferences.gestures) "خاموش‌کردن Gestureها" else "روشن‌کردن Gestureها")
             menu.add(3, 301, 1, if (preferences.backgroundPlayback) "توقف پخش پس‌زمینه" else "اجازهٔ پخش پس‌زمینه")
             menu.add(3, 302, 2, if (stats.visibility == View.VISIBLE) "بستن آمار فنی" else "نمایش آمار فنی")
+            menu.add(3, 303, 3, if (preferences.continueOnNavigate) "توقف هنگام بازگشت به مرورگر" else "ادامه در Mini Player")
+            menu.add(3, 304, 4, "توقف کامل پخش")
             setOnMenuItemClickListener { item ->
                 when {
                     item.itemId in 100 until 100 + SPEEDS.size -> {
                         preferences.speed = SPEEDS[item.itemId - 100]
-                        engine.player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
+                        player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
                     }
                     item.itemId in 200 until 200 + SEEK_SECONDS.size -> preferences.seekSeconds = SEEK_SECONDS[item.itemId - 200]
                     item.itemId == 300 -> preferences.gestures = !preferences.gestures
                     item.itemId == 301 -> preferences.backgroundPlayback = !preferences.backgroundPlayback
                     item.itemId == 302 -> stats.visibility = if (stats.visibility == View.VISIBLE) View.GONE else View.VISIBLE
+                    item.itemId == 303 -> preferences.continueOnNavigate = !preferences.continueOnNavigate
+                    item.itemId == 304 -> {
+                        GhajarPlaybackService.requestStop(this@GhajarPlayerActivity)
+                        finish()
+                    }
                 }; true
             }; show()
         }
@@ -169,7 +182,7 @@ class GhajarPlayerActivity : Activity() {
             val current = id++
             popup.menu.add(type, current, 0, label)
             actions[current] = {
-                engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon()
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                     .clearOverridesOfType(type).setTrackTypeDisabled(type, false).build()
             }
         }
@@ -177,8 +190,8 @@ class GhajarPlayerActivity : Activity() {
         addAuto(C.TRACK_TYPE_AUDIO, "صدا: خودکار")
         val subtitleOff = id++
         popup.menu.add(C.TRACK_TYPE_TEXT, subtitleOff, 0, "زیرنویس: خاموش")
-        actions[subtitleOff] = { engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
-        engine.player.currentTracks.groups.forEach { group ->
+        actions[subtitleOff] = { player.trackSelectionParameters = player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
+        player.currentTracks.groups.forEach { group ->
             val type = group.type
             if (type !in setOf(C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT) || !group.isSupported) return@forEach
             for (index in 0 until group.length) {
@@ -192,7 +205,7 @@ class GhajarPlayerActivity : Activity() {
                 val current = id++
                 popup.menu.add(type, current, index + 1, label)
                 actions[current] = {
-                    engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon()
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                         .setTrackTypeDisabled(type, false)
                         .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(index))).build()
                 }
@@ -207,7 +220,7 @@ class GhajarPlayerActivity : Activity() {
         val audio = getSystemService(AUDIO_SERVICE) as AudioManager
         val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean {
-                initialX = e.x; initialY = e.y; initialPosition = engine.player.currentPosition
+                initialX = e.x; initialY = e.y; initialPosition = player.currentPosition
                 initialBrightness = window.attributes.screenBrightness.takeIf { it >= 0 } ?: .5f
                 initialVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
                 return true
@@ -223,8 +236,8 @@ class GhajarPlayerActivity : Activity() {
                 if (!preferences.gestures || screenLocked || first == null) return false
                 val dx = current.x - initialX; val dy = current.y - initialY
                 if (abs(dx) > abs(dy) * 1.25f) {
-                    val delta = (dx / root.width * (engine.player.duration.takeIf { it > 0 } ?: 60_000L)).toLong()
-                    engine.player.seekTo((initialPosition + delta).coerceIn(0L, engine.player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE))
+                    val delta = (dx / root.width * (player.duration.takeIf { it > 0 } ?: 60_000L)).toLong()
+                    player.seekTo((initialPosition + delta).coerceIn(0L, player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE))
                 } else if (initialX < root.width / 2f) {
                     val value = (initialBrightness - dy / root.height).coerceIn(.05f, 1f)
                     window.attributes = window.attributes.apply { screenBrightness = value }
@@ -239,13 +252,13 @@ class GhajarPlayerActivity : Activity() {
     }
 
     private fun seekBy(delta: Long) {
-        val limit = engine.player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
-        engine.player.seekTo((engine.player.currentPosition + delta).coerceIn(0L, limit))
+        val limit = player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
+        player.seekTo((player.currentPosition + delta).coerceIn(0L, limit))
     }
 
     private fun toggleMute() {
-        if (engine.player.volume > 0f) { mutedVolume = engine.player.volume; engine.player.volume = 0f }
-        else engine.player.volume = mutedVolume.coerceAtLeast(.1f)
+        if (player.volume > 0f) { mutedVolume = player.volume; player.volume = 0f }
+        else player.volume = mutedVolume.coerceAtLeast(.1f)
     }
 
     private fun cycleAspect() {
@@ -260,14 +273,14 @@ class GhajarPlayerActivity : Activity() {
     }
 
     private fun enterPip() {
-        if (Build.VERSION.SDK_INT < 26 || !engine.player.isPlaying) { toast("ابتدا ویدیو را پخش کنید"); return }
-        val ratio = engine.player.videoSize.let { if (it.width > 0 && it.height > 0) Rational(it.width, it.height) else Rational(16, 9) }
+        if (Build.VERSION.SDK_INT < 26 || !player.isPlaying) { toast("ابتدا ویدیو را پخش کنید"); return }
+        val ratio = player.videoSize.let { if (it.width > 0 && it.height > 0) Rational(it.width, it.height) else Rational(16, 9) }
         enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(ratio).build())
     }
 
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (Build.VERSION.SDK_INT >= 26 && preferences.backgroundPlayback && engine.player.isPlaying) enterPip()
+        if (Build.VERSION.SDK_INT >= 26 && preferences.backgroundPlayback && player.isPlaying) enterPip()
     }
 
     override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
@@ -275,36 +288,60 @@ class GhajarPlayerActivity : Activity() {
         playerView.useController = !inPip && !screenLocked
     }
 
+    override fun onStart() {
+        super.onStart()
+        GhajarPlaybackCoordinator.playerSurfaceVisible = true
+    }
+
+    override fun onStop() {
+        GhajarPlaybackCoordinator.playerSurfaceVisible = false
+        super.onStop()
+    }
+
     override fun onPause() {
         saveResume()
-        if (!preferences.backgroundPlayback && !(Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode)) engine.player.pause()
+        if (PlaybackLifecyclePolicy.shouldPause(
+                preferences.backgroundPlayback,
+                Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode,
+                returningToBrowser,
+                preferences.continueOnNavigate
+            )) player.pause()
         super.onPause()
     }
 
     override fun onDestroy() {
         handler.removeCallbacksAndMessages(null)
-        if (::engine.isInitialized) { saveResume(); mediaSession.release(); engine.release() }
+        if (::player.isInitialized) {
+            saveResume()
+            if (::playerListener.isInitialized) player.removeListener(playerListener)
+            playerView.player = null
+        }
         super.onDestroy()
     }
 
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
         if (screenLocked) { toggleLock(); return }
-        super.onBackPressed()
+        returnToBrowser()
+    }
+
+    private fun returnToBrowser() {
+        returningToBrowser = true
+        finish()
     }
 
     private fun saveResume() {
-        if (::request.isInitialized && !request.private && ::engine.isInitialized) preferences.saveResume(request.media.url, engine.player.currentPosition)
+        if (::request.isInitialized && !request.private && ::player.isInitialized) preferences.saveResume(request.media.url, player.currentPosition)
     }
 
     private fun offerResume() {
         if (resumePrompted || request.private) return
         resumePrompted = true
         val position = preferences.resumePosition(request.media.url)
-        if (position < 30_000 || position >= engine.player.duration - 10_000) return
+        if (position < 30_000 || position >= player.duration - 10_000) return
         AlertDialog.Builder(this).setTitle("ادامهٔ پخش؟")
             .setMessage("از ${formatTime(position)} ادامه داده شود؟")
-            .setPositiveButton("ادامه") { _, _ -> engine.player.seekTo(position) }
+            .setPositiveButton("ادامه") { _, _ -> player.seekTo(position) }
             .setNegativeButton("از ابتدا", null).show()
     }
 
@@ -317,7 +354,7 @@ class GhajarPlayerActivity : Activity() {
 
         override fun onPlayerError(error: PlaybackException) {
             if (retryCount++ < 2 && error.errorCode in RETRYABLE_ERRORS) {
-                val position = engine.player.currentPosition; engine.player.prepare(); engine.player.seekTo(position); engine.player.play(); return
+                val position = player.currentPosition; player.prepare(); player.seekTo(position); player.play(); return
             }
             val message = when (error.errorCode) {
                 PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
@@ -331,16 +368,16 @@ class GhajarPlayerActivity : Activity() {
                 else -> "پخش ویدیو ممکن نشد؛ Player اصلی سایت همچنان قابل استفاده است."
             }
             AlertDialog.Builder(this@GhajarPlayerActivity).setTitle("شهربان · خطای پخش").setMessage(message)
-                .setPositiveButton("تلاش دوباره") { _, _ -> retryCount = 0; engine.player.prepare(); engine.player.play() }
-                .setNegativeButton("بازگشت به سایت") { _, _ -> finish() }.show()
+                .setPositiveButton("تلاش دوباره") { _, _ -> retryCount = 0; player.prepare(); player.play() }
+                .setNegativeButton("بازگشت به سایت") { _, _ -> returnToBrowser() }.show()
         }
     }
 
     private val statsUpdater = object : Runnable {
         override fun run() {
-            if (::engine.isInitialized && ::stats.isInitialized && stats.visibility == View.VISIBLE) {
-                val format = engine.player.videoFormat
-                stats.text = "${format?.width ?: 0}×${format?.height ?: 0}  •  ${(format?.bitrate ?: 0) / 1000} kbps  •  buffer ${engine.player.totalBufferedDuration / 1000}s"
+            if (::player.isInitialized && ::stats.isInitialized && stats.visibility == View.VISIBLE) {
+                val format = player.videoFormat
+                stats.text = "${format?.width ?: 0}×${format?.height ?: 0}  •  ${(format?.bitrate ?: 0) / 1000} kbps  •  buffer ${player.totalBufferedDuration / 1000}s"
             }
             handler.postDelayed(this, 1000)
         }
@@ -352,6 +389,7 @@ class GhajarPlayerActivity : Activity() {
 
     companion object {
         const val EXTRA_SESSION = "media_session"
+        const val EXTRA_ATTACH = "attach_active_playback"
         private val SPEEDS = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
         private val SEEK_SECONDS = intArrayOf(5, 10, 15, 30)
         private val RETRYABLE_ERRORS = setOf(
