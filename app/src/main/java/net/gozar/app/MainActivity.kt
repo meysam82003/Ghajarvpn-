@@ -914,6 +914,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchConnect(config: ProxyConfig) {
+        userDisconnectRequested = false
         // OpenVPN owns the tun while its state is live; tear it down first so the
         // core tunnel does not fight the engine for the VPN interface.
         if (GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED) {
@@ -989,6 +990,12 @@ class MainActivity : ComponentActivity() {
             val health = ServerHealthRepository(applicationContext)
             var previous: Connection? = null
             VpnState.state.collect { state ->
+                val activeId = VpnState.activeId.value ?: store.selectedId.value
+                val unexpectedFailure = !userDisconnectRequested &&
+                        activeId?.startsWith("ovpn:") != true &&
+                        state in setOf(Connection.ERROR, Connection.DISCONNECTED) &&
+                        (previous == Connection.CONNECTING || previous == Connection.CONNECTED)
+                if (state == Connection.CONNECTED && previous != Connection.CONNECTED) activeId?.let(health::recordConnectionSuccess)
                 if (state == Connection.CONNECTED && !IkeController.active) {
                     // OpenVPN drives VpnState through its own bridge; the Xray-based
                     // health probe cannot run through an OpenVPN tun and only produces
@@ -1000,7 +1007,6 @@ class MainActivity : ComponentActivity() {
                     store.configs.value.find { it.id == id }?.let {
                         DebugRunner.start(it, store)
                     }
-                    if (previous != Connection.CONNECTED) id?.let(health::recordConnectionSuccess)
                 } else if (state == Connection.DISCONNECTED) {
                     TunnelHealth.reset()
                     RadarRunner.start(false)
@@ -1008,10 +1014,30 @@ class MainActivity : ComponentActivity() {
                     TunnelHealth.reset()
                 }
                 if (state == Connection.ERROR && previous != Connection.ERROR) {
-                    (VpnState.activeId.value ?: store.selectedId.value)?.let(health::recordConnectionFailure)
+                    activeId?.let(health::recordConnectionFailure)
                 }
+                if (unexpectedFailure) scheduleAutoHeal(activeId)
+                if (userDisconnectRequested && state == Connection.DISCONNECTED) userDisconnectRequested = false
                 previous = state
             }
+        }
+    }
+
+    private fun scheduleAutoHeal(configId: String?) {
+        if (!AutoHealPreferences(applicationContext).enabled || autoHealJob?.isActive == true) return
+        autoHealJob = lifecycleScope.launch {
+            val controller = AutoHealController(
+                applicationContext,
+                store,
+                connect = { candidate -> launchConnect(candidate) },
+                onStep = { _, attempt -> Toast.makeText(this@MainActivity, "بازیابی امن اتصال · تلاش $attempt از ${AutoHealPolicy.MAX_ATTEMPTS}", Toast.LENGTH_SHORT).show() }
+            )
+            val result = controller.recover(configId)
+            Toast.makeText(
+                this@MainActivity,
+                if (result.connected) "اتصال با Auto-Heal بازیابی شد" else "بازیابی خودکار متوقف شد؛ سرور را دستی بررسی کنید",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
@@ -1020,6 +1046,8 @@ class MainActivity : ComponentActivity() {
 
     private var pickJob: Job? = null
     private var autoSwitchJob: Job? = null
+    private var autoHealJob: Job? = null
+    private var userDisconnectRequested = false
     private val AUTO_SWITCH_MS = 60_000L
     private val AUTO_SWITCH_SCORE_MARGIN = 0.08
     private val AUTO_SWITCH_PROBE_MS = 25_000L
@@ -1173,6 +1201,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun disconnect() {
+        userDisconnectRequested = true
         // Ask the embedded engine to stop even when the app process was recreated and
         // no longer remembers the ovpn: id, otherwise its notification lingers.
         if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") ||

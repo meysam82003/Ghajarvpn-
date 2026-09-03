@@ -1,0 +1,257 @@
+From 34f7f29cb2031068767e6e446c1727b36a9fa847 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 3 Sep 2026 11:34:26 +0800
+Subject: [PATCH] feat(vpn): add bounded auto-heal recovery
+
+---
+ .../java/net/gozar/app/AutoHealController.kt  | 93 +++++++++++++++++++
+ .../main/java/net/gozar/app/MainActivity.kt   | 33 ++++++-
+ .../net/gozar/app/SmartConnectActivity.kt     |  7 ++
+ .../java/net/gozar/app/AutoHealPolicyTest.kt  | 20 ++++
+ 4 files changed, 151 insertions(+), 2 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/AutoHealController.kt
+ create mode 100644 app/src/test/java/net/gozar/app/AutoHealPolicyTest.kt
+
+diff --git a/app/src/main/java/net/gozar/app/AutoHealController.kt b/app/src/main/java/net/gozar/app/AutoHealController.kt
+new file mode 100644
+index 0000000..8d44edb
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/AutoHealController.kt
+@@ -0,0 +1,93 @@
++package net.gozar.app
++
++import android.content.Context
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.flow.first
++import kotlinx.coroutines.withTimeoutOrNull
++
++enum class AutoHealAction { RETRY_CURRENT, CHANGE_SERVER, CHANGE_PROTOCOL, FALLBACK, GIVE_UP }
++
++data class AutoHealStep(val action: AutoHealAction, val delayMs: Long)
++
++object AutoHealPolicy {
++    const val MAX_ATTEMPTS = 4
++    const val WINDOW_MS = 5 * 60 * 1000L
++
++    fun step(attempt: Int): AutoHealStep = when (attempt) {
++        0 -> AutoHealStep(AutoHealAction.RETRY_CURRENT, 1_500)
++        1 -> AutoHealStep(AutoHealAction.CHANGE_SERVER, 3_000)
++        2 -> AutoHealStep(AutoHealAction.CHANGE_PROTOCOL, 6_000)
++        3 -> AutoHealStep(AutoHealAction.FALLBACK, 10_000)
++        else -> AutoHealStep(AutoHealAction.GIVE_UP, 0)
++    }
++}
++
++class AutoHealPreferences(context: Context) {
++    private val prefs = context.getSharedPreferences("ghajar_auto_heal", Context.MODE_PRIVATE)
++    var enabled: Boolean
++        get() = prefs.getBoolean("enabled", true)
++        set(value) { prefs.edit().putBoolean("enabled", value).apply() }
++}
++
++data class AutoHealResult(val connected: Boolean, val attempts: Int, val lastAction: AutoHealAction)
++
++/** Finite recovery coordinator; it never owns or changes the VPN implementation itself. */
++class AutoHealController(
++    context: Context,
++    private val store: ConfigStore,
++    private val connect: (ProxyConfig) -> Unit,
++    private val onStep: (AutoHealAction, Int) -> Unit = { _, _ -> }
++) {
++    private val health = ServerHealthRepository(context.applicationContext)
++    private val smartPreferences = SmartConnectPreferences(context.applicationContext)
++    private var windowStartedAt = 0L
++    private var attemptsInWindow = 0
++
++    suspend fun recover(lastConfigId: String?): AutoHealResult {
++        val now = System.currentTimeMillis()
++        if (now - windowStartedAt > AutoHealPolicy.WINDOW_MS) { windowStartedAt = now; attemptsInWindow = 0 }
++        store.awaitReady()
++        var current = store.configs.value.firstOrNull { it.id == lastConfigId }
++        var lastAction = AutoHealAction.GIVE_UP
++        while (attemptsInWindow < AutoHealPolicy.MAX_ATTEMPTS) {
++            val step = AutoHealPolicy.step(attemptsInWindow)
++            if (step.action == AutoHealAction.GIVE_UP) break
++            delay(step.delayMs)
++            if (VpnState.state.value == Connection.CONNECTED) return AutoHealResult(true, attemptsInWindow, step.action)
++            val selected = select(step.action, current)
++            if (selected == null) { attemptsInWindow++; continue }
++            lastAction = step.action; attemptsInWindow++
++            onStep(step.action, attemptsInWindow)
++            connect(selected)
++            val state = withTimeoutOrNull(CONNECT_TIMEOUT_MS) {
++                VpnState.state.first { it == Connection.CONNECTED || it == Connection.ERROR || it == Connection.DISCONNECTED }
++            }
++            if (state == Connection.CONNECTED) {
++                val usedAttempts = attemptsInWindow
++                attemptsInWindow = 0; windowStartedAt = System.currentTimeMillis(); return AutoHealResult(true, usedAttempts, lastAction)
++            }
++            health.recordConnectionFailure(selected.id)
++            current = selected
++        }
++        return AutoHealResult(false, attemptsInWindow, lastAction)
++    }
++
++    private fun select(action: AutoHealAction, current: ProxyConfig?): ProxyConfig? {
++        val supported = store.configs.value.filter { it.protocol.trim().lowercase() !in setOf("tor", "aether") }
++        if (supported.isEmpty()) return null
++        if (action == AutoHealAction.RETRY_CURRENT) return current ?: supported.firstOrNull()
++        val alternatives = when (action) {
++            AutoHealAction.CHANGE_SERVER -> supported.filterNot { it.id == current?.id }
++            AutoHealAction.CHANGE_PROTOCOL -> supported.filter { !it.protocol.equals(current?.protocol, true) }
++            AutoHealAction.FALLBACK -> supported.filterNot { it.id == current?.id }
++            else -> supported
++        }
++        if (alternatives.isEmpty()) return null
++        val states = health.snapshot(alternatives.map { it.id })
++        val mode = if (action == AutoHealAction.FALLBACK) SmartMode.EMERGENCY else smartPreferences.mode
++        val ranked = SmartConnectScorer.rank(alternatives.map { ServerCandidate(it.id) }, states, mode)
++        return ranked.firstOrNull()?.let { rankedItem -> alternatives.firstOrNull { it.id == rankedItem.candidate.id } }
++    }
++
++    private companion object { const val CONNECT_TIMEOUT_MS = 20_000L }
++}
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 0e3bd59..56643a2 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -914,6 +914,7 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun launchConnect(config: ProxyConfig) {
++        userDisconnectRequested = false
+         // OpenVPN owns the tun while its state is live; tear it down first so the
+         // core tunnel does not fight the engine for the VPN interface.
+         if (GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED) {
+@@ -989,6 +990,12 @@ class MainActivity : ComponentActivity() {
+             val health = ServerHealthRepository(applicationContext)
+             var previous: Connection? = null
+             VpnState.state.collect { state ->
++                val activeId = VpnState.activeId.value ?: store.selectedId.value
++                val unexpectedFailure = !userDisconnectRequested &&
++                        activeId?.startsWith("ovpn:") != true &&
++                        state in setOf(Connection.ERROR, Connection.DISCONNECTED) &&
++                        (previous == Connection.CONNECTING || previous == Connection.CONNECTED)
++                if (state == Connection.CONNECTED && previous != Connection.CONNECTED) activeId?.let(health::recordConnectionSuccess)
+                 if (state == Connection.CONNECTED && !IkeController.active) {
+                     // OpenVPN drives VpnState through its own bridge; the Xray-based
+                     // health probe cannot run through an OpenVPN tun and only produces
+@@ -1000,7 +1007,6 @@ class MainActivity : ComponentActivity() {
+                     store.configs.value.find { it.id == id }?.let {
+                         DebugRunner.start(it, store)
+                     }
+-                    if (previous != Connection.CONNECTED) id?.let(health::recordConnectionSuccess)
+                 } else if (state == Connection.DISCONNECTED) {
+                     TunnelHealth.reset()
+                     RadarRunner.start(false)
+@@ -1008,18 +1014,40 @@ class MainActivity : ComponentActivity() {
+                     TunnelHealth.reset()
+                 }
+                 if (state == Connection.ERROR && previous != Connection.ERROR) {
+-                    (VpnState.activeId.value ?: store.selectedId.value)?.let(health::recordConnectionFailure)
++                    activeId?.let(health::recordConnectionFailure)
+                 }
++                if (unexpectedFailure) scheduleAutoHeal(activeId)
++                if (userDisconnectRequested && state == Connection.DISCONNECTED) userDisconnectRequested = false
+                 previous = state
+             }
+         }
+     }
+ 
++    private fun scheduleAutoHeal(configId: String?) {
++        if (!AutoHealPreferences(applicationContext).enabled || autoHealJob?.isActive == true) return
++        autoHealJob = lifecycleScope.launch {
++            val controller = AutoHealController(
++                applicationContext,
++                store,
++                connect = { candidate -> launchConnect(candidate) },
++                onStep = { _, attempt -> Toast.makeText(this@MainActivity, "بازیابی امن اتصال · تلاش $attempt از ${AutoHealPolicy.MAX_ATTEMPTS}", Toast.LENGTH_SHORT).show() }
++            )
++            val result = controller.recover(configId)
++            Toast.makeText(
++                this@MainActivity,
++                if (result.connected) "اتصال با Auto-Heal بازیابی شد" else "بازیابی خودکار متوقف شد؛ سرور را دستی بررسی کنید",
++                Toast.LENGTH_LONG
++            ).show()
++        }
++    }
++
+     private fun t2(key: String): String = Strings.get(store.lang.value, key)
+ 
+ 
+     private var pickJob: Job? = null
+     private var autoSwitchJob: Job? = null
++    private var autoHealJob: Job? = null
++    private var userDisconnectRequested = false
+     private val AUTO_SWITCH_MS = 60_000L
+     private val AUTO_SWITCH_SCORE_MARGIN = 0.08
+     private val AUTO_SWITCH_PROBE_MS = 25_000L
+@@ -1173,6 +1201,7 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun disconnect() {
++        userDisconnectRequested = true
+         // Ask the embedded engine to stop even when the app process was recreated and
+         // no longer remembers the ovpn: id, otherwise its notification lingers.
+         if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") ||
+diff --git a/app/src/main/java/net/gozar/app/SmartConnectActivity.kt b/app/src/main/java/net/gozar/app/SmartConnectActivity.kt
+index 3d4470a..6210651 100644
+--- a/app/src/main/java/net/gozar/app/SmartConnectActivity.kt
++++ b/app/src/main/java/net/gozar/app/SmartConnectActivity.kt
+@@ -5,6 +5,7 @@ import android.graphics.Color
+ import android.os.Bundle
+ import android.view.Gravity
+ import android.widget.LinearLayout
++import android.widget.CheckBox
+ import android.widget.RadioButton
+ import android.widget.RadioGroup
+ import android.widget.ScrollView
+@@ -14,6 +15,7 @@ class SmartConnectActivity : Activity() {
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+         val preferences = SmartConnectPreferences(this)
++        val autoHeal = AutoHealPreferences(this)
+         val content = LinearLayout(this).apply {
+             orientation = LinearLayout.VERTICAL
+             setPadding(dp(20), dp(20), dp(20), dp(24))
+@@ -22,6 +24,11 @@ class SmartConnectActivity : Activity() {
+                 text = "وزیر ارتباطات · اتصال هوشمند"
+                 textSize = 22f; setTextColor(Color.rgb(248, 237, 210)); gravity = Gravity.CENTER_HORIZONTAL
+             })
++            addView(CheckBox(context).apply {
++                text = "Auto-Heal پس از قطع ناخواسته"
++                setTextColor(Color.WHITE); isChecked = autoHeal.enabled
++                setOnCheckedChangeListener { _, checked -> autoHeal.enabled = checked }
++            })
+             addView(TextView(context).apply {
+                 text = "برای استفادهٔ معمولی Auto مناسب است. حالت‌ها فقط وزن معیارهای اندازه‌گیری‌شده را تغییر می‌دهند و تضمین کاهش پینگ یا بازشدن سرویس خاصی نمی‌دهند."
+                 setTextColor(Color.LTGRAY); setPadding(0, dp(10), 0, dp(14)); textSize = 14f
+diff --git a/app/src/test/java/net/gozar/app/AutoHealPolicyTest.kt b/app/src/test/java/net/gozar/app/AutoHealPolicyTest.kt
+new file mode 100644
+index 0000000..7f72d5b
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/AutoHealPolicyTest.kt
+@@ -0,0 +1,20 @@
++package net.gozar.app
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class AutoHealPolicyTest {
++    @Test fun recoverySequenceIsFiniteAndEscalates() {
++        assertEquals(AutoHealAction.RETRY_CURRENT, AutoHealPolicy.step(0).action)
++        assertEquals(AutoHealAction.CHANGE_SERVER, AutoHealPolicy.step(1).action)
++        assertEquals(AutoHealAction.CHANGE_PROTOCOL, AutoHealPolicy.step(2).action)
++        assertEquals(AutoHealAction.FALLBACK, AutoHealPolicy.step(3).action)
++        assertEquals(AutoHealAction.GIVE_UP, AutoHealPolicy.step(4).action)
++    }
++
++    @Test fun retryDelaysAreBoundedAndIncreasing() {
++        val delays = (0 until AutoHealPolicy.MAX_ATTEMPTS).map { AutoHealPolicy.step(it).delayMs }
++        assertEquals(delays.sorted(), delays)
++        assertTrue(delays.last() <= 10_000)
++    }
++}
+-- 
+2.51.1
+

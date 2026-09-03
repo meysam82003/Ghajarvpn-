@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.Gravity
 import android.widget.LinearLayout
+import android.widget.CheckBox
 import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.ScrollView
@@ -14,6 +15,7 @@ class SmartConnectActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val preferences = SmartConnectPreferences(this)
+        val autoHeal = AutoHealPreferences(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(20), dp(20), dp(20), dp(24))
@@ -21,6 +23,11 @@ class SmartConnectActivity : Activity() {
             addView(TextView(context).apply {
                 text = "وزیر ارتباطات · اتصال هوشمند"
                 textSize = 22f; setTextColor(Color.rgb(248, 237, 210)); gravity = Gravity.CENTER_HORIZONTAL
+            })
+            addView(CheckBox(context).apply {
+                text = "Auto-Heal پس از قطع ناخواسته"
+                setTextColor(Color.WHITE); isChecked = autoHeal.enabled
+                setOnCheckedChangeListener { _, checked -> autoHeal.enabled = checked }
             })
             addView(TextView(context).apply {
                 text = "برای استفادهٔ معمولی Auto مناسب است. حالت‌ها فقط وزن معیارهای اندازه‌گیری‌شده را تغییر می‌دهند و تضمین کاهش پینگ یا بازشدن سرویس خاصی نمی‌دهند."
