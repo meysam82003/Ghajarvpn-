@@ -1158,7 +1158,9 @@ class MainActivity : ComponentActivity() {
             chainBase = if (config.chainId.isNotEmpty())
                 store.configs.value.find { it.id == config.chainId } else null,
             onionRouting = store.onionRouting.value,
-            coreLogLevel = store.coreLogLevel.value)
+            coreLogLevel = store.coreLogLevel.value,
+            dnsLeakProtection = store.dnsLeakProtection.value,
+            ipv6Mode = store.ipv6Mode.value)
         VpnState.setConnecting(config.id)
         val aether = if (config.protocol == "aether") AetherController.spec(config) else ""
         val intent = VpnService.prepare(this)
@@ -1195,7 +1197,9 @@ class MainActivity : ComponentActivity() {
             directOnly = true,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
-            coreLogLevel = store.coreLogLevel.value
+            coreLogLevel = store.coreLogLevel.value,
+            dnsLeakProtection = store.dnsLeakProtection.value,
+            ipv6Mode = store.ipv6Mode.value
         )
         startTunnel(json, Strings.get(store.lang.value, "adblock_notif"), "", null)
     }
@@ -6326,6 +6330,8 @@ private fun ConnectionSettingsScreen(
     val mixedPort by store.mixedPort.collectAsState()
     val fakeDns by store.fakeDns.collectAsState()
     val encryptedDns by store.encryptedDns.collectAsState()
+    val dnsLeakProtection by store.dnsLeakProtection.collectAsState()
+    val ipv6Mode by store.ipv6Mode.collectAsState()
     val settingsContext = androidx.compose.ui.platform.LocalContext.current
     val openVpnDefaults = remember(settingsContext) { GhajarOpenVpnSettings.read(settingsContext) }
     var ovpnReconnectOnNetworkChange by remember { mutableStateOf(openVpnDefaults.reconnectOnNetworkChange) }
@@ -6350,6 +6356,37 @@ private fun ConnectionSettingsScreen(
                 checked = encryptedDns,
                 onCheckedChange = { store.setEncryptedDns(it) }
             )
+            SettingRow(
+                title = t("dns_leak_title"),
+                subtitle = t("dns_leak_sub"),
+                checked = dnsLeakProtection,
+                onCheckedChange = { store.setDnsLeakProtection(it) }
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(t("ipv6_title"), style = MaterialTheme.typography.bodyMedium)
+                Text(
+                    t("ipv6_sub"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    ModeSegment(
+                        label = t("ipv6_block"),
+                        active = ipv6Mode == Ipv6Mode.BLOCK,
+                        onClick = { store.setIpv6Mode(Ipv6Mode.BLOCK) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    ModeSegment(
+                        label = t("ipv6_tunnel"),
+                        active = ipv6Mode == Ipv6Mode.TUNNEL,
+                        onClick = { store.setIpv6Mode(Ipv6Mode.TUNNEL) },
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
             SettingRow(
                 title = t("split_title"),
                 subtitle = t("split_sub"),
@@ -10694,6 +10731,21 @@ private fun AppProxyScreen(
                 }
             }
         } else {
+            if (mode == PerAppMode.ALLOWLIST && selected.isEmpty()) {
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)
+                    ),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        t("per_app_empty_error"),
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onErrorContainer
+                    )
+                }
+            }
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },

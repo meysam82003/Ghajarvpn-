@@ -177,7 +177,9 @@ class AutoSelector(
             adBlock = store.adBlock.value,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
-            onionRouting = store.onionRouting.value
+            onionRouting = store.onionRouting.value,
+            dnsLeakProtection = store.dnsLeakProtection.value,
+            ipv6Mode = store.ipv6Mode.value
         )
         VpnState.setConnecting(config.id)
         val intent = Intent(appContext, GozarVpnService::class.java)

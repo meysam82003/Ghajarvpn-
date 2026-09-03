@@ -1,0 +1,625 @@
+From c914fc0fd807bf5ebc1d32d34b9c6334abb13473 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 3 Sep 2026 12:22:16 +0800
+Subject: [PATCH] feat(vpn): harden split tunnel and leak protection
+
+---
+ .../main/java/net/gozar/app/AutoSelector.kt   |  4 +-
+ .../main/java/net/gozar/app/ConfigBuilder.kt  | 19 ++--
+ .../main/java/net/gozar/app/ConfigStore.kt    | 28 ++++++
+ .../java/net/gozar/app/GozarVpnService.kt     | 94 +++++++++++++------
+ .../main/java/net/gozar/app/MainActivity.kt   | 56 ++++++++++-
+ .../main/java/net/gozar/app/Qstileservice.kt  |  4 +-
+ app/src/main/java/net/gozar/app/Strings.kt    | 14 +++
+ .../gozar/app/security/SplitTunnelPolicy.kt   | 59 ++++++++++++
+ .../net/gozar/app/SplitTunnelPolicyTest.kt    | 60 ++++++++++++
+ 9 files changed, 299 insertions(+), 39 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/security/SplitTunnelPolicy.kt
+ create mode 100644 app/src/test/java/net/gozar/app/SplitTunnelPolicyTest.kt
+
+diff --git a/app/src/main/java/net/gozar/app/AutoSelector.kt b/app/src/main/java/net/gozar/app/AutoSelector.kt
+index a1b251a..259264e 100644
+--- a/app/src/main/java/net/gozar/app/AutoSelector.kt
++++ b/app/src/main/java/net/gozar/app/AutoSelector.kt
+@@ -177,7 +177,9 @@ class AutoSelector(
+             adBlock = store.adBlock.value,
+             fakeDns = store.fakeDns.value,
+             encryptedDns = store.encryptedDns.value,
+-            onionRouting = store.onionRouting.value
++            onionRouting = store.onionRouting.value,
++            dnsLeakProtection = store.dnsLeakProtection.value,
++            ipv6Mode = store.ipv6Mode.value
+         )
+         VpnState.setConnecting(config.id)
+         val intent = Intent(appContext, GozarVpnService::class.java)
+diff --git a/app/src/main/java/net/gozar/app/ConfigBuilder.kt b/app/src/main/java/net/gozar/app/ConfigBuilder.kt
+index bb6c807..8caf095 100644
+--- a/app/src/main/java/net/gozar/app/ConfigBuilder.kt
++++ b/app/src/main/java/net/gozar/app/ConfigBuilder.kt
+@@ -310,7 +310,9 @@ object ConfigBuilder {
+         torBase: ProxyConfig? = null,
+         chainBase: ProxyConfig? = null,
+         onionRouting: Boolean = false,
+-        coreLogLevel: String = "warning"
++        coreLogLevel: String = "warning",
++        dnsLeakProtection: Boolean = true,
++        ipv6Mode: Ipv6Mode = Ipv6Mode.BLOCK
+     ): String {
+         val onion = onionRouting && config.protocol != "tor"
+         val fake = fakeDns || onion
+@@ -326,12 +328,8 @@ object ConfigBuilder {
+         if (dnsOn) {
+             val servers = JSONArray()
+             if (fake) servers.put("fakedns")
+-            if (encryptedDns) {
+-                servers.put("https://1.1.1.1/dns-query")
+-                servers.put("https://8.8.8.8/dns-query")
+-            }
+-            servers.put("1.1.1.1")
+-            servers.put("8.8.8.8")
++            LeakProtectionPolicy.dnsUpstreams(encryptedDns, dnsLeakProtection)
++                .forEach { servers.put(it) }
+             root.put("dns", JSONObject()
+                 .put("servers", servers)
+                 .put("queryStrategy", "UseIPv4"))
+@@ -467,6 +465,11 @@ object ConfigBuilder {
+                 .put("port", "443")
+                 .put("outboundTag", "block"))
+         }
++        if (ipv6Mode == Ipv6Mode.BLOCK) {
++            rules.put(JSONObject().put("type", "field")
++                .put("ip", JSONArray().put("::/0"))
++                .put("outboundTag", "block"))
++        }
+         if (splitRouting) {
+             rules.put(JSONObject().put("type", "field")
+                 .put("ip", JSONArray().put("geoip:private").put("geoip:ir"))
+@@ -744,4 +747,4 @@ object ConfigBuilder {
+         }
+         return stream
+     }
+-}
+\ No newline at end of file
++}
+diff --git a/app/src/main/java/net/gozar/app/ConfigStore.kt b/app/src/main/java/net/gozar/app/ConfigStore.kt
+index 5b8846c..edcc9fc 100644
+--- a/app/src/main/java/net/gozar/app/ConfigStore.kt
++++ b/app/src/main/java/net/gozar/app/ConfigStore.kt
+@@ -154,6 +154,26 @@ class ConfigStore private constructor(context: Context) {
+         prefs.edit().putBoolean(KEY_ENC_DNS, enabled).apply()
+     }
+ 
++    private val _dnsLeakProtection = MutableStateFlow(prefs.getBoolean(KEY_DNS_LEAK_PROTECTION, true))
++    val dnsLeakProtection: StateFlow<Boolean> = _dnsLeakProtection.asStateFlow()
++
++    fun setDnsLeakProtection(enabled: Boolean) {
++        _dnsLeakProtection.value = enabled
++        prefs.edit().putBoolean(KEY_DNS_LEAK_PROTECTION, enabled).apply()
++    }
++
++    private val _ipv6Mode = MutableStateFlow(loadIpv6Mode())
++    val ipv6Mode: StateFlow<Ipv6Mode> = _ipv6Mode.asStateFlow()
++
++    private fun loadIpv6Mode(): Ipv6Mode = runCatching {
++        Ipv6Mode.valueOf(prefs.getString(KEY_IPV6_MODE, null) ?: Ipv6Mode.BLOCK.name)
++    }.getOrDefault(Ipv6Mode.BLOCK)
++
++    fun setIpv6Mode(mode: Ipv6Mode) {
++        _ipv6Mode.value = mode
++        prefs.edit().putString(KEY_IPV6_MODE, mode.name).apply()
++    }
++
+     private val _fakeDns = MutableStateFlow(prefs.getBoolean(KEY_FAKE_DNS, false))
+     val fakeDns: StateFlow<Boolean> = _fakeDns.asStateFlow()
+ 
+@@ -387,6 +407,8 @@ class ConfigStore private constructor(context: Context) {
+         put("blockWhenOff", _blockWhenOff.value)
+         put("onionRouting", _onionRouting.value)
+         put("encryptedDns", _encryptedDns.value)
++        put("dnsLeakProtection", _dnsLeakProtection.value)
++        put("ipv6Mode", _ipv6Mode.value.name)
+         put("fakeDns", _fakeDns.value)
+         put("adBlock", _adBlock.value)
+         put("mixedPort", _mixedPort.value)
+@@ -419,6 +441,10 @@ class ConfigStore private constructor(context: Context) {
+         if (o.has("blockWhenOff")) setBlockWhenOff(o.getBoolean("blockWhenOff"))
+         if (o.has("onionRouting")) setOnionRouting(o.getBoolean("onionRouting"))
+         if (o.has("encryptedDns")) setEncryptedDns(o.getBoolean("encryptedDns"))
++        if (o.has("dnsLeakProtection")) setDnsLeakProtection(o.getBoolean("dnsLeakProtection"))
++        o.optString("ipv6Mode").takeIf { it.isNotEmpty() }?.let { value ->
++            runCatching { setIpv6Mode(Ipv6Mode.valueOf(value)) }
++        }
+         if (o.has("fakeDns")) setFakeDns(o.getBoolean("fakeDns"))
+         if (o.has("adBlock")) setAdBlock(o.getBoolean("adBlock"))
+         if (o.has("mixedPort")) setMixedPort(o.getInt("mixedPort"))
+@@ -604,6 +630,8 @@ class ConfigStore private constructor(context: Context) {
+         private const val KEY_AD_BLOCK = "ad_block"
+         private const val KEY_FAKE_DNS = "fake_dns"
+         private const val KEY_ENC_DNS = "encrypted_dns"
++        private const val KEY_DNS_LEAK_PROTECTION = "dns_leak_protection"
++        private const val KEY_IPV6_MODE = "ipv6_mode"
+         private const val KEY_ONION = "onion_routing"
+         private const val KEY_BLOCK_WHEN_OFF = "block_when_off"
+         const val SORT_ADDED = "added"
+diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/java/net/gozar/app/GozarVpnService.kt
+index 85e3bb3..a35fd77 100644
+--- a/app/src/main/java/net/gozar/app/GozarVpnService.kt
++++ b/app/src/main/java/net/gozar/app/GozarVpnService.kt
+@@ -39,6 +39,7 @@ class GozarVpnService : VpnService() {
+     @Volatile private var tearingDown = false
+     private var autoSelector: AutoSelector? = null
+     private var autoJob: Job? = null
++    @Volatile private var lastConfigJson: String? = null
+ 
+     private var nativeInitializationFailed = false
+ 
+@@ -61,10 +62,20 @@ class GozarVpnService : VpnService() {
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+         when (intent?.action) {
+             ACTION_STOP -> {
++                lastConfigJson = null
+                 runCatching { blockFd?.close() }; blockFd = null
+                 die(null)
+                 return START_NOT_STICKY
+             }
++            ACTION_RETRY -> {
++                val retained = lastConfigJson
++                if (retained.isNullOrEmpty()) {
++                    VpnBridge.sendError(applicationContext, "برای اتصال دوباره برنامه را باز کنید.")
++                    return START_NOT_STICKY
++                }
++                startTunnel(retained)
++                return START_STICKY
++            }
+             ACTION_PING -> {
+                 refreshPing()
+                 return START_STICKY
+@@ -86,6 +97,7 @@ class GozarVpnService : VpnService() {
+                     die("No config provided")
+                     return START_NOT_STICKY
+                 }
++                lastConfigJson = configJson
+                 startTunnel(configJson)
+             }
+         }
+@@ -111,16 +123,23 @@ class GozarVpnService : VpnService() {
+                 .setSession(BrandConfig.APP_NAME_FA)
+                 .setMtu(1500)
+                 .addAddress("10.10.0.2", 32)
++                .addAddress(LeakProtectionPolicy.TUN_IPV6_ADDRESS, 128)
+                 .addDnsServer("1.1.1.1")
+                 .addRoute("0.0.0.0", 0)
++                .addRoute("::", 0)
+ 
+-            applyPerApp(builder)
++            val routingError = applyPerApp(builder)
++            if (routingError != null) {
++                die(routingError)
++                return@launch
++            }
+ 
+             val pfd = builder.establish()
+             if (pfd == null) {
+                 die("VPN permission not granted")
+                 return@launch
+             }
++            runCatching { blockFd?.close() }; blockFd = null
+             tunFd = pfd
+ 
+             try {
+@@ -203,7 +222,9 @@ class GozarVpnService : VpnService() {
+             adBlock = store.adBlock.value,
+             fakeDns = store.fakeDns.value,
+             encryptedDns = store.encryptedDns.value,
+-            onionRouting = store.onionRouting.value
++            onionRouting = store.onionRouting.value,
++            dnsLeakProtection = store.dnsLeakProtection.value,
++            ipv6Mode = store.ipv6Mode.value
+         )
+         Log.d(TAG, "switching tunnel to ${config.name}")
+         pollJob?.cancel(); pollJob = null
+@@ -234,30 +255,26 @@ class GozarVpnService : VpnService() {
+         Gozarcore.setAssetPath(dir.absolutePath)
+     }
+ 
+-    private fun applyPerApp(builder: Builder) {
++    private fun applyPerApp(builder: Builder): String? {
+         val store = ConfigStore.get(applicationContext)
+-        val mode = store.perAppMode.value
+-        val list = store.perAppList.value
+-
+-        when (mode) {
+-            PerAppMode.ALLOWLIST -> {
+-                if (list.isEmpty()) {
+-                    runCatching { builder.addDisallowedApplication(packageName) }
+-                } else {
+-                    list.forEach { pkg ->
+-                        runCatching { builder.addAllowedApplication(pkg) }
+-                    }
+-                }
+-            }
+-            PerAppMode.BLOCKLIST -> {
+-                (list + packageName).forEach { pkg ->
+-                    runCatching { builder.addDisallowedApplication(pkg) }
+-                }
+-            }
+-            PerAppMode.OFF -> {
+-                runCatching { builder.addDisallowedApplication(packageName) }
++        val installed = store.perAppList.value.filterTo(mutableSetOf()) { pkg ->
++            runCatching { packageManager.getApplicationInfo(pkg, 0) }.isSuccess
++        }
++        val plan = SplitTunnelPolicy.resolve(
++            store.perAppMode.value, store.perAppList.value, installed, packageName
++        )
++        if (plan.error == SplitTunnelPolicy.Error.EMPTY_ALLOWLIST) {
++            return Strings.get(store.lang.value, "per_app_empty_error")
++        }
++        plan.allowedPackages.forEach { pkg ->
++            if (runCatching { builder.addAllowedApplication(pkg) }.isFailure) {
++                return Strings.get(store.lang.value, "per_app_empty_error")
+             }
+         }
++        plan.disallowedPackages.forEach { pkg ->
++            runCatching { builder.addDisallowedApplication(pkg) }
++        }
++        return null
+     }
+ 
+     private fun startPolling() {
+@@ -311,16 +328,28 @@ class GozarVpnService : VpnService() {
+ 
+     private fun enterKillSwitch(reason: String) {
+         pollJob?.cancel(); pollJob = null
+-        runCatching { Gozarcore.stop() }
+-        runCatching { tunFd?.close() }; tunFd = null
+         val b = Builder()
+             .setSession("${BrandConfig.APP_NAME_FA} — مسدود")
+             .setMtu(1500)
+             .addAddress("10.10.0.2", 32)
++            .addAddress(LeakProtectionPolicy.TUN_IPV6_ADDRESS, 128)
+             .addRoute("0.0.0.0", 0)
+             .addRoute("::", 0)
+-        applyPerApp(b)
+-        blockFd = runCatching { b.establish() }.getOrNull()
++        val routingError = applyPerApp(b)
++        val replacement = if (routingError == null) runCatching { b.establish() }.getOrNull() else null
++        if (replacement == null) {
++            runCatching { Gozarcore.stop() }
++            runCatching { tunFd?.close() }; tunFd = null
++            VpnBridge.sendError(applicationContext, routingError ?: reason)
++            runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
++            stopSelf()
++            return
++        }
++        // Establishing the blocker replaces the old VPN atomically from Android's view.
++        runCatching { blockFd?.close() }
++        blockFd = replacement
++        runCatching { Gozarcore.stop() }
++        runCatching { tunFd?.close() }; tunFd = null
+         VpnBridge.sendError(applicationContext, reason)
+         runCatching {
+             val nm = getSystemService(NotificationManager::class.java)
+@@ -330,6 +359,7 @@ class GozarVpnService : VpnService() {
+ 
+     override fun onDestroy() {
+         tearingDown = true
++        lastConfigJson = null
+         scope.coroutineContext[Job]?.cancel()
+         stopAutoSelect()
+         runCatching { Gozarcore.stop() }
+@@ -394,11 +424,20 @@ class GozarVpnService : VpnService() {
+             this, 1, Intent(this, GozarVpnService::class.java).setAction(ACTION_STOP),
+             PendingIntent.FLAG_IMMUTABLE
+         )
++        val retryPi = PendingIntent.getService(
++            this, 3, Intent(this, GozarVpnService::class.java).setAction(ACTION_RETRY),
++            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
++        )
+         return Notification.Builder(this, CHANNEL_ID)
+             .setContentTitle("محافظ اتصال قاجار فعال است")
+             .setContentText("اتصال قطع شد؛ اینترنت برای جلوگیری از نشت مسدود است")
+             .setSmallIcon(R.drawable.ic_stat_ghajar)
+             .setContentIntent(pi)
++            .addAction(
++                Notification.Action.Builder(
++                    android.R.drawable.ic_popup_sync, "تلاش دوباره", retryPi
++                ).build()
++            )
+             .addAction(
+                 Notification.Action.Builder(
+                     android.R.drawable.ic_menu_close_clear_cancel, stopLabel, stopPi
+@@ -440,6 +479,7 @@ class GozarVpnService : VpnService() {
+         const val ACTION_STOP = "net.gozar.app.STOP"
+         const val ACTION_PING = "net.gozar.app.PING"
+         const val ACTION_WARM = "net.gozar.app.WARM"
++        const val ACTION_RETRY = "net.gozar.app.RETRY"
+         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"
+         const val EXTRA_AETHER = "net.gozar.app.AETHER"
+         const val EXTRA_TOR = "net.gozar.app.TOR"
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 56643a2..2821b6b 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -1158,7 +1158,9 @@ class MainActivity : ComponentActivity() {
+             chainBase = if (config.chainId.isNotEmpty())
+                 store.configs.value.find { it.id == config.chainId } else null,
+             onionRouting = store.onionRouting.value,
+-            coreLogLevel = store.coreLogLevel.value)
++            coreLogLevel = store.coreLogLevel.value,
++            dnsLeakProtection = store.dnsLeakProtection.value,
++            ipv6Mode = store.ipv6Mode.value)
+         VpnState.setConnecting(config.id)
+         val aether = if (config.protocol == "aether") AetherController.spec(config) else ""
+         val intent = VpnService.prepare(this)
+@@ -1195,7 +1197,9 @@ class MainActivity : ComponentActivity() {
+             directOnly = true,
+             fakeDns = store.fakeDns.value,
+             encryptedDns = store.encryptedDns.value,
+-            coreLogLevel = store.coreLogLevel.value
++            coreLogLevel = store.coreLogLevel.value,
++            dnsLeakProtection = store.dnsLeakProtection.value,
++            ipv6Mode = store.ipv6Mode.value
+         )
+         startTunnel(json, Strings.get(store.lang.value, "adblock_notif"), "", null)
+     }
+@@ -6326,6 +6330,8 @@ private fun ConnectionSettingsScreen(
+     val mixedPort by store.mixedPort.collectAsState()
+     val fakeDns by store.fakeDns.collectAsState()
+     val encryptedDns by store.encryptedDns.collectAsState()
++    val dnsLeakProtection by store.dnsLeakProtection.collectAsState()
++    val ipv6Mode by store.ipv6Mode.collectAsState()
+     val settingsContext = androidx.compose.ui.platform.LocalContext.current
+     val openVpnDefaults = remember(settingsContext) { GhajarOpenVpnSettings.read(settingsContext) }
+     var ovpnReconnectOnNetworkChange by remember { mutableStateOf(openVpnDefaults.reconnectOnNetworkChange) }
+@@ -6350,6 +6356,37 @@ private fun ConnectionSettingsScreen(
+                 checked = encryptedDns,
+                 onCheckedChange = { store.setEncryptedDns(it) }
+             )
++            SettingRow(
++                title = t("dns_leak_title"),
++                subtitle = t("dns_leak_sub"),
++                checked = dnsLeakProtection,
++                onCheckedChange = { store.setDnsLeakProtection(it) }
++            )
++            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
++                Text(t("ipv6_title"), style = MaterialTheme.typography.bodyMedium)
++                Text(
++                    t("ipv6_sub"),
++                    style = MaterialTheme.typography.bodySmall,
++                    color = MaterialTheme.colorScheme.onSurfaceVariant
++                )
++                Row(
++                    Modifier.fillMaxWidth(),
++                    horizontalArrangement = Arrangement.spacedBy(8.dp)
++                ) {
++                    ModeSegment(
++                        label = t("ipv6_block"),
++                        active = ipv6Mode == Ipv6Mode.BLOCK,
++                        onClick = { store.setIpv6Mode(Ipv6Mode.BLOCK) },
++                        modifier = Modifier.weight(1f)
++                    )
++                    ModeSegment(
++                        label = t("ipv6_tunnel"),
++                        active = ipv6Mode == Ipv6Mode.TUNNEL,
++                        onClick = { store.setIpv6Mode(Ipv6Mode.TUNNEL) },
++                        modifier = Modifier.weight(1f)
++                    )
++                }
++            }
+             SettingRow(
+                 title = t("split_title"),
+                 subtitle = t("split_sub"),
+@@ -10694,6 +10731,21 @@ private fun AppProxyScreen(
+                 }
+             }
+         } else {
++            if (mode == PerAppMode.ALLOWLIST && selected.isEmpty()) {
++                Card(
++                    colors = CardDefaults.cardColors(
++                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.72f)
++                    ),
++                    modifier = Modifier.fillMaxWidth()
++                ) {
++                    Text(
++                        t("per_app_empty_error"),
++                        modifier = Modifier.padding(12.dp),
++                        style = MaterialTheme.typography.bodySmall,
++                        color = MaterialTheme.colorScheme.onErrorContainer
++                    )
++                }
++            }
+             OutlinedTextField(
+                 value = query,
+                 onValueChange = { query = it },
+diff --git a/app/src/main/java/net/gozar/app/Qstileservice.kt b/app/src/main/java/net/gozar/app/Qstileservice.kt
+index 6436627..024eaba 100644
+--- a/app/src/main/java/net/gozar/app/Qstileservice.kt
++++ b/app/src/main/java/net/gozar/app/Qstileservice.kt
+@@ -83,7 +83,9 @@ class QsTileService : TileService() {
+             fakeDns = store.fakeDns.value,
+             encryptedDns = store.encryptedDns.value,
+             onionRouting = store.onionRouting.value,
+-            coreLogLevel = store.coreLogLevel.value
++            coreLogLevel = store.coreLogLevel.value,
++            dnsLeakProtection = store.dnsLeakProtection.value,
++            ipv6Mode = store.ipv6Mode.value
+         )
+         VpnState.setConnecting(config.id)
+         val intent = Intent(this, GozarVpnService::class.java)
+diff --git a/app/src/main/java/net/gozar/app/Strings.kt b/app/src/main/java/net/gozar/app/Strings.kt
+index 73af742..fbe46d7 100644
+--- a/app/src/main/java/net/gozar/app/Strings.kt
++++ b/app/src/main/java/net/gozar/app/Strings.kt
+@@ -570,6 +570,7 @@ object Strings {
+         "per_app_allow" to "Only select",
+         "per_app_block" to "All except",
+         "per_app_off_hint" to "Per-app routing is off — every app uses the VPN.",
++        "per_app_empty_error" to "Select at least one installed app before connecting in Only selected mode.",
+         "search_apps" to "Search apps",
+         "search_servers" to "Search servers",
+         "connection_settings" to "Connection Settings",
+@@ -587,6 +588,12 @@ object Strings {
+         "fakedns_sub" to "Gives each domain its own address so per-host rules always apply",
+         "encdns_title" to "Encrypted DNS",
+         "encdns_sub" to "Resolves names over DoH instead of plain DNS",
++        "dns_leak_title" to "Strict DNS leak protection",
++        "dns_leak_sub" to "When encrypted DNS is enabled, removes plain-DNS fallbacks. DNS remains inside the VPN route.",
++        "ipv6_title" to "IPv6 handling",
++        "ipv6_sub" to "IPv6 is always captured by Ghajar; block it safely or carry it through the tunnel.",
++        "ipv6_block" to "Block (safe)",
++        "ipv6_tunnel" to "Through VPN",
+         "onion_title" to "Route .onion through Tor",
+         "onion_sub" to "Opens onion addresses over Tor while everything else uses your server",
+         "adblock_sub" to "Drops known ad and tracking domains inside the tunnel",
+@@ -1236,6 +1243,7 @@ object Strings {
+         "per_app_allow" to "فقط انتخاب‌شده",
+         "per_app_block" to "همه به‌جز",
+         "per_app_off_hint" to "مسیریابی per-app خاموش است — همه برنامه‌ها از وی‌پی‌ان استفاده می‌کنند.",
++        "per_app_empty_error" to "برای اتصال در حالت «فقط انتخاب‌شده»، حداقل یک برنامهٔ نصب‌شده را انتخاب کنید.",
+         "search_apps" to "جستجوی برنامه‌ها",
+         "search_servers" to "جستجوی سرورها",
+         "appearance" to "ظاهر",
+@@ -1254,6 +1262,12 @@ object Strings {
+         "fakedns_sub" to "به هر دامنه یک آدرس جدا می‌دهد تا قوانین هر هاست همیشه اعمال شود",
+         "encdns_title" to "DNS رمزنگاری‌شده",
+         "encdns_sub" to "DNS Query از طریق DoH انجام می‌شود",
++        "dns_leak_title" to "محافظت سخت‌گیرانه از نشت DNS",
++        "dns_leak_sub" to "با فعال بودن DNS رمزنگاری‌شده، fallback ساده حذف می‌شود و DNS داخل مسیر VPN می‌ماند.",
++        "ipv6_title" to "مدیریت IPv6",
++        "ipv6_sub" to "IPv6 همیشه توسط قاجار گرفته می‌شود؛ آن را امن مسدود کن یا از تونل عبور بده.",
++        "ipv6_block" to "مسدود (امن)",
++        "ipv6_tunnel" to "از طریق VPN",
+         "onion_title" to "مسیریابی سایت‌های Onion",
+         "onion_sub" to "آدرس‌های onion. از طریق تور باز می‌شوند و بقیه ترافیک از سرور شما",
+         "adblock_sub" to "دامنه‌های شناخته‌شده تبلیغاتی و ردیابی را داخل تونل مسدود می‌کند",
+diff --git a/app/src/main/java/net/gozar/app/security/SplitTunnelPolicy.kt b/app/src/main/java/net/gozar/app/security/SplitTunnelPolicy.kt
+new file mode 100644
+index 0000000..f4413e7
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/security/SplitTunnelPolicy.kt
+@@ -0,0 +1,59 @@
++package net.gozar.app
++
++/**
++ * Pure policy used by the VPN process before touching [android.net.VpnService.Builder].
++ * Keeping package resolution here makes the empty-allowlist and uninstalled-app
++ * behaviour deterministic and unit-testable.
++ */
++object SplitTunnelPolicy {
++    data class Plan(
++        val allowedPackages: Set<String> = emptySet(),
++        val disallowedPackages: Set<String> = emptySet(),
++        val error: Error? = null
++    )
++
++    enum class Error { EMPTY_ALLOWLIST }
++
++    fun resolve(
++        mode: PerAppMode,
++        selectedPackages: Set<String>,
++        installedPackages: Set<String>,
++        vpnPackage: String
++    ): Plan {
++        val installed = selectedPackages
++            .asSequence()
++            .filter { it != vpnPackage && it in installedPackages }
++            .toSortedSet()
++
++        return when (mode) {
++            PerAppMode.OFF -> Plan(disallowedPackages = setOf(vpnPackage))
++            PerAppMode.ALLOWLIST -> if (installed.isEmpty()) {
++                Plan(error = Error.EMPTY_ALLOWLIST)
++            } else {
++                Plan(allowedPackages = installed)
++            }
++            PerAppMode.BLOCKLIST -> Plan(disallowedPackages = installed + vpnPackage)
++        }
++    }
++}
++
++/** IPv6 is always captured by the TUN; this controls proxying versus fail-closed blocking. */
++enum class Ipv6Mode { BLOCK, TUNNEL }
++
++object LeakProtectionPolicy {
++    const val TUN_IPV6_ADDRESS = "fd00:4748:4a41::2"
++
++    fun dnsUpstreams(encryptedDns: Boolean, strict: Boolean): List<String> = when {
++        encryptedDns && strict -> listOf(
++            "https://1.1.1.1/dns-query",
++            "https://8.8.8.8/dns-query"
++        )
++        encryptedDns -> listOf(
++            "https://1.1.1.1/dns-query",
++            "https://8.8.8.8/dns-query",
++            "1.1.1.1",
++            "8.8.8.8"
++        )
++        else -> listOf("1.1.1.1", "8.8.8.8")
++    }
++}
+diff --git a/app/src/test/java/net/gozar/app/SplitTunnelPolicyTest.kt b/app/src/test/java/net/gozar/app/SplitTunnelPolicyTest.kt
+new file mode 100644
+index 0000000..afdafad
+--- /dev/null
++++ b/app/src/test/java/net/gozar/app/SplitTunnelPolicyTest.kt
+@@ -0,0 +1,60 @@
++package net.gozar.app
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertNull
++import org.junit.Test
++
++class SplitTunnelPolicyTest {
++    private val self = "com.ghajarvpn.app"
++    private val installed = setOf("app.alpha", "app.beta", self)
++
++    @Test
++    fun off_routes_device_but_excludes_vpn_process_to_prevent_loop() {
++        val plan = SplitTunnelPolicy.resolve(PerAppMode.OFF, emptySet(), installed, self)
++
++        assertEquals(setOf(self), plan.disallowedPackages)
++        assertEquals(emptySet<String>(), plan.allowedPackages)
++        assertNull(plan.error)
++    }
++
++    @Test
++    fun allowlist_never_falls_back_to_whole_device_when_empty() {
++        val plan = SplitTunnelPolicy.resolve(PerAppMode.ALLOWLIST, emptySet(), installed, self)
++
++        assertEquals(SplitTunnelPolicy.Error.EMPTY_ALLOWLIST, plan.error)
++    }
++
++    @Test
++    fun allowlist_ignores_uninstalled_and_self_packages() {
++        val plan = SplitTunnelPolicy.resolve(
++            PerAppMode.ALLOWLIST,
++            setOf("app.alpha", "missing.app", self),
++            installed,
++            self
++        )
++
++        assertEquals(setOf("app.alpha"), plan.allowedPackages)
++        assertNull(plan.error)
++    }
++
++    @Test
++    fun blocklist_keeps_selected_apps_direct_and_always_excludes_self() {
++        val plan = SplitTunnelPolicy.resolve(
++            PerAppMode.BLOCKLIST,
++            setOf("app.beta", "missing.app"),
++            installed,
++            self
++        )
++
++        assertEquals(setOf("app.beta", self), plan.disallowedPackages)
++        assertNull(plan.error)
++    }
++
++    @Test
++    fun strict_encrypted_dns_has_no_plain_fallback() {
++        assertEquals(
++            listOf("https://1.1.1.1/dns-query", "https://8.8.8.8/dns-query"),
++            LeakProtectionPolicy.dnsUpstreams(encryptedDns = true, strict = true)
++        )
++    }
++}
