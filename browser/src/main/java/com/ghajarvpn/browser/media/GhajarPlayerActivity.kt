@@ -158,6 +158,7 @@ class GhajarPlayerActivity : Activity() {
             menu.add(3, 302, 2, if (stats.visibility == View.VISIBLE) "بستن آمار فنی" else "نمایش آمار فنی")
             menu.add(3, 303, 3, if (preferences.continueOnNavigate) "توقف هنگام بازگشت به مرورگر" else "ادامه در Mini Player")
             menu.add(3, 304, 4, "توقف کامل پخش")
+            if (!request.private) menu.add(3, 305, 5, "حذف سابقهٔ این ویدیو")
             setOnMenuItemClickListener { item ->
                 when {
                     item.itemId in 100 until 100 + SPEEDS.size -> {
@@ -172,6 +173,10 @@ class GhajarPlayerActivity : Activity() {
                     item.itemId == 304 -> {
                         GhajarPlaybackService.requestStop(this@GhajarPlayerActivity)
                         finish()
+                    }
+                    item.itemId == 305 -> {
+                        preferences.clearResume(request.media.url)
+                        toast("سابقهٔ ادامهٔ این ویدیو پاک شد")
                     }
                 }; true
             }; show()
@@ -349,7 +354,8 @@ class GhajarPlayerActivity : Activity() {
         AlertDialog.Builder(this).setTitle("ادامهٔ پخش؟")
             .setMessage("از ${formatTime(position)} ادامه داده شود؟")
             .setPositiveButton("ادامه") { _, _ -> player.seekTo(position) }
-            .setNegativeButton("از ابتدا", null).show()
+            .setNegativeButton("از ابتدا") { _, _ -> preferences.clearResume(request.media.url) }
+            .show()
     }
 
     private fun showPlaybackError(error: PlaybackException) {

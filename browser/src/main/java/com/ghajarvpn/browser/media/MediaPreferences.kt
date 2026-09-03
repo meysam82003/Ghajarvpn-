@@ -20,9 +20,27 @@ class MediaPreferences(context: Context) {
         get() = prefs.getBoolean("continue", true)
         set(value) { prefs.edit().putBoolean("continue", value).apply() }
 
-    fun resumePosition(url: String): Long = prefs.getLong("resume_${MediaSourceResolver.resumeKey(url)}", 0L)
+    fun resumePosition(url: String): Long = prefs.getLong(MediaPrivacyPolicy.resumeStorageKey(url), 0L)
     fun saveResume(url: String, position: Long) {
-        val key = "resume_${MediaSourceResolver.resumeKey(url)}"
+        val key = MediaPrivacyPolicy.resumeStorageKey(url)
         if (position < 15_000) prefs.edit().remove(key).apply() else prefs.edit().putLong(key, position).apply()
     }
+
+    fun clearResume(url: String) {
+        prefs.edit().remove(MediaPrivacyPolicy.resumeStorageKey(url)).apply()
+    }
+
+    fun clearResumeHistory() {
+        val keys = prefs.all.keys.filter(MediaPrivacyPolicy::isResumeStorageKey)
+        if (keys.isEmpty()) return
+        prefs.edit().also { editor -> keys.forEach { editor.remove(it) } }.apply()
+    }
+}
+
+/** Resume storage contains a hash, never a raw media URL or its credentials. */
+object MediaPrivacyPolicy {
+    private const val RESUME_PREFIX = "resume_"
+
+    fun resumeStorageKey(url: String): String = RESUME_PREFIX + MediaSourceResolver.resumeKey(url)
+    fun isResumeStorageKey(key: String): Boolean = key.startsWith(RESUME_PREFIX)
 }

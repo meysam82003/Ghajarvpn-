@@ -1,0 +1,108 @@
+From b40a4d029ca6c5fb05c40e9787ee16172cabb9e0 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 3 Sep 2026 14:49:16 -0400
+Subject: [PATCH] fix(browser): clear private media resume traces
+
+---
+ .../browser/GhajarBrowserActivity.kt          |  1 +
+ .../browser/media/GhajarPlayerActivity.kt     |  8 ++++++-
+ .../browser/media/MediaPreferences.kt         | 22 +++++++++++++++++--
+ .../media/PlaybackLifecyclePolicyTest.kt      |  8 +++++++
+ 4 files changed, 36 insertions(+), 3 deletions(-)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+index 1ff64da..7d62dea 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -625,6 +625,7 @@ class GhajarBrowserActivity : Activity() {
+             .setMessage("تاریخچه، نشانک‌ها، Cookieها و Cache مرورگر پاک شوند؟ گذرواژه‌های سیستم پاک نمی‌شوند.")
+             .setPositiveButton("پاک شود") { _, _ ->
+                 repository.clearBrowsingData(); CookieManager.getInstance().removeAllCookies(null)
++                com.ghajarvpn.browser.media.MediaPreferences(this).clearResumeHistory()
+                 CookieManager.getInstance().flush(); WebView(this).clearCache(true)
+                 toast("داده‌های مرور پاک شد")
+             }.setNegativeButton("لغو", null).show()
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+index c3e5708..33fb013 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+@@ -158,6 +158,7 @@ class GhajarPlayerActivity : Activity() {
+             menu.add(3, 302, 2, if (stats.visibility == View.VISIBLE) "بستن آمار فنی" else "نمایش آمار فنی")
+             menu.add(3, 303, 3, if (preferences.continueOnNavigate) "توقف هنگام بازگشت به مرورگر" else "ادامه در Mini Player")
+             menu.add(3, 304, 4, "توقف کامل پخش")
++            if (!request.private) menu.add(3, 305, 5, "حذف سابقهٔ این ویدیو")
+             setOnMenuItemClickListener { item ->
+                 when {
+                     item.itemId in 100 until 100 + SPEEDS.size -> {
+@@ -173,6 +174,10 @@ class GhajarPlayerActivity : Activity() {
+                         GhajarPlaybackService.requestStop(this@GhajarPlayerActivity)
+                         finish()
+                     }
++                    item.itemId == 305 -> {
++                        preferences.clearResume(request.media.url)
++                        toast("سابقهٔ ادامهٔ این ویدیو پاک شد")
++                    }
+                 }; true
+             }; show()
+         }
+@@ -349,7 +354,8 @@ class GhajarPlayerActivity : Activity() {
+         AlertDialog.Builder(this).setTitle("ادامهٔ پخش؟")
+             .setMessage("از ${formatTime(position)} ادامه داده شود؟")
+             .setPositiveButton("ادامه") { _, _ -> player.seekTo(position) }
+-            .setNegativeButton("از ابتدا", null).show()
++            .setNegativeButton("از ابتدا") { _, _ -> preferences.clearResume(request.media.url) }
++            .show()
+     }
+ 
+     private fun showPlaybackError(error: PlaybackException) {
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt b/browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt
+index e0aa40e..d66ed83 100644
+--- a/browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt
+@@ -20,9 +20,27 @@ class MediaPreferences(context: Context) {
+         get() = prefs.getBoolean("continue", true)
+         set(value) { prefs.edit().putBoolean("continue", value).apply() }
+ 
+-    fun resumePosition(url: String): Long = prefs.getLong("resume_${MediaSourceResolver.resumeKey(url)}", 0L)
++    fun resumePosition(url: String): Long = prefs.getLong(MediaPrivacyPolicy.resumeStorageKey(url), 0L)
+     fun saveResume(url: String, position: Long) {
+-        val key = "resume_${MediaSourceResolver.resumeKey(url)}"
++        val key = MediaPrivacyPolicy.resumeStorageKey(url)
+         if (position < 15_000) prefs.edit().remove(key).apply() else prefs.edit().putLong(key, position).apply()
+     }
++
++    fun clearResume(url: String) {
++        prefs.edit().remove(MediaPrivacyPolicy.resumeStorageKey(url)).apply()
++    }
++
++    fun clearResumeHistory() {
++        val keys = prefs.all.keys.filter(MediaPrivacyPolicy::isResumeStorageKey)
++        if (keys.isEmpty()) return
++        prefs.edit().also { editor -> keys.forEach { editor.remove(it) } }.apply()
++    }
++}
++
++/** Resume storage contains a hash, never a raw media URL or its credentials. */
++object MediaPrivacyPolicy {
++    private const val RESUME_PREFIX = "resume_"
++
++    fun resumeStorageKey(url: String): String = RESUME_PREFIX + MediaSourceResolver.resumeKey(url)
++    fun isResumeStorageKey(key: String): Boolean = key.startsWith(RESUME_PREFIX)
+ }
+diff --git a/browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt b/browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt
+index 0a9b9d3..571d1c2 100644
+--- a/browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt
++++ b/browser/src/test/java/com/ghajarvpn/browser/media/PlaybackLifecyclePolicyTest.kt
+@@ -32,4 +32,12 @@ class PlaybackLifecyclePolicyTest {
+         assertFalse(MediaRecoveryPolicy.shouldRecoverAfterPathChange(false, Player.STATE_BUFFERING, true))
+         assertFalse(MediaRecoveryPolicy.shouldRecoverAfterPathChange(true, Player.STATE_READY, false))
+     }
++
++    @Test fun resume_storage_never_contains_the_raw_media_url() {
++        val key = MediaPrivacyPolicy.resumeStorageKey("https://user.example/private/video.mp4?token=secret")
++        assertTrue(MediaPrivacyPolicy.isResumeStorageKey(key))
++        assertFalse(key.contains("user.example"))
++        assertFalse(key.contains("secret"))
++        assertFalse(MediaPrivacyPolicy.isResumeStorageKey("speed"))
++    }
+ }

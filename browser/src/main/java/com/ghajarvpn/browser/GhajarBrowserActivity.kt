@@ -625,6 +625,7 @@ class GhajarBrowserActivity : Activity() {
             .setMessage("تاریخچه، نشانک‌ها، Cookieها و Cache مرورگر پاک شوند؟ گذرواژه‌های سیستم پاک نمی‌شوند.")
             .setPositiveButton("پاک شود") { _, _ ->
                 repository.clearBrowsingData(); CookieManager.getInstance().removeAllCookies(null)
+                com.ghajarvpn.browser.media.MediaPreferences(this).clearResumeHistory()
                 CookieManager.getInstance().flush(); WebView(this).clearCache(true)
                 toast("داده‌های مرور پاک شد")
             }.setNegativeButton("لغو", null).show()

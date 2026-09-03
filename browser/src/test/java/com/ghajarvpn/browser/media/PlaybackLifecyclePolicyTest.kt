@@ -32,4 +32,12 @@ class PlaybackLifecyclePolicyTest {
         assertFalse(MediaRecoveryPolicy.shouldRecoverAfterPathChange(false, Player.STATE_BUFFERING, true))
         assertFalse(MediaRecoveryPolicy.shouldRecoverAfterPathChange(true, Player.STATE_READY, false))
     }
+
+    @Test fun resume_storage_never_contains_the_raw_media_url() {
+        val key = MediaPrivacyPolicy.resumeStorageKey("https://user.example/private/video.mp4?token=secret")
+        assertTrue(MediaPrivacyPolicy.isResumeStorageKey(key))
+        assertFalse(key.contains("user.example"))
+        assertFalse(key.contains("secret"))
+        assertFalse(MediaPrivacyPolicy.isResumeStorageKey("speed"))
+    }
 }
