@@ -1,6 +1,7 @@
 package com.ghajarvpn.browser
 
-import android.net.Uri
+import java.net.URI
+import java.net.URLEncoder
 
 object BrowserRequestPolicy {
     private val trackerHosts = setOf(
@@ -14,7 +15,7 @@ object BrowserRequestPolicy {
     )
 
     fun blocked(url: String, settings: BrowserSettings): Boolean {
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return true
+        val uri = runCatching { URI(url) }.getOrNull() ?: return true
         val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
         fun matches(list: Set<String>) = list.any { host == it || host.endsWith(".$it") }
         return settings.trackerBlocking && matches(trackerHosts) || settings.adBlocking && matches(adHosts)
@@ -24,14 +25,14 @@ object BrowserRequestPolicy {
         val value = input.trim()
         if (value.isBlank()) return BrowserTab.HOME_URL
         if (value.contains(' ') || !value.contains('.')) {
-            return settings.searchEngine.replace("%s", Uri.encode(value))
+            return settings.searchEngine.replace("%s", URLEncoder.encode(value, "UTF-8").replace("+", "%20"))
         }
         val withScheme = if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(value)) value else "https://$value"
         return if (settings.httpsPreference && withScheme.startsWith("http://", true)) "https://" + withScheme.substring(7) else withScheme
     }
 
     fun safeExternal(url: String): Boolean {
-        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
+        val uri = runCatching { URI(url) }.getOrNull() ?: return false
         return uri.scheme?.lowercase() in setOf("http", "https") && uri.userInfo == null
     }
 }

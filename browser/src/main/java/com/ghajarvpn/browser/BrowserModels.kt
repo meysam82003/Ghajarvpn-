@@ -5,8 +5,6 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-enum class BrowserNetworkMode { DIRECT, BROWSER_ONLY, FULL_DEVICE }
-
 data class BrowserTab(
     val id: String = UUID.randomUUID().toString(),
     var url: String = HOME_URL,
@@ -31,11 +29,27 @@ data class BrowserSettings(
 
 data class BrowserHistory(val title: String, val url: String, val at: Long)
 
-class BrowserRepository(context: Context) {
+/** Key-value document seam so persistence is testable without Android. */
+interface BrowserDocumentStore {
+    fun load(key: String): String?
+    fun save(key: String, value: String)
+    fun remove(key: String)
+}
+
+class SharedPrefsDocumentStore(context: Context) : BrowserDocumentStore {
     private val prefs = context.applicationContext.getSharedPreferences("ghajar_browser_v1", Context.MODE_PRIVATE)
+    override fun load(key: String): String? = prefs.getString(key, null)
+    override fun save(key: String, value: String) = prefs.edit().putString(key, value).apply()
+    override fun remove(key: String) = prefs.edit().remove(key).apply()
+}
+
+class BrowserRepository(store: BrowserDocumentStore) {
+    constructor(context: Context) : this(SharedPrefsDocumentStore(context))
+
+    private val store: BrowserDocumentStore = store
 
     fun settings(): BrowserSettings = runCatching {
-        val o = JSONObject(prefs.getString("settings", "{}") ?: "{}")
+        val o = JSONObject(store.load("settings") ?: "{}")
         BrowserSettings(
             javaScript = o.optBoolean("js", true), cookies = o.optBoolean("cookies", true),
             trackerBlocking = o.optBoolean("trackers", true), adBlocking = o.optBoolean("ads", false),
@@ -50,11 +64,11 @@ class BrowserRepository(context: Context) {
             .put("trackers", value.trackerBlocking).put("ads", value.adBlocking)
             .put("https", value.httpsPreference).put("desktop", value.desktopMode)
             .put("dark", value.darkPages).put("search", value.searchEngine)
-        prefs.edit().putString("settings", o.toString()).apply()
+        store.save("settings", o.toString())
     }
 
     fun restoreTabs(): MutableList<BrowserTab> = runCatching {
-        val array = JSONArray(prefs.getString("tabs", "[]"))
+        val array = JSONArray(store.load("tabs") ?: "[]")
         (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let { o ->
             BrowserTab(o.optString("id"), o.optString("url", BrowserTab.HOME_URL), o.optString("title", "قاجار"),
                 false, o.optString("group"), o.optLong("last", System.currentTimeMillis()))
@@ -67,7 +81,7 @@ class BrowserRepository(context: Context) {
             array.put(JSONObject().put("id", tab.id).put("url", tab.url).put("title", tab.title)
                 .put("group", tab.group).put("last", tab.lastUsed))
         }
-        prefs.edit().putString("tabs", array.toString()).apply()
+        store.save("tabs", array.toString())
     }
 
     fun addHistory(title: String, url: String) {
@@ -77,24 +91,30 @@ class BrowserRepository(context: Context) {
         items.add(0, BrowserHistory(title.take(160), url, System.currentTimeMillis()))
         val array = JSONArray()
         items.take(MAX_HISTORY).forEach { array.put(JSONObject().put("title", it.title).put("url", it.url).put("at", it.at)) }
-        prefs.edit().putString("history", array.toString()).apply()
+        store.save("history", array.toString())
     }
 
     fun history(): List<BrowserHistory> = runCatching {
-        val array = JSONArray(prefs.getString("history", "[]"))
+        val array = JSONArray(store.load("history") ?: "[]")
         (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let { BrowserHistory(it.optString("title"), it.optString("url"), it.optLong("at")) } }
     }.getOrDefault(emptyList())
 
-    fun bookmarks(): Set<String> = prefs.getStringSet("bookmarks", emptySet()).orEmpty()
+    fun bookmarks(): Set<String> = runCatching {
+        val array = JSONArray(store.load("bookmarks") ?: "[]")
+        (0 until array.length()).mapNotNull { i -> array.optString(i).takeIf(String::isNotBlank) }.toSet()
+    }.getOrDefault(emptySet())
+
     fun toggleBookmark(url: String): Boolean {
         val set = bookmarks().toMutableSet()
         val added = if (url in set) { set.remove(url); false } else { set.add(url); true }
-        prefs.edit().putStringSet("bookmarks", set).apply()
+        val array = JSONArray()
+        set.forEach { array.put(it) }
+        store.save("bookmarks", array.toString())
         return added
     }
 
     fun clearBrowsingData() {
-        prefs.edit().remove("history").remove("tabs").remove("bookmarks").apply()
+        store.remove("history"); store.remove("tabs"); store.remove("bookmarks")
     }
 
     companion object { const val MAX_TABS = 24; const val MAX_HISTORY = 500 }

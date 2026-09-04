@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <application>
         <activity
             android:name="com.ghajarvpn.browser.GhajarBrowserActivity"
@@ -17,5 +19,31 @@
             android:launchMode="singleTop"
             android:supportsPictureInPicture="true"
             android:theme="@style/GhajarPlayerTheme" />
+        <activity
+            android:name="com.ghajarvpn.browser.download.GhajarDownloadsActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize"
+            android:exported="false"
+            android:label="دانلودهای قاجار"
+            android:launchMode="singleTop"
+            android:theme="@style/GhajarDownloadsTheme" />
+
+        <service
+            android:name="com.ghajarvpn.browser.download.GhajarDownloadService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <receiver
+            android:name="com.ghajarvpn.browser.download.GhajarDownloadReceiver"
+            android:exported="false" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.ghajar_downloads"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/ghajar_download_paths" />
+        </provider>
     </application>
 </manifest>
