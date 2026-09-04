@@ -1,0 +1,343 @@
+From af6fb7f8616854ce2155ffbc106e3c071e0bada0 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Fri, 4 Sep 2026 22:16:33 +0330
+Subject: [PATCH] feat(browser): QR generation, gallery scan and sharing
+
+- BrowserQr: zxing encode (navy/ivory brand colors) and decode with a
+  strict http(s)-only whitelist; javascript:/data:/intent: payloads are
+  rejected before they can ever reach the browser
+- BrowserQrActivity: generate current page QR, share via app file
+  provider, decode from scaled gallery image and hand the sanitized URL
+  back to the browser
+- Browser menu gains QR entries; zxing core reused from the app
+---
+ browser/build.gradle.kts                      |   1 +
+ browser/src/main/AndroidManifest.xml          |   6 +
+ .../browser/GhajarBrowserActivity.kt          |  17 ++
+ .../com/ghajarvpn/browser/qr/BrowserQr.kt     |  65 +++++++
+ .../ghajarvpn/browser/qr/BrowserQrActivity.kt | 163 ++++++++++++++++++
+ 5 files changed, 252 insertions(+)
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/qr/BrowserQr.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/qr/BrowserQrActivity.kt
+
+diff --git a/browser/build.gradle.kts b/browser/build.gradle.kts
+--- a/browser/build.gradle.kts
++++ b/browser/build.gradle.kts
+@@ -30,4 +30,5 @@ dependencies {
+     implementation("androidx.media3:media3-session:$media3Version")
+     testImplementation("junit:junit:4.13.2")
+     testImplementation("org.json:json:20240303")
++    implementation("com.google.zxing:core:3.5.3")
+ }
+diff --git a/browser/src/main/AndroidManifest.xml b/browser/src/main/AndroidManifest.xml
+--- a/browser/src/main/AndroidManifest.xml
++++ b/browser/src/main/AndroidManifest.xml
+@@ -29,6 +29,12 @@
+             android:launchMode="singleTop"
+             android:theme="@style/GhajarDownloadsTheme" />
+ 
++        <activity
++            android:name="com.ghajarvpn.browser.qr.BrowserQrActivity"
++            android:exported="false"
++            android:label="QR قاجار"
++            android:theme="@style/GhajarDownloadsTheme" />
++
+         <service
+             android:name="com.ghajarvpn.browser.download.GhajarDownloadService"
+             android:exported="false"
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -638,6 +638,15 @@ class GhajarBrowserActivity : Activity() {
+ 
+     // ------------------------------------------------------------ route switch
+ 
++    private fun openQr(payload: String = "", scan: Boolean = false) {
++        startActivityForResult(
++            Intent(this, com.ghajarvpn.browser.qr.BrowserQrActivity::class.java)
++                .putExtra(com.ghajarvpn.browser.qr.BrowserQrActivity.EXTRA_PAYLOAD, payload)
++                .putExtra(com.ghajarvpn.browser.qr.BrowserQrActivity.EXTRA_SCAN, scan),
++            QR_REQUEST
++        )
++    }
++
+     private fun openDownloads() {
+         startActivity(Intent(this, com.ghajarvpn.browser.download.GhajarDownloadsActivity::class.java))
+     }
+@@ -801,6 +810,8 @@ class GhajarBrowserActivity : Activity() {
+             menu.add(if (settings.desktopMode) "نسخهٔ موبایل" else "نسخهٔ دسکتاپ")
+             menu.add("ذخیره به PDF")
+             menu.add("اشتراک‌گذاری")
++            menu.add("QR همین صفحه")
++            menu.add("اسکن QR از گالری")
+             menu.add("باز کردن در مرورگر دیگر")
+             menu.add("نشانک‌ها و تاریخچه")
+             menu.add("اجازه‌های سایت‌ها")
+@@ -816,6 +827,8 @@ class GhajarBrowserActivity : Activity() {
+                     "نسخهٔ موبایل", "نسخهٔ دسکتاپ" -> toggleDesktop(web)
+                     "ذخیره به PDF" -> savePdf(web)
+                     "اشتراک‌گذاری" -> share(web.url)
++                    "QR همین صفحه" -> openQr(payload = web.url.orEmpty())
++                    "اسکن QR از گالری" -> openQr(scan = true)
+                     "باز کردن در مرورگر دیگر" -> openExternal(web.url)
+                     "نشانک‌ها و تاریخچه" -> showLibrary()
+                     "اجازه‌های سایت‌ها" -> showSitePermissions()
+@@ -1246,6 +1259,9 @@ class GhajarBrowserActivity : Activity() {
+     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+         if (requestCode == FILE_REQUEST) {
+             fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data)); fileCallback = null
++        } else if (requestCode == QR_REQUEST) {
++            val url = data?.getStringExtra(com.ghajarvpn.browser.qr.BrowserQrActivity.EXTRA_RESULT_URL)
++            if (resultCode == RESULT_OK && url != null && BrowserRequestPolicy.safeExternal(url)) load(url)
+         } else super.onActivityResult(requestCode, resultCode, data)
+     }
+ 
+@@ -1320,6 +1336,7 @@ class GhajarBrowserActivity : Activity() {
+         private const val FILE_REQUEST = 731
+         private const val CAMERA_REQUEST = 732
+         private const val GEOLOCATION_REQUEST = 733
++        private const val QR_REQUEST = 734
+         private val SITE_RESOURCES = mapOf(
+             PermissionRequest.RESOURCE_VIDEO_CAPTURE to SitePermission.CAMERA,
+             PermissionRequest.RESOURCE_AUDIO_CAPTURE to SitePermission.MICROPHONE
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/qr/BrowserQr.kt b/browser/src/main/java/com/ghajarvpn/browser/qr/BrowserQr.kt
+new file mode 100644
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/qr/BrowserQr.kt
+@@ -0,0 +1,65 @@
++package com.ghajarvpn.browser.qr
++
++import android.graphics.Bitmap
++import android.net.Uri
++import com.google.zxing.BarcodeFormat
++import com.google.zxing.BinaryBitmap
++import com.google.zxing.DecodeHintType
++import com.google.zxing.EncodeHintType
++import com.google.zxing.MultiFormatReader
++import com.google.zxing.RGBLuminanceSource
++import com.google.zxing.common.HybridBinarizer
++import com.google.zxing.qrcode.QRCodeWriter
++import java.util.EnumSet
++
++/**
++ * QR encode/decode for browser pages. Encoding is pure zxing; decoding takes a
++ * decoded Bitmap (from the gallery picker) and returns only http(s) payloads —
++ * anything else is rejected so a crafted QR cannot open arbitrary intents.
++ */
++object BrowserQr {
++
++    const val MAX_PAYLOAD = 2_048
++
++    fun encode(payload: String, size: Int = 512): Bitmap? {
++        if (payload.isBlank() || payload.length > MAX_PAYLOAD) return null
++        return runCatching {
++            val matrix = QRCodeWriter().encode(
++                payload, BarcodeFormat.QR_CODE, size, size,
++                mapOf(EncodeHintType.MARGIN to 1)
++            )
++            val pixels = IntArray(size * size)
++            for (y in 0 until size) {
++                for (x in 0 until size) {
++                    pixels[y * size + x] = if (matrix.get(x, y)) 0xFF12202B.toInt() else 0xFFFFFFFF.toInt()
++                }
++            }
++            Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888)
++        }.getOrNull()
++    }
++
++    /** Returns the scanned payload only when it is a safe web URL. */
++    fun decode(bitmap: Bitmap): String? = runCatching {
++        val pixels = IntArray(bitmap.width * bitmap.height)
++        bitmap.getPixels(pixels, 0, bitmap.width, 0, 0, bitmap.width, bitmap.height)
++        val source = RGBLuminanceSource(bitmap.width, bitmap.height, pixels)
++        val hints = mapOf(
++            DecodeHintType.TRY_HARDER to true,
++            DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE)
++        )
++        val result = MultiFormatReader().decode(BinaryBitmap(HybridBinarizer(source)), hints)
++        sanitize(result.text)
++    }.getOrNull()
++
++    /** Whitelists http(s) QR payloads; blocks javascript:, data:, intent: and friends. */
++    fun sanitize(raw: String?): String? {
++        val value = raw?.trim().orEmpty()
++        if (value.isEmpty() || value.length > MAX_PAYLOAD) return null
++        val uri = runCatching { Uri.parse(value) }.getOrNull() ?: return null
++        val scheme = uri.scheme?.lowercase() ?: return null
++        if (scheme !in setOf("http", "https")) return null
++        if (uri.host.isNullOrBlank()) return null
++        if (uri.userInfo != null) return null
++        return value
++    }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/qr/BrowserQrActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/qr/BrowserQrActivity.kt
+new file mode 100644
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/qr/BrowserQrActivity.kt
+@@ -0,0 +1,163 @@
++package com.ghajarvpn.browser.qr
++
++import android.app.Activity
++
++import com.ghajarvpn.browser.BrowserUi
++import android.content.Intent
++import android.graphics.Bitmap
++import android.graphics.Color
++import android.graphics.drawable.GradientDrawable
++import android.net.Uri
++import android.os.Bundle
++import android.provider.MediaStore
++import android.view.Gravity
++import android.view.View
++import android.widget.ImageView
++import android.widget.LinearLayout
++import android.widget.ScrollView
++import android.widget.TextView
++
++/** QR surface: scan from camera-less gallery decode, generate and share page QRs. */
++class BrowserQrActivity : Activity() {
++
++    private var mode = Mode.GENERATE
++    private var payload: String = ""
++    private var resultHostView: LinearLayout? = null
++
++    private enum class Mode { GENERATE, SCAN }
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        payload = intent.getStringExtra(EXTRA_PAYLOAD).orEmpty()
++        mode = if (intent.getBooleanExtra(EXTRA_SCAN, false)) Mode.SCAN else Mode.GENERATE
++        setContentView(buildUi())
++    }
++
++    private fun buildUi(): View {
++        val root = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            gravity = Gravity.CENTER_HORIZONTAL
++            setPadding(dp(20), dp(16), dp(20), dp(16))
++            setBackgroundColor(BrowserUi.IVORY)
++        }
++
++        val header = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            setBackgroundColor(BrowserUi.NAVY)
++            setPadding(dp(16), 0, dp(16), dp(12))
++        }
++        header.addView(BrowserUi.label(this, if (mode == Mode.SCAN) "اسکن QR از گالری" else "QR همین صفحه", 18f, BrowserUi.IVORY).apply {
++            setTypeface(typeface, android.graphics.Typeface.BOLD)
++        })
++        root.addView(header, LinearLayout.LayoutParams(-1, -2).apply { setMargins(-dp(20), 0, -dp(20), dp(16)) })
++
++        if (mode == Mode.SCAN) {
++            root.addView(BrowserUi.label(this, "تصویر QR را از گالری انتخاب کنید", 13f, BrowserUi.MUTED_ON_LIGHT))
++            val pick = BrowserUi.label(this, "انتخاب از گالری", 14f, Color.WHITE).apply {
++                gravity = Gravity.CENTER
++                background = BrowserUi.pill(this@BrowserQrActivity, BrowserUi.GOLD, 14)
++                setPadding(dp(20), dp(12), dp(20), dp(12))
++                setOnClickListener { launchGallery() }
++            }
++            root.addView(pick, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(14) })
++        } else {
++            if (BrowserQr.sanitize(payload) == null) {
++                root.addView(BrowserUi.label(this, "این صفحه QR امنی ندارد", 14f, BrowserUi.RED))
++            } else {
++                val qr = ImageView(this).apply {
++                    background = BrowserUi.pill(this@BrowserQrActivity, Color.WHITE, 18)
++                    setPadding(dp(12), dp(12), dp(12), dp(12))
++                    setImageBitmap(BrowserQr.encode(payload))
++                }
++                root.addView(qr, LinearLayout.LayoutParams(dp(260), dp(260)).apply { topMargin = dp(8) })
++                root.addView(BrowserUi.label(this, payload, 12f, BrowserUi.MUTED_ON_LIGHT).apply {
++                    gravity = Gravity.CENTER
++                    setPadding(0, dp(10), 0, 0)
++                    maxLines = 3
++                })
++                val share = BrowserUi.label(this, "اشتراک‌گذاری QR", 14f, Color.WHITE).apply {
++                    gravity = Gravity.CENTER
++                    background = BrowserUi.pill(this@BrowserQrActivity, BrowserUi.GOLD, 14)
++                    setPadding(dp(20), dp(12), dp(20), dp(12))
++                    setOnClickListener { shareQr() }
++                }
++                root.addView(share, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(16) })
++            }
++        }
++
++        val resultHost = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER }
++        root.addView(resultHost, LinearLayout.LayoutParams(-1, -2))
++        resultHostView = resultHost
++
++        val scroll = ScrollView(this).apply { addView(root) }
++        return scroll
++    }
++
++    private fun launchGallery() {
++        runCatching {
++            startActivityForResult(Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI), PICK_IMAGE)
++        }.onFailure { android.widget.Toast.makeText(this, "گالری در دسترس نیست", android.widget.Toast.LENGTH_SHORT).show() }
++    }
++
++    @Deprecated("Deprecated in Android")
++    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
++        if (requestCode == PICK_IMAGE && resultCode == RESULT_OK) {
++            val uri = data?.data
++            val bitmap = uri?.let { decodeScaled(it) }
++            val scanned = bitmap?.let { BrowserQr.decode(it) }
++            val host = resultHostView ?: return
++            host.removeAllViews()
++            if (scanned != null) {
++                val open = BrowserUi.label(this, "باز کردن نشانی اسکن‌شده", 14f, Color.WHITE).apply {
++                    gravity = Gravity.CENTER
++                    background = BrowserUi.pill(this@BrowserQrActivity, BrowserUi.GREEN, 14)
++                    setPadding(dp(20), dp(12), dp(20), dp(12))
++                    setOnClickListener {
++                        val result = Intent().putExtra(EXTRA_RESULT_URL, scanned)
++                        setResult(RESULT_OK, result)
++                        finish()
++                    }
++                }
++                host.addView(open, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(16) })
++                host.addView(BrowserUi.label(this, scanned, 12f, BrowserUi.MUTED_ON_LIGHT).apply {
++                    gravity = Gravity.CENTER; setPadding(0, dp(8), 0, 0); maxLines = 3
++                })
++            } else {
++                host.addView(BrowserUi.label(this, "QR امنی پیدا نشد", 14f, BrowserUi.RED).apply {
++                    setPadding(0, dp(16), 0, 0)
++                })
++            }
++        } else super.onActivityResult(requestCode, resultCode, data)
++    }
++
++    private fun decodeScaled(uri: Uri): Bitmap? = runCatching {
++        val source = MediaStore.Images.Media.getBitmap(contentResolver, uri)
++        val maxSide = 1024
++        val scale = minOf(1f, maxSide.toFloat() / maxOf(source.width, source.height))
++        val scaled = Bitmap.createScaledBitmap(source, (source.width * scale).toInt().coerceAtLeast(1), (source.height * scale).toInt().coerceAtLeast(1), true)
++        if (scaled != source) source.recycle()
++        scaled
++    }.getOrNull()
++
++    private fun shareQr() {
++        val dir = externalCacheDir ?: return
++        val file = java.io.File(dir, "ghajar-page-qr.png")
++        val bitmap = BrowserQr.encode(payload) ?: return
++        file.outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
++        val uri = androidx.core.content.FileProvider.getUriForFile(this, "${packageName}.ghajar_downloads", file)
++        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
++            type = "image/png"
++            putExtra(Intent.EXTRA_STREAM, uri)
++            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
++        }, "اشتراک‌گذاری QR"))
++    }
++
++    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
++
++    companion object {
++        const val EXTRA_PAYLOAD = "qr_payload"
++        const val EXTRA_SCAN = "qr_scan"
++        const val EXTRA_RESULT_URL = "qr_result_url"
++        private const val PICK_IMAGE = 841
++    }
++}
+-- 
+2.55.0
+
