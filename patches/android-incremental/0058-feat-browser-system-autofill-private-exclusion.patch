@@ -1,0 +1,29 @@
+From 23684a5376ba93b2c61579f603eb8bb22f42080d Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Fri, 4 Sep 2026 22:38:06 +0330
+Subject: [PATCH] feat(browser): system autofill participation with private
+ exclusion
+
+Normal tabs expose their WebView to the Android autofill framework so
+the platform password manager works as documented; private tabs are
+excluded entirely (no form data ever reaches an autofill service).
+---
+ .../main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt   | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -381,6 +381,9 @@ class GhajarBrowserActivity : Activity() {
+     private fun buildWebView(tab: BrowserTab): WebView = WebView(this).apply {
+         setBackgroundColor(Color.WHITE)
+         configureSettings(this, tab.private)
++        // Android Autofill: normal tabs participate in the system framework;
++        // private tabs must never expose form data to any autofill service.
++        importantForAutofill = if (tab.private) android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS else android.view.View.IMPORTANT_FOR_AUTOFILL_YES
+         if (tab.private) PrivateMode.attach(this)
+         webViewClient = BrowserClient(tab)
+         webChromeClient = BrowserChrome(tab)
+-- 
+2.55.0
+
