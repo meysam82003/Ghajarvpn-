@@ -29,6 +29,12 @@
             android:launchMode="singleTop"
             android:theme="@style/GhajarDownloadsTheme" />
 
+        <activity
+            android:name="com.ghajarvpn.browser.qr.BrowserQrActivity"
+            android:exported="false"
+            android:label="QR قاجار"
+            android:theme="@style/GhajarDownloadsTheme" />
+
         <service
             android:name="com.ghajarvpn.browser.download.GhajarDownloadService"
             android:exported="false"

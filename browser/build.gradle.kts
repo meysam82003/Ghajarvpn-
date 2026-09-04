@@ -30,4 +30,5 @@ dependencies {
     implementation("androidx.media3:media3-session:$media3Version")
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")
+    implementation("com.google.zxing:core:3.5.3")
 }

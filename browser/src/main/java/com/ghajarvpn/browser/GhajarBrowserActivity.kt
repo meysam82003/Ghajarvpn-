@@ -638,6 +638,15 @@ class GhajarBrowserActivity : Activity() {
 
     // ------------------------------------------------------------ route switch
 
+    private fun openQr(payload: String = "", scan: Boolean = false) {
+        startActivityForResult(
+            Intent(this, com.ghajarvpn.browser.qr.BrowserQrActivity::class.java)
+                .putExtra(com.ghajarvpn.browser.qr.BrowserQrActivity.EXTRA_PAYLOAD, payload)
+                .putExtra(com.ghajarvpn.browser.qr.BrowserQrActivity.EXTRA_SCAN, scan),
+            QR_REQUEST
+        )
+    }
+
     private fun openDownloads() {
         startActivity(Intent(this, com.ghajarvpn.browser.download.GhajarDownloadsActivity::class.java))
     }
@@ -801,6 +810,8 @@ class GhajarBrowserActivity : Activity() {
             menu.add(if (settings.desktopMode) "نسخهٔ موبایل" else "نسخهٔ دسکتاپ")
             menu.add("ذخیره به PDF")
             menu.add("اشتراک‌گذاری")
+            menu.add("QR همین صفحه")
+            menu.add("اسکن QR از گالری")
             menu.add("باز کردن در مرورگر دیگر")
             menu.add("نشانک‌ها و تاریخچه")
             menu.add("اجازه‌های سایت‌ها")
@@ -816,6 +827,8 @@ class GhajarBrowserActivity : Activity() {
                     "نسخهٔ موبایل", "نسخهٔ دسکتاپ" -> toggleDesktop(web)
                     "ذخیره به PDF" -> savePdf(web)
                     "اشتراک‌گذاری" -> share(web.url)
+                    "QR همین صفحه" -> openQr(payload = web.url.orEmpty())
+                    "اسکن QR از گالری" -> openQr(scan = true)
                     "باز کردن در مرورگر دیگر" -> openExternal(web.url)
                     "نشانک‌ها و تاریخچه" -> showLibrary()
                     "اجازه‌های سایت‌ها" -> showSitePermissions()
@@ -1246,6 +1259,9 @@ class GhajarBrowserActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == FILE_REQUEST) {
             fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data)); fileCallback = null
+        } else if (requestCode == QR_REQUEST) {
+            val url = data?.getStringExtra(com.ghajarvpn.browser.qr.BrowserQrActivity.EXTRA_RESULT_URL)
+            if (resultCode == RESULT_OK && url != null && BrowserRequestPolicy.safeExternal(url)) load(url)
         } else super.onActivityResult(requestCode, resultCode, data)
     }
 
@@ -1320,6 +1336,7 @@ class GhajarBrowserActivity : Activity() {
         private const val FILE_REQUEST = 731
         private const val CAMERA_REQUEST = 732
         private const val GEOLOCATION_REQUEST = 733
+        private const val QR_REQUEST = 734
         private val SITE_RESOURCES = mapOf(
             PermissionRequest.RESOURCE_VIDEO_CAPTURE to SitePermission.CAMERA,
             PermissionRequest.RESOURCE_AUDIO_CAPTURE to SitePermission.MICROPHONE
