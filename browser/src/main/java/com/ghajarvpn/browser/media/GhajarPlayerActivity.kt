@@ -26,6 +26,7 @@ import android.widget.PopupMenu
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.view.WindowCompat
 import androidx.media3.common.C
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -44,6 +45,8 @@ class GhajarPlayerActivity : Activity() {
     private lateinit var root: FrameLayout
     private lateinit var stats: TextView
     private lateinit var buffering: ProgressBar
+    private lateinit var errorSurface: LinearLayout
+    private lateinit var topBar: LinearLayout
     private val preferences by lazy { MediaPreferences(this) }
     private val handler = Handler(Looper.getMainLooper())
     private var aspectIndex = 0
@@ -93,6 +96,50 @@ class GhajarPlayerActivity : Activity() {
         buffering = ProgressBar(this).apply { visibility = View.GONE }
         root.addView(buffering, FrameLayout.LayoutParams(dp(54), dp(54), Gravity.CENTER))
 
+        errorSurface = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setBackgroundColor(Color.argb(230, 7, 27, 46))
+            visibility = View.GONE
+            addView(TextView(this@GhajarPlayerActivity).apply {
+                text = "⚠"
+                textSize = 40f
+                setTextColor(Color.rgb(217, 177, 92))
+            })
+            addView(TextView(this@GhajarPlayerActivity).apply {
+                text = "خطای پخش"
+                textSize = 17f
+                setTextColor(Color.WHITE)
+                setPadding(0, dp(10), 0, dp(4))
+            })
+            addView(TextView(this@GhajarPlayerActivity).apply {
+                id = android.R.id.message
+                text = ""
+                textSize = 13f
+                setTextColor(Color.rgb(201, 214, 226))
+                gravity = Gravity.CENTER
+                setPadding(dp(24), 0, dp(24), 0)
+            })
+            addView(TextView(this@GhajarPlayerActivity).apply {
+                text = "تلاش دوباره"
+                textSize = 14f
+                setTextColor(Color.rgb(7, 27, 46))
+                background = android.graphics.drawable.GradientDrawable().apply {
+                    setColor(Color.rgb(180, 139, 50))
+                    cornerRadius = dp(12).toFloat()
+                }
+                setPadding(dp(22), dp(10), dp(22), dp(10))
+                setOnClickListener { errorSurface.visibility = View.GONE; retryCount = 0; engine.player.prepare(); engine.player.play() }
+            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(20) })
+            addView(TextView(this@GhajarPlayerActivity).apply {
+                text = "بازگشت به سایت"
+                textSize = 13f
+                setTextColor(Color.WHITE)
+                setOnClickListener { finish() }
+            }, LinearLayout.LayoutParams(-2, -2).apply { topMargin = dp(8) })
+        }
+        root.addView(errorSurface, FrameLayout.LayoutParams(-1, -1))
+
         val top = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(8), dp(8), dp(8))
@@ -108,6 +155,7 @@ class GhajarPlayerActivity : Activity() {
                 addView(icon(android.R.drawable.ic_menu_slideshow, "تصویر در تصویر") { enterPip() })
             }
         }
+        topBar = top
         root.addView(top, FrameLayout.LayoutParams(-1, dp(60), Gravity.TOP))
 
         val side = LinearLayout(this).apply {
@@ -127,8 +175,31 @@ class GhajarPlayerActivity : Activity() {
             setBackgroundColor(Color.argb(135, 0, 0, 0)); visibility = View.GONE
         }
         root.addView(stats, FrameLayout.LayoutParams(-2, -2, Gravity.START or Gravity.BOTTOM).apply { setMargins(dp(8), 0, 0, dp(8)) })
+
+        // Controls must never hide under the status bar, notch or gesture area;
+        // the video surface itself stays edge-to-edge.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { _, insets ->
+            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+            val cutout = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.displayCutout())
+            val topInset = maxOf(bars.top, cutout.top)
+            val bottomInset = maxOf(bars.bottom, cutout.bottom)
+            val sideLeft = maxOf(bars.left, cutout.left)
+            val sideRight = maxOf(bars.right, cutout.right)
+            topBar.setPadding(sideLeft + dp(8), topInset + dp(4), sideRight + dp(8), dp(4))
+            side.setPadding(dp(8), 0, dp(8), bottomInset + dp(8))
+            (stats.layoutParams as? FrameLayout.LayoutParams)?.setMargins(sideLeft + dp(8), 0, 0, bottomInset + dp(8))
+            insets
+        }
+        root.requestApplyInsets()
         installGestures()
         return root
+    }
+
+    private fun showError(message: String) {
+        buffering.visibility = View.GONE
+        errorSurface.findViewById<TextView>(android.R.id.message).text = message
+        errorSurface.visibility = View.VISIBLE
     }
 
     private fun icon(drawable: Int, description: String, action: (View) -> Unit) = ImageButton(this).apply {
@@ -330,9 +401,7 @@ class GhajarPlayerActivity : Activity() {
                 PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED -> "این Media با DRM محافظت شده و در پلیر قاجار باز نمی‌شود."
                 else -> "پخش ویدیو ممکن نشد؛ Player اصلی سایت همچنان قابل استفاده است."
             }
-            AlertDialog.Builder(this@GhajarPlayerActivity).setTitle("شهربان · خطای پخش").setMessage(message)
-                .setPositiveButton("تلاش دوباره") { _, _ -> retryCount = 0; engine.player.prepare(); engine.player.play() }
-                .setNegativeButton("بازگشت به سایت") { _, _ -> finish() }.show()
+            showError(message)
         }
     }
 
