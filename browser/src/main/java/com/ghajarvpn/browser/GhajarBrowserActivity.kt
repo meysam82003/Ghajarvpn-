@@ -638,6 +638,19 @@ class GhajarBrowserActivity : Activity() {
 
     // ------------------------------------------------------------ route switch
 
+    private fun openPdf(url: String) {
+        if (!BrowserRequestPolicy.safeExternal(url)) { toast("نشانی PDF امن نیست"); return }
+        if (!url.startsWith("https://")) { toast("PDF فقط از نشانی امن باز می‌شود"); return }
+        toast("در حال دریافت PDF…")
+        Thread {
+            val headers = mutableMapOf<String, String>()
+            CookieManager.getInstance().getCookie(url)?.takeIf(String::isNotBlank)?.let { headers["Cookie"] = it }
+            currentWebView()?.settings?.userAgentString?.let { headers["User-Agent"] = it }
+            val ok = BrowserPdf.downloadAndOpen(this, url, headers)
+            runOnUiThread { if (!ok) toast("باز کردن PDF ممکن نشد") }
+        }.start()
+    }
+
     private fun translatePage(web: WebView) {
         val url = web.url.orEmpty()
         if (url == BrowserTab.HOME_URL || !BrowserRequestPolicy.safeExternal(url)) {
@@ -823,6 +836,7 @@ class GhajarBrowserActivity : Activity() {
             menu.add("حالت مطالعه")
             menu.add(if (settings.desktopMode) "نسخهٔ موبایل" else "نسخهٔ دسکتاپ")
             menu.add("ذخیره به PDF")
+            menu.add("باز کردن PDF صفحه")
             menu.add("اشتراک‌گذاری")
             menu.add("ترجمهٔ صفحه")
             menu.add("QR همین صفحه")
@@ -841,6 +855,7 @@ class GhajarBrowserActivity : Activity() {
                     "حالت مطالعه" -> readerMode(web)
                     "نسخهٔ موبایل", "نسخهٔ دسکتاپ" -> toggleDesktop(web)
                     "ذخیره به PDF" -> savePdf(web)
+                    "باز کردن PDF صفحه" -> if (web.url.orEmpty().endsWith(".pdf", true)) openPdf(web.url.orEmpty()) else toast("این صفحه PDF نیست")
                     "اشتراک‌گذاری" -> share(web.url)
                     "ترجمهٔ صفحه" -> translatePage(web)
                     "QR همین صفحه" -> openQr(payload = web.url.orEmpty())
@@ -1098,7 +1113,13 @@ class GhajarBrowserActivity : Activity() {
             if (request?.isForMainFrame != true) return false
             val uri = request.url
             when (uri.scheme?.lowercase()) {
-                "http", "https" -> return false
+                "http", "https" -> {
+                    if (uri.path.orEmpty().endsWith(".pdf", true)) {
+                        if (tab.id == activeId) openPdf(request.url.toString())
+                        return true
+                    }
+                    return false
+                }
                 "file", "content", "data", "javascript" -> return true
                 "ghajar-home" -> { handleHomeAction(uri); return true }
                 "ghajar-error" -> { handleErrorAction(uri); return true }
