@@ -35,15 +35,5 @@
         <receiver
             android:name="com.ghajarvpn.browser.download.GhajarDownloadReceiver"
             android:exported="false" />
-
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.ghajar_downloads"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/ghajar_download_paths" />
-        </provider>
     </application>
 </manifest>
