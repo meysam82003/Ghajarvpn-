@@ -638,6 +638,20 @@ class GhajarBrowserActivity : Activity() {
 
     // ------------------------------------------------------------ route switch
 
+    private fun translatePage(web: WebView) {
+        val url = web.url.orEmpty()
+        if (url == BrowserTab.HOME_URL || !BrowserRequestPolicy.safeExternal(url)) {
+            toast("این صفحه قابل ترجمه نیست"); return
+        }
+        val provider = com.ghajarvpn.browser.translate.TranslationRegistry.active()
+        if (provider == null) { toast("سرویس ترجمه در دسترس نیست"); return }
+        if (provider.requiresCredentials) { toast("«${provider.displayName}» نیاز به تنظیمات دارد"); return }
+        val target = com.ghajarvpn.browser.translate.TranslationRegistry.preferredLanguage
+        val translated = provider.translatedUrl(url, target)
+        if (translated == null) { toast("ترجمهٔ این صفحه ممکن نشد"); return }
+        load(translated)
+    }
+
     private fun openQr(payload: String = "", scan: Boolean = false) {
         startActivityForResult(
             Intent(this, com.ghajarvpn.browser.qr.BrowserQrActivity::class.java)
@@ -810,6 +824,7 @@ class GhajarBrowserActivity : Activity() {
             menu.add(if (settings.desktopMode) "نسخهٔ موبایل" else "نسخهٔ دسکتاپ")
             menu.add("ذخیره به PDF")
             menu.add("اشتراک‌گذاری")
+            menu.add("ترجمهٔ صفحه")
             menu.add("QR همین صفحه")
             menu.add("اسکن QR از گالری")
             menu.add("باز کردن در مرورگر دیگر")
@@ -827,6 +842,7 @@ class GhajarBrowserActivity : Activity() {
                     "نسخهٔ موبایل", "نسخهٔ دسکتاپ" -> toggleDesktop(web)
                     "ذخیره به PDF" -> savePdf(web)
                     "اشتراک‌گذاری" -> share(web.url)
+                    "ترجمهٔ صفحه" -> translatePage(web)
                     "QR همین صفحه" -> openQr(payload = web.url.orEmpty())
                     "اسکن QR از گالری" -> openQr(scan = true)
                     "باز کردن در مرورگر دیگر" -> openExternal(web.url)
