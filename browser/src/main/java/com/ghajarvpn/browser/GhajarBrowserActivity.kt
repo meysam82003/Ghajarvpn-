@@ -74,6 +74,7 @@ import java.io.ByteArrayInputStream
  */
 class GhajarBrowserActivity : Activity() {
     private val repository by lazy { BrowserRepository(this) }
+    private val sitePermissions by lazy { SitePermissionsStore(SharedPrefsDocumentStore(this)) }
     private val routeManager by lazy { BrowserRouteManager(BrowserRouteStorage(this)) }
     private var settings = BrowserSettings()
     private val tabs = mutableListOf<BrowserTab>()
@@ -97,6 +98,9 @@ class GhajarBrowserActivity : Activity() {
     private var fullScreenCallback: WebChromeClient.CustomViewCallback? = null
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermission: PermissionRequest? = null
+    private var pendingWebResource: String? = null
+    private var pendingGeolocation: String? = null
+    private var pendingGeolocationCallback: android.webkit.GeolocationPermissions.Callback? = null
     private var dialog: AlertDialog? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -799,6 +803,7 @@ class GhajarBrowserActivity : Activity() {
             menu.add("اشتراک‌گذاری")
             menu.add("باز کردن در مرورگر دیگر")
             menu.add("نشانک‌ها و تاریخچه")
+            menu.add("اجازه‌های سایت‌ها")
             menu.add("تنظیمات حریم خصوصی")
             menu.add("پاک‌سازی داده‌های مرور")
             setOnMenuItemClickListener {
@@ -813,6 +818,7 @@ class GhajarBrowserActivity : Activity() {
                     "اشتراک‌گذاری" -> share(web.url)
                     "باز کردن در مرورگر دیگر" -> openExternal(web.url)
                     "نشانک‌ها و تاریخچه" -> showLibrary()
+                    "اجازه‌های سایت‌ها" -> showSitePermissions()
                     "تنظیمات حریم خصوصی" -> showSettings()
                     "پاک‌سازی داده‌های مرور" -> confirmClear()
                 }; true
@@ -928,6 +934,45 @@ class GhajarBrowserActivity : Activity() {
                 val url = if (line.startsWith("★  ")) line.removePrefix("★  ") else line.substringAfterLast('\n')
                 if (BrowserRequestPolicy.safeExternal(url)) load(url)
             }.setNegativeButton("بستن", null).show()
+    }
+
+    private fun showSitePermissions() {
+        dialog?.dismiss()
+        val decisions = sitePermissions.decisions()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(20), dp(18), dp(14))
+            setBackgroundColor(BrowserUi.IVORY)
+        }
+        container.addView(BrowserUi.label(this, "اجازه‌های سایت‌ها", 17f, BrowserUi.NAVY).apply { setTypeface(typeface, Typeface.BOLD) })
+        if (decisions.isEmpty()) {
+            container.addView(BrowserUi.label(this, "هیچ تصمیم ذخیره‌شده‌ای وجود ندارد", 13f, BrowserUi.MUTED_ON_LIGHT).apply {
+                setPadding(0, dp(10), 0, dp(4))
+            })
+        } else {
+            decisions.forEach { (origin, entries) ->
+                entries.forEach { (resource, state) ->
+                    val row = LinearLayout(this).apply { gravity = Gravity.CENTER_VERTICAL; setPadding(0, dp(6), 0, dp(6)) }
+                    row.addView(BrowserUi.label(this, "$origin · ${sitePermissionTitle(resource)}", 13f, BrowserUi.INK, bold = true).apply {
+                        layoutParams = LinearLayout.LayoutParams(0, -2, 1f)
+                    })
+                    row.addView(BrowserUi.label(this, if (state == SitePermissionState.ALLOW) "اجازه" else "رد", 12f,
+                        if (state == SitePermissionState.ALLOW) BrowserUi.GREEN else BrowserUi.RED).apply {
+                        setOnClickListener { sitePermissions.forget(origin); showSitePermissions() }
+                        setPadding(dp(10), dp(6), 0, dp(6))
+                    })
+                    container.addView(row, LinearLayout.LayoutParams(-1, -2))
+                }
+            }
+            container.addView(BrowserUi.label(this, "برای بازنشانی یک تصمیم، روی وضعیت آن بزنید", 11f, BrowserUi.MUTED_ON_LIGHT).apply {
+                setPadding(0, dp(8), 0, 0)
+            })
+        }
+        dialog = AlertDialog.Builder(this)
+            .setView(container)
+            .setPositiveButton("بستن", null)
+            .create()
+        dialog?.show()
     }
 
     private fun showSettings() {
@@ -1117,15 +1162,64 @@ class GhajarBrowserActivity : Activity() {
 
         override fun onPermissionRequest(request: PermissionRequest?) {
             request ?: return
-            val video = request.resources.filter { it == PermissionRequest.RESOURCE_VIDEO_CAPTURE }.toTypedArray()
-            if (video.isEmpty() || Uri.parse(request.origin.toString()).scheme != "https") { request.deny(); return }
+            val webResource = request.resources.firstOrNull { SITE_RESOURCES.containsKey(it) }
+            val origin = sitePermissions.originOf(request.origin.toString())
+            if (webResource == null || origin.isBlank()) { request.deny(); return }
+            val resource = SITE_RESOURCES.getValue(webResource)
+
+            // Stored Block decisions are honoured silently; private tabs always ask.
+            val tab = currentTab()
+            if (tab?.private != true) {
+                when (sitePermissions.state(origin, resource)) {
+                    SitePermissionState.BLOCK -> { request.deny(); return }
+                    SitePermissionState.ALLOW -> { grantAfterOsPermission(request, webResource, resource, origin, prompt = false); return }
+                    SitePermissionState.ASK -> Unit
+                }
+            }
             runOnUiThread {
-                AlertDialog.Builder(this@GhajarBrowserActivity).setTitle("اجازهٔ دوربین")
-                    .setMessage("این سایت برای دوربین اجازه می‌خواهد:\n${request.origin.host.orEmpty()}")
+                AlertDialog.Builder(this@GhajarBrowserActivity)
+                    .setTitle(sitePermissionTitle(resource))
+                    .setMessage("این سایت برای «${sitePermissionTitle(resource)}» اجازه می‌خواهد:\n$origin")
                     .setPositiveButton("اجازه") { _, _ ->
-                        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) request.grant(video)
-                        else { pendingPermission = request; requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQUEST) }
-                    }.setNegativeButton("رد") { _, _ -> request.deny() }.setOnCancelListener { request.deny() }.show()
+                        if (tab?.private != true) sitePermissions.remember(origin, resource, SitePermissionState.ALLOW)
+                        grantAfterOsPermission(request, webResource, resource, origin, prompt = false)
+                    }
+                    .setNeutralButton("همیشه رد") { _, _ ->
+                        if (tab?.private != true) sitePermissions.remember(origin, resource, SitePermissionState.BLOCK)
+                        request.deny()
+                    }
+                    .setNegativeButton("رد") { _, _ -> request.deny() }
+                    .setOnCancelListener { request.deny() }
+                    .show()
+            }
+        }
+
+        override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: android.webkit.GeolocationPermissions.Callback?) {
+            callback ?: return
+            val host = sitePermissions.originOf(origin.orEmpty())
+            if (host.isBlank()) { callback.invoke(origin, false, false); return }
+            val tab = currentTab()
+            if (tab?.private != true) {
+                when (sitePermissions.state(host, SitePermission.GEOLOCATION)) {
+                    SitePermissionState.BLOCK -> { callback.invoke(origin, false, false); return }
+                    SitePermissionState.ALLOW -> { promptOsForGeolocation(origin, callback); return }
+                    SitePermissionState.ASK -> Unit
+                }
+            }
+            runOnUiThread {
+                AlertDialog.Builder(this@GhajarBrowserActivity)
+                    .setTitle("اجازهٔ موقعیت مکانی")
+                    .setMessage("این سایت برای موقعیت مکانی اجازه می‌خواهد:\n$host")
+                    .setPositiveButton("اجازه") { _, _ ->
+                        if (tab?.private != true) sitePermissions.remember(host, SitePermission.GEOLOCATION, SitePermissionState.ALLOW)
+                        promptOsForGeolocation(origin, callback)
+                    }
+                    .setNeutralButton("همیشه رد") { _, _ ->
+                        if (tab?.private != true) sitePermissions.remember(host, SitePermission.GEOLOCATION, SitePermissionState.BLOCK)
+                        callback.invoke(origin, false, false)
+                    }
+                    .setNegativeButton("رد") { _, _ -> callback.invoke(origin, false, false) }
+                    .show()
             }
         }
 
@@ -1155,11 +1249,41 @@ class GhajarBrowserActivity : Activity() {
         } else super.onActivityResult(requestCode, resultCode, data)
     }
 
+    /** Grants the web resource once (optionally after) the OS-level permission exists. */
+    private fun grantAfterOsPermission(request: PermissionRequest, webResource: String, resource: SitePermission, origin: String, @Suppress("UNUSED_PARAMETER") prompt: Boolean) {
+        val os = SitePermissionsStore.osPermissionFor(resource)
+        if (os == null) {
+            request.grant(arrayOf(webResource))
+            return
+        }
+        if (checkSelfPermission(os) == PackageManager.PERMISSION_GRANTED) {
+            request.grant(arrayOf(webResource))
+        } else {
+            pendingPermission = request; pendingWebResource = webResource
+            requestPermissions(arrayOf(os), CAMERA_REQUEST)
+        }
+    }
+
+    private fun promptOsForGeolocation(origin: String?, callback: android.webkit.GeolocationPermissions.Callback) {
+        val os = SitePermissionsStore.osPermissionFor(SitePermission.GEOLOCATION) ?: return callback.invoke(origin, true, false)
+        if (checkSelfPermission(os) == PackageManager.PERMISSION_GRANTED) {
+            callback.invoke(origin, true, false)
+        } else {
+            pendingGeolocation = origin; pendingGeolocationCallback = callback
+            requestPermissions(arrayOf(os), GEOLOCATION_REQUEST)
+        }
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == CAMERA_REQUEST) {
             val request = pendingPermission; pendingPermission = null
-            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) request?.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) else request?.deny()
+            val resource = pendingWebResource; pendingWebResource = null
+            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && resource != null) request?.grant(arrayOf(resource)) else request?.deny()
+        } else if (requestCode == GEOLOCATION_REQUEST) {
+            val origin = pendingGeolocation; pendingGeolocation = null
+            val callback = pendingGeolocationCallback; pendingGeolocationCallback = null
+            callback?.invoke(origin, grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED, false)
         }
     }
 
@@ -1195,6 +1319,18 @@ class GhajarBrowserActivity : Activity() {
     companion object {
         private const val FILE_REQUEST = 731
         private const val CAMERA_REQUEST = 732
+        private const val GEOLOCATION_REQUEST = 733
+        private val SITE_RESOURCES = mapOf(
+            PermissionRequest.RESOURCE_VIDEO_CAPTURE to SitePermission.CAMERA,
+            PermissionRequest.RESOURCE_AUDIO_CAPTURE to SitePermission.MICROPHONE
+        )
+
+        fun sitePermissionTitle(resource: SitePermission): String = when (resource) {
+            SitePermission.CAMERA -> "دوربین"
+            SitePermission.MICROPHONE -> "میکروفون"
+            SitePermission.GEOLOCATION -> "موقعیت مکانی"
+        }
+
         private const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
         private val READER_SCRIPT = """
             (()=>{const a=document.querySelector('article,main,[role=main]')||document.body;document.body.innerHTML='';document.body.appendChild(a);document.body.style='max-width:760px;margin:auto;padding:24px;font:19px/1.8 sans-serif';document.querySelectorAll('script,style,nav,aside,footer,iframe').forEach(x=>x.remove())})()
