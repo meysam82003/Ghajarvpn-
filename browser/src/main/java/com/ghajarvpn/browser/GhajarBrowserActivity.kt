@@ -381,6 +381,9 @@ class GhajarBrowserActivity : Activity() {
     private fun buildWebView(tab: BrowserTab): WebView = WebView(this).apply {
         setBackgroundColor(Color.WHITE)
         configureSettings(this, tab.private)
+        // Android Autofill: normal tabs participate in the system framework;
+        // private tabs must never expose form data to any autofill service.
+        importantForAutofill = if (tab.private) android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS else android.view.View.IMPORTANT_FOR_AUTOFILL_YES
         if (tab.private) PrivateMode.attach(this)
         webViewClient = BrowserClient(tab)
         webChromeClient = BrowserChrome(tab)
