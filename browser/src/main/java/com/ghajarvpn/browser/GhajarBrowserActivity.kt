@@ -1039,15 +1039,7 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun showLibrary() {
-        val bookmarks = repository.bookmarks().map { "★  $it" }
-        val history = repository.history().take(100).map { "${it.title}\n${it.url}" }
-        val values = (bookmarks + history).ifEmpty { listOf("هنوز موردی وجود ندارد") }
-        AlertDialog.Builder(this).setTitle("نشانک‌ها و تاریخچه")
-            .setItems(values.toTypedArray()) { _, index ->
-                val line = values[index]
-                val url = if (line.startsWith("★  ")) line.removePrefix("★  ") else line.substringAfterLast('\n')
-                if (BrowserRequestPolicy.safeExternal(url)) load(url)
-            }.setNegativeButton("بستن", null).show()
+        startActivityForResult(Intent(this, BrowserLibraryActivity::class.java), LIBRARY_REQUEST)
     }
 
     private fun showSitePermissions() {
@@ -1370,6 +1362,9 @@ class GhajarBrowserActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         if (requestCode == FILE_REQUEST) {
             fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data)); fileCallback = null
+        } else if (requestCode == LIBRARY_REQUEST) {
+            val url = data?.getStringExtra(BrowserLibraryActivity.EXTRA_OPEN_URL)
+            if (resultCode == RESULT_OK && url != null && BrowserRequestPolicy.safeExternal(url)) load(url)
         } else if (requestCode == QR_REQUEST) {
             val url = data?.getStringExtra(com.ghajarvpn.browser.qr.BrowserQrActivity.EXTRA_RESULT_URL)
             if (resultCode == RESULT_OK && url != null && BrowserRequestPolicy.safeExternal(url)) load(url)
@@ -1462,6 +1457,7 @@ class GhajarBrowserActivity : Activity() {
         private const val CAMERA_REQUEST = 732
         private const val GEOLOCATION_REQUEST = 733
         private const val QR_REQUEST = 734
+        private const val LIBRARY_REQUEST = 735
         private val SITE_RESOURCES = mapOf(
             PermissionRequest.RESOURCE_VIDEO_CAPTURE to SitePermission.CAMERA,
             PermissionRequest.RESOURCE_AUDIO_CAPTURE to SitePermission.MICROPHONE

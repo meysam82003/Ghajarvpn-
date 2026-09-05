@@ -114,6 +114,17 @@ class BrowserRepository(store: BrowserDocumentStore) {
         return added
     }
 
+    fun removeHistory(url: String) {
+        val items = history().filterNot { it.url == url }
+        val array = org.json.JSONArray()
+        items.forEach { array.put(org.json.JSONObject().put("title", it.title).put("url", it.url).put("at", it.at)) }
+        store.save("history", array.toString())
+    }
+
+    fun clearHistory() {
+        store.remove("history")
+    }
+
     fun clearBrowsingData() {
         store.remove("history"); store.remove("tabs"); store.remove("bookmarks")
         store.remove("session")
