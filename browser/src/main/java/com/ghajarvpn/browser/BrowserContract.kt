@@ -12,6 +12,7 @@ object BrowserContract {
     const val EXTRA_CONTENT_DISPOSITION = "content_disposition"
     const val EXTRA_CONTENT_TYPE = "content_type"
     const val EXTRA_PRIVATE = "private"
+    const val EXTRA_EMBEDDED_STORE = "embedded_store"
 
     fun open(context: Context, url: String? = null, private: Boolean = false) {
         context.startActivity(Intent(context, GhajarBrowserActivity::class.java).apply {

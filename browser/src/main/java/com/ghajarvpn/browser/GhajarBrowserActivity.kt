@@ -92,6 +92,7 @@ class GhajarBrowserActivity : Activity() {
     private lateinit var forwardButton: ImageButton
     private lateinit var backButton: ImageButton
     private lateinit var privateIndicator: TextView
+    private lateinit var embeddedTitle: TextView
     private var addressClearVisible = false
     private var activeId = ""
     private var fullScreenView: View? = null
@@ -102,6 +103,7 @@ class GhajarBrowserActivity : Activity() {
     private var pendingGeolocation: String? = null
     private var pendingGeolocationCallback: android.webkit.GeolocationPermissions.Callback? = null
     private var dialog: AlertDialog? = null
+    private var embeddedStore = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -146,6 +148,17 @@ class GhajarBrowserActivity : Activity() {
             setPadding(0, 0, 0, dp(4))
         }
         topBar.addView(buildToolbarRow(), LinearLayout.LayoutParams(-1, -2))
+        embeddedTitle = TextView(this).apply {
+            textSize = 14f
+            setTextColor(BrowserUi.IVORY)
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+            maxLines = 1
+            gravity = Gravity.CENTER
+            visibility = View.GONE
+            setPadding(dp(12), dp(4), dp(12), dp(4))
+        }
+        topBar.addView(embeddedTitle, LinearLayout.LayoutParams(-1, -2))
+        embeddedTitle.setOnClickListener { if (embeddedStore) finish() }
         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
             max = 100
             visibility = View.GONE
@@ -162,7 +175,22 @@ class GhajarBrowserActivity : Activity() {
         root.addView(webContainer, LinearLayout.LayoutParams(-1, 0, 1f))
         root.addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
         BrowserInsets.apply(root, topBar, bottomBar)
+        applyEmbeddedChrome()
         return root
+    }
+
+    /**
+     * Store Embedded mode: no address bar, no tab counter, no video handoff and
+     * no bottom bar — the page title plus Back/Close is the entire chrome.
+     */
+    private fun applyEmbeddedChrome() {
+        if (!embeddedStore) return
+        address.visibility = View.GONE
+        tabCounter.visibility = View.GONE
+        videoButton.visibility = View.GONE
+        forwardButton.visibility = View.GONE
+        bottomBar.visibility = View.GONE
+        privateIndicator.visibility = View.GONE
     }
 
     private fun buildToolbarRow(): View {
@@ -328,6 +356,7 @@ class GhajarBrowserActivity : Activity() {
     // ------------------------------------------------------------- tab engine
 
     private fun newTab(raw: String = BrowserTab.HOME_URL, private: Boolean = false) {
+        if (embeddedStore) { return }
         if (tabs.size >= BrowserRepository.MAX_TABS) {
             tabs.firstOrNull { !it.private && it.id != activeId }?.let(::closeTab)
         }
@@ -350,6 +379,11 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun refreshChrome(tab: BrowserTab) {
+        if (embeddedStore) {
+            embeddedTitle.text = tab.title.ifBlank { "فروشگاه قاجار" }
+            embeddedTitle.visibility = View.VISIBLE
+            return
+        }
         tabCounter.text = tabs.size.toString()
         tabCounter.setTextColor(if (tab.private) BrowserUi.GOLD_SOFT else Color.WHITE)
         tabCounter.background = BrowserUi.pill(this, if (tab.private) 0x33D9B15C.toInt() else BrowserUi.NAVY_RAISED, 12)
@@ -612,6 +646,7 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun updateAddress(url: String?) {
+        if (embeddedStore) return
         if (!::address.isInitialized || address.hasFocus()) return
         val value = url.orEmpty()
         if (value == BrowserTab.HOME_URL || value.isBlank()) {
@@ -875,6 +910,7 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun showTabSwitcher() {
+        if (embeddedStore) return
         dialog?.dismiss()
         val pad = dp(16)
         val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, pad); setBackgroundColor(BrowserUi.IVORY) }
@@ -927,6 +963,7 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun toggleBookmark(url: String?) {
+        if (embeddedStore) { toast("در حالت فروشگاه نشانک‌گذاری مجاز نیست"); return }
         if (!BrowserRequestPolicy.safeExternal(url.orEmpty()) || currentTab()?.private == true) {
             toast("این صفحه قابل ذخیره نیست"); return
         }
@@ -959,6 +996,7 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun share(url: String?) {
+        if (embeddedStore) { toast("در حالت فروشگاه اشتراک‌گذاری نشانی مجاز نیست"); return }
         if (!BrowserRequestPolicy.safeExternal(url.orEmpty())) return
         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"; putExtra(Intent.EXTRA_TEXT, url)
@@ -966,6 +1004,7 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun openExternal(url: String?) {
+        if (embeddedStore) { toast("در حالت فروشگاه باز کردن مرورگر دیگر مجاز نیست"); return }
         if (!BrowserRequestPolicy.safeExternal(url.orEmpty())) return
         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)) }
             .onFailure { toast("مرورگر دیگری پیدا نشد") }
@@ -1046,7 +1085,7 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun downloadListener(tab: BrowserTab) = DownloadListener { url, userAgent, disposition, mime, _ ->
-        if (!BrowserRequestPolicy.safeExternal(url) || tab.private) {
+        if (!BrowserRequestPolicy.safeExternal(url) || tab.private || embeddedStore) {
             toast(if (tab.private) "دانلود در تب خصوصی غیرفعال است" else "نشانی دانلود امن نیست"); return@DownloadListener
         }
         val handoff = Intent(BrowserContract.ACTION_ENQUEUE_DOWNLOAD).setPackage(packageName).apply {
@@ -1117,6 +1156,10 @@ class GhajarBrowserActivity : Activity() {
             val uri = request.url
             when (uri.scheme?.lowercase()) {
                 "http", "https" -> {
+                    if (embeddedStore && !StoreEmbeddedPolicy.navigationAllowed(tab.url, request.url.toString())) {
+                        if (tab.id == activeId) toast("این مقصد خارج از فروشگاه مجاز نیست")
+                        return true
+                    }
                     if (uri.path.orEmpty().endsWith(".pdf", true)) {
                         if (tab.id == activeId) openPdf(request.url.toString())
                         return true
@@ -1162,7 +1205,7 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun handleHomeAction(uri: Uri) = when (uri.host) {
-        "private" -> newTab(private = true)
+        "private" -> if (embeddedStore) Unit else newTab(private = true)
         "bookmarks", "history" -> showLibrary()
         else -> Unit
     }

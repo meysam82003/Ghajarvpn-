@@ -40,8 +40,10 @@ object StoreLinkRouter {
     fun browserIntent(context: Context, raw: String): Intent? {
         val route = classify(raw)
         if (route.kind !in setOf(StoreLinkKind.TERMS, StoreLinkKind.HELP, StoreLinkKind.USER_PANEL, StoreLinkKind.WEB_SUPPORT)) return null
-        return Intent(context, com.ghajarvpn.browser.GhajarBrowserActivity::class.java)
-            .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_URL, route.uri.toString())
-            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        // Store web pages open in the Ghajar browser's embedded store mode:
+        // no address bar, no URL exposure, navigation locked to the store origin.
+        val decision = com.ghajarvpn.browser.StoreEmbeddedPolicy.decide(route.uri.toString())
+        if (!decision.allowed) return null
+        return com.ghajarvpn.browser.StoreEmbeddedPolicy.launchIntent(context, decision.uri!!)
     }
 }
