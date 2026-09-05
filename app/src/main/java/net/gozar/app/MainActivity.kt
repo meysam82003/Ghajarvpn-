@@ -923,19 +923,20 @@ class MainActivity : ComponentActivity() {
             }
             return
         }
-        if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
-            config.security.trim().lowercase() == "tls"
-        ) {
-            VpnState.setConnecting(config.id)
-            lifecycleScope.launch {
-                val pin = CertPin.fetch(config.address, config.port, config.sni)
-                val ready = if (pin.isNullOrBlank()) config
-                else config.copy(pinnedCertSha256 = pin).also { store.update(it) }
-                proceedLaunch(ready)
+        VpnCommandCoordinator.onConnectRequested(config.id) {
+            if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
+                config.security.trim().lowercase() == "tls"
+            ) {
+                lifecycleScope.launch {
+                    val pin = CertPin.fetch(config.address, config.port, config.sni)
+                    val ready = if (pin.isNullOrBlank()) config
+                    else config.copy(pinnedCertSha256 = pin).also { store.update(it) }
+                    proceedLaunch(ready)
+                }
+                return@onConnectRequested
             }
-            return
+            proceedLaunch(config)
         }
-        proceedLaunch(config)
     }
 
     private fun proceedLaunch(config: ProxyConfig) {
@@ -1167,20 +1168,24 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun disconnect() {
-        // Ask the embedded engine to stop even when the app process was recreated and
-        // no longer remembers the ovpn: id, otherwise its notification lingers.
-        if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") ||
-            GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED
-        ) {
-            lifecycleScope.launch { runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) } }
-            if (VpnState.activeId.value.orEmpty().startsWith("ovpn:")) return
+        // Serialized through the coordinator: rapid connect/disconnect taps always
+        // resolve with the latest intent winning and watchdogs reconciling hangs.
+        VpnCommandCoordinator.onDisconnectRequested {
+            // Ask the embedded engine to stop even when the app process was recreated
+            // and no longer remembers the ovpn: id, otherwise its notification lingers.
+            if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") ||
+                GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED
+            ) {
+                lifecycleScope.launch { runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) } }
+                if (VpnState.activeId.value.orEmpty().startsWith("ovpn:")) return@onDisconnectRequested
+            }
+            if (IkeController.active) {
+                IkeController.disconnect(this)
+                VpnState.setDisconnected()
+                return@onDisconnectRequested
+            }
+            startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
         }
-        if (IkeController.active) {
-            IkeController.disconnect(this)
-            VpnState.setDisconnected()
-            return
-        }
-        startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
     }
 
     private fun switchTo(config: ProxyConfig) {

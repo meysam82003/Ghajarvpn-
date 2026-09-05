@@ -229,6 +229,7 @@ class GhajarBrowserActivity : Activity() {
                 if (go) {
                     load(BrowserRequestPolicy.normalizeInput(text.toString(), settings))
                     clearFocus()
+                    hideKeyboard()
                     true
                 } else false
             }
@@ -563,7 +564,13 @@ class GhajarBrowserActivity : Activity() {
         CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
     }
 
+    private fun hideKeyboard() {
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        runCatching { controller.hide(WindowInsetsCompat.Type.ime()) }
+    }
+
     private fun load(raw: String) {
+        hideKeyboard()
         val tab = currentTab() ?: return
         tab.url = raw
         loadInto(currentWebView() ?: return, raw)
@@ -1411,11 +1418,23 @@ class GhajarBrowserActivity : Activity() {
 
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
-        if (fullScreenView != null) { hideFullScreen(); return }
-        currentWebView()?.let { web ->
-            if (web.canGoBack()) { web.goBack(); return }
+        handleBack()
+    }
+
+    private fun handleBack() {
+        val insets = WindowInsetsCompat.toWindowInsetsCompat(window.decorView.rootWindowInsets)
+        if (insets.isVisible(WindowInsetsCompat.Type.ime())) {
+            hideKeyboard(); return
         }
-        if (tabs.size > 1) closeTab(currentTab() ?: return) else super.onBackPressed()
+        if (dialog?.isShowing == true) { dialog?.dismiss(); return }
+        if (fullScreenView != null) { hideFullScreen(); return }
+        val web = currentWebView()
+        if (web?.canGoBack() == true) { web.goBack(); return }
+        // Embedded store history lives in the same WebView; closing would drop
+        // the store session, so stay until the page stack is exhausted.
+        if (embeddedStore) { finish(); return }
+        if (tabs.size > 1) { closeTab(currentTab() ?: return); return }
+        finish()
     }
 
     override fun onPause() {

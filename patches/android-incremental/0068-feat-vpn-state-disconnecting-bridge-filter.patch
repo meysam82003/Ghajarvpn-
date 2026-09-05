@@ -1,0 +1,53 @@
+diff --git a/app/src/main/java/net/gozar/app/VpnState.kt b/app/src/main/java/net/gozar/app/VpnState.kt
+--- a/app/src/main/java/net/gozar/app/VpnState.kt
++++ b/app/src/main/java/net/gozar/app/VpnState.kt
+@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ 
+-enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
++enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING, ERROR }
+ 
+ object VpnState {
+     private val _state = MutableStateFlow(Connection.DISCONNECTED)
+@@ -23,6 +23,7 @@ object VpnState {
+     val connectedAt: StateFlow<Long> = _connectedAt.asStateFlow()
+ 
+     fun setPicking(value: Boolean) { _picking.value = value }
++    fun setDisconnecting() { _state.value = Connection.DISCONNECTING }
+     fun setConnecting(id: String) { _activeId.value = id; _error.value = null; _connectedAt.value = 0L; _state.value = Connection.CONNECTING }
+     fun setConnected() { _connectedAt.value = System.currentTimeMillis(); _state.value = Connection.CONNECTED }
+     fun setError(message: String) { _picking.value = false; _error.value = message; _connectedAt.value = 0L; _state.value = Connection.ERROR }
+diff --git a/app/src/main/java/net/gozar/app/Vpnbridge.kt b/app/src/main/java/net/gozar/app/Vpnbridge.kt
+--- a/app/src/main/java/net/gozar/app/Vpnbridge.kt
++++ b/app/src/main/java/net/gozar/app/Vpnbridge.kt
+@@ -41,18 +41,28 @@ object VpnBridge {
+         val app = context.applicationContext
+         val receiver = object : BroadcastReceiver() {
+             override fun onReceive(ctx: Context, intent: Intent) {
++                // Rapid connect/disconnect: stale engine reports must never
++                // overwrite the state the user's latest intent established.
++                val reported = when (intent.getStringExtra(EX_STATE)) {
++                    S_CONNECTED -> Connection.CONNECTED
++                    S_DISCONNECTED -> Connection.DISCONNECTED
++                    S_ERROR -> Connection.ERROR
++                    else -> null
++                }
++                if (reported != null && !VpnCommandCoordinator.acceptBroadcast(reported)) return
+                 when (intent.getStringExtra(EX_STATE)) {
+                     // While IKEv2 owns the tunnel the Xray service is not the authority on
+                     // connection state: IkeController drives VpnState from strongSwan's own
+                     // callbacks. Honouring a late disconnect from the stopped Xray service
+                     // here is what produced the connect/disconnect flicker on IKEv2 connect.
+-                    S_CONNECTED -> if (!IkeController.active) VpnState.setConnected()
++                    S_CONNECTED -> if (!IkeController.active) { VpnState.setConnected(); VpnCommandCoordinator.onTunnelConfirmed() }
+                     S_ERROR -> if (!IkeController.active) {
+                         VpnState.setError(intent.getStringExtra(EX_ERROR) ?: "Connection failed")
+                         _counters.value = VpnCounters()
+                     }
+                     S_DISCONNECTED -> {
+                         if (!IkeController.active) VpnState.setDisconnected()
++                        VpnCommandCoordinator.onTunnelTeardown()
+                         _counters.value = VpnCounters()
+                         UsageStore.flush()
+                     }

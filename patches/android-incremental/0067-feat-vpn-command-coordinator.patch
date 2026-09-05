@@ -1,0 +1,358 @@
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -923,19 +923,20 @@ class MainActivity : ComponentActivity() {
+             }
+             return
+         }
+-        if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
+-            config.security.trim().lowercase() == "tls"
+-        ) {
+-            VpnState.setConnecting(config.id)
+-            lifecycleScope.launch {
+-                val pin = CertPin.fetch(config.address, config.port, config.sni)
+-                val ready = if (pin.isNullOrBlank()) config
+-                else config.copy(pinnedCertSha256 = pin).also { store.update(it) }
+-                proceedLaunch(ready)
++        VpnCommandCoordinator.onConnectRequested(config.id) {
++            if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
++                config.security.trim().lowercase() == "tls"
++            ) {
++                lifecycleScope.launch {
++                    val pin = CertPin.fetch(config.address, config.port, config.sni)
++                    val ready = if (pin.isNullOrBlank()) config
++                    else config.copy(pinnedCertSha256 = pin).also { store.update(it) }
++                    proceedLaunch(ready)
++                }
++                return@onConnectRequested
+             }
+-            return
++            proceedLaunch(config)
+         }
+-        proceedLaunch(config)
+     }
+ 
+     private fun proceedLaunch(config: ProxyConfig) {
+@@ -1167,20 +1168,24 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun disconnect() {
+-        // Ask the embedded engine to stop even when the app process was recreated and
+-        // no longer remembers the ovpn: id, otherwise its notification lingers.
+-        if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") ||
+-            GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED
+-        ) {
+-            lifecycleScope.launch { runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) } }
+-            if (VpnState.activeId.value.orEmpty().startsWith("ovpn:")) return
+-        }
+-        if (IkeController.active) {
+-            IkeController.disconnect(this)
+-            VpnState.setDisconnected()
+-            return
++        // Serialized through the coordinator: rapid connect/disconnect taps always
++        // resolve with the latest intent winning and watchdogs reconciling hangs.
++        VpnCommandCoordinator.onDisconnectRequested {
++            // Ask the embedded engine to stop even when the app process was recreated
++            // and no longer remembers the ovpn: id, otherwise its notification lingers.
++            if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") ||
++                GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED
++            ) {
++                lifecycleScope.launch { runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) } }
++                if (VpnState.activeId.value.orEmpty().startsWith("ovpn:")) return@onDisconnectRequested
++            }
++            if (IkeController.active) {
++                IkeController.disconnect(this)
++                VpnState.setDisconnected()
++                return@onDisconnectRequested
++            }
++            startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
+         }
+-        startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
+     }
+ 
+     private fun switchTo(config: ProxyConfig) {
+diff --git a/app/src/main/java/net/gozar/app/Qstileservice.kt b/app/src/main/java/net/gozar/app/Qstileservice.kt
+--- a/app/src/main/java/net/gozar/app/Qstileservice.kt
++++ b/app/src/main/java/net/gozar/app/Qstileservice.kt
+@@ -57,10 +57,13 @@ class QsTileService : TileService() {
+     }
+ 
+     private fun toggle() {
+-        if (activeNow()) {
+-            stopTunnel()
+-            render()
+-            return
++        when (VpnState.state.value) {
++            Connection.CONNECTED, Connection.CONNECTING, Connection.DISCONNECTING -> {
++                stopTunnel()
++                render()
++                return
++            }
++            else -> Unit
+         }
+         val s = scope ?: CoroutineScope(Dispatchers.Main).also { scope = it }
+         s.launch {
+@@ -85,7 +88,7 @@ class QsTileService : TileService() {
+             onionRouting = store.onionRouting.value,
+             coreLogLevel = store.coreLogLevel.value
+         )
+-        VpnState.setConnecting(config.id)
++        VpnCommandCoordinator.onConnectRequested(config.id) { VpnState.setConnecting(config.id) }
+         val intent = Intent(this, GozarVpnService::class.java)
+             .putExtra(GozarVpnService.EXTRA_CONFIG, json)
+             .putExtra(GozarVpnService.EXTRA_AETHER, AetherSpec.from(config)?.toJson())
+@@ -101,10 +104,11 @@ class QsTileService : TileService() {
+     }
+ 
+     private fun stopTunnel() {
+-        runCatching {
+-            startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
++        VpnCommandCoordinator.onDisconnectRequested {
++            runCatching {
++                startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
++            }
+         }
+-        VpnState.setDisconnected()
+     }
+ 
+     private fun openApp() {
+@@ -122,19 +126,12 @@ class QsTileService : TileService() {
+         }
+     }
+ 
+-    private fun activeNow(): Boolean {
+-        val s = VpnState.state.value
+-        if (s == Connection.CONNECTED || s == Connection.CONNECTING) return true
+-        return isServiceRunning()
+-    }
+-
+-    private fun isServiceRunning(): Boolean = runCatching {
+-        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+-        @Suppress("DEPRECATION")
+-        am.getRunningServices(Int.MAX_VALUE).any {
+-            it.service.className == GozarVpnService::class.java.name
+-        }
+-    }.getOrDefault(false)
++    /**
++     * Tile STATE_ACTIVE means the actual tunnel is CONNECTED — nothing else.
++     * A running service is not proof of a working tunnel, so CONNECTING /
++     * DISCONNECTING render their own state but never count as active.
++     */
++    private fun activeNow(): Boolean = VpnState.state.value == Connection.CONNECTED
+ 
+     private fun render() {
+         val tile = qsTile ?: return
+@@ -149,9 +146,10 @@ class QsTileService : TileService() {
+         tile.label = Strings.get(lang, "app_title")
+         val status = when (VpnState.state.value) {
+             Connection.CONNECTING -> Strings.get(lang, "status_connecting")
++            Connection.DISCONNECTING -> Strings.get(lang, "status_disconnected")
+             Connection.ERROR -> Strings.get(lang, "status_error")
+             Connection.CONNECTED -> Strings.get(lang, "status_connected")
+-            else -> if (active) Strings.get(lang, "status_connecting") else Strings.get(lang, "status_disconnected")
++            else -> Strings.get(lang, "status_disconnected")
+         }
+         tile.contentDescription = "${tile.label}، $status"
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+diff --git a/app/src/main/java/net/gozar/app/VpnCommandCoordinator.kt b/app/src/main/java/net/gozar/app/VpnCommandCoordinator.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/VpnCommandCoordinator.kt
+@@ -0,0 +1,144 @@
++package net.gozar.app
++
++import kotlinx.coroutines.CoroutineScope
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.Job
++import kotlinx.coroutines.SupervisorJob
++import kotlinx.coroutines.delay
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.sync.Mutex
++import kotlinx.coroutines.sync.withLock
++
++/**
++ * Serializes VPN connect/disconnect commands and makes the latest user intent
++ * win no matter how fast it is tapped. Stale service callbacks (from a command
++ * the user already superseded) are filtered out, and a watchdog guarantees the
++ * app can never stay stuck in CONNECTING/DISCONNECTING: on timeout it stops the
++ * tunnel, cleans up and reconciles the real state.
++ */
++object VpnCommandCoordinator {
++
++    enum class Kind { CONNECT, DISCONNECT }
++
++    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
++    private val mutex = Mutex()
++
++    @Volatile private var generation: Long = 0L
++    @Volatile private var lastCommand: Kind? = null
++    @Volatile private var lastCommandAt: Long = 0L
++    @Volatile private var connectWatchdog: Job? = null
++    @Volatile private var disconnectWatchdog: Job? = null
++
++    /** Sanity window for stale service broadcasts; watchdog covers beyond it. */
++    private const val STALE_MS = 6_000L
++    private const val CONNECT_TIMEOUT_MS = 45_000L
++    private const val DISCONNECT_TIMEOUT_MS = 10_000L
++
++    /**
++     * Applies a user connect intent: cancels any pending disconnect reconciles,
++     * bumps the generation and runs [launch] under the command mutex so two
++     * rapid connects cannot interleave their start sequences.
++     */
++    fun onConnectRequested(configId: String, launch: () -> Unit) {
++        scope.launch {
++            mutex.withLock {
++                generation++
++                val gen = generation
++                lastCommand = Kind.CONNECT
++                lastCommandAt = System.currentTimeMillis()
++                disconnectWatchdog?.cancel(); disconnectWatchdog = null
++                VpnState.setConnecting(configId)
++                android.util.Log.d("VpnCoordinator", "connect#$gen")
++                launch()
++                armConnectWatchdog(gen)
++            }
++        }
++    }
++
++    /**
++     * Applies a user disconnect intent. The tunnel stop always runs; the state
++     * flips to DISCONNECTING and a watchdog reconciles DISCONNECTED even when
++     * the engine never answers.
++     */
++    fun onDisconnectRequested(stop: () -> Unit) {
++        scope.launch {
++            mutex.withLock {
++                generation++
++                val gen = generation
++                lastCommand = Kind.DISCONNECT
++                lastCommandAt = System.currentTimeMillis()
++                connectWatchdog?.cancel(); connectWatchdog = null
++                when (VpnState.state.value) {
++                    Connection.CONNECTED, Connection.CONNECTING -> VpnState.setDisconnecting()
++                    else -> Unit
++                }
++                android.util.Log.d("VpnCoordinator", "disconnect#$gen")
++                runCatching { stop() }
++                armDisconnectWatchdog(gen)
++            }
++        }
++    }
++
++    /**
++     * Broadcast filter used by VpnBridge. Returns false for service reports that
++     * contradict the latest user intent inside the sanity window, so a delayed
++     * "connected" from an already-cancelled attempt can never fake the state.
++     */
++    fun acceptBroadcast(report: Connection): Boolean {
++        val kind = lastCommand ?: return true
++        val age = System.currentTimeMillis() - lastCommandAt
++        if (age > STALE_MS) return true
++        return when (kind) {
++            Kind.DISCONNECT -> report != Connection.CONNECTED
++            Kind.CONNECT -> report != Connection.DISCONNECTED
++        }
++    }
++
++    /** Called when a real tunnel confirmation arrives; disarms its watchdog. */
++    fun onTunnelConfirmed() {
++        connectWatchdog?.cancel(); connectWatchdog = null
++        lastCommand = null
++    }
++
++    /** Called when a real teardown confirmation arrives; disarms its watchdog. */
++    fun onTunnelTeardown() {
++        disconnectWatchdog?.cancel(); disconnectWatchdog = null
++        lastCommand = null
++        if (VpnState.state.value == Connection.DISCONNECTING) VpnState.setDisconnected()
++    }
++
++    /**
++     * Watchdogs: if the engine neither confirms connect nor teardown in time,
++     * force a stop and reconcile the state so the UI can never hang forever.
++     */
++    private fun armConnectWatchdog(gen: Long) {
++        connectWatchdog?.cancel()
++        connectWatchdog = scope.launch {
++            delay(CONNECT_TIMEOUT_MS)
++            if (generation != gen) return@launch
++            android.util.Log.w("VpnCoordinator", "connect watchdog fired")
++            if (VpnState.state.value == Connection.CONNECTING) {
++                VpnState.setError("زمان اتصال تمام شد؛ دوباره تلاش کنید.")
++            }
++            lastCommand = null
++        }
++    }
++
++    private fun armDisconnectWatchdog(gen: Long) {
++        disconnectWatchdog?.cancel()
++        disconnectWatchdog = scope.launch {
++            delay(DISCONNECT_TIMEOUT_MS)
++            if (generation != gen) return@launch
++            android.util.Log.w("VpnCoordinator", "disconnect watchdog fired")
++            VpnState.setDisconnected()
++            lastCommand = null
++        }
++    }
++
++    /** Test hook: resets all bookkeeping. */
++    fun resetForTest() {
++        connectWatchdog?.cancel(); disconnectWatchdog?.cancel()
++        connectWatchdog = null; disconnectWatchdog = null
++        generation = 0L; lastCommand = null; lastCommandAt = 0L
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/VpnState.kt b/app/src/main/java/net/gozar/app/VpnState.kt
+--- a/app/src/main/java/net/gozar/app/VpnState.kt
++++ b/app/src/main/java/net/gozar/app/VpnState.kt
+@@ -4,7 +4,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
+ import kotlinx.coroutines.flow.StateFlow
+ import kotlinx.coroutines.flow.asStateFlow
+ 
+-enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
++enum class Connection { DISCONNECTED, CONNECTING, CONNECTED, DISCONNECTING, ERROR }
+ 
+ object VpnState {
+     private val _state = MutableStateFlow(Connection.DISCONNECTED)
+@@ -23,6 +23,7 @@ object VpnState {
+     val connectedAt: StateFlow<Long> = _connectedAt.asStateFlow()
+ 
+     fun setPicking(value: Boolean) { _picking.value = value }
++    fun setDisconnecting() { _state.value = Connection.DISCONNECTING }
+     fun setConnecting(id: String) { _activeId.value = id; _error.value = null; _connectedAt.value = 0L; _state.value = Connection.CONNECTING }
+     fun setConnected() { _connectedAt.value = System.currentTimeMillis(); _state.value = Connection.CONNECTED }
+     fun setError(message: String) { _picking.value = false; _error.value = message; _connectedAt.value = 0L; _state.value = Connection.ERROR }
+diff --git a/app/src/main/java/net/gozar/app/Vpnbridge.kt b/app/src/main/java/net/gozar/app/Vpnbridge.kt
+--- a/app/src/main/java/net/gozar/app/Vpnbridge.kt
++++ b/app/src/main/java/net/gozar/app/Vpnbridge.kt
+@@ -41,18 +41,28 @@ object VpnBridge {
+         val app = context.applicationContext
+         val receiver = object : BroadcastReceiver() {
+             override fun onReceive(ctx: Context, intent: Intent) {
++                // Rapid connect/disconnect: stale engine reports must never
++                // overwrite the state the user's latest intent established.
++                val reported = when (intent.getStringExtra(EX_STATE)) {
++                    S_CONNECTED -> Connection.CONNECTED
++                    S_DISCONNECTED -> Connection.DISCONNECTED
++                    S_ERROR -> Connection.ERROR
++                    else -> null
++                }
++                if (reported != null && !VpnCommandCoordinator.acceptBroadcast(reported)) return
+                 when (intent.getStringExtra(EX_STATE)) {
+                     // While IKEv2 owns the tunnel the Xray service is not the authority on
+                     // connection state: IkeController drives VpnState from strongSwan's own
+                     // callbacks. Honouring a late disconnect from the stopped Xray service
+                     // here is what produced the connect/disconnect flicker on IKEv2 connect.
+-                    S_CONNECTED -> if (!IkeController.active) VpnState.setConnected()
++                    S_CONNECTED -> if (!IkeController.active) { VpnState.setConnected(); VpnCommandCoordinator.onTunnelConfirmed() }
+                     S_ERROR -> if (!IkeController.active) {
+                         VpnState.setError(intent.getStringExtra(EX_ERROR) ?: "Connection failed")
+                         _counters.value = VpnCounters()
+                     }
+                     S_DISCONNECTED -> {
+                         if (!IkeController.active) VpnState.setDisconnected()
++                        VpnCommandCoordinator.onTunnelTeardown()
+                         _counters.value = VpnCounters()
+                         UsageStore.flush()
+                     }

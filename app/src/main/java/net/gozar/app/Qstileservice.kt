@@ -57,10 +57,13 @@ class QsTileService : TileService() {
     }
 
     private fun toggle() {
-        if (activeNow()) {
-            stopTunnel()
-            render()
-            return
+        when (VpnState.state.value) {
+            Connection.CONNECTED, Connection.CONNECTING, Connection.DISCONNECTING -> {
+                stopTunnel()
+                render()
+                return
+            }
+            else -> Unit
         }
         val s = scope ?: CoroutineScope(Dispatchers.Main).also { scope = it }
         s.launch {
@@ -85,7 +88,7 @@ class QsTileService : TileService() {
             onionRouting = store.onionRouting.value,
             coreLogLevel = store.coreLogLevel.value
         )
-        VpnState.setConnecting(config.id)
+        VpnCommandCoordinator.onConnectRequested(config.id) { VpnState.setConnecting(config.id) }
         val intent = Intent(this, GozarVpnService::class.java)
             .putExtra(GozarVpnService.EXTRA_CONFIG, json)
             .putExtra(GozarVpnService.EXTRA_AETHER, AetherSpec.from(config)?.toJson())
@@ -101,10 +104,11 @@ class QsTileService : TileService() {
     }
 
     private fun stopTunnel() {
-        runCatching {
-            startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
+        VpnCommandCoordinator.onDisconnectRequested {
+            runCatching {
+                startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
+            }
         }
-        VpnState.setDisconnected()
     }
 
     private fun openApp() {
@@ -122,19 +126,12 @@ class QsTileService : TileService() {
         }
     }
 
-    private fun activeNow(): Boolean {
-        val s = VpnState.state.value
-        if (s == Connection.CONNECTED || s == Connection.CONNECTING) return true
-        return isServiceRunning()
-    }
-
-    private fun isServiceRunning(): Boolean = runCatching {
-        val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
-        @Suppress("DEPRECATION")
-        am.getRunningServices(Int.MAX_VALUE).any {
-            it.service.className == GozarVpnService::class.java.name
-        }
-    }.getOrDefault(false)
+    /**
+     * Tile STATE_ACTIVE means the actual tunnel is CONNECTED — nothing else.
+     * A running service is not proof of a working tunnel, so CONNECTING /
+     * DISCONNECTING render their own state but never count as active.
+     */
+    private fun activeNow(): Boolean = VpnState.state.value == Connection.CONNECTED
 
     private fun render() {
         val tile = qsTile ?: return
@@ -149,9 +146,10 @@ class QsTileService : TileService() {
         tile.label = Strings.get(lang, "app_title")
         val status = when (VpnState.state.value) {
             Connection.CONNECTING -> Strings.get(lang, "status_connecting")
+            Connection.DISCONNECTING -> Strings.get(lang, "status_disconnected")
             Connection.ERROR -> Strings.get(lang, "status_error")
             Connection.CONNECTED -> Strings.get(lang, "status_connected")
-            else -> if (active) Strings.get(lang, "status_connecting") else Strings.get(lang, "status_disconnected")
+            else -> Strings.get(lang, "status_disconnected")
         }
         tile.contentDescription = "${tile.label}، $status"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
