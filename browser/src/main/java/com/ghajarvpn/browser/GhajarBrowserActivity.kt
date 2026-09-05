@@ -475,6 +475,8 @@ class GhajarBrowserActivity : Activity() {
             toast("این رسانه با DRM محافظت شده و دانلود آن ممکن نیست"); return
         }
         if (tab.private) { toast("دانلود در تب خصوصی غیرفعال است"); return }
+        if (embeddedStore) { toast("دانلود در حالت فروشگاه مجاز نیست"); return }
+        if (!candidate.url.startsWith("https://")) { toast("دانلود فقط از نشانی امن مجاز است"); return }
         val handoff = Intent(BrowserContract.ACTION_ENQUEUE_DOWNLOAD).setPackage(packageName).apply {
             putExtra(BrowserContract.EXTRA_URL, candidate.url)
             putExtra(BrowserContract.EXTRA_COOKIES, CookieManager.getInstance().getCookie(candidate.url).orEmpty())
@@ -486,7 +488,11 @@ class GhajarBrowserActivity : Activity() {
         if (packageManager.queryBroadcastReceivers(handoff, 0).isNotEmpty()) {
             sendBroadcast(handoff)
             toast("دانلود با قاجار آغاز شد")
-        } else toast("مدیر دانلود در دسترس نیست")
+        } else {
+            // Receiver missing (module-only build): fall back to the system
+            // DownloadManager so the user still gets the file.
+            fallbackDownload(candidate.url, currentWebView()?.settings?.userAgentString.orEmpty(), "", candidate.mimeType, tab.url)
+        }
     }
 
     private fun showMediaInfo(candidate: MediaCandidate) {
