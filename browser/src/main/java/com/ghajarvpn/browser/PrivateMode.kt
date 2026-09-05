@@ -5,6 +5,7 @@ import androidx.webkit.Profile
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import androidx.webkit.WebViewRenderProcessClient
 
 /**
  * Private-mode hardening. Private tabs never touch persistent storage:
@@ -20,7 +21,26 @@ object PrivateMode {
 
     fun separateProfileSupported(): Boolean = WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
 
-    /** Switches the WebView to the ephemeral private profile, if supported. */
+    /** Renders private tabs in an isolated renderer when the device supports it. */
+fun isolateRenderer(webView: android.webkit.WebView) {
+    if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_VIEW_RENDERER_CLIENT_BASIC_USAGE)) return
+    runCatching {
+        WebViewCompat.setWebViewRenderProcessClient(
+            webView,
+            object : WebViewRenderProcessClient() {
+                override fun onRenderProcessUnresponsive(webView: android.webkit.WebView, renderProcess: androidx.webkit.WebViewRenderProcess?) {
+                    // Unresponsive private renderer: terminate it so the tab can
+                    // recover instead of leaking a hung isolated process.
+                    runCatching { renderProcess?.terminate() }
+                }
+
+                override fun onRenderProcessResponsive(webView: android.webkit.WebView, renderProcess: androidx.webkit.WebViewRenderProcess?) = Unit
+            }
+        )
+    }
+}
+
+/** Switches the WebView to the ephemeral private profile, if supported. */
     fun attach(webView: android.webkit.WebView): Boolean {
         if (!separateProfileSupported()) return false
         return runCatching {

@@ -428,7 +428,10 @@ class GhajarBrowserActivity : Activity() {
         // Android Autofill: normal tabs participate in the system framework;
         // private tabs must never expose form data to any autofill service.
         importantForAutofill = if (tab.private) android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS else android.view.View.IMPORTANT_FOR_AUTOFILL_YES
-        if (tab.private) PrivateMode.attach(this)
+        if (tab.private) {
+            PrivateMode.attach(this)
+            PrivateMode.isolateRenderer(this)
+        }
         webViewClient = BrowserClient(tab)
         webChromeClient = BrowserChrome(tab)
         setDownloadListener(downloadListener(tab))
