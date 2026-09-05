@@ -115,7 +115,24 @@ class BrowserRepository(store: BrowserDocumentStore) {
 
     fun clearBrowsingData() {
         store.remove("history"); store.remove("tabs"); store.remove("bookmarks")
+        store.remove("session")
     }
+
+    /** Process-death recovery markers: active tab id and per-tab scroll offsets. */
+    fun saveSession(activeTabId: String, scrollOffsets: org.json.JSONObject) {
+        store.save("session", org.json.JSONObject()
+            .put("active", activeTabId)
+            .put("scroll", scrollOffsets)
+            .toString())
+    }
+
+    fun restoreActiveTabId(): String = runCatching {
+        org.json.JSONObject(store.load("session") ?: "{}").optString("active")
+    }.getOrDefault("")
+
+    fun sessionScroll(tabId: String): Long = runCatching {
+        org.json.JSONObject(store.load("session") ?: "{}").optJSONObject("scroll")?.optLong(tabId) ?: 0L
+    }.getOrDefault(0L)
 
     companion object { const val MAX_TABS = 24; const val MAX_HISTORY = 500 }
 }

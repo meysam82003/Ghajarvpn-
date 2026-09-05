@@ -122,7 +122,13 @@ class GhajarBrowserActivity : Activity() {
         if (private || !requested.isNullOrBlank()) {
             newTab(requested ?: BrowserTab.HOME_URL, private)
         } else {
-            showTab(tabs.maxByOrNull { it.lastUsed } ?: tabs.first())
+            // Process-death recovery: prefer the tab that was active when the
+            // process was stopped, falling back to the most recent one.
+            val activeId = repository.restoreActiveTabId()
+            val restored = tabs.firstOrNull { it.id == activeId }
+                ?: tabs.maxByOrNull { it.lastUsed }
+                ?: tabs.first()
+            showTab(restored)
         }
     }
 
@@ -373,6 +379,10 @@ class GhajarBrowserActivity : Activity() {
         (web.parent as? ViewGroup)?.removeView(web)
         webContainer.addView(web, FrameLayout.LayoutParams(-1, -1))
         if (web.url == null) loadInto(web, tab.url)
+        if (!tab.private) {
+            val saved = repository.sessionScroll(tab.id)
+            if (saved > 0 && web.scrollY == 0) web.scrollTo(0, saved.toInt())
+        }
         updateAddress(tab.url)
         refreshChrome(tab)
         repository.saveTabs(tabs.filterNot(BrowserTab::private))
@@ -1397,6 +1407,20 @@ class GhajarBrowserActivity : Activity() {
 
     override fun onPause() {
         repository.saveTabs(tabs.filterNot(BrowserTab::private)); CookieManager.getInstance().flush(); super.onPause()
+    }
+
+    override fun onStop() {
+        // Persist the session markers used for process-death recovery: active tab
+        // identity and scroll offsets survive a killed process for normal tabs.
+        if (!embeddedStore) {
+            val active = currentTab()?.id.orEmpty()
+            val offsets = org.json.JSONObject()
+            tabs.filterNot(BrowserTab::private).forEach { tab ->
+                webViews[tab.id]?.let { web -> offsets.put(tab.id, web.scrollY) }
+            }
+            repository.saveSession(active, offsets)
+        }
+        super.onStop()
     }
 
     override fun onDestroy() {
