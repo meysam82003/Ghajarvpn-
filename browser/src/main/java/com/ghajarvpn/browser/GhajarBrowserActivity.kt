@@ -243,6 +243,14 @@ class GhajarBrowserActivity : Activity() {
                     updateAddress(currentTab()?.url)
                 }
             }
+            // Long-press paste shortcut: puts clipboard contents straight in.
+            setOnLongClickListener {
+                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                val text = clipboard.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
+                if (BrowserRequestPolicy.safeExternal(BrowserRequestPolicy.normalizeInput(text, settings)) || text.isNotBlank()) {
+                    setText(text); selectAll(); true
+                } else false
+            }
             setOnTouchListener { view, event ->
                 if (event.action == android.view.MotionEvent.ACTION_UP) {
                     val pad = dp(14)
