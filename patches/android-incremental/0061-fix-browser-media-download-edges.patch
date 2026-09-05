@@ -1,0 +1,40 @@
+From 9443a36e2befc31eaae7ed8fc2569f79fe266b58 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sat, 5 Sep 2026 07:54:24 +0330
+Subject: [PATCH] fix(browser): media download edge cases
+
+- Media sheet downloads require https and are refused in store embedded
+  mode; a missing GhajarDownloadReceiver falls back to the system
+  DownloadManager instead of a dead end
+---
+ .../java/com/ghajarvpn/browser/GhajarBrowserActivity.kt   | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -475,6 +475,8 @@ class GhajarBrowserActivity : Activity() {
+             toast("این رسانه با DRM محافظت شده و دانلود آن ممکن نیست"); return
+         }
+         if (tab.private) { toast("دانلود در تب خصوصی غیرفعال است"); return }
++        if (embeddedStore) { toast("دانلود در حالت فروشگاه مجاز نیست"); return }
++        if (!candidate.url.startsWith("https://")) { toast("دانلود فقط از نشانی امن مجاز است"); return }
+         val handoff = Intent(BrowserContract.ACTION_ENQUEUE_DOWNLOAD).setPackage(packageName).apply {
+             putExtra(BrowserContract.EXTRA_URL, candidate.url)
+             putExtra(BrowserContract.EXTRA_COOKIES, CookieManager.getInstance().getCookie(candidate.url).orEmpty())
+@@ -486,7 +488,11 @@ class GhajarBrowserActivity : Activity() {
+         if (packageManager.queryBroadcastReceivers(handoff, 0).isNotEmpty()) {
+             sendBroadcast(handoff)
+             toast("دانلود با قاجار آغاز شد")
+-        } else toast("مدیر دانلود در دسترس نیست")
++        } else {
++            // Receiver missing (module-only build): fall back to the system
++            // DownloadManager so the user still gets the file.
++            fallbackDownload(candidate.url, currentWebView()?.settings?.userAgentString.orEmpty(), "", candidate.mimeType, tab.url)
++        }
+     }
+ 
+     private fun showMediaInfo(candidate: MediaCandidate) {
+-- 
+2.55.0
+
