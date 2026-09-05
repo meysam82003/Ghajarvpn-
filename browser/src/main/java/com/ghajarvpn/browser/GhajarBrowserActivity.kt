@@ -425,6 +425,7 @@ class GhajarBrowserActivity : Activity() {
     private fun buildWebView(tab: BrowserTab): WebView = WebView(this).apply {
         setBackgroundColor(Color.WHITE)
         configureSettings(this, tab.private)
+        if (tab.desktop) settings.userAgentString = DESKTOP_UA
         // Android Autofill: normal tabs participate in the system framework;
         // private tabs must never expose form data to any autofill service.
         importantForAutofill = if (tab.private) android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS else android.view.View.IMPORTANT_FOR_AUTOFILL_YES
@@ -1002,9 +1003,9 @@ class GhajarBrowserActivity : Activity() {
     }
 
     private fun toggleDesktop(web: WebView) {
-        settings = settings.copy(desktopMode = !settings.desktopMode)
-        repository.saveSettings(settings)
-        web.settings.userAgentString = if (settings.desktopMode) DESKTOP_UA else WebSettings.getDefaultUserAgent(this)
+        val tab = currentTab() ?: return
+        tab.desktop = !tab.desktop
+        web.settings.userAgentString = if (tab.desktop) DESKTOP_UA else WebSettings.getDefaultUserAgent(this)
         web.reload()
     }
 

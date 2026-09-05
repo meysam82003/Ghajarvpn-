@@ -11,7 +11,8 @@ data class BrowserTab(
     var title: String = "قاجار",
     val private: Boolean = false,
     var group: String = "",
-    var lastUsed: Long = System.currentTimeMillis()
+    var lastUsed: Long = System.currentTimeMillis(),
+    var desktop: Boolean = false
 ) {
     companion object { const val HOME_URL = "https://home.ghajar.invalid/" }
 }
