@@ -23,14 +23,17 @@ jobs:
 
       - name: Install native prerequisites
         run: |
-          # The hosted Ubuntu image may temporarily expose a stale Google Chrome
-          # apt index. Chrome is unrelated to this Android build, so remove that
-          # external source before updating package metadata.
-          sudo rm -f /etc/apt/sources.list.d/google-chrome.list
-          sudo apt-get clean
+          # Restrict apt to Ubuntu's own archive. Hosted runners can temporarily
+          # carry stale third-party indexes (e.g. Google Chrome), which are not
+          # needed for this Android build and can cause Hash Sum mismatch errors.
+          APT_UBUNTU_OPTS=(
+            -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources"
+            -o Dir::Etc::sourceparts="-"
+            -o APT::Get::List-Cleanup="0"
+          )
           sudo rm -rf /var/lib/apt/lists/*
-          sudo apt-get update
-          sudo apt-get install -y swig ninja-build rsync
+          sudo apt-get "${APT_UBUNTU_OPTS[@]}" update
+          sudo apt-get "${APT_UBUNTU_OPTS[@]}" install -y --no-install-recommends swig ninja-build rsync
 
       - uses: android-actions/setup-android@v3
         with:
