@@ -24,26 +24,34 @@ jobs:
         with:
           gradle-version: '9.4.1'
 
+      - name: Install native prerequisites
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
 
       - name: Install Android SDK and NDK
-        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358"
+        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
-      - name: Restore missing StrongSwan support tree only
+      - name: Restore complete VPN engine modules while preserving uploaded app
         run: |
-          if [[ ! -f strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java ]]; then
-            echo "StrongSwan export is incomplete; restoring only the StrongSwan module from the reviewed source distribution."
-            chmod +x scripts/bootstrap-from-upstream.sh
-            scripts/bootstrap-from-upstream.sh
-            test -f .ghajarvpn-src/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
-            rm -rf strongswan
-            cp -a .ghajarvpn-src/strongswan ./strongswan
-            rm -rf .ghajarvpn-src
-          fi
+          echo "Keeping the newly uploaded app source unchanged."
+          chmod +x scripts/bootstrap-from-upstream.sh
+          scripts/bootstrap-from-upstream.sh
 
-      - name: Verify uploaded app source is still the build source
+          test -f .ghajarvpn-src/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+          test -f .ghajarvpn-src/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
+
+          chmod +x .ghajarvpn-src/scripts/fetch-openvpn-native.sh
+          .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
+
+          rm -rf openvpn strongswan
+          cp -a .ghajarvpn-src/openvpn ./openvpn
+          cp -a .ghajarvpn-src/strongswan ./strongswan
+          rm -rf .ghajarvpn-src
+
+      - name: Verify new uploaded app is the app being built
         run: |
           test -f settings.gradle.kts
           test -f app/build.gradle.kts
@@ -51,13 +59,11 @@ jobs:
           test -f app/src/main/java/net/gozar/app/AppColors.kt
           test -f app/src/main/java/net/gozar/app/configtoolkit/Decoders.kt
           test -f app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt
-          test -f openvpn/build.gradle.kts
-          test -f strongswan/build.gradle.kts
-          test -d openvpn/src/main/jniLibs/arm64-v8a
-          test -d openvpn/src/main/jniLibs/armeabi-v7a
-          echo "Building uploaded app/openvpn source directly; only missing StrongSwan support files were restored."
+          test -f openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+          test -f strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
+          echo "Uploaded app source preserved; complete OpenVPN/StrongSwan engines restored for compilation."
 
-      - name: Build uploaded source - Debug and Release
+      - name: Build new uploaded source - Debug and Release
         run: gradle --no-daemon -Pghajar.demo=true :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 
       - name: Verify APKs
@@ -76,7 +82,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-UPLOADED-SOURCE-Android8plus
+          name: Ghajarvpn-NEW-UPLOADED-APP-Android8plus
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
@@ -84,6 +90,6 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-uploaded-source-test-reports
+          name: Ghajarvpn-new-uploaded-app-test-reports
           path: app/build/test-results/testDebugUnitTest/*.xml
           if-no-files-found: warn
