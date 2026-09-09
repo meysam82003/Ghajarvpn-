@@ -82,7 +82,7 @@ object FreeConfigPipeline {
             message.attachments.forEachIndexed { index, bytes ->
                 val extracted = net.gozar.app.configcenter.ConfigExtractor.extract(message.attachmentNames.getOrNull(index), bytes)
                 val resolved = when {
-                    !extracted.locked -> null
+                    !extracted.locked -> extracted
                     password != null -> runCatching {
                         val decrypted = PasswordedContainer.tryDecrypt(bytes, password)
                         decrypted?.let { net.gozar.app.configcenter.ConfigExtractor.extract(message.attachmentNames.getOrNull(index), it) }
