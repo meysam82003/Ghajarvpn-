@@ -1,0 +1,150 @@
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 161ae48..0877421 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -851,40 +851,52 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun connectSavedOpenVpn(uuid: String) {
+-        val start: () -> Unit = {
+-            lifecycleScope.launch {
+-                runCatching {
+-                    stopOtherTunnelBeforeOpenVpn()
+-                    GhajarOpenVpnBridge.connectSaved(this@MainActivity, uuid)
+-                }.fold(
+-                    onSuccess = { launched ->
+-                        if (launched.isFailure) {
+-                            Toast.makeText(this@MainActivity,
+-                                launched.exceptionOrNull()?.message ?: "اتصال OVPN آغاز نشد",
+-                                Toast.LENGTH_LONG).show()
+-                        } else {
+-                            Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show()
++        // Routed through the same coordinator as the core tunnel: this is what
++        // gives OpenVPN a connect watchdog (so a hung/crashed engine can never
++        // leave the UI stuck on "در حال اتصال…" forever) and a mutex so rapid
++        // repeated taps on connect/disconnect can't race each other.
++        VpnCommandCoordinator.onConnectRequested("ovpn:$uuid") {
++            val start: () -> Unit = {
++                lifecycleScope.launch {
++                    runCatching {
++                        stopOtherTunnelBeforeOpenVpn()
++                        GhajarOpenVpnBridge.connectSaved(this@MainActivity, uuid)
++                    }.fold(
++                        onSuccess = { launched ->
++                            if (launched.isFailure) {
++                                VpnState.setError(launched.exceptionOrNull()?.message ?: "اتصال OVPN آغاز نشد")
++                                VpnCommandCoordinator.onTunnelFailed()
++                                Toast.makeText(this@MainActivity,
++                                    launched.exceptionOrNull()?.message ?: "اتصال OVPN آغاز نشد",
++                                    Toast.LENGTH_LONG).show()
++                            } else {
++                                Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show()
++                            }
++                        },
++                        onFailure = { error ->
++                            VpnState.setError(error.message ?: "اتصال OVPN آغاز نشد")
++                            VpnCommandCoordinator.onTunnelFailed()
++                            Toast.makeText(this@MainActivity, error.message ?: "اتصال OVPN آغاز نشد", Toast.LENGTH_LONG).show()
+                         }
+-                    },
+-                    onFailure = { error ->
+-                        VpnState.setDisconnected()
+-                        Toast.makeText(this@MainActivity, error.message ?: "اتصال OVPN آغاز نشد", Toast.LENGTH_LONG).show()
+-                    }
+-                )
++                    )
++                }
++                Unit
++            }
++            val permission = VpnService.prepare(this)
++            if (permission == null) start()
++            else {
++                afterPermission = start
++                vpnPermission.launch(permission)
+             }
+-            Unit
+-        }
+-        val permission = VpnService.prepare(this)
+-        if (permission == null) start()
+-        else {
+-            afterPermission = start
+-            vpnPermission.launch(permission)
+         }
+     }
+ 
+     private fun disconnectOpenVpn() {
+-        lifecycleScope.launch {
+-            runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) }
++        VpnCommandCoordinator.onDisconnectRequested {
++            lifecycleScope.launch {
++                runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) }
++                    .onFailure { VpnCommandCoordinator.onTunnelFailed() }
++            }
+         }
+     }
+ 
+@@ -914,13 +926,28 @@ class MainActivity : ComponentActivity() {
+         }
+     }
+ 
+-    private fun launchConnect(config: ProxyConfig) {
+-        // OpenVPN owns the tun while its state is live; tear it down first so the
+-        // core tunnel does not fight the engine for the VPN interface.
+-        if (GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED) {
++    private fun launchConnect(config: ProxyConfig, attempt: Int = 0) {
++        // OpenVPN owns the tun while it is actively connecting/connected; tear it
++        // down first so the core tunnel does not fight the engine for the VPN
++        // interface. NOTE: the guard used to be `!= DISCONNECTED`, which also
++        // matched ERROR (OpenVPN's resting state after any failed/crashed
++        // connect). Since stopOpenVpnBeforeCoreTunnel() never changes a resting
++        // ERROR status, that made this recurse into itself with zero delay
++        // forever any time OpenVPN had previously failed once - flooding
++        // VpnCommandCoordinator.onConnectRequested (seen in logs as connect#7..
++        // #25 within ~3s) and ultimately crashing GozarVpnService. Only actually
++        // wait when OpenVPN is mid-flight.
++        val ovpnBusy = GhajarOpenVpnBridge.status.value == GhajarOvpnState.CONNECTING ||
++            GhajarOpenVpnBridge.status.value == GhajarOvpnState.CONNECTED
++        if (ovpnBusy) {
++            if (attempt >= 20) {
++                VpnState.setError("موتور OpenVPN پاسخ نمی‌دهد؛ برنامه را ببند و دوباره باز کن.")
++                return
++            }
+             lifecycleScope.launch {
+                 runCatching { stopOpenVpnBeforeCoreTunnel() }
+-                launchConnect(config)
++                delay(150)
++                launchConnect(config, attempt + 1)
+             }
+             return
+         }
+@@ -5562,24 +5589,18 @@ private fun ToolsScreen(
+         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+         verticalArrangement = Arrangement.spacedBy(12.dp)
+     ) {
+-        SettingsHubCard(
+-            icon = Icons.Filled.TravelExplore,
+-            title = "مرورگر قاجار",
+-            subtitle = "تب‌ها، حالت خصوصی، نشانک، محافظ ردیاب و دانلود امن",
+-            onClick = { com.ghajarvpn.browser.BrowserContract.open(context) }
+-        )
+-        SettingsHubCard(
+-            icon = Icons.Filled.FileOpen,
+-            title = "ابزار کانفیگ",
+-            subtitle = "تشخیص آفلاین، نمایش امن، اعتبارسنجی و افزودن مستقیم فایل‌های پشتیبانی‌شده",
+-            onClick = { context.startActivity(Intent(context, net.gozar.app.configtoolkit.ConfigToolkitActivity::class.java)) }
+-        )
+         SettingsHubCard(
+             icon = Icons.Filled.NetworkCheck,
+             title = t("stab_title"),
+             subtitle = t("stab_sub"),
+             onClick = onOpenStability
+         )
++        SettingsHubCard(
++            icon = Icons.Filled.BugReport,
++            title = "لاگ و اشکال‌زدایی",
++            subtitle = "مشاهده و دانلود گزارش کامل رویدادها و خطاها",
++            onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
++        )
+         SettingsHubCard(
+             icon = Icons.Filled.Dns,
+             title = t("chk_title"),
