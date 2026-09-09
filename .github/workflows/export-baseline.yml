@@ -1,0 +1,36 @@
+name: Export Ghajar Baseline
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/export-baseline.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reconstruct reviewed baseline
+        run: |
+          chmod +x scripts/bootstrap-from-upstream.sh
+          scripts/bootstrap-from-upstream.sh
+      - name: Pack baseline comparison files
+        run: |
+          tar -czf "$RUNNER_TEMP/ghajar-baseline-files.tar.gz" \
+            -C .ghajarvpn-src \
+            app/src/main/java/net/gozar/app/MainActivity.kt \
+            app/src/main/java/net/gozar/app/GozarVpnService.kt \
+            app/src/main/java/net/gozar/app/Subscriptionrefresher.kt \
+            app/src/main/java/net/gozar/app/Gozarapplication.kt \
+            app/src/main/java/net/gozar/app/ConfigStore.kt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghajar-baseline-comparison-files
+          path: ${{ runner.temp }}/ghajar-baseline-files.tar.gz
+          if-no-files-found: error
