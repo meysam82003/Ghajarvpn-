@@ -1,0 +1,248 @@
+diff --git a/app/src/main/java/net/gozar/app/GozarVpnService.kt b/app/src/main/java/net/gozar/app/GozarVpnService.kt
+index 85e3bb3..00ae89d 100644
+--- a/app/src/main/java/net/gozar/app/GozarVpnService.kt
++++ b/app/src/main/java/net/gozar/app/GozarVpnService.kt
+@@ -25,37 +25,23 @@ class GozarVpnService : VpnService() {
+     private var aetherSpec: AetherSpec? = null
+     private var torSpec: String? = null
+     private var blockFd: ParcelFileDescriptor? = null
+-    private val scope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO +
+-        kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+-            // No raw exception text: it may contain a subscription credential.
+-            Log.e(TAG, error.javaClass.simpleName)
+-            die("شروع اتصال ناموفق بود؛ مجوز VPN و تنظیمات سرویس را بررسی کن.")
+-        })
+-    private var startJob: Job? = null
++    private val scope = CoroutineScope(Dispatchers.IO)
+     private var pollJob: Job? = null
+     private var configName: String = "VPN"
+     private var stopLabel: String = "Disconnect"
+-    private var lastPingLabel: String = "پینگ: —"
+     @Volatile private var tearingDown = false
+     private var autoSelector: AutoSelector? = null
+     private var autoJob: Job? = null
+ 
+-    private var nativeInitializationFailed = false
+-
+     override fun onCreate() {
+         super.onCreate()
+-        try {
+-            Gozarcore.setLogger(object : gozarcore.Logger {
+-                override fun log(line: String?) { Log.i("XrayCore", line ?: "") }
+-            })
+-            TorLog.sink = { line -> Log.i("XrayCore", line) }
+-        } catch (failure: LinkageError) {
+-            nativeInitializationFailed = true
+-            Log.e(TAG, failure.javaClass.simpleName)
+-        } catch (failure: Exception) {
+-            nativeInitializationFailed = true
+-            Log.e(TAG, failure.javaClass.simpleName)
+-        }
++        Gozarcore.setLogger(object : gozarcore.Logger {
++            override fun log(line: String?) {
++                Log.i("XrayCore", line ?: "")
++                GhajarLog.i("XrayCore", line ?: "")
++            }
++        })
++        TorLog.sink = { line -> Log.i("XrayCore", line); GhajarLog.i("Tor", line) }
+     }
+ 
+     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+@@ -65,10 +51,6 @@ class GozarVpnService : VpnService() {
+                 die(null)
+                 return START_NOT_STICKY
+             }
+-            ACTION_PING -> {
+-                refreshPing()
+-                return START_STICKY
+-            }
+             ACTION_WARM -> {
+                 if (tunFd != null) {
+                     VpnBridge.sendConnected(applicationContext)
+@@ -93,22 +75,22 @@ class GozarVpnService : VpnService() {
+     }
+ 
+     private fun startTunnel(configJson: String) {
+-        if (tunFd != null || startJob?.isActive == true) return
++        // startForeground() must run unconditionally and first: this service is
++        // launched with startForegroundService(), and Android requires
++        // startForeground() within a few seconds of that call regardless of what
++        // happens next. The old code returned early here (tunFd != null) before
++        // ever reaching startForeground(), so a rapid retry storm from the UI
++        // (see MainActivity.launchConnect) could start this service several
++        // times without ever promoting it - triggering
++        // ForegroundServiceDidNotStartInTimeException and crashing the process,
++        // which is what forced a full device reboot to recover from.
++        startForeground(NOTIF_ID, buildNotification())
++        if (tunFd != null) return
+         tearingDown = false
+-        try { startForeground(NOTIF_ID, buildNotification()) }
+-        catch (error: Exception) {
+-            VpnBridge.sendError(applicationContext, "اعلان اتصال شروع نشد؛ مجوزهای برنامه را بررسی کن.")
+-            stopSelf()
+-            return
+-        }
+ 
+-        startJob = scope.launch {
+-            if (nativeInitializationFailed) {
+-                die("هستهٔ اتصال بارگذاری نشد؛ نسخهٔ سازگار با گوشی را نصب کن.")
+-                return@launch
+-            }
++        scope.launch {
+             val builder = Builder()
+-                .setSession(BrandConfig.APP_NAME_FA)
++                .setSession("GozarNet")
+                 .setMtu(1500)
+                 .addAddress("10.10.0.2", 32)
+                 .addDnsServer("1.1.1.1")
+@@ -166,11 +148,9 @@ class GozarVpnService : VpnService() {
+                 }
+                 VpnBridge.sendConnected(applicationContext)
+                 startPolling()
+-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+-                throw cancelled
+             } catch (e: Exception) {
+-                Log.e(TAG, e.javaClass.simpleName)
+-                die("هستهٔ اتصال شروع نشد؛ تنظیمات سرویس را بررسی کن.")
++                Log.e(TAG, "Xray core failed to start", e)
++                die(e.message ?: "Engine failed to start")
+             }
+         }
+     }
+@@ -286,7 +266,6 @@ class GozarVpnService : VpnService() {
+ 
+     private fun die(error: String?) {
+         if (tearingDown) return
+-        startJob?.cancel(); startJob = null
+         val killOn = runCatching { ConfigStore.get(applicationContext).killSwitch.value }.getOrDefault(false)
+         if (error != null && killOn) {
+             AetherController.stop()
+@@ -306,7 +285,10 @@ class GozarVpnService : VpnService() {
+         runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
+         runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
+         stopSelf()
+-        // Lifecycle owns cleanup. A delayed process kill can kill a subsequent reconnect.
++        scope.launch {
++            delay(60)
++            android.os.Process.killProcess(android.os.Process.myPid())
++        }
+     }
+ 
+     private fun enterKillSwitch(reason: String) {
+@@ -314,7 +296,7 @@ class GozarVpnService : VpnService() {
+         runCatching { Gozarcore.stop() }
+         runCatching { tunFd?.close() }; tunFd = null
+         val b = Builder()
+-            .setSession("${BrandConfig.APP_NAME_FA} — مسدود")
++            .setSession("GozarNet (blocked)")
+             .setMtu(1500)
+             .addAddress("10.10.0.2", 32)
+             .addRoute("0.0.0.0", 0)
+@@ -329,13 +311,9 @@ class GozarVpnService : VpnService() {
+     }
+ 
+     override fun onDestroy() {
+-        tearingDown = true
+-        scope.coroutineContext[Job]?.cancel()
+         stopAutoSelect()
+-        runCatching { Gozarcore.stop() }
+-        runCatching { AetherController.stop() }
+-        runCatching { TorController.stop() }
+-        runCatching { tunFd?.close() }; tunFd = null
++        AetherController.stop()
++        TorController.stop()
+         runCatching { blockFd?.close() }; blockFd = null
+         runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
+         super.onDestroy()
+@@ -345,7 +323,7 @@ class GozarVpnService : VpnService() {
+         val nm = getSystemService(NotificationManager::class.java)
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+             nm.createNotificationChannel(
+-                NotificationChannel(CHANNEL_ID, "اتصال قاجار وی پی ان", NotificationManager.IMPORTANCE_LOW)
++                NotificationChannel(CHANNEL_ID, "GozarNet", NotificationManager.IMPORTANCE_LOW)
+             )
+         }
+         val pi = PendingIntent.getActivity(
+@@ -355,21 +333,12 @@ class GozarVpnService : VpnService() {
+             this, 1, Intent(this, GozarVpnService::class.java).setAction(ACTION_STOP),
+             PendingIntent.FLAG_IMMUTABLE
+         )
+-        val pingPi = PendingIntent.getService(
+-            this, 2, Intent(this, GozarVpnService::class.java).setAction(ACTION_PING),
+-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+-        )
+-        val speedLine = "$lastPingLabel   ↓ ${fmt(downSpeed)}/s   ↑ ${fmt(upSpeed)}/s"
++        val speedLine = "↓ ${fmt(downSpeed)}/s   ↑ ${fmt(upSpeed)}/s"
+         return Notification.Builder(this, CHANNEL_ID)
+-            .setContentTitle("قاجار وی پی ان · $configName")
++            .setContentTitle(configName)
+             .setContentText(speedLine)
+-            .setSmallIcon(R.drawable.ic_stat_ghajar)
++            .setSmallIcon(android.R.drawable.ic_lock_lock)
+             .setContentIntent(pi)
+-            .addAction(
+-                Notification.Action.Builder(
+-                    android.R.drawable.ic_menu_info_details, "بررسی پینگ", pingPi
+-                ).build()
+-            )
+             .addAction(
+                 Notification.Action.Builder(
+                     android.R.drawable.ic_menu_close_clear_cancel, stopLabel, stopPi
+@@ -384,7 +353,7 @@ class GozarVpnService : VpnService() {
+         val nm = getSystemService(NotificationManager::class.java)
+         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+             nm.createNotificationChannel(
+-                NotificationChannel(CHANNEL_ID, "اتصال قاجار وی پی ان", NotificationManager.IMPORTANCE_LOW)
++                NotificationChannel(CHANNEL_ID, "GozarNet", NotificationManager.IMPORTANCE_LOW)
+             )
+         }
+         val pi = PendingIntent.getActivity(
+@@ -395,9 +364,9 @@ class GozarVpnService : VpnService() {
+             PendingIntent.FLAG_IMMUTABLE
+         )
+         return Notification.Builder(this, CHANNEL_ID)
+-            .setContentTitle("محافظ اتصال قاجار فعال است")
+-            .setContentText("اتصال قطع شد؛ اینترنت برای جلوگیری از نشت مسدود است")
+-            .setSmallIcon(R.drawable.ic_stat_ghajar)
++            .setContentTitle("Kill switch active")
++            .setContentText("Connection lost — internet is blocked to prevent leaks")
++            .setSmallIcon(android.R.drawable.ic_lock_lock)
+             .setContentIntent(pi)
+             .addAction(
+                 Notification.Action.Builder(
+@@ -418,27 +387,11 @@ class GozarVpnService : VpnService() {
+         return "%.2f GB".format(mb / 1024.0)
+     }
+ 
+-    private fun refreshPing() {
+-        lastPingLabel = "پینگ: در حال بررسی…"
+-        getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, buildNotification())
+-        scope.launch {
+-            val store = ConfigStore.get(applicationContext)
+-            val id = VpnState.activeId.value ?: store.selectedId.value
+-            val cfg = store.configs.value.firstOrNull { it.id == id }
+-            lastPingLabel = when (val result = cfg?.let { Pinger.ping(it.address, it.port, 3000) }) {
+-                is PingResult.Ok -> "پینگ: ${result.ms} ms"
+-                else -> "پینگ: ناموفق"
+-            }
+-            getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, buildNotification())
+-        }
+-    }
+-
+     companion object {
+         private const val TAG = "GozarVpnService"
+-        private const val CHANNEL_ID = BrandConfig.NOTIFICATION_CHANNEL_CONNECTION
++        private const val CHANNEL_ID = "gozarnet_vpn"
+         private const val NOTIF_ID = 1
+         const val ACTION_STOP = "net.gozar.app.STOP"
+-        const val ACTION_PING = "net.gozar.app.PING"
+         const val ACTION_WARM = "net.gozar.app.WARM"
+         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"
+         const val EXTRA_AETHER = "net.gozar.app.AETHER"
+@@ -446,4 +399,4 @@ class GozarVpnService : VpnService() {
+         const val EXTRA_NAME = "net.gozar.app.NAME"
+         const val EXTRA_STOP_LABEL = "net.gozar.app.STOP_LABEL"
+     }
+-}
++}
+\ No newline at end of file
