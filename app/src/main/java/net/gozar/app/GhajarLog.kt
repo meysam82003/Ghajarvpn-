@@ -39,17 +39,12 @@ data class GhajarLogEntry(
  * - Every entry lands in a bounded in-memory ring buffer (for the live in-app
  *   log screen) AND is appended to a rotating file on disk, so nothing is
  *   lost if the process dies right after logging.
- * - [installCrashHandler] wraps the default uncaught-exception handler: it
- *   writes the full stack trace plus the last [CRASH_CONTEXT_LINES] log
- *   lines to disk *synchronously* before the process actually dies (a crash
- *   is exactly the moment a background coroutine write would be lost).
- * - [exportFile] concatenates the current + rotated files into one .txt the
- *   user can share/download, so "چیزی که هرجای برنامه هست رو سیو کنه" holds
- *   even across app restarts.
+ * - Android Log calls are best-effort so plain JVM unit tests can exercise
+ *   state-machine code without Robolectric just because it emits diagnostics.
  */
 object GhajarLog {
     private const val MAX_MEMORY_ENTRIES = 4000
-    private const val MAX_FILE_BYTES = 1_500_000L // ~1.5MB per file
+    private const val MAX_FILE_BYTES = 1_500_000L
     private const val ROTATED_FILES = 3
     private const val CRASH_CONTEXT_LINES = 200
 
@@ -76,7 +71,8 @@ object GhajarLog {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             runCatching {
-                val trace = Log.getStackTraceString(throwable)
+                val trace = runCatching { Log.getStackTraceString(throwable) }
+                    .getOrElse { throwable.stackTraceToString() }
                 val recent = synchronized(ringLock) { ring.toList() }
                     .takeLast(CRASH_CONTEXT_LINES)
                     .joinToString("\n") { it.formatted() }
@@ -89,8 +85,6 @@ object GhajarLog {
                     appendLine(recent)
                     appendLine("============================")
                 }
-                // Synchronous, best-effort direct write: the process is about to
-                // die, so no coroutine dispatch — append straight to the file.
                 if (started.get()) {
                     FileOutputStream(currentFile(), true).use { it.write(block.toByteArray()) }
                 }
@@ -104,7 +98,15 @@ object GhajarLog {
     fun i(tag: String, msg: String) = log(GhajarLogLevel.INFO, tag, msg)
     fun w(tag: String, msg: String) = log(GhajarLogLevel.WARN, tag, msg)
     fun e(tag: String, msg: String, throwable: Throwable? = null) =
-        log(GhajarLogLevel.ERROR, tag, if (throwable != null) "$msg :: ${Log.getStackTraceString(throwable)}" else msg)
+        log(
+            GhajarLogLevel.ERROR,
+            tag,
+            if (throwable != null) {
+                val trace = runCatching { Log.getStackTraceString(throwable) }
+                    .getOrElse { throwable.stackTraceToString() }
+                "$msg :: $trace"
+            } else msg
+        )
 
     private fun log(level: GhajarLogLevel, tag: String, msg: String) {
         val entry = GhajarLogEntry(System.currentTimeMillis(), level, tag, msg)
@@ -113,12 +115,18 @@ object GhajarLog {
             ring.addLast(entry)
             _entries.value = ring.toList()
         }
-        when (level) {
-            GhajarLogLevel.DEBUG -> Log.d(tag, msg)
-            GhajarLogLevel.INFO -> Log.i(tag, msg)
-            GhajarLogLevel.WARN -> Log.w(tag, msg)
-            GhajarLogLevel.ERROR, GhajarLogLevel.CRASH -> Log.e(tag, msg)
+
+        // android.util.Log methods throw "not mocked" from local JVM tests.
+        // Diagnostics must never alter VPN state-machine behaviour.
+        runCatching {
+            when (level) {
+                GhajarLogLevel.DEBUG -> Log.d(tag, msg)
+                GhajarLogLevel.INFO -> Log.i(tag, msg)
+                GhajarLogLevel.WARN -> Log.w(tag, msg)
+                GhajarLogLevel.ERROR, GhajarLogLevel.CRASH -> Log.e(tag, msg)
+            }
         }
+
         if (started.get()) {
             scope.launch {
                 writeMutex.withLock {
@@ -157,7 +165,6 @@ object GhajarLog {
         i("Logger", "=== log cleared by user ===")
     }
 
-    /** Builds one combined .txt (oldest rotated file first) ready to share. */
     suspend fun exportFile(context: Context): File = writeMutex.withLock {
         val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
         val out = File(sharedDir, "ghajar-log-export.txt")
