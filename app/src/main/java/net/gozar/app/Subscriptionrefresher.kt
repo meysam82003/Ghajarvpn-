@@ -2,13 +2,13 @@ package net.gozar.app
 
 object SubscriptionRefresher {
 
-    suspend fun refreshStale(store: ConfigStore) {
+    suspend fun refreshStale(store: ConfigStore, force: Boolean = false) {
         val hours = store.autoRefreshHours.value
-        if (hours <= 0) return
-        val cutoff = System.currentTimeMillis() - hours * 3_600_000L
+        if (hours <= 0 && !force) return
+        val cutoff = System.currentTimeMillis() - hours.coerceAtLeast(0) * 3_600_000L
 
         store.subscriptions.value
-            .filter { it.lastUpdated <= cutoff }
+            .filter { force || it.lastUpdated <= cutoff }
             .forEach { sub ->
                 runCatching {
                     val result = SubscriptionFetcher.fetchFull(sub.url)
