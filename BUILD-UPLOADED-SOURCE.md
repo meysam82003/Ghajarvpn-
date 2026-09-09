@@ -1,3 +1,3 @@
 # Direct uploaded-source build
 
-GitHub Actions is configured to build this repository tree directly without bootstrap/reconstruction.
+GitHub Actions builds the uploaded app/openvpn source directly. If the exported StrongSwan support tree is incomplete, only that support module is restored before compiling.
