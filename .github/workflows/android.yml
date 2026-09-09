@@ -43,11 +43,17 @@ jobs:
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
       - name: Materialize full source when using the GitHub patch distribution
         run: |
-          if [[ -f app/libs/gozarcore.aar ]]; then
+          if [[ -f app/libs/gozarcore.aar && -f browser/build.gradle.kts && -f gradlew ]]; then
+            echo "Complete source tree detected; building repository directly."
             echo "GHAJAR_SOURCE_ROOT=." >> "$GITHUB_ENV"
           else
+            echo "Incomplete source tree detected; reconstructing full source from reviewed patch distribution."
             chmod +x scripts/bootstrap-from-upstream.sh
             scripts/bootstrap-from-upstream.sh
+            test -f .ghajarvpn-src/gradlew
+            test -f .ghajarvpn-src/browser/build.gradle.kts
+            test -f .ghajarvpn-src/app/libs/gozarcore.aar
+            chmod +x .ghajarvpn-src/gradlew
             echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
           fi
       - name: Verify reviewed snapshots match reconstructed source
