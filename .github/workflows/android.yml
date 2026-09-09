@@ -31,59 +31,55 @@ jobs:
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
-      - name: Materialize complete build tree and overlay NEW uploaded app
+      - name: Materialize complete build tree and overlay uploaded app
         run: |
           chmod +x scripts/bootstrap-from-upstream.sh
           scripts/bootstrap-from-upstream.sh
 
-          # Keep the complete reviewed Gradle/browser/VPN support tree, but put
-          # the newly uploaded app source/resources/core on top of it.
+          # The uploaded package is intentionally incomplete: keep the complete
+          # reviewed Gradle/browser/VPN tree, then overlay the newly uploaded app.
           rsync -a app/src/ .ghajarvpn-src/app/src/
           rsync -a app/libs/ .ghajarvpn-src/app/libs/
 
-          # Resolve two stale baseline declarations that collide with the new export.
-          rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/Ikecontroller.kt
-          python3 - <<'PY'
-          from pathlib import Path
-          import re
+          # The reconstructed baseline already owns AppGreen in DotGlobe.kt.
+          # The uploaded AppColors.kt is a compatibility shim for incomplete
+          # exports, so do not compile both declarations together.
+          if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt ]] && \
+             grep -q 'val AppGreen' .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt; then
+            rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/AppColors.kt
+          fi
 
-          dot = Path('.ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt')
-          if dot.exists():
-              text = dot.read_text()
-              text, count = re.subn(
-                  r'(?m)^[ \t]*(?:(?:private|internal|public)\s+)?val\s+AppGreen\b[^\n]*\n',
-                  '',
-                  text,
-                  count=1,
-              )
-              dot.write_text(text)
-              print('Removed stale DotGlobe AppGreen declarations:', count)
-
-          log = Path('.ghajarvpn-src/app/src/main/java/net/gozar/app/GhajarLog.kt')
-          if log.exists():
-              text = log.read_text().replace('previous?.onUncaughtException(thread, throwable)', 'previous?.uncaughtException(thread, throwable)')
-              log.write_text(text)
-          PY
+          # Linux treats these as distinct files, but both declare IkeController.
+          # Prefer the newly uploaded canonical-cased source.
+          if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/IkeController.kt ]]; then
+            rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/Ikecontroller.kt
+          fi
 
           test -f .ghajarvpn-src/gradlew
           test -f .ghajarvpn-src/browser/build.gradle.kts
           test -f .ghajarvpn-src/app/libs/gozarcore.aar
-          test -f .ghajarvpn-src/app/src/main/java/net/gozar/app/AppColors.kt
+          test -f .ghajarvpn-src/app/src/main/java/net/gozar/app/MainActivity.kt
           test -f .ghajarvpn-src/app/src/main/java/net/gozar/app/configcenter/ConfigNormalizer.kt
           test -f .ghajarvpn-src/app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt
           chmod +x .ghajarvpn-src/gradlew
 
-          # Prove the new uploaded MainActivity is what will compile.
-          cmp -s app/src/main/java/net/gozar/app/MainActivity.kt .ghajarvpn-src/app/src/main/java/net/gozar/app/MainActivity.kt
-          echo 'NEW uploaded app overlay verified.'
+          # Prove the important new uploaded files are the versions being built.
+          cmp -s app/src/main/java/net/gozar/app/MainActivity.kt \
+                 .ghajarvpn-src/app/src/main/java/net/gozar/app/MainActivity.kt
+          cmp -s app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt \
+                 .ghajarvpn-src/app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt
+          cmp -s app/src/main/java/net/gozar/app/GhajarLog.kt \
+                 .ghajarvpn-src/app/src/main/java/net/gozar/app/GhajarLog.kt
+          echo 'Uploaded app overlay verified.'
 
       - name: Fetch pinned native OpenVPN engine sources
         run: |
           chmod +x .ghajarvpn-src/scripts/fetch-openvpn-native.sh
           .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
           test -s .ghajarvpn-src/openvpn/src/main/cpp/openvpn3/client/ovpncli.i
+          test -s .ghajarvpn-src/openvpn/src/main/cpp/openssl/openssl.cmake
 
-      - name: Build NEW uploaded GhajarVPN app
+      - name: Build uploaded GhajarVPN app
         working-directory: .ghajarvpn-src
         run: ./gradlew --no-daemon -Pghajar.demo=true :browser:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 
@@ -97,6 +93,7 @@ jobs:
             exit 1
           fi
           for apk in "${apks[@]}"; do
+            echo "APK: $apk"
             "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
             sha256sum "$apk"
           done
