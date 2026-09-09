@@ -31,7 +31,7 @@ object ConfigNormalizer {
         val unsupportedCount: Int = items.count { it.outcome == Outcome.UNSUPPORTED }
     )
 
-    private val SUPPORTED = setOf("vless", "vmess", "trojan", "shadowsocks", "socks")
+    private val SUPPORTED = setOf("vless", "vmess", "trojan", "shadowsocks", "socks", "ss")
 
     /** Extracts and normalizes every config from [bytes] via the toolkit decoders. */
     fun normalizeFile(fileName: String?, bytes: ByteArray, knownHashes: MutableSet<String>): Result {
@@ -55,20 +55,34 @@ object ConfigNormalizer {
             items += Item(link, hash, profile.protocol.lowercase(Locale.US), outcome, profile = profile)
         }
 
-        // Raw links from generic extraction that the toolkit containers missed.
         ConfigExtractor.extract(fileName, bytes).links.forEach { link ->
             if (link in linksSeen) return@forEach
-            val protocol = link.substringBefore("://").lowercase(Locale.US)
-            val hash = sha256(link)
-            val outcome = when {
-                protocol !in SUPPORTED -> Outcome.UNSUPPORTED
-                hash in knownHashes -> Outcome.DUPLICATE
-                else -> { knownHashes += hash; Outcome.VALID }
-            }
-            items += Item(link, hash, protocol, outcome, note = if (outcome == Outcome.UNSUPPORTED) "هسته فعلی این پروتکل را اجرا نمی‌کند" else "")
+            items += normalizeLink(link, knownHashes)
         }
 
         return Result(items)
+    }
+
+    /** Normalize already-extracted links (used by the free-config pipeline). */
+    fun normalize(links: List<String>, knownHashes: MutableSet<String>): Result =
+        Result(links.filter { it.isNotBlank() }.distinct().map { normalizeLink(it.trim(), knownHashes) })
+
+    private fun normalizeLink(link: String, knownHashes: MutableSet<String>): Item {
+        val rawProtocol = link.substringBefore("://").lowercase(Locale.US)
+        val protocol = if (rawProtocol == "ss") "shadowsocks" else rawProtocol
+        val hash = sha256(link)
+        val outcome = when {
+            protocol !in SUPPORTED -> Outcome.UNSUPPORTED
+            hash in knownHashes -> Outcome.DUPLICATE
+            else -> { knownHashes += hash; Outcome.VALID }
+        }
+        return Item(
+            link = link,
+            hash = hash,
+            protocol = protocol,
+            outcome = outcome,
+            note = if (outcome == Outcome.UNSUPPORTED) "هسته فعلی این پروتکل را اجرا نمی‌کند" else ""
+        )
     }
 
     fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
