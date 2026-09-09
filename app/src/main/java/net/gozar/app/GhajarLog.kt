@@ -95,7 +95,7 @@ object GhajarLog {
                     FileOutputStream(currentFile(), true).use { it.write(block.toByteArray()) }
                 }
             }
-            previous?.onUncaughtException(thread, throwable)
+            previous?.uncaughtException(thread, throwable)
                 ?: run { android.os.Process.killProcess(android.os.Process.myPid()) }
         }
     }
