@@ -1,0 +1,23 @@
+diff --git a/app/src/main/java/net/gozar/app/Gozarapplication.kt b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+index 7ddccaa..cd23f33 100644
+--- a/app/src/main/java/net/gozar/app/Gozarapplication.kt
++++ b/app/src/main/java/net/gozar/app/Gozarapplication.kt
+@@ -16,9 +16,17 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
+ 
+     override fun onCreate() {
+         super.onCreate()
++        // GozarApplication extends StrongSwanApplication, not ICSOpenVPNApplication,
++        // so the OpenVPN library's own restriction/preferences bootstrap never ran.
++        // OpenVPNService (":openvpn" process) calls GlobalPreferences.getInstance()
++        // on every connect and throws "Global preferences instance is not set" if
++        // this is skipped. Application.onCreate() runs once per process, so doing
++        // this here covers both the main process and the ":openvpn" process.
++        de.blinkt.openvpn.api.AppRestrictions.getInstance(this).checkRestrictions(this)
++        GhajarLog.init(this)
++        GhajarLog.installCrashHandler(this)
+         GhajarNotificationMonitor.initialize(this)
+         GhajarOpenVpnBridge.initialize(this)
+-        com.ghajarvpn.browser.network.BrowserRouteEngineHost.register(GozarBrowserRouteEngine(this))
+ 
+         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
+             override fun onActivityStarted(activity: Activity) {
