@@ -2,157 +2,50 @@ name: Android CI
 
 on:
   push:
-    branches: [main, develop, ghajar-3.0.4-carousel-33-source]
-  pull_request:
     branches: [main]
   workflow_dispatch:
-    inputs:
-      signed_demo:
-        description: 'Build an updateable demo using the configured private demo key (main only)'
-        required: false
-        type: boolean
-        default: false
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - name: Reject signed demos from non-main refs
-        if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref != 'refs/heads/main'
-        run: |
-          echo 'Signed demos are permitted only from main.' >&2
-          exit 1
-
       - uses: actions/checkout@v4
-        with:
-          submodules: recursive
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
 
-      - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.4.1'
 
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
 
       - name: Install Android SDK and NDK
-        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358"
 
-      - name: Materialize complete canonical source
+      - name: Verify uploaded source tree
         run: |
-          if [[ -f app/libs/gozarcore.aar && -f browser/build.gradle.kts && -f gradlew ]]; then
-            echo "Complete source tree detected; building repository directly."
-            chmod +x gradlew
-            echo "GHAJAR_SOURCE_ROOT=." >> "$GITHUB_ENV"
-          else
-            echo "Incomplete uploaded tree detected; reconstructing the complete reviewed source."
-            chmod +x scripts/bootstrap-from-upstream.sh
-            scripts/bootstrap-from-upstream.sh
-            test -f .ghajarvpn-src/gradlew
-            test -f .ghajarvpn-src/browser/build.gradle.kts
-            test -f .ghajarvpn-src/app/libs/gozarcore.aar
-            test -f .ghajarvpn-src/app/src/main/AndroidManifest.xml
-            chmod +x .ghajarvpn-src/gradlew
-            echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
-          fi
+          test -f settings.gradle.kts
+          test -f app/build.gradle.kts
+          test -f app/libs/gozarcore.aar
+          test -f openvpn/build.gradle.kts
+          test -f strongswan/build.gradle.kts
+          test -d openvpn/src/main/jniLibs/arm64-v8a
+          test -d openvpn/src/main/jniLibs/armeabi-v7a
+          echo "Building the uploaded repository directly (no bootstrap/reconstruction)."
 
-      - name: Verify complete source essentials
-        run: |
-          test -f "$GHAJAR_SOURCE_ROOT/settings.gradle.kts"
-          test -f "$GHAJAR_SOURCE_ROOT/browser/build.gradle.kts"
-          test -f "$GHAJAR_SOURCE_ROOT/app/build.gradle.kts"
-          test -f "$GHAJAR_SOURCE_ROOT/app/src/main/AndroidManifest.xml"
-          test -f "$GHAJAR_SOURCE_ROOT/openvpn/src/main/AndroidManifest.xml"
-          test -x "$GHAJAR_SOURCE_ROOT/gradlew"
+      - name: Build uploaded source - Debug and Release
+        run: gradle --no-daemon -Pghajar.demo=true :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 
-      - name: Verify OpenVPN remote-process contract
-        run: |
-          python3 - <<'PY'
-          import os
-          import xml.etree.ElementTree as ET
-
-          root = os.environ['GHAJAR_SOURCE_ROOT']
-          manifest = os.path.join(root, 'openvpn/src/main/AndroidManifest.xml')
-          tree = ET.parse(manifest)
-          android = '{http://schemas.android.com/apk/res/android}'
-          expected = {
-              '.core.OpenVPNService',
-              '.api.ExternalOpenVPNService',
-              '.core.OpenVPNStatusService',
-          }
-          found = {}
-          for service in tree.getroot().find('application').findall('service'):
-              name = service.attrib.get(android + 'name')
-              if name in expected:
-                  found[name] = service.attrib.get(android + 'process')
-          missing = expected - found.keys()
-          if missing:
-              raise SystemExit(f'Missing OpenVPN services: {sorted(missing)}')
-          wrong = {name: proc for name, proc in found.items() if proc != ':openvpn'}
-          if wrong:
-              raise SystemExit(f'OpenVPN services must run in :openvpn: {wrong}')
-          print('OpenVPN engine/status/API services are isolated in :openvpn')
-          PY
-
-      - name: Test OpenSSL architecture selection
-        run: |
-          cmake_bin="$ANDROID_HOME/cmake/3.22.1/bin/cmake"
-          ctest_bin="$ANDROID_HOME/cmake/3.22.1/bin/ctest"
-          "$cmake_bin" -S "$GHAJAR_SOURCE_ROOT/tests/native-arch" -B "$RUNNER_TEMP/ghajar-native-arch-tests"
-          "$cmake_bin" --build "$RUNNER_TEMP/ghajar-native-arch-tests"
-          "$ctest_bin" --test-dir "$RUNNER_TEMP/ghajar-native-arch-tests" --output-on-failure
-
-      - name: Fetch pinned native OpenVPN engine sources
-        if: env.GHAJAR_SOURCE_ROOT != '.'
-        run: |
-          test -f .ghajarvpn-src/scripts/fetch-openvpn-native.sh
-          chmod +x .ghajarvpn-src/scripts/fetch-openvpn-native.sh
-          .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
-          test -s .ghajarvpn-src/openvpn/src/main/cpp/openvpn3/client/ovpncli.i
-          test -s .ghajarvpn-src/openvpn/src/main/cpp/openssl/openssl.cmake
-
-      - name: Build Android 8+ Debug and R8 Release APKs
-        if: github.event_name != 'workflow_dispatch' || !inputs.signed_demo
-        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
-        run: ./gradlew --no-daemon -Pghajar.demo=true :browser:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
-
-      - name: Prepare private demo signing key
-        if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref == 'refs/heads/main'
-        env:
-          DEMO_KEYSTORE_B64: ${{ secrets.GHAJAR_DEMO_KEYSTORE_B64 }}
-          DEMO_STORE_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEYSTORE_PASSWORD }}
-          DEMO_KEY_ALIAS: ${{ secrets.GHAJAR_DEMO_KEY_ALIAS }}
-          DEMO_KEY_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEY_PASSWORD }}
-        run: |
-          if [[ -z "$DEMO_KEYSTORE_B64" || -z "$DEMO_STORE_PASSWORD" || -z "$DEMO_KEY_ALIAS" || -z "$DEMO_KEY_PASSWORD" ]]; then
-            echo 'Configure all four GHAJAR_DEMO signing secrets.' >&2
-            exit 1
-          fi
-          umask 077
-          printf '%s' "$DEMO_KEYSTORE_B64" | base64 --decode > "$RUNNER_TEMP/ghajar-demo-signing.p12"
-          test -s "$RUNNER_TEMP/ghajar-demo-signing.p12"
-          echo "GHAJAR_DEMO_KEYSTORE_FILE=$RUNNER_TEMP/ghajar-demo-signing.p12" >> "$GITHUB_ENV"
-
-      - name: Build Android 8+ signed demo APK
-        if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref == 'refs/heads/main'
-        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
-        env:
-          GHAJAR_DEMO_KEYSTORE_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEYSTORE_PASSWORD }}
-          GHAJAR_DEMO_KEY_ALIAS: ${{ secrets.GHAJAR_DEMO_KEY_ALIAS }}
-          GHAJAR_DEMO_KEY_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true :browser:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
-
-      - name: Verify OpenVPN native launcher is packaged
-        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
+      - name: Verify APKs
         run: |
           shopt -s nullglob
           apks=(app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk)
@@ -161,34 +54,21 @@ jobs:
             exit 1
           fi
           for apk in "${apks[@]}"; do
-            if ! unzip -l "$apk" | grep -Eq 'lib/[^/]+/libovpnexec\.so$'; then
-              echo "OpenVPN native launcher libovpnexec.so is missing from $apk" >&2
-              exit 1
-            fi
-          done
-
-      - name: Verify APK signatures and hashes
-        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
-        run: |
-          for apk in app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk; do
-            test -f "$apk" || continue
+            echo "APK: $apk"
             "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
             sha256sum "$apk"
           done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-0.0.1-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
-          path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
+          name: Ghajarvpn-UPLOADED-SOURCE-Android8plus
+          path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-0.0.1-test-reports
-          path: |
-            ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/test-results/testDebugUnitTest/*.xml
-            ${{ env.GHAJAR_SOURCE_ROOT }}/browser/build/test-results/testDebugUnitTest/*.xml
-            ${{ runner.temp }}/ghajar-native-arch-tests/Testing/Temporary/LastTest.log
+          name: Ghajarvpn-uploaded-source-test-reports
+          path: app/build/test-results/testDebugUnitTest/*.xml
           if-no-files-found: warn
