@@ -1,0 +1,246 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 19:03:00 +0000
+Subject: [PATCH] fix: exact amounts and preserve unrelated invoice during imports
+
+---
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -477,7 +477,6 @@
+         val installed = prefs.getStringSet("installed", emptySet()).orEmpty().toMutableSet()
+         // A known URL still needs an immediate refresh; a previous import may
+         // have registered the subscription without any usable configurations.
+-        if (fingerprint in installed && service.subscriptionUrl == null) return 0
+ 
+         val imported = if (service.subscriptionUrl?.startsWith("https://") == true) {
+             val url = service.subscriptionUrl
+@@ -498,7 +497,12 @@
+         } else {
+             val configs = ConfigParser.parseBundle(joined)
+             withContext(Dispatchers.Main) {
++                val current = store.configs.value
++                val missing = configs.filter { candidate -> current.none { existing ->
++                    existing.protocol == candidate.protocol && existing.address == candidate.address &&
++                        existing.port == candidate.port && existing.uuid == candidate.uuid && existing.password == candidate.password
++                } }
++                if (missing.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, missing)
+-                if (configs.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, configs)
+             }
+             configs.size
+         }
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+@@ -2,6 +2,7 @@
+ 
+ import android.app.Application
+ import android.net.Uri
++import androidx.compose.runtime.mutableIntStateOf
+ import androidx.compose.runtime.mutableStateOf
+ import androidx.lifecycle.AndroidViewModel
+ import androidx.lifecycle.viewModelScope
+@@ -20,6 +21,7 @@
+     private val api = GhajarStoreApi(app)
+     private val store = ConfigStore.get(app)
+     private val prefs = app.getSharedPreferences("ghajar_checkout_v1", 0)
++    val revision = mutableIntStateOf(0)
+     val busy = mutableStateOf(false)
+     val error = mutableStateOf<String?>(null)
+     val message = mutableStateOf<String?>(null)
+@@ -34,9 +36,14 @@
+     private var owner = ""
+ 
+     init {
++        busy.value = true
+         viewModelScope.launch {
++            try {
++                owner = accountId()
++                restore()
++            } finally {
++                busy.value = false
++            }
+-            owner = accountId()
+-            restore()
+             if (purchase.value != null) runOperation { methods.value = api.paymentOptions() }
+         }
+     }
+@@ -55,7 +62,9 @@
+                 if (current.isBlank()) throw GhajarApiException("ابتدا حساب را به ربات متصل کن.")
+                 if (owner.isNotBlank() && owner != current) {
+                     purchase.value = null; payment.value = null; methods.value = null
++                    receipt.value = null; delivery.value = null; openUrl.value = null
++                    receiptSent.value = false; walletTopUp.value = false
++                    owner = current
+-                    receipt.value = null; delivery.value = null
+                     prefs.edit().clear().apply()
+                     throw GhajarApiException("حساب تغییر کرده است؛ سفارش مربوط به حساب قبلی بود.")
+                 }
+@@ -72,6 +81,7 @@
+     }
+ 
+     fun buy(request: GhajarPurchaseRequest) = runOperation {
++        if (payment.value != null) throw GhajarApiException("ابتدا وضعیت فاکتور فعلی را بررسی کن؛ پرداخت دوباره لازم نیست.")
+         walletTopUp.value = false
+         val result = api.purchase(request)
+         if (result.requiresPayment) {
+@@ -83,7 +93,7 @@
+             require(result.completed) { "خرید تأیید نشد؛ وضعیت سرویس را بررسی کن." }
+             val service = result.service ?: result.username?.let { api.service(it) }
+                 ?: throw GhajarApiException("سفارش ثبت شد؛ خروجی سرویس هنوز آماده نیست.")
++            deliver(service, finishCheckout = true)
+-            deliver(service)
+         }
+     }
+ 
+@@ -120,6 +130,7 @@
+     }
+ 
+     fun uploadReceipt() = runOperation {
++        if (receiptSent.value) return@runOperation
+         val invoice = payment.value ?: return@runOperation
+         val photo = receipt.value ?: return@runOperation
+         message.value = api.uploadReceipt(invoice.orderId, photo)
+@@ -134,18 +145,22 @@
+ 
+     fun importOwned(username: String) = runOperation { deliver(api.service(username)) }
+ 
++    private suspend fun deliver(service: GhajarServiceDetails, finishCheckout: Boolean = false) {
+-    private suspend fun deliver(service: GhajarServiceDetails) {
+         delivery.value = GhajarDelivery(service, 0, false)
+         val count = api.importServiceOnce(store, service)
++        // Only a parsed/imported configuration counts as installed.
++        val installed = count > 0
+-        // A previous local (non-subscription) delivery is already installed.
+-        val installed = count > 0 || (service.subscriptionUrl == null && service.outputs.isNotEmpty())
+         delivery.value = GhajarDelivery(service, count, installed)
+         message.value = if (installed) "سرویس به قاجار VPN اضافه شد؛ QR و اطلاعات اتصال آماده است."
+             else "سرویس صادر شد؛ خروجی اتصال هنوز در دسترس نیست."
+         if (installed) {
++            revision.intValue++
++            // Importing a trial/owned service must not discard an unrelated unpaid invoice.
++            if (finishCheckout) {
++                purchase.value = null; payment.value = null; receipt.value = null
++                receiptSent.value = false; walletTopUp.value = false
++                prefs.edit().clear().apply()
++            }
+-            purchase.value = null; payment.value = null; receipt.value = null
+-            receiptSent.value = false
+-            prefs.edit().clear().apply()
+         }
+     }
+ 
+@@ -165,7 +180,7 @@
+                 prefs.edit().clear().apply()
+             }
+             GhajarCommerceRules.paid(value) && status.optBoolean("is_service_ready") && service != null ->
++                deliver(api.serviceFrom(service, purchase.value?.username.orEmpty()), finishCheckout = true)
+-                deliver(api.serviceFrom(service, purchase.value?.username.orEmpty()))
+             GhajarCommerceRules.paid(value) ->
+                 message.value = "پرداخت تأیید شد؛ سرویس در حال آماده‌سازی است. دوباره پرداخت نکن."
+             GhajarCommerceRules.terminal(value) ->
+@@ -180,7 +195,7 @@
+         if (busy.value) return
+         // Local navigation only: this does not cancel a real payment on the server.
+         purchase.value = null; payment.value = null; methods.value = null
++        receipt.value = null; receiptSent.value = false; walletTopUp.value = false
+-        receipt.value = null; receiptSent.value = false
+         prefs.edit().clear().apply()
+         message.value = "به محصولات برگشتی. اگر پرداخت کرده‌ای، قبل از خرید دوباره «سرویس‌های من» را بررسی کن."
+     }
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -105,6 +105,7 @@
+     val lifecycle = LocalLifecycleOwner.current.lifecycle
+     val checkoutModel = remember(context) { ViewModelProvider(context as ComponentActivity)[GhajarCheckoutViewModel::class.java] }
+     val checkoutBusy by checkoutModel.busy
++    val deliveryRevision by checkoutModel.revision
+     val delivery by checkoutModel.delivery
+     val receiptSent by checkoutModel.receiptSent
+     val walletTopUp by checkoutModel.walletTopUp
+@@ -165,6 +166,7 @@
+ 
+     val receiptPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+         receiptUri = uri
++        if (uri != null) checkoutModel.receiptSent.value = false
+         if (uri != null) storeResult { context.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+     }
+ 
+@@ -201,6 +203,9 @@
+         }
+     }
+ 
++    LaunchedEffect(deliveryRevision) {
++        if (deliveryRevision > 0) storeResult { refreshOwnedAndNotices() }
++    }
+     LaunchedEffect(requestedUrl, active) {
+         if (active && requestedUrl != null) {
+             checkoutModel.openUrl.value = null
+@@ -552,7 +557,7 @@
+ 
+             pendingPurchase?.takeIf { it.requiresPayment }?.let { purchase ->
+                 item { SectionTitle("۳. پرداخت", "فاکتور روی گوشی حفظ می‌شود؛ وضعیت را از سرور بررسی کن") }
++                item { PaymentSummary(purchase, walletTopUp, paymentInit?.takeIf { GhajarCommerceRules.cardPayment(it.kind, it.cardNumber) }?.amount) }
+-                item { PaymentSummary(purchase, walletTopUp) }
+                 if (paymentInit == null) {
+                     if (paymentOptions == null) item {
+                         OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
+@@ -594,7 +599,10 @@
+     }
+     delivery?.let { result ->
+         GhajarDeliveryDialog(result, onDismiss = { checkoutModel.delivery.value = null },
++            onRetry = {
++                if (paymentInit != null && pendingPurchase?.username == result.service.username) checkoutModel.checkPayment()
++                else checkoutModel.importOwned(result.service.username)
++            }, busy = checkoutBusy)
+-            onRetry = { checkoutModel.importOwned(result.service.username) }, busy = checkoutBusy)
+     }
+     confirmation?.let { request ->
+         AlertDialog(
+@@ -841,13 +849,13 @@
+ }
+ 
+ @Composable
++private fun PaymentSummary(purchase: GhajarPurchaseResult, walletTopUp: Boolean, exactCardAmount: Long?) {
+-private fun PaymentSummary(purchase: GhajarPurchaseResult, walletTopUp: Boolean) {
+     Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF143A32))) {
+         Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+             Text(if (walletTopUp) "شارژ کیف پول" else "پرداخت مبلغ کسری", color = Color(0xFFD6B45F), fontWeight = FontWeight.ExtraBold)
+             Text("موجودی: ${formatPrice(purchase.balance)} تومان", color = Color.White)
+             if (!walletTopUp) Text("قیمت سرویس: ${formatPrice(purchase.price)} تومان", color = Color.White)
++            Text("قابل پرداخت: ${formatPrice(exactCardAmount ?: purchase.amountDue)} تومان", color = Color.White, fontWeight = FontWeight.Bold)
+-            Text("قابل پرداخت: ${formatPrice(purchase.amountDue)} تومان", color = Color.White, fontWeight = FontWeight.Bold)
+         }
+     }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+--- a/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
++++ b/app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt
+@@ -110,6 +110,7 @@
+     val payloads = remember(service) { (listOfNotNull(service.subscriptionUrl) + service.outputs).filter { it.isNotBlank() }.distinct() }
+     var index by remember(service.username) { mutableIntStateOf(0) }
+     val payload = payloads.getOrNull(index)
++    var qrFailed by remember(payload) { mutableStateOf(false) }
+     val bitmap by produceState<Bitmap?>(null, payload) {
+         value = withContext(Dispatchers.Default) { payload?.let { text ->
+             runCatching {
+@@ -119,6 +120,7 @@
+                 Bitmap.createBitmap(pixels, 768, 768, Bitmap.Config.ARGB_8888)
+             }.getOrNull()
+         } }
++        qrFailed = payload != null && value == null
+     }
+     val clipboard = LocalClipboardManager.current
+     AlertDialog(onDismissRequest = onDismiss,
+@@ -131,7 +133,7 @@
+                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+                 bitmap?.let { Image(it.asImageBitmap(), "QR اتصال همین سرویس",
+                     Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White), contentScale = ContentScale.Fit) }
++                if (payload != null && bitmap == null && !busy) Text(if (qrFailed) "این خروجی در QR جا نمی‌شود؛ از کپی لینک استفاده کن." else "QR در حال آماده‌سازی است؛ لینک قابل کپی است.")
+-                if (payload != null && bitmap == null && !busy) Text("QR در حال آماده‌سازی است؛ لینک قابل کپی است.")
+                 if (payloads.size > 1) Row(verticalAlignment = Alignment.CenterVertically) {
+                     TextButton(onClick = { index-- }, enabled = index > 0) { Text("قبلی") }
+                     Text("${index + 1} / ${payloads.size}")
+-- 
+2.43.0

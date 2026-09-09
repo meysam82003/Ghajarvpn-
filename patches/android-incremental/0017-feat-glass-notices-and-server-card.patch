@@ -1,0 +1,337 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 19:02:00 +0000
+Subject: [PATCH] feat: glass notices and native selected server card
+
+---
+diff --git a/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt b/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
+--- a/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
++++ b/app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt
+@@ -1,6 +1,11 @@
+ package net.gozar.app
+ 
++import androidx.compose.animation.core.Animatable
++import androidx.compose.animation.core.tween
++import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.background
+ import androidx.compose.foundation.clickable
++import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+ import androidx.compose.foundation.rememberScrollState
+ import androidx.compose.foundation.verticalScroll
+ import androidx.compose.foundation.layout.*
+@@ -11,39 +16,75 @@
+ import androidx.compose.runtime.*
+ import androidx.compose.ui.Alignment
+ import androidx.compose.ui.Modifier
++import androidx.compose.ui.draw.clip
++import androidx.compose.ui.draw.drawWithContent
++import androidx.compose.ui.geometry.Offset
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.graphics.graphicsLayer
++import androidx.compose.ui.input.pointer.pointerInput
+ import androidx.compose.ui.platform.LocalContext
++import androidx.compose.ui.platform.LocalDensity
+ import androidx.compose.ui.semantics.LiveRegionMode
+ import androidx.compose.ui.semantics.liveRegion
+ import androidx.compose.ui.semantics.semantics
+ import androidx.compose.ui.text.font.FontWeight
+ import androidx.compose.ui.text.style.TextOverflow
+ import androidx.compose.ui.unit.dp
++import kotlinx.coroutines.launch
+ 
++/** One glass-like banner across every tab, physically swiped left-to-right in RTL too. */
+-/** One shared banner below the app bar, on every tab and nested screen. */
+ @Composable
+ internal fun GhajarNoticeBanner() {
+     val notice by GhajarNoticeBus.notice.collectAsState()
+     val context = LocalContext.current
+     var expandedId by remember { mutableStateOf<String?>(null) }
+     val current = notice ?: return
++    val scope = rememberCoroutineScope()
++    val threshold = with(LocalDensity.current) { 90.dp.toPx() }
++    var drag by remember(current.id) { mutableFloatStateOf(0f) }
++    val shine = remember(current.id) { Animatable(-1f) }
++    val colors = MaterialTheme.colorScheme
++    LaunchedEffect(current.id) { shine.animateTo(2f, tween(1400)) }
++    fun dismiss() { GhajarNotificationMonitor.acknowledge(context, current.id) }
+     Surface(
++        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 5.dp)
++            .graphicsLayer { translationX = drag; alpha = (1f - drag / (threshold * 3)).coerceIn(.15f, 1f) }
++            .pointerInput(current.id) {
++                detectHorizontalDragGestures(
++                    onHorizontalDrag = { change, delta -> change.consume(); drag = (drag + delta).coerceAtLeast(0f) },
++                    onDragEnd = { if (drag > threshold) dismiss() else scope.launch {
++                        val offset = Animatable(drag)
++                        offset.animateTo(0f, tween(160)) { drag = value }
++                    } },
++                    onDragCancel = { drag = 0f }
++                )
++            }
+-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp)
+             .semantics { liveRegion = LiveRegionMode.Polite },
+         shape = MaterialTheme.shapes.medium,
++        border = BorderStroke(1.dp, colors.primary.copy(alpha = .2f)),
++        shadowElevation = 2.dp,
++        color = colors.surface.copy(alpha = .94f)
+-        color = if (current.important) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.primaryContainer
+     ) {
++        Row(Modifier.clip(MaterialTheme.shapes.medium)
++            .background(Brush.linearGradient(listOf(colors.primary.copy(alpha = .10f), colors.surface.copy(alpha = .4f))))
++            .drawWithContent {
++                drawContent()
++                val x = size.width * shine.value
++                drawRect(Brush.linearGradient(listOf(Color.Transparent, Color.White.copy(alpha = .12f), Color.Transparent),
++                    start = Offset(x - size.width / 3, 0f), end = Offset(x, size.height)))
++            }, verticalAlignment = Alignment.CenterVertically) {
++            Row(Modifier.weight(1f).clickable { expandedId = current.id }.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
++                Icon(Icons.Filled.Notifications, null, tint = if (current.important) colors.tertiary else colors.primary,
++                    modifier = Modifier.size(22.dp))
+-        Row(verticalAlignment = Alignment.CenterVertically) {
+-            Row(Modifier.weight(1f).clickable { expandedId = current.id }.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+-                Icon(Icons.Filled.Notifications, null, modifier = Modifier.size(22.dp))
+                 Spacer(Modifier.width(10.dp))
+                 Column {
+                     Text(current.title, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
++                    if (current.message != current.title) Text(current.message, style = MaterialTheme.typography.bodySmall,
++                        color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+-                    Text(current.message, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                 }
+             }
++            IconButton(onClick = ::dismiss) { Icon(Icons.Filled.Close, "بستن این اعلان") }
+-            IconButton(onClick = { GhajarNotificationMonitor.acknowledge(context, current.id) }) {
+-                Icon(Icons.Filled.Close, "بستن این اعلان")
+-            }
+         }
+     }
+     if (expandedId == current.id) {
+@@ -51,7 +92,7 @@
+             onDismissRequest = { expandedId = null },
+             title = { Text(current.title) },
+             text = { Text(current.message, modifier = Modifier.verticalScroll(rememberScrollState())) },
++            confirmButton = { TextButton(onClick = { dismiss(); expandedId = null }) { Text("خواندم") } },
+-            confirmButton = { TextButton(onClick = { GhajarNotificationMonitor.acknowledge(context, current.id); expandedId = null }) { Text("خواندم") } },
+             dismissButton = { TextButton(onClick = { expandedId = null }) { Text("بازگشت") } }
+         )
+     }
+diff --git a/app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt b/app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
+new file mode 100644
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
+@@ -0,0 +1,58 @@
++package net.gozar.app
++
++import androidx.compose.foundation.BorderStroke
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material.icons.Icons
++import androidx.compose.material.icons.filled.ChevronRight
++import androidx.compose.material.icons.filled.Shield
++import androidx.compose.material3.*
++import androidx.compose.runtime.Composable
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.text.style.TextOverflow
++import androidx.compose.ui.unit.dp
++import java.util.Locale
++
++@Composable
++internal fun GhajarSelectedServerCard(config: ProxyConfig?, connection: Connection, onChoose: () -> Unit) {
++    val colors = MaterialTheme.colorScheme
++    Card(onClick = onChoose, modifier = Modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(24.dp),
++        colors = CardDefaults.cardColors(containerColor = colors.surface),
++        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
++        border = BorderStroke(1.dp, colors.primary.copy(alpha = .18f))) {
++        Row(Modifier.background(Brush.linearGradient(listOf(colors.primary.copy(alpha = .08f), colors.surface)))
++            .padding(17.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
++            Surface(shape = RoundedCornerShape(17.dp), color = colors.primary.copy(alpha = .10f)) {
++                Icon(Icons.Filled.Shield, null, modifier = Modifier.padding(12.dp).size(28.dp), tint = colors.primary)
++            }
++            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
++                Text("مسیر اتصال شما", style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
++                Text(config?.name?.let(BrandConfig::sanitizePublicText) ?: "یک سرویس انتخاب کن",
++                    style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
++                    maxLines = 2, overflow = TextOverflow.Ellipsis)
++                if (config != null) {
++                    val endpoint = when {
++                        config.locked -> "اطلاعات اتصال محفوظ"
++                        config.protocol in setOf("aether", "tor") -> "موتور داخلی • ${config.protocol.uppercase(Locale.ROOT)}"
++                        else -> "\u2066${config.address}:${config.port}\u2069"
++                    }
++                    Text(endpoint, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
++                        maxLines = 1, overflow = TextOverflow.Ellipsis)
++                }
++                Text(when (connection) {
++                    Connection.CONNECTED -> "متصل"
++                    Connection.CONNECTING -> "در حال اتصال…"
++                    Connection.ERROR -> "اتصال برقرار نشد"
++                    else -> "آمادهٔ اتصال"
++                }, style = MaterialTheme.typography.labelMedium,
++                    color = if (connection == Connection.ERROR) colors.error else colors.primary)
++            }
++            Icon(Icons.Filled.ChevronRight, "انتخاب یا تغییر سرویس", tint = colors.onSurfaceVariant)
++        }
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -1764,151 +1764,7 @@
+                 Modifier.fillMaxSize().padding(16.dp),
+                 verticalArrangement = Arrangement.spacedBy(16.dp)
+             ) {
++                GhajarSelectedServerCard(selectedConfig, conn, onOpenPicker)
+-                Card(
+-                    modifier = Modifier.fillMaxWidth()
+-                        .clip(RoundedCornerShape(12.dp))
+-                        .clickable { onOpenPicker() },
+-                    shape = RoundedCornerShape(12.dp),
+-                    colors = CardDefaults.cardColors(
+-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+-                    ),
+-                    border = BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f))
+-                ) {
+-                    Column(Modifier.fillMaxWidth()) {
+-                        Row(
+-                            Modifier.fillMaxWidth()
+-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f))
+-                                .padding(horizontal = 10.dp, vertical = 5.dp),
+-                            verticalAlignment = Alignment.CenterVertically
+-                        ) {
+-                            Text(
+-                                t("selected_server"),
+-                                style = MaterialTheme.typography.labelSmall,
+-                                fontWeight = FontWeight.SemiBold,
+-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                                maxLines = 1,
+-                                overflow = TextOverflow.Ellipsis,
+-                                modifier = Modifier.weight(1f)
+-                            )
+-                            Row(horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+-                                repeat(3) {
+-                                    Box(
+-                                        Modifier.size(8.dp).background(
+-                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.75f),
+-                                            CircleShape
+-                                        )
+-                                    )
+-                                }
+-                            }
+-                        }
+-                        Row(
+-                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 11.dp),
+-                            verticalAlignment = Alignment.CenterVertically
+-                        ) {
+-                            Column(Modifier.weight(1f)) {
+-                                if (selectedConfig != null) {
+-                                    val cursorT by rememberInfiniteTransition(label = "cursor").animateFloat(
+-                                        initialValue = 0f,
+-                                        targetValue = 1f,
+-                                        animationSpec = infiniteRepeatable(tween(1060, easing = LinearEasing)),
+-                                        label = "cursorBlink"
+-                                    )
+-                                    val fullName = selectedConfig.name
+-                                    var typed by remember(fullName) { mutableStateOf(0) }
+-                                    LaunchedEffect(fullName) {
+-                                        typed = 0
+-                                        if (fullName.isNotEmpty()) {
+-                                            val per = (1100L / fullName.length).coerceAtLeast(30L)
+-                                            while (typed < fullName.length) {
+-                                                delay(per)
+-                                                typed++
+-                                            }
+-                                        }
+-                                    }
+-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+-                                        Text(
+-                                            flagRuns(fullName.take(typed), monoLatinFont()),
+-                                            inlineContent = flagInlineContent(
+-                                                fullName.take(typed),
+-                                                MaterialTheme.typography.titleMedium.fontSize
+-                                            ),
+-                                            style = MaterialTheme.typography.titleMedium,
+-                                            fontWeight = FontWeight.Bold,
+-                                            color = MaterialTheme.colorScheme.primary,
+-                                            maxLines = 1,
+-                                            overflow = TextOverflow.Ellipsis,
+-                                            modifier = Modifier.weight(1f, fill = false)
+-                                        )
+-                                        Box(
+-                                            Modifier.padding(start = 3.dp)
+-                                                .size(width = 8.dp, height = 17.dp)
+-                                                .graphicsLayer { alpha = if (cursorT < 0.5f) 1f else 0f }
+-                                                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(1.dp))
+-                                        )
+-                                    }
+-                                    Spacer(Modifier.height(5.dp))
+-                                    if (selectedConfig.locked) {
+-                                        Row(verticalAlignment = Alignment.CenterVertically) {
+-                                            Icon(
+-                                                Icons.Filled.Lock, contentDescription = null,
+-                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+-                                                modifier = Modifier.size(12.dp)
+-                                            )
+-                                            Spacer(Modifier.width(4.dp))
+-                                            Text(
+-                                                monoText(t("locked_config")),
+-                                                style = MaterialTheme.typography.bodySmall,
+-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+-                                            )
+-                                        }
+-                                    } else {
+-                                        Text(
+-                                            monoText(n("${selectedConfig.address}:${selectedConfig.port}")),
+-                                            style = MaterialTheme.typography.bodySmall,
+-                                            fontWeight = FontWeight.Bold,
+-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+-                                            maxLines = 1,
+-                                            overflow = TextOverflow.Ellipsis
+-                                        )
+-                                    }
+-                                } else {
+-                                    val idleBlink by rememberInfiniteTransition(label = "idleCursor").animateFloat(
+-                                        initialValue = 0f,
+-                                        targetValue = 1f,
+-                                        animationSpec = infiniteRepeatable(tween(1060, easing = LinearEasing)),
+-                                        label = "idleCursorBlink"
+-                                    )
+-                                    Row(verticalAlignment = Alignment.CenterVertically) {
+-                                        Text(
+-                                            monoText(t("tap_choose")),
+-                                            style = MaterialTheme.typography.titleSmall,
+-                                            fontWeight = FontWeight.Bold,
+-                                            color = MaterialTheme.colorScheme.primary,
+-                                            maxLines = 1,
+-                                            overflow = TextOverflow.Ellipsis,
+-                                            modifier = Modifier.weight(1f, fill = false)
+-                                        )
+-                                        Box(
+-                                            Modifier.padding(start = 3.dp)
+-                                                .size(width = 8.dp, height = 15.dp)
+-                                                .graphicsLayer { alpha = if (idleBlink < 0.5f) 1f else 0f }
+-                                                .background(
+-                                                    MaterialTheme.colorScheme.primary,
+-                                                    RoundedCornerShape(1.dp)
+-                                                )
+-                                        )
+-                                    }
+-                                }
+-                            }
+-                            Icon(
+-                                Icons.Filled.ChevronRight,
+-                                contentDescription = null,
+-                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+-                                modifier = Modifier.padding(start = 10.dp)
+-                            )
+-                        }
+-                    }
+-                }
+ 
+                 var btnPressed by remember { mutableStateOf(false) }
+                 val glowActive = !connected && selectedConfig != null && !btnPressed
+-- 
+2.43.0

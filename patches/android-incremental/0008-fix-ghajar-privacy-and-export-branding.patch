@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 10:00:00 +0000
+Subject: [PATCH] fix(brand): align privacy disclosure and export names with Ghajar
+
+The inherited Persian privacy text still names GRoute and says there
+are no accounts. Replace both language notices with factual app data
+flows for account sync, purchases, uploaded receipts and third parties.
+Do not make guarantees about backend or gateway retention practices.
+
+Also replace the two remaining public backup and QR filename prefixes.
+Internal preference names and engine package names remain unchanged.
+
+---
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -5504,7 +5504,7 @@
+                     if (!busy) {
+                         val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                             .format(java.util.Date())
+-                        saver.launch("groute-backup-$stamp.${ConfigFile.EXTENSION}")
++                        saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
+                     }
+                 },
+                 enabled = !busy,
+@@ -7023,39 +7023,35 @@
+ }.getOrNull()?.takeIf { it.isNotBlank() } ?: "—"
+ 
+ private val PRIVACY_EN = """
+-Ghajarvpn is built to protect your privacy.
+-
+-What we collect: Nothing. Ghajarvpn has no analytics, advertising or browsing tracking in the Android client.
+-
+-On your device: Your server configurations are stored encrypted in the app's private storage. Data-usage statistics (how much traffic passed through the tunnel) stay only on your device and are never transmitted anywhere. Clearing the app's data removes them.
+-
+-Network requests: To show your current IP address and approximate location, the app contacts third-party services such as ipwho.is and ipify.org. These services necessarily see the IP address of your connection. No other identifying information is sent.
+-
+-Your servers: The proxy/VPN servers you add are provided by you or your subscription provider. Ghajarvpn cannot inspect third-party server logging practices — choose providers you trust.
+-
+-Permissions: The VPN permission is used solely to route traffic through the tunnel you select. It is never used to inspect, modify or record your traffic.
+-
+-Changes: This policy may be updated as the app evolves; material changes will be noted in new releases.
+-
+-Contact: Questions? Reach Ghajarvpn at @Ghajarvpn.
+-""".trimIndent()
+-
+-private val PRIVACY_FA = """
+-جی‌روت برای حفاظت از حریم خصوصی شما ساخته شده است.
+-
+-چه چیزی جمع‌آوری می‌کنیم: هیچ‌چیز. جی‌روت حساب کاربری، تحلیل آماری، تبلیغات و ردیابی ندارد. توسعه‌دهنده هیچ سروری که فعالیت مرور شما را دریافت کند اجرا نمی‌کند.
+-
+-روی دستگاه شما: کانفیگ‌های سرور شما به‌صورت رمزگذاری‌شده در حافظهٔ خصوصی برنامه ذخیره می‌شوند. آمار مصرف داده (میزان ترافیک عبوری از تونل) فقط روی دستگاه شما می‌ماند و به هیچ‌جا ارسال نمی‌شود. پاک‌کردن دادهٔ برنامه آن را حذف می‌کند.
+-
+-درخواست‌های شبکه: برای نمایش نشانی IP و موقعیت تقریبی شما، برنامه با سرویس‌های شخص ثالث مانند ipwho.is و ipify.org تماس می‌گیرد. این سرویس‌ها ناگزیر نشانی IP اتصال شما را می‌بینند. هیچ اطلاعات شناسایی دیگری ارسال نمی‌شود.
+-
+-سرورهای شما: سرورهای پراکسی/وی‌پی‌ان که اضافه می‌کنید توسط شما یا ارائه‌دهندهٔ اشتراکتان فراهم می‌شوند. جی‌روت هیچ کنترل یا دیدی نسبت به سیاست ثبت لاگ آن سرورها ندارد؛ ارائه‌دهنده‌ای را انتخاب کنید که به آن اعتماد دارید.
+-
+-دسترسی‌ها: دسترسی وی‌پی‌ان تنها برای هدایت ترافیک از طریق تونلی که انتخاب می‌کنید استفاده می‌شود و هرگز برای بازرسی، تغییر یا ثبت ترافیک شما به‌کار نمی‌رود.
+-
+-تغییرات: این سیاست ممکن است با تکامل برنامه به‌روزرسانی شود؛ تغییرات مهم در نسخه‌های جدید اعلام می‌شوند.
+-
+-تماس: سؤالی دارید؟ از طریق تلگرام با @Ghajarvpn در ارتباط باشید.
++Ghajarvpn privacy information
++
++Account and store: If you link your account, the app sends its access token to the Ghajar service to load your account, subscriptions, orders and notifications. Purchase requests include the options you enter. If you upload a payment receipt, the selected image is sent to the service and may contain personal or banking information.
++
++On your device: The app stores configurations and settings in its private storage. The account access token is encrypted using Android Keystore. Clearing app data removes local records; it does not delete records held by the service.
++
++Network requests: Account sync, store content and the live welcome image contact the Ghajar service. Network-status features may contact third parties such as ipwho.is and ipify.org. These services can see your connection's IP address.
++
++VPN and payments: The selected VPN server handles your tunnel traffic. A selected payment gateway handles the payment in its own page. This Android client cannot determine or guarantee the logging and retention practices of those services.
++
++Permissions: VPN access starts the tunnel you select. Camera access is used for scanning codes; notification access is used for connection and service alerts.
++
++Questions about data held by the service or deletion requests: contact @Ghajarvpn.
++""".trimIndent()
++
++private val PRIVACY_FA = """
++اطلاعات حریم خصوصی قاجار وی پی ان
++
++حساب و فروشگاه: اگر حسابتان را متصل کنید، برنامه توکن دسترسی را برای دریافت حساب، اشتراک‌ها، سفارش‌ها و اعلان‌ها به سرویس قاجار می‌فرستد. درخواست خرید شامل گزینه‌هایی است که وارد می‌کنید. اگر رسید پرداخت بارگذاری کنید، تصویر انتخاب‌شده به سرویس ارسال می‌شود و ممکن است اطلاعات شخصی یا بانکی داشته باشد.
++
++روی گوشی: برنامه کانفیگ‌ها و تنظیمات را در حافظهٔ خصوصی خود نگه می‌دارد. توکن دسترسی حساب با Android Keystore رمزگذاری می‌شود. پاک‌کردن دادهٔ برنامه، اطلاعات محلی را حذف می‌کند؛ اطلاعات نگهداری‌شده در سرویس با این کار حذف نمی‌شوند.
++
++درخواست‌های شبکه: همگام‌سازی حساب، محتوای فروشگاه و تصویر زندهٔ ورود به سرویس قاجار متصل می‌شوند. امکانات نمایش وضعیت شبکه ممکن است با سرویس‌هایی مانند ipwho.is و ipify.org تماس بگیرند. این سرویس‌ها نشانی IP اتصال شما را می‌بینند.
++
++وی‌پی‌ان و پرداخت: سرور وی‌پی‌ان انتخاب‌شده ترافیک تونل شما را مدیریت می‌کند. درگاه انتخاب‌شده پرداخت را در صفحهٔ خودش انجام می‌دهد. این برنامهٔ اندروید نمی‌تواند شیوهٔ ثبت لاگ و مدت نگهداری اطلاعات در آن سرویس‌ها را مشخص یا تضمین کند.
++
++دسترسی‌ها: دسترسی وی‌پی‌ان برای شروع تونل انتخابی، دوربین برای اسکن کد و اعلان برای نمایش وضعیت اتصال و هشدار سرویس استفاده می‌شود.
++
++برای پرسش دربارهٔ اطلاعات نگهداری‌شده در سرویس یا درخواست حذف آن‌ها، با @Ghajarvpn تماس بگیرید.
+ """.trimIndent()
+ 
+ @Composable
+@@ -9402,7 +9398,7 @@
+         val image = bmp ?: return
+         runCatching {
+             val dir = File(context.cacheDir, "shared").apply { mkdirs() }
+-            val file = File(dir, "groute-qr.png")
++            val file = File(dir, "ghajarvpn-qr.png")
+             file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
+             val uri = FileProvider.getUriForFile(
+                 context, context.packageName + ".fileprovider", file
+-- 
+2.55.0

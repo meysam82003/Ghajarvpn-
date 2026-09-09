@@ -1,0 +1,104 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 08:20:00 +0330
+Subject: [PATCH] feat(welcome): keep 3.0.4 carousel with all 33 posters
+
+---
+ app/src/main/java/net/gozar/app/GhajarVisuals.kt | 66 +++++++++++++++++++++---
+ 1 file changed, 59 insertions(+), 7 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarVisuals.kt b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+--- a/app/src/main/java/net/gozar/app/GhajarVisuals.kt
++++ b/app/src/main/java/net/gozar/app/GhajarVisuals.kt
+@@ -63,10 +63,65 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+     val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
+     val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
+     val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
+-    // Stable ordering also prevents a repeated image when the theme changes between launches.
++
++    // Keep the original 3.0.4 HorizontalPager behavior; only expand the poster set to all 33 images.
+     val posters = remember {
+-        listOf(R.drawable.ghajar_welcome_world, R.drawable.ghajar_welcome_connection,
+-            R.drawable.ghajar_welcome_locations, R.drawable.ghajar_welcome_royal)
++        listOf(
++            R.drawable.ghajar_welcome_world,
++            R.drawable.ghajar_welcome_connection,
++            R.drawable.ghajar_welcome_locations,
++            R.drawable.ghajar_welcome_royal,
++            R.drawable.ghajar_welcome_queen_phone,
++            R.drawable.ghajar_welcome_king_night,
++            R.drawable.ghajar_welcome_king_light,
++            R.drawable.ghajar_welcome_queen_shield,
++            R.drawable.ghajar_welcome_queen_night,
++            R.drawable.ghajar_welcome_king_world,
++            R.drawable.ghajar_welcome_queen_light,
++            R.drawable.ghajar_welcome_extra_01,
++            R.drawable.ghajar_welcome_extra_02,
++            R.drawable.ghajar_welcome_extra_03,
++            R.drawable.ghajar_welcome_extra_04,
++            R.drawable.ghajar_welcome_extra_05,
++            R.drawable.ghajar_welcome_extra_06,
++            R.drawable.ghajar_welcome_extra_07,
++            R.drawable.ghajar_welcome_extra_08,
++            R.drawable.ghajar_welcome_extra_09,
++            R.drawable.ghajar_welcome_extra_10,
++            R.drawable.ghajar_welcome_extra_11,
++            R.drawable.ghajar_welcome_extra_12,
++            R.drawable.ghajar_welcome_extra_13,
++            R.drawable.ghajar_welcome_extra_14,
++            R.drawable.ghajar_welcome_extra_15,
++            R.drawable.ghajar_welcome_extra_16,
++            R.drawable.ghajar_welcome_extra_17,
++            R.drawable.ghajar_welcome_extra_18,
++            R.drawable.ghajar_welcome_extra_19,
++            R.drawable.ghajar_welcome_extra_20,
++            R.drawable.ghajar_welcome_extra_21,
++            R.drawable.ghajar_welcome_extra_22
++        )
++    }
++    val darkPosters = remember {
++        setOf(
++            R.drawable.ghajar_welcome_royal,
++            R.drawable.ghajar_welcome_king_night,
++            R.drawable.ghajar_welcome_queen_shield,
++            R.drawable.ghajar_welcome_queen_night,
++            R.drawable.ghajar_welcome_extra_01,
++            R.drawable.ghajar_welcome_extra_02,
++            R.drawable.ghajar_welcome_extra_03,
++            R.drawable.ghajar_welcome_extra_04,
++            R.drawable.ghajar_welcome_extra_06,
++            R.drawable.ghajar_welcome_extra_07,
++            R.drawable.ghajar_welcome_extra_09,
++            R.drawable.ghajar_welcome_extra_10,
++            R.drawable.ghajar_welcome_extra_12,
++            R.drawable.ghajar_welcome_extra_13,
++            R.drawable.ghajar_welcome_extra_14,
++            R.drawable.ghajar_welcome_extra_15,
++            R.drawable.ghajar_welcome_extra_21
++        )
+     }
+     val selectedPoster = remember { GhajarCommerceRules.nextPoster(prefs.getInt("last_poster", -1), posters.size) }
+     val pager = rememberPagerState(initialPage = if (returning) selectedPoster else if (dark) 3 else 0, pageCount = { posters.size })
+@@ -86,7 +141,7 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+             close()
+         }
+     }
+-    val posterDark = posters[pager.currentPage] == R.drawable.ghajar_welcome_royal
++    val posterDark = posters[pager.currentPage] in darkPosters
+     val backdrop = if (posterDark) Color(0xFF061226) else Color(0xFFEAF1FB)
+     Column(
+         Modifier.fillMaxSize().background(backdrop).safeDrawingPadding(),
+@@ -115,9 +170,9 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
+         }
+         if (!returning) Surface(color = MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp)) {
+             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.semantics { contentDescription = "صفحه ${pager.currentPage + 1} از ${posters.size}" }) {
++                Row(horizontalArrangement = Arrangement.spacedBy(2.dp), modifier = Modifier.semantics { contentDescription = "صفحه ${pager.currentPage + 1} از ${posters.size}" }) {
+                     posters.indices.forEach { index ->
+-                        Box(Modifier.size(if (index == pager.currentPage) 8.dp else 6.dp)
++                        Box(Modifier.size(if (index == pager.currentPage) 5.dp else 4.dp)
+                             .background(if (index == pager.currentPage) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant, CircleShape))
+                     }
+                 }
+-- 
+2.43.0

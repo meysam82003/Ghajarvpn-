@@ -1,0 +1,52 @@
+From 09ee8233e7d8385a659a2cc096f4af70d0efd50a Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sat, 5 Sep 2026 08:25:08 +0330
+Subject: [PATCH] feat(browser): per-tab desktop mode
+
+Desktop UA toggle now applies to the current tab only instead of a
+global setting that silently changed every other tab's user agent.
+---
+ .../src/main/java/com/ghajarvpn/browser/BrowserModels.kt   | 3 ++-
+ .../java/com/ghajarvpn/browser/GhajarBrowserActivity.kt    | 7 ++++---
+ 2 files changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+@@ -11,7 +11,8 @@ data class BrowserTab(
+     var title: String = "قاجار",
+     val private: Boolean = false,
+     var group: String = "",
+-    var lastUsed: Long = System.currentTimeMillis()
++    var lastUsed: Long = System.currentTimeMillis(),
++    var desktop: Boolean = false
+ ) {
+     companion object { const val HOME_URL = "https://home.ghajar.invalid/" }
+ }
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -425,6 +425,7 @@ class GhajarBrowserActivity : Activity() {
+     private fun buildWebView(tab: BrowserTab): WebView = WebView(this).apply {
+         setBackgroundColor(Color.WHITE)
+         configureSettings(this, tab.private)
++        if (tab.desktop) settings.userAgentString = DESKTOP_UA
+         // Android Autofill: normal tabs participate in the system framework;
+         // private tabs must never expose form data to any autofill service.
+         importantForAutofill = if (tab.private) android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS else android.view.View.IMPORTANT_FOR_AUTOFILL_YES
+@@ -1002,9 +1003,9 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun toggleDesktop(web: WebView) {
+-        settings = settings.copy(desktopMode = !settings.desktopMode)
+-        repository.saveSettings(settings)
+-        web.settings.userAgentString = if (settings.desktopMode) DESKTOP_UA else WebSettings.getDefaultUserAgent(this)
++        val tab = currentTab() ?: return
++        tab.desktop = !tab.desktop
++        web.settings.userAgentString = if (tab.desktop) DESKTOP_UA else WebSettings.getDefaultUserAgent(this)
+         web.reload()
+     }
+ 
+-- 
+2.55.0
+

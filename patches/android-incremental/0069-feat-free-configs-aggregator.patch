@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Fri, 5 Sep 2026 12:00:00 +0000
+Subject: [PATCH] feat(config): free configs aggregator with multi-source registry
+
+---
+diff --git a/app/src/main/java/net/gozar/app/FreeConfigs.kt b/app/src/main/java/net/gozar/app/FreeConfigs.kt
+
+--- a/app/src/main/java/net/gozar/app/FreeConfigs.kt
++++ b/app/src/main/java/net/gozar/app/FreeConfigs.kt
+@@ -60,7 +60,7 @@ object FreeConfigs {
+         .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
+         .replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ")
+ 
+-    private fun page(before: Long): String = runCatching {
++    private fun page(before: Long, sourceUrl: String = SOURCE_URL): String = runCatching {
+         val url = if (before <= 0) SOURCE_URL else "$SOURCE_URL?before=$before"
+         val conn = (URL(url).openConnection(route()) as HttpURLConnection).apply {
+             connectTimeout = HTTP_TIMEOUT
+@@ -78,7 +78,46 @@ object FreeConfigs {
+ 
+     data class Scrape(val reachable: Boolean, val messages: Int, val configs: List<ProxyConfig>)
+ 
+-    private suspend fun scrape(): Scrape = withContext(Dispatchers.IO) {
++    /**
++     * Multi-source scrape across FreeSourceRegistry channels with per-source
++     * failure isolation: one dead channel never blocks the rest. Results are
++     * merged and deduped through the same signature as the primary channel.
++     */
++    suspend fun refreshMultiSource(store: ConfigStore, label: String): Int {
++        if (_busy.value) return BUSY
++        _busy.value = true
++        try {
++            val sources = FreeSourceRegistry.DEFAULT_SOURCES.filter { it.enabled && it.healthy }
++            val merged = LinkedHashMap<String, ProxyConfig>()
++            var anyReachable = false
++            val skipped = mutableListOf<String>()
++            for (source in sources) {
++                val scrape = withContext(Dispatchers.IO) { scrapeSource(source.endpoint) }
++                if (!scrape.reachable) {
++                    skipped += source.id
++                    continue
++                }
++                anyReachable = true
++                scrape.configs.forEach { cfg -> merged.putIfAbsent(sig(cfg), cfg) }
++            }
++            if (!anyReachable) return UNREACHABLE
++            if (merged.isEmpty()) return NO_CONFIGS
++            val existing = subscriptionOf(store)
++            val current = if (existing == null) emptyList()
++            else store.configs.value.filter { it.subId == existing.id }
++            val combined = (current + merged.values.toList()).distinctBy { sig(it) }.take(MAX_TEST)
++            val alive = measureAll(combined)
++            val sub = (existing ?: Subscription(name = label, url = SOURCE_URL))
++                .copy(lastUpdated = System.currentTimeMillis())
++            if (alive.isNotEmpty() || existing != null) store.upsertSubscription(sub, alive)
++            return alive.size
++        } finally {
++            _busy.value = false
++            _progress.value = null
++        }
++    }
++
++    private suspend fun scrapeSource(sourceUrl: String): Scrape = withContext(Dispatchers.IO) {
+         val seen = LinkedHashMap<String, ProxyConfig>()
+         var before = 0L
+         var pages = 0
+@@ -87,7 +126,7 @@ object FreeConfigs {
+         var links = 0
+ 
+         while (pages < MAX_PAGES && messages < MESSAGES) {
+-            val html = page(before)
++            val html = page(before, sourceUrl)
+             if (html.isBlank()) break
+             reachable = true
+ 

@@ -1,0 +1,70 @@
+From 2ee4e21f3d28047e532bbc509f8e92327427ddda Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sat, 5 Sep 2026 07:59:41 +0330
+Subject: [PATCH] feat(browser): isolate private tab renderer
+
+Private tabs request their own WebView render process via the webkit
+renderer client; a hung private renderer is terminated so the tab can
+recover, and it never shares a renderer with normal browsing.
+---
+ .../browser/GhajarBrowserActivity.kt          |  5 ++++-
+ .../java/com/ghajarvpn/browser/PrivateMode.kt | 22 ++++++++++++++++++-
+ 2 files changed, 25 insertions(+), 2 deletions(-)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -428,7 +428,10 @@ class GhajarBrowserActivity : Activity() {
+         // Android Autofill: normal tabs participate in the system framework;
+         // private tabs must never expose form data to any autofill service.
+         importantForAutofill = if (tab.private) android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS else android.view.View.IMPORTANT_FOR_AUTOFILL_YES
+-        if (tab.private) PrivateMode.attach(this)
++        if (tab.private) {
++            PrivateMode.attach(this)
++            PrivateMode.isolateRenderer(this)
++        }
+         webViewClient = BrowserClient(tab)
+         webChromeClient = BrowserChrome(tab)
+         setDownloadListener(downloadListener(tab))
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/PrivateMode.kt b/browser/src/main/java/com/ghajarvpn/browser/PrivateMode.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/PrivateMode.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/PrivateMode.kt
+@@ -5,6 +5,7 @@ import androidx.webkit.Profile
+ import androidx.webkit.ProfileStore
+ import androidx.webkit.WebViewCompat
+ import androidx.webkit.WebViewFeature
++import androidx.webkit.WebViewRenderProcessClient
+ 
+ /**
+  * Private-mode hardening. Private tabs never touch persistent storage:
+@@ -20,7 +21,26 @@ object PrivateMode {
+ 
+     fun separateProfileSupported(): Boolean = WebViewFeature.isFeatureSupported(WebViewFeature.MULTI_PROFILE)
+ 
+-    /** Switches the WebView to the ephemeral private profile, if supported. */
++    /** Renders private tabs in an isolated renderer when the device supports it. */
++fun isolateRenderer(webView: android.webkit.WebView) {
++    if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_VIEW_RENDERER_CLIENT_BASIC_USAGE)) return
++    runCatching {
++        WebViewCompat.setWebViewRenderProcessClient(
++            webView,
++            object : WebViewRenderProcessClient() {
++                override fun onRenderProcessUnresponsive(webView: android.webkit.WebView, renderProcess: androidx.webkit.WebViewRenderProcess?) {
++                    // Unresponsive private renderer: terminate it so the tab can
++                    // recover instead of leaking a hung isolated process.
++                    runCatching { renderProcess?.terminate() }
++                }
++
++                override fun onRenderProcessResponsive(webView: android.webkit.WebView, renderProcess: androidx.webkit.WebViewRenderProcess?) = Unit
++            }
++        )
++    }
++}
++
++/** Switches the WebView to the ephemeral private profile, if supported. */
+     fun attach(webView: android.webkit.WebView): Boolean {
+         if (!separateProfileSupported()) return false
+         return runCatching {
+-- 
+2.55.0
+

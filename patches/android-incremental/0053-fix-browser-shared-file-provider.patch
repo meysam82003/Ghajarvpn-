@@ -1,0 +1,52 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Fri, 4 Sep 2026 12:00:00 +0000
+Subject: [PATCH] fix(browser): share app file provider instead of a duplicate authority
+
+---
+diff --git a/app/src/main/res/xml/file_paths.xml b/app/src/main/res/xml/file_paths.xml
+--- a/app/src/main/res/xml/file_paths.xml
++++ b/app/src/main/res/xml/file_paths.xml
+@@ -3,4 +3,11 @@
+     <cache-path
+         name="shared"
+         path="shared/" />
+-</paths>
+\ No newline at end of file
++    <!-- Ghajar Download Manager: completed files live in app external storage. -->
++    <external-files-path
++        name="downloads"
++        path="." />
++    <files-path
++        name="internal_downloads"
++        path="." />
++</paths>
+diff --git a/browser/src/main/AndroidManifest.xml b/browser/src/main/AndroidManifest.xml
+--- a/browser/src/main/AndroidManifest.xml
++++ b/browser/src/main/AndroidManifest.xml
+@@ -35,15 +35,5 @@
+         <receiver
+             android:name="com.ghajarvpn.browser.download.GhajarDownloadReceiver"
+             android:exported="false" />
+-
+-        <provider
+-            android:name="androidx.core.content.FileProvider"
+-            android:authorities="${applicationId}.ghajar_downloads"
+-            android:exported="false"
+-            android:grantUriPermissions="true">
+-            <meta-data
+-                android:name="android.support.FILE_PROVIDER_PATHS"
+-                android:resource="@xml/ghajar_download_paths" />
+-        </provider>
+     </application>
+ </manifest>
+diff --git a/browser/src/main/res/xml/ghajar_download_paths.xml b/browser/src/main/res/xml/ghajar_download_paths.xml
+deleted file mode 100644
+--- a/browser/src/main/res/xml/ghajar_download_paths.xml
++++ /dev/null
+@@ -1,5 +0,0 @@
+-<?xml version="1.0" encoding="utf-8"?>
+-<paths>
+-    <external-files-path name="downloads" path="." />
+-    <files-path name="internal_downloads" path="." />
+-</paths>

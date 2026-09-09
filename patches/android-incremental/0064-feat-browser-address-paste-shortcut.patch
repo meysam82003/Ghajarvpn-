@@ -1,0 +1,35 @@
+From 759e8895af24d427ad04983ae131e8d49c5e5a65 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sat, 5 Sep 2026 08:31:59 +0330
+Subject: [PATCH] feat(browser): clipboard paste shortcut in the address bar
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Long-pressing the address bar pastes the clipboard straight in for
+editing — handy for links shared as text.
+---
+ .../java/com/ghajarvpn/browser/GhajarBrowserActivity.kt   | 8 ++++++++
+ 1 file changed, 8 insertions(+)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -243,6 +243,14 @@ class GhajarBrowserActivity : Activity() {
+                     updateAddress(currentTab()?.url)
+                 }
+             }
++            // Long-press paste shortcut: puts clipboard contents straight in.
++            setOnLongClickListener {
++                val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
++                val text = clipboard.primaryClip?.getItemAt(0)?.text?.toString().orEmpty()
++                if (BrowserRequestPolicy.safeExternal(BrowserRequestPolicy.normalizeInput(text, settings)) || text.isNotBlank()) {
++                    setText(text); selectAll(); true
++                } else false
++            }
+             setOnTouchListener { view, event ->
+                 if (event.action == android.view.MotionEvent.ACTION_UP) {
+                     val pad = dp(14)
+-- 
+2.55.0
+

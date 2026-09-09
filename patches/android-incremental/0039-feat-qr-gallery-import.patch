@@ -1,0 +1,129 @@
+From fd4650be18dadf5d256ce86b0b7e5cc318242242 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 17:33:31 +0000
+Subject: [PATCH] feat(qr): import QR images from Android gallery
+
+---
+ .../main/java/net/gozar/app/MainActivity.kt   | 75 ++++++++++++++++++-
+ 1 file changed, 71 insertions(+), 4 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 1ac759b..c53ab91 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -9643,9 +9643,25 @@ private fun QrScannerScreen(onResult: (String) -> Unit) {
+                     PackageManager.PERMISSION_GRANTED
+         )
+     }
++    var handled by remember { mutableStateOf(false) }
++    var galleryError by remember { mutableStateOf<String?>(null) }
++    val scope = rememberCoroutineScope()
+     val permLauncher = rememberLauncherForActivityResult(
+         ActivityResultContracts.RequestPermission()
+     ) { granted = it }
++    val galleryPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
++        if (uri != null && !handled) scope.launch {
++            galleryError = null
++            val text = withContext(Dispatchers.IO) { decodeQrFromGallery(context, uri) }
++            if (!text.isNullOrBlank()) {
++                handled = true
++                onResult(text)
++            } else {
++                galleryError = "QR معتبری در این تصویر پیدا نشد"
++                Toast.makeText(context, galleryError, Toast.LENGTH_LONG).show()
++            }
++        }
++    }
+ 
+     LaunchedEffect(Unit) {
+         if (!granted) permLauncher.launch(Manifest.permission.CAMERA)
+@@ -9654,7 +9670,7 @@ private fun QrScannerScreen(onResult: (String) -> Unit) {
+     Column(Modifier.fillMaxSize()) {
+         if (!granted) {
+             Column(
+-                Modifier.fillMaxSize().padding(28.dp),
++                Modifier.weight(1f).fillMaxWidth().padding(28.dp),
+                 verticalArrangement = Arrangement.Center,
+                 horizontalAlignment = Alignment.CenterHorizontally
+             ) {
+@@ -9674,12 +9690,20 @@ private fun QrScannerScreen(onResult: (String) -> Unit) {
+                 BounceOutlinedButton(onClick = { permLauncher.launch(Manifest.permission.CAMERA) }) {
+                     Text(t("camera_grant"))
+                 }
++                Spacer(Modifier.height(10.dp))
++                BounceOutlinedButton(onClick = { galleryPicker.launch("image/*") }) {
++                    Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
++                    Spacer(Modifier.width(7.dp))
++                    Text("انتخاب QR از گالری")
++                }
++                galleryError?.let {
++                    Spacer(Modifier.height(8.dp))
++                    Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error)
++                }
+             }
+             return@Column
+         }
+ 
+-        var handled by remember { mutableStateOf(false) }
+-
+         Box(
+             Modifier.weight(1f).fillMaxWidth().padding(16.dp)
+                 .clip(RoundedCornerShape(22.dp)),
+@@ -9751,11 +9775,54 @@ private fun QrScannerScreen(onResult: (String) -> Unit) {
+             style = MaterialTheme.typography.bodySmall,
+             color = MaterialTheme.colorScheme.onSurfaceVariant,
+             textAlign = TextAlign.Center,
+-            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 14.dp)
++            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = 8.dp)
+         )
++        BounceOutlinedButton(
++            onClick = { galleryPicker.launch("image/*") },
++            modifier = Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(bottom = 12.dp)
++        ) {
++            Icon(Icons.Filled.FileUpload, contentDescription = null, modifier = Modifier.size(18.dp))
++            Spacer(Modifier.width(7.dp))
++            Text("انتخاب QR از گالری")
++        }
++        galleryError?.let {
++            Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error,
++                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp))
++        }
+     }
+ }
+ 
++private fun decodeQrFromGallery(context: Context, uri: Uri): String? = runCatching {
++    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
++    context.contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, bounds) }
++    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return@runCatching null
++    var sample = 1
++    while (kotlin.math.max(bounds.outWidth, bounds.outHeight) / sample > 2048) sample *= 2
++    val options = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
++    val bitmap = context.contentResolver.openInputStream(uri)?.use {
++        android.graphics.BitmapFactory.decodeStream(it, null, options)
++    } ?: return@runCatching null
++    try {
++        val reader = MultiFormatReader().apply {
++            setHints(mapOf(DecodeHintType.POSSIBLE_FORMATS to listOf(BarcodeFormat.QR_CODE), DecodeHintType.TRY_HARDER to true))
++        }
++        fun decodeBitmap(sourceBitmap: Bitmap): String? {
++            val pixels = IntArray(sourceBitmap.width * sourceBitmap.height)
++            sourceBitmap.getPixels(pixels, 0, sourceBitmap.width, 0, 0, sourceBitmap.width, sourceBitmap.height)
++            val source = com.google.zxing.RGBLuminanceSource(sourceBitmap.width, sourceBitmap.height, pixels)
++            reader.reset()
++            return runCatching { reader.decodeWithState(BinaryBitmap(HybridBinarizer(source))).text }.getOrNull()
++        }
++        decodeBitmap(bitmap) ?: sequenceOf(90f, 180f, 270f).mapNotNull { degrees ->
++            val rotated = Bitmap.createBitmap(bitmap, 0, 0, bitmap.width, bitmap.height,
++                android.graphics.Matrix().apply { postRotate(degrees) }, true)
++            try { decodeBitmap(rotated) } finally { if (rotated !== bitmap) rotated.recycle() }
++        }.firstOrNull()
++    } finally {
++        bitmap.recycle()
++    }
++}.getOrNull()
++
+ private fun decodeQr(proxy: ImageProxy, reader: MultiFormatReader): String? {
+     val buffer = proxy.planes[0].buffer
+     val data = ByteArray(buffer.remaining()).also { buffer.get(it) }
+-- 
+2.47.3

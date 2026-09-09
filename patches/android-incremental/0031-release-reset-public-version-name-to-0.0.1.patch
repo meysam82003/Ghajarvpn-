@@ -1,0 +1,27 @@
+From 4c9c6c046267f4f1f5e8c33c0031000100010001 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 15:10:00 +0330
+Subject: [PATCH] release: reset public version name to 0.0.1
+
+Start the cleaned public release line at 0.0.1 while keeping versionCode
+monotonic so existing 3.0.4 test installs can still be upgraded.
+---
+ app/build.gradle.kts | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -28,8 +28,8 @@ android {
+         // explicit while building an honestly labelled Android 8+ demo.
+         minSdk = if (ghajarDemoBuild) 26 else 24
+         targetSdk = 36
+-        versionCode = 30004
+-        versionName = if (ghajarDemoBuild) "3.0.4-demo" else "3.0.4"
++        versionCode = 30005
++        versionName = "0.0.1"
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+     }
+ 
+-- 
+2.55.0

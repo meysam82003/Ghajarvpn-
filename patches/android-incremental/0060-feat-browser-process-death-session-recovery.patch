@@ -1,0 +1,95 @@
+From e33ae515e7be57cd544843ab4d7441e8dee061b1 Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sat, 5 Sep 2026 07:38:30 +0330
+Subject: [PATCH] feat(browser): process-death session recovery
+
+- onStop persists the active tab id and per-tab scroll offsets under a
+  single session marker (normal tabs only, private never persisted)
+- on launch the previously-active tab is restored first, then the most
+  recent; a freshly created tab re-scrolls to its saved offset
+---
+ .../com/ghajarvpn/browser/BrowserModels.kt    | 17 ++++++++++++
+ .../browser/GhajarBrowserActivity.kt          | 26 ++++++++++++++++++-
+ 2 files changed, 42 insertions(+), 1 deletion(-)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+@@ -115,7 +115,24 @@ class BrowserRepository(store: BrowserDocumentStore) {
+ 
+     fun clearBrowsingData() {
+         store.remove("history"); store.remove("tabs"); store.remove("bookmarks")
++        store.remove("session")
+     }
+ 
++    /** Process-death recovery markers: active tab id and per-tab scroll offsets. */
++    fun saveSession(activeTabId: String, scrollOffsets: org.json.JSONObject) {
++        store.save("session", org.json.JSONObject()
++            .put("active", activeTabId)
++            .put("scroll", scrollOffsets)
++            .toString())
++    }
++
++    fun restoreActiveTabId(): String = runCatching {
++        org.json.JSONObject(store.load("session") ?: "{}").optString("active")
++    }.getOrDefault("")
++
++    fun sessionScroll(tabId: String): Long = runCatching {
++        org.json.JSONObject(store.load("session") ?: "{}").optJSONObject("scroll")?.optLong(tabId) ?: 0L
++    }.getOrDefault(0L)
++
+     companion object { const val MAX_TABS = 24; const val MAX_HISTORY = 500 }
+ }
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -122,7 +122,13 @@ class GhajarBrowserActivity : Activity() {
+         if (private || !requested.isNullOrBlank()) {
+             newTab(requested ?: BrowserTab.HOME_URL, private)
+         } else {
+-            showTab(tabs.maxByOrNull { it.lastUsed } ?: tabs.first())
++            // Process-death recovery: prefer the tab that was active when the
++            // process was stopped, falling back to the most recent one.
++            val activeId = repository.restoreActiveTabId()
++            val restored = tabs.firstOrNull { it.id == activeId }
++                ?: tabs.maxByOrNull { it.lastUsed }
++                ?: tabs.first()
++            showTab(restored)
+         }
+     }
+ 
+@@ -373,6 +379,10 @@ class GhajarBrowserActivity : Activity() {
+         (web.parent as? ViewGroup)?.removeView(web)
+         webContainer.addView(web, FrameLayout.LayoutParams(-1, -1))
+         if (web.url == null) loadInto(web, tab.url)
++        if (!tab.private) {
++            val saved = repository.sessionScroll(tab.id)
++            if (saved > 0 && web.scrollY == 0) web.scrollTo(0, saved.toInt())
++        }
+         updateAddress(tab.url)
+         refreshChrome(tab)
+         repository.saveTabs(tabs.filterNot(BrowserTab::private))
+@@ -1399,6 +1409,20 @@ class GhajarBrowserActivity : Activity() {
+         repository.saveTabs(tabs.filterNot(BrowserTab::private)); CookieManager.getInstance().flush(); super.onPause()
+     }
+ 
++    override fun onStop() {
++        // Persist the session markers used for process-death recovery: active tab
++        // identity and scroll offsets survive a killed process for normal tabs.
++        if (!embeddedStore) {
++            val active = currentTab()?.id.orEmpty()
++            val offsets = org.json.JSONObject()
++            tabs.filterNot(BrowserTab::private).forEach { tab ->
++                webViews[tab.id]?.let { web -> offsets.put(tab.id, web.scrollY) }
++            }
++            repository.saveSession(active, offsets)
++        }
++        super.onStop()
++    }
++
+     override fun onDestroy() {
+         dialog?.dismiss(); dialog = null
+         fileCallback?.onReceiveValue(null); pendingPermission?.deny()
+-- 
+2.55.0
+

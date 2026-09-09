@@ -1,0 +1,38 @@
+From be9a49bd6666ef224de51b6a549928cbeef22c4d Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sat, 5 Sep 2026 09:32:55 +0330
+Subject: [PATCH] feat(browser): themed reader mode
+
+Reader view now renders on the ivory/ink palette with gold headings,
+constrained media and comfortable paragraph spacing instead of leaving
+raw page styles in place.
+---
+ .../com/ghajarvpn/browser/GhajarBrowserActivity.kt  | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -1471,7 +1471,18 @@ class GhajarBrowserActivity : Activity() {
+ 
+         private const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
+         private val READER_SCRIPT = """
+-            (()=>{const a=document.querySelector('article,main,[role=main]')||document.body;document.body.innerHTML='';document.body.appendChild(a);document.body.style='max-width:760px;margin:auto;padding:24px;font:19px/1.8 sans-serif';document.querySelectorAll('script,style,nav,aside,footer,iframe').forEach(x=>x.remove())})()
++            (()=>{
++              const a=document.querySelector('article,main,[role=main]')||document.body;
++              document.body.innerHTML='';
++              document.body.appendChild(a);
++              document.body.style='max-width:720px;margin:auto;padding:28px 20px;background:#F6F1E4;color:#12202B;font:18px/1.9 sans-serif';
++              document.querySelectorAll('script,style,nav,aside,footer,iframe,form').forEach(x=>x.remove());
++              document.querySelectorAll('img,video').forEach(m=>{m.style.maxWidth='100%';m.style.height='auto'});
++              document.querySelectorAll('h1,h2,h3').forEach(h=>{h.style.color='#B48B32'});
++              document.querySelectorAll('a').forEach(l=>{l.style.color='#0E2C49'});
++              document.querySelectorAll('p').forEach(p=>{p.style.margin='0 0 14px'});
++              document.title='حالت مطالعه — '+(document.title||'');
++            })()
+         """.trimIndent()
+     }
+ }
+-- 
+2.55.0
+

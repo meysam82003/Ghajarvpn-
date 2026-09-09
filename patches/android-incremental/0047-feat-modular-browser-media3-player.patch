@@ -1,0 +1,1604 @@
+From ee958247a1b9bca1bfe4eba33d1ff87065da4aa8 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 19:30:12 +0200
+Subject: [PATCH] feat(browser): add modular browser and Media3 player
+
+---
+ app/build.gradle.kts                          |   1 +
+ .../main/java/net/gozar/app/MainActivity.kt   |   6 +
+ .../java/net/gozar/app/StoreLinkRouter.kt     |   8 +
+ browser/build.gradle.kts                      |  25 +
+ browser/src/main/AndroidManifest.xml          |  21 +
+ .../com/ghajarvpn/browser/BrowserContract.kt  |  22 +
+ .../com/ghajarvpn/browser/BrowserModels.kt    | 101 +++
+ .../ghajarvpn/browser/BrowserRequestPolicy.kt |  37 ++
+ .../browser/GhajarBrowserActivity.kt          | 599 ++++++++++++++++++
+ .../browser/media/BrowserMediaBridge.kt       |  43 ++
+ .../browser/media/GhajarMediaPlayer.kt        |  41 ++
+ .../browser/media/GhajarMediaSession.kt       |  11 +
+ .../browser/media/GhajarPlayerActivity.kt     | 361 +++++++++++
+ .../browser/media/MediaHeaderProvider.kt      |  12 +
+ .../ghajarvpn/browser/media/MediaModels.kt    |  74 +++
+ .../browser/media/MediaPreferences.kt         |  28 +
+ browser/src/main/res/values/styles.xml        |  19 +
+ .../browser/media/MediaSourceResolverTest.kt  |  19 +
+ settings.gradle.kts                           |   1 +
+ 19 files changed, 1429 insertions(+)
+ create mode 100644 browser/build.gradle.kts
+ create mode 100644 browser/src/main/AndroidManifest.xml
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/BrowserRequestPolicy.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaSession.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/MediaHeaderProvider.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt
+ create mode 100644 browser/src/main/res/values/styles.xml
+ create mode 100644 browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index 7723f6c..cbbfee2 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -119,6 +119,7 @@ android {
+ dependencies {
+     implementation(project(":strongswan"))
+     implementation(project(":openvpn"))
++    implementation(project(":browser"))
+     implementation(platform(libs.androidx.compose.bom))
+     implementation(libs.androidx.activity.compose)
+     implementation(libs.androidx.compose.material3)
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index c4c02de..deb7627 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -5551,6 +5551,12 @@ private fun ToolsScreen(
+         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+         verticalArrangement = Arrangement.spacedBy(12.dp)
+     ) {
++        SettingsHubCard(
++            icon = Icons.Filled.TravelExplore,
++            title = "مرورگر قاجار",
++            subtitle = "تب‌ها، حالت خصوصی، نشانک، محافظ ردیاب و دانلود امن",
++            onClick = { com.ghajarvpn.browser.BrowserContract.open(context) }
++        )
+         SettingsHubCard(
+             icon = Icons.Filled.FileOpen,
+             title = "ابزار کانفیگ",
+diff --git a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+index 1c1ac07..e0fa3cb 100644
+--- a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
++++ b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+@@ -36,4 +36,12 @@ object StoreLinkRouter {
+             .putExtra(SecurePaymentActivity.EXTRA_URL, route.uri.toString())
+             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+     }
++
++    fun browserIntent(context: Context, raw: String): Intent? {
++        val route = classify(raw)
++        if (route.kind !in setOf(StoreLinkKind.TERMS, StoreLinkKind.HELP, StoreLinkKind.USER_PANEL, StoreLinkKind.WEB_SUPPORT)) return null
++        return Intent(context, com.ghajarvpn.browser.GhajarBrowserActivity::class.java)
++            .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_URL, route.uri.toString())
++            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
++    }
+ }
+diff --git a/browser/build.gradle.kts b/browser/build.gradle.kts
+new file mode 100644
+index 0000000..94570c5
+--- /dev/null
++++ b/browser/build.gradle.kts
+@@ -0,0 +1,25 @@
++plugins {
++    alias(libs.plugins.android.library)
++}
++
++android {
++    namespace = "com.ghajarvpn.browser"
++    compileSdk { version = release(36) { minorApiLevel = 1 } }
++    defaultConfig { minSdk = 26 }
++    compileOptions {
++        sourceCompatibility = JavaVersion.VERSION_17
++        targetCompatibility = JavaVersion.VERSION_17
++    }
++    lint { abortOnError = false }
++}
++
++dependencies {
++    implementation("androidx.core:core-ktx:1.17.0")
++    val media3Version = "1.9.0"
++    implementation("androidx.media3:media3-exoplayer:$media3Version")
++    implementation("androidx.media3:media3-exoplayer-hls:$media3Version")
++    implementation("androidx.media3:media3-exoplayer-dash:$media3Version")
++    implementation("androidx.media3:media3-ui:$media3Version")
++    implementation("androidx.media3:media3-session:$media3Version")
++    testImplementation("junit:junit:4.13.2")
++}
+diff --git a/browser/src/main/AndroidManifest.xml b/browser/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000..98fea2b
+--- /dev/null
++++ b/browser/src/main/AndroidManifest.xml
+@@ -0,0 +1,21 @@
++<?xml version="1.0" encoding="utf-8"?>
++<manifest xmlns:android="http://schemas.android.com/apk/res/android">
++    <uses-feature android:name="android.software.picture_in_picture" android:required="false" />
++    <application>
++        <activity
++            android:name=".GhajarBrowserActivity"
++            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
++            android:exported="false"
++            android:label="مرورگر قاجار"
++            android:launchMode="singleTop"
++            android:theme="@style/GhajarBrowserTheme" />
++        <activity
++            android:name=".media.GhajarPlayerActivity"
++            android:configChanges="orientation|screenSize|smallestScreenSize|keyboardHidden"
++            android:exported="false"
++            android:label="پلیر قاجار"
++            android:launchMode="singleTop"
++            android:supportsPictureInPicture="true"
++            android:theme="@style/GhajarPlayerTheme" />
++    </application>
++</manifest>
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
+new file mode 100644
+index 0000000..4f45b1a
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
+@@ -0,0 +1,22 @@
++package com.ghajarvpn.browser
++
++import android.content.Context
++import android.content.Intent
++
++object BrowserContract {
++    const val ACTION_ENQUEUE_DOWNLOAD = "com.ghajarvpn.downloads.ENQUEUE"
++    const val EXTRA_URL = "url"
++    const val EXTRA_COOKIES = "cookies"
++    const val EXTRA_REFERER = "referer"
++    const val EXTRA_USER_AGENT = "user_agent"
++    const val EXTRA_CONTENT_DISPOSITION = "content_disposition"
++    const val EXTRA_CONTENT_TYPE = "content_type"
++    const val EXTRA_PRIVATE = "private"
++
++    fun open(context: Context, url: String? = null, private: Boolean = false) {
++        context.startActivity(Intent(context, GhajarBrowserActivity::class.java).apply {
++            url?.let { putExtra(EXTRA_URL, it) }
++            putExtra(EXTRA_PRIVATE, private)
++        })
++    }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+new file mode 100644
+index 0000000..558cf99
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt
+@@ -0,0 +1,101 @@
++package com.ghajarvpn.browser
++
++import android.content.Context
++import org.json.JSONArray
++import org.json.JSONObject
++import java.util.UUID
++
++enum class BrowserNetworkMode { DIRECT, BROWSER_ONLY, FULL_DEVICE }
++
++data class BrowserTab(
++    val id: String = UUID.randomUUID().toString(),
++    var url: String = HOME_URL,
++    var title: String = "قاجار",
++    val private: Boolean = false,
++    var group: String = "",
++    var lastUsed: Long = System.currentTimeMillis()
++) {
++    companion object { const val HOME_URL = "https://home.ghajar.invalid/" }
++}
++
++data class BrowserSettings(
++    val javaScript: Boolean = true,
++    val cookies: Boolean = true,
++    val trackerBlocking: Boolean = true,
++    val adBlocking: Boolean = false,
++    val httpsPreference: Boolean = true,
++    val desktopMode: Boolean = false,
++    val darkPages: Boolean = false,
++    val searchEngine: String = "https://www.google.com/search?q=%s"
++)
++
++data class BrowserHistory(val title: String, val url: String, val at: Long)
++
++class BrowserRepository(context: Context) {
++    private val prefs = context.applicationContext.getSharedPreferences("ghajar_browser_v1", Context.MODE_PRIVATE)
++
++    fun settings(): BrowserSettings = runCatching {
++        val o = JSONObject(prefs.getString("settings", "{}") ?: "{}")
++        BrowserSettings(
++            javaScript = o.optBoolean("js", true), cookies = o.optBoolean("cookies", true),
++            trackerBlocking = o.optBoolean("trackers", true), adBlocking = o.optBoolean("ads", false),
++            httpsPreference = o.optBoolean("https", true), desktopMode = o.optBoolean("desktop", false),
++            darkPages = o.optBoolean("dark", false),
++            searchEngine = o.optString("search", "https://www.google.com/search?q=%s")
++        )
++    }.getOrDefault(BrowserSettings())
++
++    fun saveSettings(value: BrowserSettings) {
++        val o = JSONObject().put("js", value.javaScript).put("cookies", value.cookies)
++            .put("trackers", value.trackerBlocking).put("ads", value.adBlocking)
++            .put("https", value.httpsPreference).put("desktop", value.desktopMode)
++            .put("dark", value.darkPages).put("search", value.searchEngine)
++        prefs.edit().putString("settings", o.toString()).apply()
++    }
++
++    fun restoreTabs(): MutableList<BrowserTab> = runCatching {
++        val array = JSONArray(prefs.getString("tabs", "[]"))
++        (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let { o ->
++            BrowserTab(o.optString("id"), o.optString("url", BrowserTab.HOME_URL), o.optString("title", "قاجار"),
++                false, o.optString("group"), o.optLong("last", System.currentTimeMillis()))
++        } }.takeLast(MAX_TABS).toMutableList()
++    }.getOrDefault(mutableListOf()).also { if (it.isEmpty()) it += BrowserTab() }
++
++    fun saveTabs(tabs: List<BrowserTab>) {
++        val array = JSONArray()
++        tabs.filterNot(BrowserTab::private).takeLast(MAX_TABS).forEach { tab ->
++            array.put(JSONObject().put("id", tab.id).put("url", tab.url).put("title", tab.title)
++                .put("group", tab.group).put("last", tab.lastUsed))
++        }
++        prefs.edit().putString("tabs", array.toString()).apply()
++    }
++
++    fun addHistory(title: String, url: String) {
++        if (!url.startsWith("http")) return
++        val items = history().toMutableList()
++        items.removeAll { it.url == url }
++        items.add(0, BrowserHistory(title.take(160), url, System.currentTimeMillis()))
++        val array = JSONArray()
++        items.take(MAX_HISTORY).forEach { array.put(JSONObject().put("title", it.title).put("url", it.url).put("at", it.at)) }
++        prefs.edit().putString("history", array.toString()).apply()
++    }
++
++    fun history(): List<BrowserHistory> = runCatching {
++        val array = JSONArray(prefs.getString("history", "[]"))
++        (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let { BrowserHistory(it.optString("title"), it.optString("url"), it.optLong("at")) } }
++    }.getOrDefault(emptyList())
++
++    fun bookmarks(): Set<String> = prefs.getStringSet("bookmarks", emptySet()).orEmpty()
++    fun toggleBookmark(url: String): Boolean {
++        val set = bookmarks().toMutableSet()
++        val added = if (url in set) { set.remove(url); false } else { set.add(url); true }
++        prefs.edit().putStringSet("bookmarks", set).apply()
++        return added
++    }
++
++    fun clearBrowsingData() {
++        prefs.edit().remove("history").remove("tabs").remove("bookmarks").apply()
++    }
++
++    companion object { const val MAX_TABS = 24; const val MAX_HISTORY = 500 }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserRequestPolicy.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserRequestPolicy.kt
+new file mode 100644
+index 0000000..313c46a
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserRequestPolicy.kt
+@@ -0,0 +1,37 @@
++package com.ghajarvpn.browser
++
++import android.net.Uri
++
++object BrowserRequestPolicy {
++    private val trackerHosts = setOf(
++        "google-analytics.com", "googletagmanager.com", "doubleclick.net", "app-measurement.com",
++        "facebook.net", "connect.facebook.net", "branch.io", "appsflyer.com", "adjust.com",
++        "hotjar.com", "clarity.ms", "fullstory.com", "mouseflow.com"
++    )
++    private val adHosts = setOf(
++        "googlesyndication.com", "googleadservices.com", "adnxs.com", "taboola.com", "outbrain.com",
++        "criteo.com", "amazon-adsystem.com", "adsrvr.org", "adivery.com", "tapsell.ir", "yektanet.com"
++    )
++
++    fun blocked(url: String, settings: BrowserSettings): Boolean {
++        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return true
++        val host = uri.host?.lowercase()?.trimEnd('.') ?: return false
++        fun matches(list: Set<String>) = list.any { host == it || host.endsWith(".$it") }
++        return settings.trackerBlocking && matches(trackerHosts) || settings.adBlocking && matches(adHosts)
++    }
++
++    fun normalizeInput(input: String, settings: BrowserSettings): String {
++        val value = input.trim()
++        if (value.isBlank()) return BrowserTab.HOME_URL
++        if (value.contains(' ') || !value.contains('.')) {
++            return settings.searchEngine.replace("%s", Uri.encode(value))
++        }
++        val withScheme = if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(value)) value else "https://$value"
++        return if (settings.httpsPreference && withScheme.startsWith("http://", true)) "https://" + withScheme.substring(7) else withScheme
++    }
++
++    fun safeExternal(url: String): Boolean {
++        val uri = runCatching { Uri.parse(url) }.getOrNull() ?: return false
++        return uri.scheme?.lowercase() in setOf("http", "https") && uri.userInfo == null
++    }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+new file mode 100644
+index 0000000..0fbe729
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -0,0 +1,599 @@
++package com.ghajarvpn.browser
++
++import android.Manifest
++import android.annotation.SuppressLint
++import android.app.Activity
++import android.app.AlertDialog
++import android.app.DownloadManager
++import android.content.ActivityNotFoundException
++import android.content.Context
++import android.content.Intent
++import android.content.pm.PackageManager
++import android.graphics.Bitmap
++import android.graphics.Color
++import android.net.Uri
++import android.os.Build
++import android.os.Bundle
++import android.os.Message
++import android.print.PrintAttributes
++import android.print.PrintManager
++import android.provider.Settings
++import android.view.Gravity
++import android.view.View
++import android.view.ViewGroup
++import android.webkit.CookieManager
++import android.webkit.DownloadListener
++import android.webkit.PermissionRequest
++import android.webkit.SslErrorHandler
++import android.webkit.ValueCallback
++import android.webkit.WebChromeClient
++import android.webkit.WebResourceError
++import android.webkit.WebResourceRequest
++import android.webkit.WebResourceResponse
++import android.webkit.WebSettings
++import android.webkit.WebView
++import android.webkit.WebViewClient
++import android.widget.EditText
++import android.widget.FrameLayout
++import android.widget.HorizontalScrollView
++import android.widget.ImageButton
++import android.widget.LinearLayout
++import android.widget.PopupMenu
++import android.widget.ProgressBar
++import android.widget.TextView
++import android.widget.Toast
++import com.ghajarvpn.browser.media.BrowserMediaBridge
++import com.ghajarvpn.browser.media.GhajarPlayerActivity
++import com.ghajarvpn.browser.media.MediaCandidate
++import com.ghajarvpn.browser.media.MediaPlaybackRequest
++import com.ghajarvpn.browser.media.MediaSessionVault
++import com.ghajarvpn.browser.media.MediaSourceResolver
++import java.io.ByteArrayInputStream
++
++/**
++ * Independent browser surface. Private tabs are never written to disk and each
++ * tab owns its WebView/back-forward list. No browsing data is sent to analytics.
++ */
++class GhajarBrowserActivity : Activity() {
++    private val repository by lazy { BrowserRepository(this) }
++    private var settings = BrowserSettings()
++    private val tabs = mutableListOf<BrowserTab>()
++    private val webViews = linkedMapOf<String, WebView>()
++    private lateinit var webContainer: FrameLayout
++    private lateinit var address: EditText
++    private lateinit var progress: ProgressBar
++    private lateinit var tabCounter: TextView
++    private lateinit var videoButton: TextView
++    private val mediaCandidates = linkedMapOf<String, MutableList<MediaCandidate>>()
++    private var activeId = ""
++    private var fullScreenView: View? = null
++    private var fullScreenCallback: WebChromeClient.CustomViewCallback? = null
++    private var fileCallback: ValueCallback<Array<Uri>>? = null
++    private var pendingPermission: PermissionRequest? = null
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        window.statusBarColor = Color.rgb(7, 27, 46)
++        window.navigationBarColor = Color.rgb(7, 27, 46)
++        settings = repository.settings()
++        tabs += repository.restoreTabs()
++        setContentView(buildUi())
++        val requested = intent.getStringExtra(BrowserContract.EXTRA_URL)
++        val private = intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false)
++        if (private || !requested.isNullOrBlank()) {
++            newTab(requested ?: BrowserTab.HOME_URL, private)
++        } else {
++            showTab(tabs.maxByOrNull { it.lastUsed } ?: tabs.first())
++        }
++    }
++
++    override fun onNewIntent(intent: Intent) {
++        super.onNewIntent(intent)
++        setIntent(intent)
++        val url = intent.getStringExtra(BrowserContract.EXTRA_URL) ?: return
++        newTab(url, intent.getBooleanExtra(BrowserContract.EXTRA_PRIVATE, false))
++    }
++
++    private fun buildUi(): View {
++        val root = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            setBackgroundColor(Color.rgb(244, 239, 226))
++        }
++        val titleBar = LinearLayout(this).apply {
++            gravity = Gravity.CENTER_VERTICAL
++            setPadding(dp(8), dp(5), dp(8), dp(5))
++            setBackgroundColor(Color.rgb(7, 27, 46))
++        }
++        titleBar.addView(iconButton(android.R.drawable.ic_media_previous, "بازگشت") {
++            val web = currentWebView()
++            if (web?.canGoBack() == true) web.goBack() else finish()
++        })
++        titleBar.addView(iconButton(android.R.drawable.ic_popup_sync, "بارگذاری دوباره") {
++            currentWebView()?.reload()
++        })
++        address = EditText(this).apply {
++            setSingleLine(true)
++            hint = "جست‌وجو یا نشانی وب"
++            textSize = 15f
++            setTextColor(Color.rgb(18, 30, 39))
++            setHintTextColor(Color.rgb(100, 104, 108))
++            setBackgroundColor(Color.WHITE)
++            setPadding(dp(12), 0, dp(12), 0)
++            imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_GO
++            setOnEditorActionListener { _, action, _ ->
++                if (action == android.view.inputmethod.EditorInfo.IME_ACTION_GO) {
++                    load(BrowserRequestPolicy.normalizeInput(text.toString(), settings)); clearFocus(); true
++                } else false
++            }
++            setOnFocusChangeListener { _, focused -> if (focused) selectAll() }
++        }
++        titleBar.addView(address, LinearLayout.LayoutParams(0, dp(44), 1f).apply {
++            marginStart = dp(5); marginEnd = dp(5)
++        })
++        tabCounter = TextView(this).apply {
++            gravity = Gravity.CENTER
++            setTextColor(Color.WHITE)
++            textSize = 15f
++            setOnClickListener { showTabsDialog() }
++            contentDescription = "مدیریت تب‌ها"
++        }
++        titleBar.addView(tabCounter, LinearLayout.LayoutParams(dp(42), dp(44)))
++        videoButton = TextView(this).apply {
++            text = "🎬"
++            textSize = 20f
++            gravity = Gravity.CENTER
++            visibility = View.GONE
++            contentDescription = "پخش در پلیر قاجار"
++            setOnClickListener { chooseMedia() }
++        }
++        titleBar.addView(videoButton, LinearLayout.LayoutParams(dp(42), dp(44)))
++        titleBar.addView(iconButton(android.R.drawable.ic_menu_more, "منوی مرورگر") { showMenu(it) })
++
++        progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
++            max = 100; visibility = View.GONE
++        }
++        webContainer = FrameLayout(this).apply { setBackgroundColor(Color.WHITE) }
++        root.addView(titleBar, LinearLayout.LayoutParams(-1, dp(56)))
++        root.addView(progress, LinearLayout.LayoutParams(-1, dp(3)))
++        root.addView(webContainer, LinearLayout.LayoutParams(-1, 0, 1f))
++        return root
++    }
++
++    private fun iconButton(icon: Int, description: String, action: (View) -> Unit) = ImageButton(this).apply {
++        setImageResource(icon); setColorFilter(Color.WHITE); setBackgroundColor(Color.TRANSPARENT)
++        contentDescription = description; setOnClickListener(action)
++        layoutParams = LinearLayout.LayoutParams(dp(44), dp(44))
++    }
++
++    private fun newTab(raw: String = BrowserTab.HOME_URL, private: Boolean = false) {
++        if (tabs.size >= BrowserRepository.MAX_TABS) {
++            tabs.firstOrNull { !it.private && it.id != activeId }?.let(::closeTab)
++        }
++        val tab = BrowserTab(url = raw, private = private, title = if (private) "تب خصوصی" else "قاجار")
++        tabs += tab
++        showTab(tab)
++    }
++
++    private fun showTab(tab: BrowserTab) {
++        activeId = tab.id
++        tab.lastUsed = System.currentTimeMillis()
++        val web = webViews.getOrPut(tab.id) { buildWebView(tab) }
++        webContainer.removeAllViews()
++        (web.parent as? ViewGroup)?.removeView(web)
++        webContainer.addView(web, FrameLayout.LayoutParams(-1, -1))
++        if (web.url == null) loadInto(web, tab.url)
++        updateAddress(tab.url)
++        tabCounter.text = if (tab.private) "◉ ${tabs.size}" else tabs.size.toString()
++        videoButton.visibility = if (mediaCandidates[tab.id].isNullOrEmpty()) View.GONE else View.VISIBLE
++        repository.saveTabs(tabs)
++    }
++
++    private fun closeTab(tab: BrowserTab) {
++        val wasActive = tab.id == activeId
++        tabs.remove(tab)
++        mediaCandidates.remove(tab.id)
++        webViews.remove(tab.id)?.let(::destroyWebView)
++        if (tabs.isEmpty()) tabs += BrowserTab()
++        if (wasActive) showTab(tabs.last()) else repository.saveTabs(tabs)
++    }
++
++    @SuppressLint("SetJavaScriptEnabled")
++    private fun buildWebView(tab: BrowserTab): WebView = WebView(this).apply {
++        setBackgroundColor(Color.WHITE)
++        configureSettings(this, tab.private)
++        webViewClient = BrowserClient(tab)
++        webChromeClient = BrowserChrome(tab)
++        setDownloadListener(downloadListener(tab))
++        addJavascriptInterface(BrowserMediaBridge { candidate ->
++            runOnUiThread { registerMedia(tab, candidate) }
++        }, "GhajarMedia")
++    }
++
++    private fun registerMedia(tab: BrowserTab, candidate: MediaCandidate) {
++        val values = mediaCandidates.getOrPut(tab.id) { mutableListOf() }
++        if (values.none { it.url == candidate.url }) values += candidate
++        if (tab.id == activeId && values.isNotEmpty()) videoButton.visibility = View.VISIBLE
++    }
++
++    private fun chooseMedia() {
++        val tab = currentTab() ?: return
++        val values = mediaCandidates[tab.id].orEmpty()
++        if (values.isEmpty()) { toast("ویدیوی استاندارد قابل دسترسی پیدا نشد"); return }
++        if (values.size == 1) openMedia(tab, values.first()) else {
++            val labels = values.mapIndexed { index, item ->
++                item.title.ifBlank { Uri.parse(item.url).lastPathSegment ?: "ویدیو ${index + 1}" }.take(80) + " · " + item.kind.name
++            }.toTypedArray()
++            AlertDialog.Builder(this).setTitle("انتخاب ویدیو برای Ghajar Player")
++                .setItems(labels) { _, index -> openMedia(tab, values[index]) }.setNegativeButton("لغو", null).show()
++        }
++    }
++
++    private fun openMedia(tab: BrowserTab, candidate: MediaCandidate) {
++        val web = currentWebView() ?: return
++        val headers = linkedMapOf(
++            "User-Agent" to web.settings.userAgentString,
++            "Referer" to tab.url
++        )
++        CookieManager.getInstance().getCookie(candidate.url)?.takeIf(String::isNotBlank)?.let { headers["Cookie"] = it }
++        val token = MediaSessionVault.put(MediaPlaybackRequest(candidate, headers, tab.private))
++        // Prevent duplicate audio; returning to the site keeps the page and tab intact.
++        web.evaluateJavascript("document.querySelectorAll('video,audio').forEach(v=>v.pause())", null)
++        startActivity(Intent(this, GhajarPlayerActivity::class.java).putExtra(GhajarPlayerActivity.EXTRA_SESSION, token))
++    }
++
++    @SuppressLint("SetJavaScriptEnabled")
++    private fun configureSettings(web: WebView, private: Boolean) = web.settings.apply {
++        javaScriptEnabled = settings.javaScript
++        domStorageEnabled = !private
++        databaseEnabled = !private
++        allowFileAccess = false
++        allowContentAccess = false
++        mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
++        setSupportMultipleWindows(true)
++        javaScriptCanOpenWindowsAutomatically = false
++        mediaPlaybackRequiresUserGesture = true
++        builtInZoomControls = true
++        displayZoomControls = false
++        useWideViewPort = true
++        loadWithOverviewMode = true
++        cacheMode = if (private) WebSettings.LOAD_NO_CACHE else WebSettings.LOAD_DEFAULT
++        userAgentString = if (settings.desktopMode) DESKTOP_UA else WebSettings.getDefaultUserAgent(this@GhajarBrowserActivity)
++        if (Build.VERSION.SDK_INT >= 33) isAlgorithmicDarkeningAllowed = settings.darkPages
++        else if (Build.VERSION.SDK_INT >= 29) forceDark = if (settings.darkPages) WebSettings.FORCE_DARK_ON else WebSettings.FORCE_DARK_OFF
++        CookieManager.getInstance().setAcceptCookie(settings.cookies && !private)
++        CookieManager.getInstance().setAcceptThirdPartyCookies(web, false)
++    }
++
++    private fun load(raw: String) {
++        val tab = currentTab() ?: return
++        tab.url = raw
++        loadInto(currentWebView() ?: return, raw)
++    }
++
++    private fun loadInto(web: WebView, raw: String) {
++        if (raw == BrowserTab.HOME_URL) showHome(web) else web.loadUrl(BrowserRequestPolicy.normalizeInput(raw, settings))
++    }
++
++    private fun showHome(web: WebView) {
++        val private = currentTab()?.private == true
++        val heading = if (private) "جاسوس قاجار · گشت خصوصی" else "شاه قاجار · دروازهٔ اینترنت"
++        val note = if (private) "این تب در تاریخچه و بازیابی نشست ذخیره نمی‌شود." else "جست‌وجوی سریع، سبک و محافظت‌شده"
++        val html = """
++            <!doctype html><meta name=viewport content="width=device-width,initial-scale=1">
++            <style>body{background:#071b2e;color:#f8edd2;font-family:sans-serif;text-align:center;padding:12vh 24px}h1{font-size:25px}.c{font-size:72px}.n{opacity:.8;line-height:1.8}.b{margin-top:36px;padding:15px;border:1px solid #b48b32;border-radius:18px}</style>
++            <div class=c>${if (private) "🕵🏻" else "👑"}</div><h1>$heading</h1><div class=n>$note</div><div class=b>نشانی یا عبارت جست‌وجو را در نوار بالا وارد کنید</div>
++        """.trimIndent()
++        web.loadDataWithBaseURL(BrowserTab.HOME_URL, html, "text/html", "UTF-8", null)
++    }
++
++    private fun updateAddress(url: String?) {
++        if (!::address.isInitialized || address.hasFocus()) return
++        address.setText(if (url == BrowserTab.HOME_URL || url == "about:blank") "" else url.orEmpty())
++    }
++
++    private fun showMenu(anchor: View) {
++        val web = currentWebView() ?: return
++        PopupMenu(this, anchor).apply {
++            menu.add("تب جدید")
++            menu.add("تب خصوصی جدید")
++            menu.add("افزودن/حذف نشانک")
++            menu.add("یافتن در صفحه")
++            menu.add("حالت مطالعه")
++            menu.add(if (settings.desktopMode) "نسخهٔ موبایل" else "نسخهٔ دسکتاپ")
++            menu.add("ذخیره به PDF")
++            menu.add("اشتراک‌گذاری")
++            menu.add("باز کردن در مرورگر دیگر")
++            menu.add("تاریخچه و نشانک‌ها")
++            menu.add("تنظیمات حریم خصوصی")
++            menu.add("پاک‌سازی داده‌های مرور")
++            setOnMenuItemClickListener {
++                when (it.title.toString()) {
++                    "تب جدید" -> newTab()
++                    "تب خصوصی جدید" -> newTab(private = true)
++                    "افزودن/حذف نشانک" -> toggleBookmark(web.url)
++                    "یافتن در صفحه" -> findInPage(web)
++                    "حالت مطالعه" -> readerMode(web)
++                    "نسخهٔ موبایل", "نسخهٔ دسکتاپ" -> toggleDesktop(web)
++                    "ذخیره به PDF" -> savePdf(web)
++                    "اشتراک‌گذاری" -> share(web.url)
++                    "باز کردن در مرورگر دیگر" -> openExternal(web.url)
++                    "تاریخچه و نشانک‌ها" -> showLibrary()
++                    "تنظیمات حریم خصوصی" -> showSettings()
++                    "پاک‌سازی داده‌های مرور" -> confirmClear()
++                }; true
++            }
++            show()
++        }
++    }
++
++    private fun showTabsDialog() {
++        val labels = tabs.map { (if (it.private) "🕵  " else "") + it.title.take(48) }.toTypedArray()
++        AlertDialog.Builder(this).setTitle("تب‌ها (${tabs.size})")
++            .setItems(labels) { _, index -> showTab(tabs[index]) }
++            .setPositiveButton("تب جدید") { _, _ -> newTab() }
++            .setNeutralButton("خصوصی") { _, _ -> newTab(private = true) }
++            .setNegativeButton("بستن تب فعلی") { _, _ -> currentTab()?.let(::closeTab) }
++            .show()
++    }
++
++    private fun toggleBookmark(url: String?) {
++        if (!BrowserRequestPolicy.safeExternal(url.orEmpty()) || currentTab()?.private == true) {
++            toast("این صفحه قابل ذخیره نیست"); return
++        }
++        toast(if (repository.toggleBookmark(url!!)) "نشانک ذخیره شد" else "نشانک حذف شد")
++    }
++
++    private fun findInPage(web: WebView) {
++        val input = EditText(this).apply { hint = "عبارت داخل صفحه"; setSingleLine() }
++        AlertDialog.Builder(this).setTitle("یافتن در صفحه").setView(input)
++            .setPositiveButton("یافتن") { _, _ -> web.findAllAsync(input.text.toString()) }
++            .setNegativeButton("بستن") { _, _ -> web.clearMatches() }.show()
++    }
++
++    private fun readerMode(web: WebView) {
++        if (!settings.javaScript) { toast("برای حالت مطالعه، JavaScript باید فعال باشد"); return }
++        web.evaluateJavascript(READER_SCRIPT, null)
++    }
++
++    private fun toggleDesktop(web: WebView) {
++        settings = settings.copy(desktopMode = !settings.desktopMode)
++        repository.saveSettings(settings)
++        web.settings.userAgentString = if (settings.desktopMode) DESKTOP_UA else WebSettings.getDefaultUserAgent(this)
++        web.reload()
++    }
++
++    private fun savePdf(web: WebView) {
++        if (web.url == BrowserTab.HOME_URL || currentTab()?.private == true) { toast("این صفحه به PDF ذخیره نمی‌شود"); return }
++        val manager = getSystemService(Context.PRINT_SERVICE) as PrintManager
++        manager.print("Ghajar-${System.currentTimeMillis()}", web.createPrintDocumentAdapter("Ghajar page"), PrintAttributes.Builder().build())
++    }
++
++    private fun share(url: String?) {
++        if (!BrowserRequestPolicy.safeExternal(url.orEmpty())) return
++        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
++            type = "text/plain"; putExtra(Intent.EXTRA_TEXT, url)
++        }, "اشتراک‌گذاری صفحه"))
++    }
++
++    private fun openExternal(url: String?) {
++        if (!BrowserRequestPolicy.safeExternal(url.orEmpty())) return
++        runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)) }
++            .onFailure { toast("مرورگر دیگری پیدا نشد") }
++    }
++
++    private fun showLibrary() {
++        val bookmarks = repository.bookmarks().map { "★  $it" }
++        val history = repository.history().take(100).map { "${it.title}\n${it.url}" }
++        val values = (bookmarks + history).ifEmpty { listOf("هنوز موردی وجود ندارد") }
++        AlertDialog.Builder(this).setTitle("نشانک‌ها و تاریخچه")
++            .setItems(values.toTypedArray()) { _, index ->
++                val line = values[index]
++                val url = if (line.startsWith("★  ")) line.removePrefix("★  ") else line.substringAfterLast('\n')
++                if (BrowserRequestPolicy.safeExternal(url)) load(url)
++            }.setNegativeButton("بستن", null).show()
++    }
++
++    private fun showSettings() {
++        val labels = arrayOf("JavaScript", "Cookieهای اصلی", "مسدودسازی ردیاب", "مسدودسازی تبلیغ", "ترجیح HTTPS", "تیره‌کردن صفحات")
++        val values = booleanArrayOf(settings.javaScript, settings.cookies, settings.trackerBlocking, settings.adBlocking, settings.httpsPreference, settings.darkPages)
++        AlertDialog.Builder(this).setTitle("حریم خصوصی و سایت‌ها")
++            .setMultiChoiceItems(labels, values) { _, which, checked -> values[which] = checked }
++            .setPositiveButton("اعمال") { _, _ ->
++                settings = settings.copy(javaScript = values[0], cookies = values[1], trackerBlocking = values[2], adBlocking = values[3], httpsPreference = values[4], darkPages = values[5])
++                repository.saveSettings(settings)
++                webViews.forEach { (id, web) -> configureSettings(web, tabs.firstOrNull { it.id == id }?.private == true) }
++                currentWebView()?.reload()
++            }.setNegativeButton("لغو", null).show()
++    }
++
++    private fun confirmClear() {
++        AlertDialog.Builder(this).setTitle("جلاد قاجار · پاک‌سازی")
++            .setMessage("تاریخچه، نشانک‌ها، Cookieها و Cache مرورگر پاک شوند؟ گذرواژه‌های سیستم پاک نمی‌شوند.")
++            .setPositiveButton("پاک شود") { _, _ ->
++                repository.clearBrowsingData(); CookieManager.getInstance().removeAllCookies(null)
++                CookieManager.getInstance().flush(); WebView(this).clearCache(true)
++                toast("داده‌های مرور پاک شد")
++            }.setNegativeButton("لغو", null).show()
++    }
++
++    private fun downloadListener(tab: BrowserTab) = DownloadListener { url, userAgent, disposition, mime, _ ->
++        if (!BrowserRequestPolicy.safeExternal(url) || tab.private) {
++            toast(if (tab.private) "دانلود در تب خصوصی غیرفعال است" else "نشانی دانلود امن نیست"); return@DownloadListener
++        }
++        val handoff = Intent(BrowserContract.ACTION_ENQUEUE_DOWNLOAD).setPackage(packageName).apply {
++            putExtra(BrowserContract.EXTRA_URL, url)
++            putExtra(BrowserContract.EXTRA_COOKIES, CookieManager.getInstance().getCookie(url).orEmpty())
++            putExtra(BrowserContract.EXTRA_REFERER, tab.url)
++            putExtra(BrowserContract.EXTRA_USER_AGENT, userAgent.orEmpty())
++            putExtra(BrowserContract.EXTRA_CONTENT_DISPOSITION, disposition.orEmpty())
++            putExtra(BrowserContract.EXTRA_CONTENT_TYPE, mime.orEmpty())
++        }
++        if (packageManager.queryBroadcastReceivers(handoff, 0).isNotEmpty()) {
++            sendBroadcast(handoff); toast("به مدیر دانلود افزوده شد")
++        } else {
++            fallbackDownload(url, userAgent, disposition, mime, tab.url)
++        }
++    }
++
++    private fun fallbackDownload(url: String, userAgent: String?, disposition: String?, mime: String?, referer: String) {
++        runCatching {
++            val request = DownloadManager.Request(Uri.parse(url)).apply {
++                setMimeType(mime); setNotificationVisibility(DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED)
++                setTitle(android.webkit.URLUtil.guessFileName(url, disposition, mime))
++                userAgent?.takeIf(String::isNotBlank)?.let { addRequestHeader("User-Agent", it) }
++                CookieManager.getInstance().getCookie(url)?.takeIf(String::isNotBlank)?.let { addRequestHeader("Cookie", it) }
++                if (BrowserRequestPolicy.safeExternal(referer)) addRequestHeader("Referer", referer)
++            }
++            (getSystemService(DOWNLOAD_SERVICE) as DownloadManager).enqueue(request)
++        }.onSuccess { toast("دانلود آغاز شد") }.onFailure { toast("شروع دانلود ممکن نشد") }
++    }
++
++    private inner class BrowserClient(private val tab: BrowserTab) : WebViewClient() {
++        override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
++            mediaCandidates[tab.id]?.clear()
++            if (tab.id == activeId) { videoButton.visibility = View.GONE; progress.visibility = View.VISIBLE; progress.progress = 10; updateAddress(url) }
++        }
++
++        override fun onPageFinished(view: WebView?, url: String?) {
++            tab.url = url ?: tab.url; tab.title = view?.title?.take(100).orEmpty().ifBlank { Uri.parse(tab.url).host ?: "قاجار" }
++            if (!tab.private) { repository.addHistory(tab.title, tab.url); repository.saveTabs(tabs) }
++            view?.evaluateJavascript(BrowserMediaBridge.DISCOVERY_SCRIPT, null)
++            if (tab.id == activeId) { progress.visibility = View.GONE; updateAddress(tab.url) }
++        }
++
++        override fun onLoadResource(view: WebView?, url: String?) {
++            val raw = url ?: return
++            if (MediaSourceResolver.looksLikeMedia(raw)) MediaSourceResolver.resolve(raw)?.let { registerMedia(tab, it) }
++        }
++
++        override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
++            if (request?.isForMainFrame != true) return false
++            val uri = request.url
++            if (uri.scheme?.lowercase() in setOf("http", "https")) return false
++            if (uri.scheme?.lowercase() in setOf("file", "content", "data", "javascript")) return true
++            return runCatching { startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)); true }.getOrDefault(true)
++        }
++
++        override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): WebResourceResponse? {
++            return if (BrowserRequestPolicy.blocked(request?.url?.toString().orEmpty(), settings)) {
++                WebResourceResponse("text/plain", "UTF-8", 204, "Blocked", emptyMap(), ByteArrayInputStream(ByteArray(0)))
++            } else null
++        }
++
++        override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
++            handler?.cancel(); if (tab.id == activeId) toast("گواهی TLS این سایت معتبر نیست")
++        }
++
++        override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
++            if (request?.isForMainFrame == true && tab.id == activeId) toast("صفحه بارگذاری نشد")
++        }
++
++        override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
++            view ?: return true
++            (view.parent as? ViewGroup)?.removeView(view); webViews.remove(tab.id); view.destroy()
++            if (tab.id == activeId) showTab(tab)
++            toast("تب پس از توقف نمایشگر بازیابی شد"); return true
++        }
++    }
++
++    private inner class BrowserChrome(private val tab: BrowserTab) : WebChromeClient() {
++        override fun onProgressChanged(view: WebView?, newProgress: Int) {
++            if (tab.id == activeId) { progress.progress = newProgress; progress.visibility = if (newProgress >= 100) View.GONE else View.VISIBLE }
++        }
++
++        override fun onReceivedTitle(view: WebView?, title: String?) {
++            tab.title = title?.take(100).orEmpty().ifBlank { "قاجار" }; repository.saveTabs(tabs)
++        }
++
++        override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?): Boolean {
++            if (!isUserGesture || resultMsg == null) return false
++            val next = BrowserTab(private = tab.private, title = if (tab.private) "تب خصوصی" else "تب جدید")
++            tabs += next
++            val popup = buildWebView(next); webViews[next.id] = popup
++            (resultMsg.obj as? WebView.WebViewTransport)?.webView = popup; resultMsg.sendToTarget(); showTab(next)
++            return true
++        }
++
++        override fun onShowFileChooser(webView: WebView?, callback: ValueCallback<Array<Uri>>?, params: FileChooserParams?): Boolean {
++            fileCallback?.onReceiveValue(null); fileCallback = callback
++            return try { startActivityForResult(params?.createIntent() ?: Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*").addCategory(Intent.CATEGORY_OPENABLE), FILE_REQUEST); true }
++            catch (_: ActivityNotFoundException) { fileCallback = null; false }
++        }
++
++        override fun onPermissionRequest(request: PermissionRequest?) {
++            request ?: return
++            val video = request.resources.filter { it == PermissionRequest.RESOURCE_VIDEO_CAPTURE }.toTypedArray()
++            if (video.isEmpty() || Uri.parse(request.origin.toString()).scheme != "https") { request.deny(); return }
++            runOnUiThread {
++                AlertDialog.Builder(this@GhajarBrowserActivity).setTitle("اجازهٔ دوربین")
++                    .setMessage("این سایت برای دوربین اجازه می‌خواهد:\n${request.origin.host.orEmpty()}")
++                    .setPositiveButton("اجازه") { _, _ ->
++                        if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) request.grant(video)
++                        else { pendingPermission = request; requestPermissions(arrayOf(Manifest.permission.CAMERA), CAMERA_REQUEST) }
++                    }.setNegativeButton("رد") { _, _ -> request.deny() }.setOnCancelListener { request.deny() }.show()
++            }
++        }
++
++        override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
++            if (view == null || fullScreenView != null) { callback?.onCustomViewHidden(); return }
++            fullScreenView = view; fullScreenCallback = callback
++            webContainer.addView(view, FrameLayout.LayoutParams(-1, -1)); window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY
++        }
++
++        override fun onHideCustomView() { hideFullScreen() }
++    }
++
++    private fun hideFullScreen() {
++        fullScreenView?.let { (it.parent as? ViewGroup)?.removeView(it) }
++        fullScreenView = null; fullScreenCallback?.onCustomViewHidden(); fullScreenCallback = null
++        window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
++    }
++
++    @Deprecated("Deprecated in Android")
++    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
++        if (requestCode == FILE_REQUEST) {
++            fileCallback?.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data)); fileCallback = null
++        } else super.onActivityResult(requestCode, resultCode, data)
++    }
++
++    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
++        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
++        if (requestCode == CAMERA_REQUEST) {
++            val request = pendingPermission; pendingPermission = null
++            if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED) request?.grant(arrayOf(PermissionRequest.RESOURCE_VIDEO_CAPTURE)) else request?.deny()
++        }
++    }
++
++    @Deprecated("Deprecated in Android")
++    override fun onBackPressed() {
++        if (fullScreenView != null) hideFullScreen()
++        else currentWebView()?.let { if (it.canGoBack()) it.goBack() else closeTab(currentTab() ?: return) }
++        if (tabs.size == 1 && currentTab()?.url == BrowserTab.HOME_URL && !currentWebView()!!.canGoBack()) super.onBackPressed()
++    }
++
++    override fun onPause() { repository.saveTabs(tabs); CookieManager.getInstance().flush(); super.onPause() }
++
++    override fun onDestroy() {
++        fileCallback?.onReceiveValue(null); pendingPermission?.deny()
++        webViews.values.toList().forEach(::destroyWebView); webViews.clear(); super.onDestroy()
++    }
++
++    private fun destroyWebView(web: WebView) {
++        (web.parent as? ViewGroup)?.removeView(web); web.stopLoading(); web.loadUrl("about:blank")
++        web.clearHistory(); web.removeAllViews(); web.destroy()
++    }
++
++    private fun currentTab() = tabs.firstOrNull { it.id == activeId }
++    private fun currentWebView() = webViews[activeId]
++    private fun toast(value: String) = Toast.makeText(this, value, Toast.LENGTH_SHORT).show()
++    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
++
++    companion object {
++        private const val FILE_REQUEST = 731
++        private const val CAMERA_REQUEST = 732
++        private const val DESKTOP_UA = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/124 Safari/537.36"
++        private val READER_SCRIPT = """
++            (()=>{const a=document.querySelector('article,main,[role=main]')||document.body;document.body.innerHTML='';document.body.appendChild(a);document.body.style='max-width:760px;margin:auto;padding:24px;font:19px/1.8 sans-serif';document.querySelectorAll('script,style,nav,aside,footer,iframe').forEach(x=>x.remove())})()
++        """.trimIndent()
++    }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt b/browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt
+new file mode 100644
+index 0000000..a635087
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt
+@@ -0,0 +1,43 @@
++package com.ghajarvpn.browser.media
++
++import android.webkit.JavascriptInterface
++import org.json.JSONObject
++
++/** Receives only public media metadata discovered in the current document. */
++class BrowserMediaBridge(private val deliver: (MediaCandidate) -> Unit) {
++    @JavascriptInterface
++    fun found(value: String) {
++        val parsed = runCatching {
++            val json = JSONObject(value)
++            val base = MediaSourceResolver.resolve(json.optString("url"), json.optString("type")) ?: return
++            val tracks = json.optJSONArray("tracks")
++            val subtitles = (0 until (tracks?.length() ?: 0)).mapNotNull { i ->
++                val item = tracks?.optJSONObject(i) ?: return@mapNotNull null
++                val source = MediaSourceResolver.resolve(item.optString("url"))?.url ?: return@mapNotNull null
++                SubtitleCandidate(source, item.optString("label"), item.optString("lang"))
++            }
++            base.copy(title = json.optString("title").take(200), subtitles = subtitles)
++        }.getOrNull() ?: return
++        deliver(parsed)
++    }
++
++    companion object {
++        val DISCOVERY_SCRIPT = """
++            (() => {
++              const seen = new Set();
++              const send = (url, type, video) => {
++                if (!url || seen.has(url) || /^(blob|data|file):/i.test(url)) return;
++                seen.add(url);
++                const tracks = video ? Array.from(video.querySelectorAll('track[kind="subtitles"],track[kind="captions"]')).map(t => ({url:new URL(t.src,location.href).href,label:t.label||'',lang:t.srclang||''})) : [];
++                try { GhajarMedia.found(JSON.stringify({url:new URL(url,location.href).href,type:type||'',title:document.title||'',tracks})); } catch (_) {}
++              };
++              document.querySelectorAll('video').forEach(v => {
++                send(v.currentSrc || v.src, v.getAttribute('type') || '', v);
++                v.querySelectorAll('source').forEach(s => send(s.src, s.type, v));
++                v.addEventListener('loadedmetadata', () => send(v.currentSrc || v.src, '', v), {once:true});
++              });
++              performance.getEntriesByType('resource').forEach(e => { if (/\\.(mp4|webm|m3u8|mpd)(?:$|[?#])/i.test(e.name)) send(e.name,'',null); });
++            })()
++        """.trimIndent()
++    }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+new file mode 100644
+index 0000000..1d7597c
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt
+@@ -0,0 +1,41 @@
++package com.ghajarvpn.browser.media
++
++import android.content.Context
++import android.net.Uri
++import androidx.media3.common.MediaItem
++import androidx.media3.common.MimeTypes
++import androidx.media3.datasource.DefaultHttpDataSource
++import androidx.media3.exoplayer.ExoPlayer
++import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
++
++class GhajarMediaPlayer(context: Context, request: MediaPlaybackRequest) {
++    private val headers = MediaHeaderProvider.sanitize(request.headers)
++    private val httpFactory = DefaultHttpDataSource.Factory()
++        .setAllowCrossProtocolRedirects(false)
++        .setDefaultRequestProperties(headers)
++        .setUserAgent(headers.entries.firstOrNull { it.key.equals("user-agent", true) }?.value ?: "GhajarBrowser")
++
++    val player: ExoPlayer = ExoPlayer.Builder(context)
++        .setMediaSourceFactory(DefaultMediaSourceFactory(context).setDataSourceFactory(httpFactory))
++        .build()
++
++    fun prepare(candidate: MediaCandidate, startPositionMs: Long = 0L) {
++        val subtitles = candidate.subtitles.mapNotNull { subtitle ->
++            val uri = runCatching { Uri.parse(subtitle.url) }.getOrNull() ?: return@mapNotNull null
++            val mime = when {
++                uri.path.orEmpty().endsWith(".vtt", true) -> MimeTypes.TEXT_VTT
++                uri.path.orEmpty().endsWith(".srt", true) -> MimeTypes.APPLICATION_SUBRIP
++                else -> return@mapNotNull null
++            }
++            MediaItem.SubtitleConfiguration.Builder(uri).setMimeType(mime)
++                .setLabel(subtitle.label.ifBlank { null }).setLanguage(subtitle.language.ifBlank { null }).build()
++        }
++        val item = MediaItem.Builder().setUri(candidate.url)
++            .setMediaMetadata(androidx.media3.common.MediaMetadata.Builder().setTitle(candidate.title.ifBlank { "ویدیوی قاجار" }).build())
++            .setSubtitleConfigurations(subtitles).build()
++        player.setMediaItem(item, startPositionMs)
++        player.prepare()
++    }
++
++    fun release() = player.release()
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaSession.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaSession.kt
+new file mode 100644
+index 0000000..57bee20
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaSession.kt
+@@ -0,0 +1,11 @@
++package com.ghajarvpn.browser.media
++
++import android.content.Context
++import androidx.media3.common.Player
++import androidx.media3.session.MediaSession
++
++/** Media3 session used by system controls while the dedicated player is alive. */
++class GhajarMediaSession(context: Context, player: Player) {
++    private val session = MediaSession.Builder(context, player).build()
++    fun release() = session.release()
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+new file mode 100644
+index 0000000..cfaa611
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt
+@@ -0,0 +1,361 @@
++package com.ghajarvpn.browser.media
++
++import android.app.Activity
++import android.app.AlertDialog
++import android.app.PictureInPictureParams
++import android.content.pm.ActivityInfo
++import android.content.pm.PackageManager
++import android.content.res.Configuration
++import android.graphics.Color
++import android.media.AudioManager
++import android.os.Build
++import android.os.Bundle
++import android.os.Handler
++import android.os.Looper
++import android.util.Rational
++import android.view.GestureDetector
++import android.view.Gravity
++import android.view.MotionEvent
++import android.view.View
++import android.view.ViewGroup
++import android.view.WindowManager
++import android.widget.FrameLayout
++import android.widget.ImageButton
++import android.widget.LinearLayout
++import android.widget.PopupMenu
++import android.widget.ProgressBar
++import android.widget.TextView
++import android.widget.Toast
++import androidx.media3.common.C
++import androidx.media3.common.PlaybackException
++import androidx.media3.common.Player
++import androidx.media3.common.TrackSelectionOverride
++import androidx.media3.ui.AspectRatioFrameLayout
++import androidx.media3.ui.PlayerView
++import kotlin.math.abs
++
++class GhajarPlayerActivity : Activity() {
++    private lateinit var request: MediaPlaybackRequest
++    private lateinit var engine: GhajarMediaPlayer
++    private lateinit var mediaSession: GhajarMediaSession
++    private lateinit var playerView: PlayerView
++    private lateinit var root: FrameLayout
++    private lateinit var stats: TextView
++    private lateinit var buffering: ProgressBar
++    private val preferences by lazy { MediaPreferences(this) }
++    private val handler = Handler(Looper.getMainLooper())
++    private var aspectIndex = 0
++    private var screenLocked = false
++    private var mutedVolume = 1f
++    private var retryCount = 0
++    private var resumePrompted = false
++    private var initialY = 0f
++    private var initialX = 0f
++    private var initialPosition = 0L
++    private var initialBrightness = .5f
++    private var initialVolume = 0
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
++        val token = intent.getStringExtra(EXTRA_SESSION).orEmpty()
++        val resolved = MediaSessionVault.take(token)
++        if (resolved == null) {
++            Toast.makeText(this, "نشست امن ویدیو منقضی شده است؛ از صفحه دوباره پلیر را باز کنید.", Toast.LENGTH_LONG).show()
++            finish(); return
++        }
++        request = resolved
++        engine = GhajarMediaPlayer(this, request)
++        mediaSession = GhajarMediaSession(this, engine.player)
++        engine.player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
++        setContentView(buildUi())
++        engine.player.addListener(PlayerListener())
++        engine.prepare(request.media)
++        engine.player.playWhenReady = true
++        handler.post(statsUpdater)
++    }
++
++    private fun buildUi(): View {
++        root = FrameLayout(this).apply { setBackgroundColor(Color.BLACK) }
++        playerView = PlayerView(this).apply {
++            player = engine.player
++            useController = true
++            controllerShowTimeoutMs = 3500
++            setShowSubtitleButton(true)
++            setShowNextButton(false); setShowPreviousButton(false)
++            resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
++            setBackgroundColor(Color.BLACK)
++        }
++        root.addView(playerView, FrameLayout.LayoutParams(-1, -1))
++
++        buffering = ProgressBar(this).apply { visibility = View.GONE }
++        root.addView(buffering, FrameLayout.LayoutParams(dp(54), dp(54), Gravity.CENTER))
++
++        val top = LinearLayout(this).apply {
++            gravity = Gravity.CENTER_VERTICAL
++            setPadding(dp(8), dp(8), dp(8), dp(8))
++            setBackgroundColor(Color.argb(145, 0, 0, 0))
++            addView(icon(android.R.drawable.ic_media_previous, "بازگشت به سایت") { finish() })
++            addView(TextView(this@GhajarPlayerActivity).apply {
++                text = request.media.title.ifBlank { "شاه قاجار · پخش امن" }
++                setTextColor(Color.WHITE); textSize = 16f; maxLines = 1; setPadding(dp(8), 0, dp(8), 0)
++            }, LinearLayout.LayoutParams(0, dp(44), 1f))
++            addView(icon(android.R.drawable.ic_menu_manage, "تنظیمات پخش") { showPlayerSettings(it) })
++            addView(icon(android.R.drawable.ic_menu_more, "کیفیت، صدا و زیرنویس") { showTrackMenu(it) })
++            if (Build.VERSION.SDK_INT >= 26 && packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) {
++                addView(icon(android.R.drawable.ic_menu_slideshow, "تصویر در تصویر") { enterPip() })
++            }
++        }
++        root.addView(top, FrameLayout.LayoutParams(-1, dp(60), Gravity.TOP))
++
++        val side = LinearLayout(this).apply {
++            orientation = LinearLayout.VERTICAL
++            setBackgroundColor(Color.argb(120, 0, 0, 0))
++            addView(icon(android.R.drawable.ic_media_rew, "${preferences.seekSeconds} ثانیه عقب") { seekBy(-preferences.seekSeconds * 1000L) })
++            addView(icon(android.R.drawable.ic_media_ff, "${preferences.seekSeconds} ثانیه جلو") { seekBy(preferences.seekSeconds * 1000L) })
++            addView(icon(android.R.drawable.ic_lock_silent_mode_off, "بی‌صدا") { toggleMute() })
++            addView(icon(android.R.drawable.ic_menu_crop, "نسبت تصویر") { cycleAspect() })
++            addView(icon(android.R.drawable.ic_lock_lock, "قفل صفحه") { toggleLock() })
++            addView(icon(android.R.drawable.ic_menu_always_landscape_portrait, "چرخش صفحه") { toggleOrientation() })
++        }
++        root.addView(side, FrameLayout.LayoutParams(dp(54), -2, Gravity.END or Gravity.CENTER_VERTICAL))
++
++        stats = TextView(this).apply {
++            setTextColor(Color.WHITE); textSize = 12f; setPadding(dp(8), dp(5), dp(8), dp(5))
++            setBackgroundColor(Color.argb(135, 0, 0, 0)); visibility = View.GONE
++        }
++        root.addView(stats, FrameLayout.LayoutParams(-2, -2, Gravity.START or Gravity.BOTTOM).apply { setMargins(dp(8), 0, 0, dp(8)) })
++        installGestures()
++        return root
++    }
++
++    private fun icon(drawable: Int, description: String, action: (View) -> Unit) = ImageButton(this).apply {
++        setImageResource(drawable); setColorFilter(Color.WHITE); setBackgroundColor(Color.TRANSPARENT)
++        contentDescription = description; setOnClickListener { if (!screenLocked || description == "قفل صفحه") action(it) }
++        layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
++    }
++
++    private fun showPlayerSettings(anchor: View) {
++        PopupMenu(this, anchor).apply {
++            val speed = menu.addSubMenu("سرعت پخش · ${preferences.speed}x")
++            SPEEDS.forEachIndexed { index, value -> speed.add(1, 100 + index, index, "${value}x") }
++            val seek = menu.addSubMenu("پرش دوضربه‌ای · ${preferences.seekSeconds}s")
++            SEEK_SECONDS.forEachIndexed { index, value -> seek.add(2, 200 + index, index, "$value ثانیه") }
++            menu.add(3, 300, 0, if (preferences.gestures) "خاموش‌کردن Gestureها" else "روشن‌کردن Gestureها")
++            menu.add(3, 301, 1, if (preferences.backgroundPlayback) "توقف پخش پس‌زمینه" else "اجازهٔ پخش پس‌زمینه")
++            menu.add(3, 302, 2, if (stats.visibility == View.VISIBLE) "بستن آمار فنی" else "نمایش آمار فنی")
++            setOnMenuItemClickListener { item ->
++                when {
++                    item.itemId in 100 until 100 + SPEEDS.size -> {
++                        preferences.speed = SPEEDS[item.itemId - 100]
++                        engine.player.playbackParameters = androidx.media3.common.PlaybackParameters(preferences.speed)
++                    }
++                    item.itemId in 200 until 200 + SEEK_SECONDS.size -> preferences.seekSeconds = SEEK_SECONDS[item.itemId - 200]
++                    item.itemId == 300 -> preferences.gestures = !preferences.gestures
++                    item.itemId == 301 -> preferences.backgroundPlayback = !preferences.backgroundPlayback
++                    item.itemId == 302 -> stats.visibility = if (stats.visibility == View.VISIBLE) View.GONE else View.VISIBLE
++                }; true
++            }; show()
++        }
++    }
++
++    private fun showTrackMenu(anchor: View) {
++        val popup = PopupMenu(this, anchor)
++        val actions = mutableMapOf<Int, () -> Unit>()
++        var id = 500
++        fun addAuto(type: Int, label: String) {
++            val current = id++
++            popup.menu.add(type, current, 0, label)
++            actions[current] = {
++                engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon()
++                    .clearOverridesOfType(type).setTrackTypeDisabled(type, false).build()
++            }
++        }
++        addAuto(C.TRACK_TYPE_VIDEO, "کیفیت: خودکار / اصلی")
++        addAuto(C.TRACK_TYPE_AUDIO, "صدا: خودکار")
++        val subtitleOff = id++
++        popup.menu.add(C.TRACK_TYPE_TEXT, subtitleOff, 0, "زیرنویس: خاموش")
++        actions[subtitleOff] = { engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true).build() }
++        engine.player.currentTracks.groups.forEach { group ->
++            val type = group.type
++            if (type !in setOf(C.TRACK_TYPE_VIDEO, C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT) || !group.isSupported) return@forEach
++            for (index in 0 until group.length) {
++                if (!group.isTrackSupported(index)) continue
++                val format = group.getTrackFormat(index)
++                val label = when (type) {
++                    C.TRACK_TYPE_VIDEO -> "کیفیت: ${format.height.takeIf { it > 0 }?.let { "${it}p" } ?: format.label ?: "مسیر ویدیو"}"
++                    C.TRACK_TYPE_AUDIO -> "صدا: ${format.label ?: format.language ?: "مسیر ${index + 1}"}"
++                    else -> "زیرنویس: ${format.label ?: format.language ?: "مسیر ${index + 1}"}"
++                }
++                val current = id++
++                popup.menu.add(type, current, index + 1, label)
++                actions[current] = {
++                    engine.player.trackSelectionParameters = engine.player.trackSelectionParameters.buildUpon()
++                        .setTrackTypeDisabled(type, false)
++                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, listOf(index))).build()
++                }
++            }
++        }
++        popup.setOnMenuItemClickListener { actions[it.itemId]?.invoke(); true }
++        popup.show()
++    }
++
++    @Suppress("ClickableViewAccessibility")
++    private fun installGestures() {
++        val audio = getSystemService(AUDIO_SERVICE) as AudioManager
++        val detector = GestureDetector(this, object : GestureDetector.SimpleOnGestureListener() {
++            override fun onDown(e: MotionEvent): Boolean {
++                initialX = e.x; initialY = e.y; initialPosition = engine.player.currentPosition
++                initialBrightness = window.attributes.screenBrightness.takeIf { it >= 0 } ?: .5f
++                initialVolume = audio.getStreamVolume(AudioManager.STREAM_MUSIC)
++                return true
++            }
++
++            override fun onDoubleTap(e: MotionEvent): Boolean {
++                if (!preferences.gestures || screenLocked) return false
++                seekBy(if (e.x > root.width / 2f) preferences.seekSeconds * 1000L else -preferences.seekSeconds * 1000L)
++                return true
++            }
++
++            override fun onScroll(first: MotionEvent?, current: MotionEvent, distanceX: Float, distanceY: Float): Boolean {
++                if (!preferences.gestures || screenLocked || first == null) return false
++                val dx = current.x - initialX; val dy = current.y - initialY
++                if (abs(dx) > abs(dy) * 1.25f) {
++                    val delta = (dx / root.width * (engine.player.duration.takeIf { it > 0 } ?: 60_000L)).toLong()
++                    engine.player.seekTo((initialPosition + delta).coerceIn(0L, engine.player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE))
++                } else if (initialX < root.width / 2f) {
++                    val value = (initialBrightness - dy / root.height).coerceIn(.05f, 1f)
++                    window.attributes = window.attributes.apply { screenBrightness = value }
++                } else {
++                    val max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
++                    audio.setStreamVolume(AudioManager.STREAM_MUSIC, (initialVolume - dy / root.height * max).toInt().coerceIn(0, max), 0)
++                }
++                return true
++            }
++        })
++        playerView.setOnTouchListener { _, event -> detector.onTouchEvent(event); false }
++    }
++
++    private fun seekBy(delta: Long) {
++        val limit = engine.player.duration.takeIf { it > 0 } ?: Long.MAX_VALUE
++        engine.player.seekTo((engine.player.currentPosition + delta).coerceIn(0L, limit))
++    }
++
++    private fun toggleMute() {
++        if (engine.player.volume > 0f) { mutedVolume = engine.player.volume; engine.player.volume = 0f }
++        else engine.player.volume = mutedVolume.coerceAtLeast(.1f)
++    }
++
++    private fun cycleAspect() {
++        val modes = intArrayOf(AspectRatioFrameLayout.RESIZE_MODE_FIT, AspectRatioFrameLayout.RESIZE_MODE_ZOOM, AspectRatioFrameLayout.RESIZE_MODE_FILL)
++        aspectIndex = (aspectIndex + 1) % modes.size; playerView.resizeMode = modes[aspectIndex]
++    }
++
++    private fun toggleLock() { screenLocked = !screenLocked; playerView.useController = !screenLocked; toast(if (screenLocked) "صفحه قفل شد؛ برای بازکردن از کلید بازگشت استفاده کنید" else "قفل باز شد") }
++
++    private fun toggleOrientation() {
++        requestedOrientation = if (resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) ActivityInfo.SCREEN_ORIENTATION_PORTRAIT else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
++    }
++
++    private fun enterPip() {
++        if (Build.VERSION.SDK_INT < 26 || !engine.player.isPlaying) { toast("ابتدا ویدیو را پخش کنید"); return }
++        val ratio = engine.player.videoSize.let { if (it.width > 0 && it.height > 0) Rational(it.width, it.height) else Rational(16, 9) }
++        enterPictureInPictureMode(PictureInPictureParams.Builder().setAspectRatio(ratio).build())
++    }
++
++    override fun onUserLeaveHint() {
++        super.onUserLeaveHint()
++        if (Build.VERSION.SDK_INT >= 26 && preferences.backgroundPlayback && engine.player.isPlaying) enterPip()
++    }
++
++    override fun onPictureInPictureModeChanged(inPip: Boolean, newConfig: Configuration) {
++        super.onPictureInPictureModeChanged(inPip, newConfig)
++        playerView.useController = !inPip && !screenLocked
++    }
++
++    override fun onPause() {
++        saveResume()
++        if (!preferences.backgroundPlayback && !(Build.VERSION.SDK_INT >= 26 && isInPictureInPictureMode)) engine.player.pause()
++        super.onPause()
++    }
++
++    override fun onDestroy() {
++        handler.removeCallbacksAndMessages(null)
++        if (::engine.isInitialized) { saveResume(); mediaSession.release(); engine.release() }
++        super.onDestroy()
++    }
++
++    @Deprecated("Deprecated in Android")
++    override fun onBackPressed() {
++        if (screenLocked) { toggleLock(); return }
++        super.onBackPressed()
++    }
++
++    private fun saveResume() {
++        if (::request.isInitialized && !request.private && ::engine.isInitialized) preferences.saveResume(request.media.url, engine.player.currentPosition)
++    }
++
++    private fun offerResume() {
++        if (resumePrompted || request.private) return
++        resumePrompted = true
++        val position = preferences.resumePosition(request.media.url)
++        if (position < 30_000 || position >= engine.player.duration - 10_000) return
++        AlertDialog.Builder(this).setTitle("ادامهٔ پخش؟")
++            .setMessage("از ${formatTime(position)} ادامه داده شود؟")
++            .setPositiveButton("ادامه") { _, _ -> engine.player.seekTo(position) }
++            .setNegativeButton("از ابتدا", null).show()
++    }
++
++    private inner class PlayerListener : Player.Listener {
++        override fun onPlaybackStateChanged(state: Int) {
++            buffering.visibility = if (state == Player.STATE_BUFFERING) View.VISIBLE else View.GONE
++            if (state == Player.STATE_READY) { retryCount = 0; offerResume() }
++            if (state == Player.STATE_ENDED && !request.private) preferences.saveResume(request.media.url, 0)
++        }
++
++        override fun onPlayerError(error: PlaybackException) {
++            if (retryCount++ < 2 && error.errorCode in RETRYABLE_ERRORS) {
++                val position = engine.player.currentPosition; engine.player.prepare(); engine.player.seekTo(position); engine.player.play(); return
++            }
++            val message = when (error.errorCode) {
++                PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED,
++                PlaybackException.ERROR_CODE_DECODER_INIT_FAILED -> "کُدک این ویدیو روی دستگاه پشتیبانی نمی‌شود."
++                PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> "دسترسی Media رد شد یا نشست آن منقضی شده است."
++                PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
++                PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED -> "ساختار Media معتبر نیست."
++                PlaybackException.ERROR_CODE_DRM_CONTENT_ERROR,
++                PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED,
++                PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED -> "این Media با DRM محافظت شده و در پلیر قاجار باز نمی‌شود."
++                else -> "پخش ویدیو ممکن نشد؛ Player اصلی سایت همچنان قابل استفاده است."
++            }
++            AlertDialog.Builder(this@GhajarPlayerActivity).setTitle("شهربان · خطای پخش").setMessage(message)
++                .setPositiveButton("تلاش دوباره") { _, _ -> retryCount = 0; engine.player.prepare(); engine.player.play() }
++                .setNegativeButton("بازگشت به سایت") { _, _ -> finish() }.show()
++        }
++    }
++
++    private val statsUpdater = object : Runnable {
++        override fun run() {
++            if (::engine.isInitialized && ::stats.isInitialized && stats.visibility == View.VISIBLE) {
++                val format = engine.player.videoFormat
++                stats.text = "${format?.width ?: 0}×${format?.height ?: 0}  •  ${(format?.bitrate ?: 0) / 1000} kbps  •  buffer ${engine.player.totalBufferedDuration / 1000}s"
++            }
++            handler.postDelayed(this, 1000)
++        }
++    }
++
++    private fun formatTime(ms: Long): String = "%d:%02d".format(ms / 60_000, ms / 1000 % 60)
++    private fun toast(value: String) = Toast.makeText(this, value, Toast.LENGTH_SHORT).show()
++    private fun dp(value: Int) = (value * resources.displayMetrics.density).toInt()
++
++    companion object {
++        const val EXTRA_SESSION = "media_session"
++        private val SPEEDS = floatArrayOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f)
++        private val SEEK_SECONDS = intArrayOf(5, 10, 15, 30)
++        private val RETRYABLE_ERRORS = setOf(
++            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
++            PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
++            PlaybackException.ERROR_CODE_IO_UNSPECIFIED
++        )
++    }
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/MediaHeaderProvider.kt b/browser/src/main/java/com/ghajarvpn/browser/media/MediaHeaderProvider.kt
+new file mode 100644
+index 0000000..f707ec6
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/MediaHeaderProvider.kt
+@@ -0,0 +1,12 @@
++package com.ghajarvpn.browser.media
++
++/** Keeps only the small allowlist of headers required to replay the browser request. */
++object MediaHeaderProvider {
++    private val allowed = setOf("cookie", "referer", "user-agent", "authorization", "origin", "accept-language")
++
++    fun sanitize(input: Map<String, String>): Map<String, String> = input.mapNotNull { (name, value) ->
++        val normalized = name.trim().lowercase()
++        if (normalized !in allowed || value.isBlank() || value.length > 16_384 || value.contains('\n') || value.contains('\r')) null
++        else name.trim() to value
++    }.toMap()
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+new file mode 100644
+index 0000000..1d7d0a0
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt
+@@ -0,0 +1,74 @@
++package com.ghajarvpn.browser.media
++
++import android.net.Uri
++import java.security.MessageDigest
++import java.util.UUID
++import java.util.concurrent.ConcurrentHashMap
++
++enum class MediaKind { PROGRESSIVE, HLS, DASH, UNKNOWN }
++
++data class SubtitleCandidate(val url: String, val label: String = "", val language: String = "")
++
++data class MediaCandidate(
++    val url: String,
++    val title: String = "",
++    val mimeType: String = "",
++    val kind: MediaKind = MediaKind.UNKNOWN,
++    val subtitles: List<SubtitleCandidate> = emptyList()
++)
++
++data class MediaPlaybackRequest(
++    val media: MediaCandidate,
++    val headers: Map<String, String>,
++    val private: Boolean,
++    val createdAt: Long = System.currentTimeMillis()
++)
++
++data class VideoPlaybackState(
++    val playing: Boolean = false,
++    val positionMs: Long = 0,
++    val durationMs: Long = 0,
++    val bufferedMs: Long = 0,
++    val speed: Float = 1f
++)
++
++/** Sensitive request headers stay in process memory and never enter an Intent or Bundle. */
++object MediaSessionVault {
++    private const val MAX_AGE_MS = 30 * 60 * 1000L
++    private val sessions = ConcurrentHashMap<String, MediaPlaybackRequest>()
++
++    fun put(request: MediaPlaybackRequest): String {
++        prune()
++        return UUID.randomUUID().toString().also { sessions[it] = request }
++    }
++
++    fun take(id: String): MediaPlaybackRequest? {
++        val request = sessions.remove(id) ?: return null
++        return request.takeIf { System.currentTimeMillis() - it.createdAt <= MAX_AGE_MS }
++    }
++
++    fun clear() = sessions.clear()
++    private fun prune() = sessions.entries.removeAll { System.currentTimeMillis() - it.value.createdAt > MAX_AGE_MS }
++}
++
++object MediaSourceResolver {
++    private val mediaExtensions = Regex("(?i)\\.(mp4|m4v|webm|mkv|m3u8|mpd)(?:$|[?#])")
++
++    fun resolve(raw: String, mime: String = ""): MediaCandidate? {
++        val uri = runCatching { Uri.parse(raw.trim()) }.getOrNull() ?: return null
++        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank() || uri.userInfo != null) return null
++        if (raw.contains("drm", true) || raw.contains("widevine", true) || mime.contains("encrypted", true)) return null
++        val kind = when {
++            uri.path.orEmpty().endsWith(".m3u8", true) || mime.contains("mpegurl", true) -> MediaKind.HLS
++            uri.path.orEmpty().endsWith(".mpd", true) || mime.contains("dash", true) -> MediaKind.DASH
++            mediaExtensions.containsMatchIn(raw) || mime.startsWith("video/", true) -> MediaKind.PROGRESSIVE
++            else -> MediaKind.UNKNOWN
++        }
++        return MediaCandidate(uri.toString(), mimeType = mime, kind = kind)
++    }
++
++    fun looksLikeMedia(raw: String, mime: String = "") = resolve(raw, mime)?.kind != MediaKind.UNKNOWN
++
++    fun resumeKey(url: String): String = MessageDigest.getInstance("SHA-256")
++        .digest(url.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }.take(32)
++}
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt b/browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt
+new file mode 100644
+index 0000000..e0aa40e
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt
+@@ -0,0 +1,28 @@
++package com.ghajarvpn.browser.media
++
++import android.content.Context
++
++class MediaPreferences(context: Context) {
++    private val prefs = context.applicationContext.getSharedPreferences("ghajar_media_v1", Context.MODE_PRIVATE)
++    var speed: Float
++        get() = prefs.getFloat("speed", 1f).coerceIn(.5f, 2f)
++        set(value) { prefs.edit().putFloat("speed", value.coerceIn(.5f, 2f)).apply() }
++    var seekSeconds: Int
++        get() = prefs.getInt("seek", 10).takeIf { it in setOf(5, 10, 15, 30) } ?: 10
++        set(value) { prefs.edit().putInt("seek", value.takeIf { it in setOf(5, 10, 15, 30) } ?: 10).apply() }
++    var gestures: Boolean
++        get() = prefs.getBoolean("gestures", true)
++        set(value) { prefs.edit().putBoolean("gestures", value).apply() }
++    var backgroundPlayback: Boolean
++        get() = prefs.getBoolean("background", false)
++        set(value) { prefs.edit().putBoolean("background", value).apply() }
++    var continueOnNavigate: Boolean
++        get() = prefs.getBoolean("continue", true)
++        set(value) { prefs.edit().putBoolean("continue", value).apply() }
++
++    fun resumePosition(url: String): Long = prefs.getLong("resume_${MediaSourceResolver.resumeKey(url)}", 0L)
++    fun saveResume(url: String, position: Long) {
++        val key = "resume_${MediaSourceResolver.resumeKey(url)}"
++        if (position < 15_000) prefs.edit().remove(key).apply() else prefs.edit().putLong(key, position).apply()
++    }
++}
+diff --git a/browser/src/main/res/values/styles.xml b/browser/src/main/res/values/styles.xml
+new file mode 100644
+index 0000000..c62f981
+--- /dev/null
++++ b/browser/src/main/res/values/styles.xml
+@@ -0,0 +1,19 @@
++<?xml version="1.0" encoding="utf-8"?>
++<resources>
++    <style name="GhajarBrowserTheme" parent="android:style/Theme.Material.Light.NoActionBar">
++        <item name="android:fontFamily">sans</item>
++        <item name="android:colorAccent">#B48B32</item>
++        <item name="android:navigationBarColor">#071B2E</item>
++        <item name="android:statusBarColor">#071B2E</item>
++        <item name="android:windowLightStatusBar">false</item>
++    </style>
++    <style name="GhajarPlayerTheme" parent="android:style/Theme.Material.NoActionBar">
++        <item name="android:fontFamily">sans</item>
++        <item name="android:colorAccent">#B48B32</item>
++        <item name="android:windowActionModeOverlay">true</item>
++        <item name="android:windowNoTitle">true</item>
++        <item name="android:windowBackground">#000000</item>
++        <item name="android:navigationBarColor">#000000</item>
++        <item name="android:statusBarColor">#000000</item>
++    </style>
++</resources>
+diff --git a/browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt b/browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt
+new file mode 100644
+index 0000000..27a78ce
+--- /dev/null
++++ b/browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt
+@@ -0,0 +1,19 @@
++package com.ghajarvpn.browser.media
++
++import org.junit.Assert.*
++import org.junit.Test
++
++class MediaSourceResolverTest {
++    @Test fun resolvesStandardMedia() {
++        assertEquals(MediaKind.PROGRESSIVE, MediaSourceResolver.resolve("https://cdn.example/video.mp4")?.kind)
++        assertEquals(MediaKind.HLS, MediaSourceResolver.resolve("https://cdn.example/live.m3u8")?.kind)
++        assertEquals(MediaKind.DASH, MediaSourceResolver.resolve("https://cdn.example/manifest.mpd")?.kind)
++        assertEquals(MediaKind.PROGRESSIVE, MediaSourceResolver.resolve("https://cdn.example/id", "video/webm")?.kind)
++    }
++
++    @Test fun rejectsUnsafeOrProtectedMedia() {
++        assertNull(MediaSourceResolver.resolve("file:///secret.mp4"))
++        assertNull(MediaSourceResolver.resolve("https://user:pass@example.com/video.mp4"))
++        assertNull(MediaSourceResolver.resolve("https://example.com/widevine/video.mpd"))
++    }
++}
+diff --git a/settings.gradle.kts b/settings.gradle.kts
+index 7d24480..bc38045 100644
+--- a/settings.gradle.kts
++++ b/settings.gradle.kts
+@@ -23,3 +23,4 @@ rootProject.name = "Ghajarvpn"
+ include(":app")
+ include(":strongswan")
+ include(":openvpn")
++include(":browser")
+-- 
+2.51.1
+
+

@@ -1,0 +1,65 @@
+From f6a17ab8c6a21a819fde928a319b2d296e5a8f9c Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 12:19:08 +0330
+Subject: [PATCH] feat(servers): fastest-first default sort and expanded new
+ subscriptions
+
+Default the server sort to fastest-first for fresh installs, and open
+newly added subscriptions/config groups expanded by default so the
+locations are visible immediately; collapsing remains a user choice.
+---
+ app/src/main/java/net/gozar/app/ConfigStore.kt | 16 ++++++++++++++--
+ 1 file changed, 14 insertions(+), 2 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/ConfigStore.kt b/app/src/main/java/net/gozar/app/ConfigStore.kt
+index cbaae73..5b8846c 100644
+--- a/app/src/main/java/net/gozar/app/ConfigStore.kt
++++ b/app/src/main/java/net/gozar/app/ConfigStore.kt
+@@ -181,8 +181,7 @@ class ConfigStore private constructor(context: Context) {
+     }
+ 
+     private val _sortMode = MutableStateFlow(
+-        prefs.getString(KEY_SORT_MODE, null)
+-            ?: if (prefs.getBoolean(KEY_SORT_SPEED, false)) SORT_FASTEST else SORT_ADDED
++        prefs.getString(KEY_SORT_MODE, null) ?: SORT_FASTEST
+     )
+     val sortMode: StateFlow<String> = _sortMode.asStateFlow()
+ 
+@@ -272,6 +271,7 @@ class ConfigStore private constructor(context: Context) {
+         _configs.value = _configs.value + configs.map { it.copy(subId = sub.id) }
+         persistConfigs()
+         persistSubscriptions()
++        expandNewSub(sub.id)
+     }
+ 
+     fun update(config: ProxyConfig) {
+@@ -325,10 +325,12 @@ class ConfigStore private constructor(context: Context) {
+             val kept = oldBySig.remove(sigOf(f))
+             f.copy(subId = sub.id, id = kept?.id ?: f.id)
+         }
++        val isNew = _subscriptions.value.none { it.id == sub.id }
+         _configs.value = _configs.value.filterNot { it.subId == sub.id } + tagged
+         _subscriptions.value = _subscriptions.value.filterNot { it.id == sub.id } + sub
+         persistConfigs()
+         persistSubscriptions()
++        if (isNew) expandNewSub(sub.id)
+     }
+ 
+     private fun sigOf(c: ProxyConfig): String =
+@@ -549,6 +551,16 @@ class ConfigStore private constructor(context: Context) {
+         prefs.edit().putStringSet(KEY_EXPANDED_SUBS, cur).apply()
+     }
+ 
++    /**
++     * A freshly added subscription/config group opens expanded by default so the
++     * user sees its locations immediately; collapsing stays a user choice.
++     */
++    private fun expandNewSub(id: String) {
++        if (id in _expandedSubs.value) return
++        _expandedSubs.value = _expandedSubs.value + id
++        prefs.edit().putStringSet(KEY_EXPANDED_SUBS, _expandedSubs.value).apply()
++    }
++
+     fun lastUpdateCheck(): Long = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+ 
+     fun markUpdateChecked() {

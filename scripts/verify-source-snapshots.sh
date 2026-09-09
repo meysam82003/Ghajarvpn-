@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+package_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source_root="$(cd "${1:?Usage: verify-source-snapshots.sh SOURCE_ROOT}" && pwd)"
+
+# The readable GitHub files must be the same files that the patch series builds.
+snapshots=(
+  "THIRD_PARTY_NOTICES.md"
+  "app/src/main/AndroidManifest.xml"
+  "app/build.gradle.kts"
+  "app/src/main/java/net/gozar/app/MainActivity.kt"
+  "browser/build.gradle.kts"
+  "browser/src/main/AndroidManifest.xml"
+  "browser/src/main/res/values/styles.xml"
+  "browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/BrowserModels.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/BrowserRequestPolicy.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/media/BrowserMediaBridge.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaPlayer.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/media/GhajarMediaSession.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/media/GhajarPlayerActivity.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/media/MediaHeaderProvider.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/media/MediaModels.kt"
+  "browser/src/main/java/com/ghajarvpn/browser/media/MediaPreferences.kt"
+  "browser/src/test/java/com/ghajarvpn/browser/media/MediaSourceResolverTest.kt"
+  "browser/src/test/java/com/ghajarvpn/browser/media/MediaHeaderProviderTest.kt"
+  "openvpn/build.gradle.kts"
+  "strongswan/build.gradle.kts"
+  "settings.gradle.kts"
+  "app/src/main/java/net/gozar/app/Gozarapplication.kt"
+  "app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt"
+  "app/src/main/java/net/gozar/app/BrandConfig.kt"
+  "app/src/main/java/net/gozar/app/GhajarAccountStore.kt"
+  "app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt"
+  "app/src/main/java/net/gozar/app/GhajarShopScreen.kt"
+  "app/src/main/java/net/gozar/app/GhajarSplashRepository.kt"
+  "app/src/main/java/net/gozar/app/GhajarStoreApi.kt"
+  "app/src/main/java/net/gozar/app/SecurePaymentActivity.kt"
+  "app/src/main/java/net/gozar/app/GhajarUiRules.kt"
+  "app/src/main/java/net/gozar/app/GhajarLinkFlow.kt"
+  "app/src/main/java/net/gozar/app/GhajarVisuals.kt"
+  "app/src/main/java/net/gozar/app/GhajarNoticeBanner.kt"
+  "app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt"
+  "app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt"
+  "app/src/main/java/net/gozar/app/GhajarCheckoutCards.kt"
+  "app/src/main/java/net/gozar/app/GhajarOperation.kt"
+  "app/src/main/java/net/gozar/app/GhajarPaymentPolicy.kt"
+  "app/src/main/java/net/gozar/app/StoreLinkRouter.kt"
+  "app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitActivity.kt"
+  "app/src/main/java/net/gozar/app/configtoolkit/ConfigToolkitModels.kt"
+  "app/src/main/java/net/gozar/app/configtoolkit/Decoders.kt"
+  "app/src/main/java/net/gozar/app/configtoolkit/FormatDetector.kt"
+  "app/src/main/java/net/gozar/app/configtoolkit/GhajarImporter.kt"
+  "app/src/main/java/net/gozar/app/configtoolkit/ProfileValidator.kt"
+  "app/src/main/java/net/gozar/app/configtoolkit/V2RayLinkGenerator.kt"
+  "app/src/test/java/net/gozar/app/GhajarCommerceRulesTest.kt"
+  "app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt"
+  "app/src/test/java/net/gozar/app/GhajarLinkFlowTest.kt"
+  "app/src/test/java/net/gozar/app/configtoolkit/ConfigToolkitTest.kt"
+  "openvpn/src/main/AndroidManifest.xml"
+  "openvpn/src/main/cpp/CMakeLists.txt"
+  "openvpn/src/main/cpp/ghajar-openssl-arch.cmake"
+  "strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/logic/StrongSwanApplication.java"
+)
+for path in "${snapshots[@]}"; do
+  package_file="${package_root}/${path}"
+  source_file="${source_root}/${path}"
+  if ! cmp -s -- "$package_file" "$source_file"; then
+    echo "Snapshot differs from materialized source: ${path}" >&2
+    echo "snapshot sha256: $(sha256sum "$package_file" | awk '{print $1}')" >&2
+    echo "materialized sha256: $(sha256sum "$source_file" | awk '{print $1}')" >&2
+    diff -u --label "snapshot/${path}" --label "materialized/${path}" "$package_file" "$source_file" >&2 || true
+    exit 1
+  fi
+done
+echo "Verified ${#snapshots[@]} reviewed source snapshots."

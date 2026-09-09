@@ -1,0 +1,189 @@
+From 443bbe557f322da9797d0014631de8c870e0a5e5 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 17:33:10 +0000
+Subject: [PATCH] feat(brand): show Ghajarvpn names quota and OpenVPN country
+ flags
+
+---
+ .../java/net/gozar/app/GhajarOpenVpnBridge.kt | 26 +++++++-------
+ .../main/java/net/gozar/app/GhajarUiRules.kt  | 34 +++++++++++++++++++
+ .../main/java/net/gozar/app/MainActivity.kt   | 12 +++----
+ .../java/net/gozar/app/GhajarUiRulesTest.kt   | 16 +++++++++
+ 4 files changed, 70 insertions(+), 18 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+index 99495eb..2cf56a8 100644
+--- a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
++++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+@@ -189,12 +189,11 @@ object GhajarOpenVpnBridge {
+         }
+         val profile = parse(raw)
+         val connection = profile.mConnections.firstOrNull()
++        val host = connection?.mServerName.orEmpty()
+         PendingOpenVpnImport(
+             raw = raw,
+-            name = BrandConfig.sanitizePublicText(profile.name)
+-                .takeUnless { it.equals(OvpnConfigParser.CONVERTED_PROFILE, true) }
+-                ?: "سرویس OVPN قاجار",
+-            host = connection?.mServerName.orEmpty(),
++            name = GhajarUiRules.ovpnDisplayName(host),
++            host = host,
+             port = connection?.mServerPort?.toIntOrNull() ?: 1194,
+             needsCredentials = profile.isUserPWAuth() && (profile.mUsername.isNullOrBlank() || profile.mPassword.isNullOrBlank()),
+             embeddedUsername = profile.mUsername.orEmpty(),
+@@ -214,7 +213,7 @@ object GhajarOpenVpnBridge {
+     ): Result<GhajarOvpnProfile> = runCatching {
+         val app = context.applicationContext
+         val profile = parse(pending.raw)
+-        profile.mName = pending.name
++        profile.mName = GhajarUiRules.ovpnDisplayName(pending.host)
+         if (username.isNotBlank()) profile.mUsername = username
+         if (password.isNotBlank()) profile.mPassword = password
+         profile.importedProfileHash = sha256(pending.raw)
+@@ -407,13 +406,16 @@ object GhajarOpenVpnBridge {
+         }
+     }
+ 
+-    private fun toUi(profile: VpnProfile): GhajarOvpnProfile = GhajarOvpnProfile(
+-        uuid = profile.getUUIDString(),
+-        name = BrandConfig.sanitizePublicText(profile.mName.ifBlank { "سرویس OVPN قاجار" }),
+-        host = profile.mConnections.firstOrNull()?.mServerName.orEmpty(),
+-        port = profile.mConnections.firstOrNull()?.mServerPort?.toIntOrNull() ?: 1194,
+-        needsCredentials = profile.isUserPWAuth() && (profile.mUsername.isNullOrBlank() || profile.mPassword.isNullOrBlank())
+-    )
++    private fun toUi(profile: VpnProfile): GhajarOvpnProfile {
++        val host = profile.mConnections.firstOrNull()?.mServerName.orEmpty()
++        return GhajarOvpnProfile(
++            uuid = profile.getUUIDString(),
++            name = GhajarUiRules.ovpnDisplayName(host),
++            host = host,
++            port = profile.mConnections.firstOrNull()?.mServerPort?.toIntOrNull() ?: 1194,
++            needsCredentials = profile.isUserPWAuth() && (profile.mUsername.isNullOrBlank() || profile.mPassword.isNullOrBlank())
++        )
++    }
+ 
+     private fun sha256(text: String): String = MessageDigest.getInstance("SHA-256")
+         .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+diff --git a/app/src/main/java/net/gozar/app/GhajarUiRules.kt b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+index 1568d89..116913a 100644
+--- a/app/src/main/java/net/gozar/app/GhajarUiRules.kt
++++ b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+@@ -19,6 +19,40 @@ internal object GhajarUiRules {
+         char.digitToIntOrNull()?.let { ('0'.code + it).toChar() }
+     }.joinToString("")
+ 
++    /** Display-only branding: never mutates the underlying imported config name. */
++    fun brandedConfigName(name: String): String {
++        val clean = name.trim().ifBlank { "VPN" }
++        return if (clean.startsWith("Ghajarvpn", ignoreCase = true)) clean else "Ghajarvpn • $clean"
++    }
++
++    /** Subscription headings always start with Ghajarvpn and prefer the server-reported total quota. */
++    fun brandedSubscriptionTitle(totalBytes: Long, fallbackName: String): String {
++        if (totalBytes <= 0L) return brandedConfigName(fallbackName)
++        val gib = totalBytes.toDouble() / (1024.0 * 1024.0 * 1024.0)
++        val nearest = kotlin.math.round(gib)
++        val quota = if (kotlin.math.abs(gib - nearest) < 0.005) {
++            nearest.toLong().toString()
++        } else {
++            java.lang.String.format(java.util.Locale.US, "%.1f", gib).trimEnd('0').trimEnd('.')
++        }
++        return "Ghajarvpn $quota GB"
++    }
++
++    private val isoCountries by lazy {
++        java.util.Locale.getISOCountries().map { it.lowercase(java.util.Locale.US) }.toSet()
++    }
++
++    /** OVPN titles stay branded while exposing the country encoded by common server hostnames. */
++    fun ovpnDisplayName(host: String): String {
++        val code = host.lowercase(java.util.Locale.US)
++            .split(Regex("[^a-z]+"))
++            .firstOrNull { it.length == 2 && it in isoCountries }
++        val flag = code?.uppercase(java.util.Locale.US)?.map { letter ->
++            String(Character.toChars(0x1F1E6 + (letter.code - 'A'.code)))
++        }?.joinToString("") ?: "🌐"
++        return "Ghajarvpn $flag"
++    }
++
+     private fun botUsername(username: String?): String = username?.trim()?.removePrefix("@")
+         ?.takeIf { it.matches(Regex("[A-Za-z0-9_]{5,32}")) } ?: "Ghajar_vpnbot"
+ 
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index 0008659..1ac759b 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -5692,11 +5692,11 @@ private fun ConfigDebuggerScreen(
+                             )
+                             Spacer(Modifier.width(4.dp))
+                             Box(Modifier.weight(1f)) {
+-                                MarqueeName(config.name, MaterialTheme.typography.titleSmall)
++                                MarqueeName(GhajarUiRules.brandedConfigName(config.name), MaterialTheme.typography.titleSmall)
+                             }
+                         }
+                     } else {
+-                        MarqueeName(config.name, MaterialTheme.typography.titleSmall)
++                        MarqueeName(GhajarUiRules.brandedConfigName(config.name), MaterialTheme.typography.titleSmall)
+                     }
+                     Text(
+                         if (config.locked) AnnotatedString(t("locked_config"))
+@@ -9238,7 +9238,7 @@ private fun SubscriptionHeader(
+                 }
+                 Box(Modifier.weight(1f)) {
+                     MarqueeName(
+-                        WindscribeBrand.displayName(sub, lang),
++                        GhajarUiRules.brandedSubscriptionTitle(sub.total, WindscribeBrand.displayName(sub, lang)),
+                         MaterialTheme.typography.titleSmall
+                     )
+                 }
+@@ -9803,7 +9803,7 @@ private fun ConfigRow(
+     val checked by remember { derivedStateOf { isChecked() } }
+ 
+     qrFor?.let { link ->
+-        QrDialog(link = link, title = config.name, onDismiss = { qrFor = null })
++        QrDialog(link = link, title = GhajarUiRules.brandedConfigName(config.name), onDismiss = { qrFor = null })
+     }
+ 
+     val highlight by animateColorAsState(
+@@ -9894,10 +9894,10 @@ private fun ConfigRow(
+                     Row(verticalAlignment = Alignment.CenterVertically) {
+                         Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(13.dp))
+                         Spacer(Modifier.width(4.dp))
+-                        Box(Modifier.weight(1f)) { MarqueeName(config.name, color = MaterialTheme.colorScheme.onSurface) }
++                        Box(Modifier.weight(1f)) { MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface) }
+                     }
+                 } else {
+-                    MarqueeName(config.name, color = MaterialTheme.colorScheme.onSurface)
++                    MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface)
+                 }
+                 Text(
+                     if (config.locked) AnnotatedString(t("locked_config"))
+diff --git a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+index 3d3f01a..96badb0 100644
+--- a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
++++ b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+@@ -70,6 +70,22 @@ class GhajarUiRulesTest {
+     @Test fun malformedCodeIsNeverInjectedIntoDeepLink() {
+         assertEquals("https://t.me/Ghajar_vpnbot", GhajarUiRules.botLink(null, "123&x=1"))
+     }
++    @Test fun configNamesAlwaysLeadWithGhajarvpnWithoutDoublePrefixing() {
++        assertEquals("Ghajarvpn • Germany 01", GhajarUiRules.brandedConfigName("Germany 01"))
++        assertEquals("Ghajarvpn France", GhajarUiRules.brandedConfigName("Ghajarvpn France"))
++    }
++    @Test fun subscriptionTitleUsesServerQuotaInGb() {
++        assertEquals("Ghajarvpn 10 GB", GhajarUiRules.brandedSubscriptionTitle(10L * 1024 * 1024 * 1024, "anything"))
++        assertEquals("Ghajarvpn 1.5 GB", GhajarUiRules.brandedSubscriptionTitle(1536L * 1024 * 1024, "anything"))
++        assertEquals("Ghajarvpn • Royal", GhajarUiRules.brandedSubscriptionTitle(0, "Royal"))
++    }
++    @Test fun ovpnNamesUseCountryFlagFromHostname() {
++        assertEquals("Ghajarvpn 🇧🇴", GhajarUiRules.ovpnDisplayName("97-1-bo.cg-dialup.net"))
++        assertEquals("Ghajarvpn 🇮🇳", GhajarUiRules.ovpnDisplayName("97-1-in.cg-dialup.net"))
++        assertEquals("Ghajarvpn 🇵🇪", GhajarUiRules.ovpnDisplayName("97-1-pe.cg-dialup.net"))
++        assertEquals("Ghajarvpn 🌐", GhajarUiRules.ovpnDisplayName("vpn.example.invalid"))
++    }
++
+     @Test fun persianAndArabicDigitsWorkInCustomPurchase() {
+         assertEquals("1234567890", GhajarUiRules.asciiDigits("۱۲۳۴۵٦٧٨٩٠"))
+         assertEquals("30", GhajarUiRules.asciiDigits("۳۰ روز"))
+-- 
+2.47.3

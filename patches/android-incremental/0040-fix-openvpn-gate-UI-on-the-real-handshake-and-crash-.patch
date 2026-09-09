@@ -1,0 +1,624 @@
+From 7158ed2d9fd92f26b24991d0287c4f5866b835c2 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 11:38:48 +0330
+Subject: [PATCH] fix(openvpn): gate UI on the real handshake and crash-proof
+ the engine
+
+The bridge showed CONNECTED from stale callbacks and flipped back to
+ERROR when the dying previous process reported NOPROCESS; the engine
+could kill the whole app on startOpenVPN failures and stopVPN crashed
+into NPEs once management was gone. GhajarUiRules now owns the pure
+AUTH_FAILED/NOPROCESS/TLS message mapping, the test flow requires the
+management CONNECTED state, disconnect goes through a single
+stopEngineNow path, and the service resets mManagement/mProcessThread
+on session end so reconnects start clean.
+---
+ .../java/net/gozar/app/GhajarOpenVpnBridge.kt | 105 +++++++++++------
+ .../main/java/net/gozar/app/GhajarUiRules.kt  |  36 ++++++
+ .../main/java/net/gozar/app/MainActivity.kt   | 109 ++++++++++++++----
+ .../java/net/gozar/app/GhajarUiRulesTest.kt   |  43 +++++++
+ .../blinkt/openvpn/core/OpenVPNService.java   |  57 +++++++--
+ 5 files changed, 281 insertions(+), 69 deletions(-)
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+index 2cf56a8..a4ceb3e 100644
+--- a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
++++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+@@ -80,6 +80,11 @@ object GhajarOpenVpnBridge {
+     private var explicitDisconnect = false
+     private var requestStartedAt = 0L
+ 
++    /** The raw management-interface state string of the current engine session. */
++    @Volatile private var engineState: String = ""
++
++    private fun engineReallyConnected(): Boolean = engineState == GhajarUiRules.OVPN_MANAGEMENT_CONNECTED_STATE
++
+     fun initialize(context: Context) {
+         val app = context.applicationContext
+         if (statusListener == null) {
+@@ -107,8 +112,9 @@ object GhajarOpenVpnBridge {
+                 level: ConnectionStatus,
+                 Intent: android.content.Intent?
+             ) {
++                engineState = state.trim()
+                 val text = logmessage.trim().ifBlank { state.trim() }
+-                if (text.isNotBlank()) _lastMessage.value = publicEngineMessage(text)
++                if (text.isNotBlank()) _lastMessage.value = GhajarUiRules.ovpnEngineMessage(text)
+                 val now = SystemClock.elapsedRealtime()
+                 val elapsed = now - requestStartedAt
+                 when (level) {
+@@ -124,7 +130,14 @@ object GhajarOpenVpnBridge {
+                             VpnState.setConnected()
+                         }
+                     }
+-                    ConnectionStatus.LEVEL_AUTH_FAILED,
++                    ConnectionStatus.LEVEL_AUTH_FAILED -> {
++                        requestedUuid = null
++                        connectedConfirmed = false
++                        _activeUuid.value = null
++                        _status.value = GhajarOvpnState.ERROR
++                        _lastMessage.value = "نام کاربری یا رمز OpenVPN رد شد (AUTH_FAILED)"
++                        if (ownsGlobalTunnel()) VpnState.setError(_lastMessage.value)
++                    }
+                     ConnectionStatus.LEVEL_NONETWORK,
+                     ConnectionStatus.LEVEL_WAITING_FOR_USER_INPUT -> {
+                         _status.value = GhajarOvpnState.ERROR
+@@ -168,6 +181,9 @@ object GhajarOpenVpnBridge {
+             override fun setConnectedVPN(uuid: String?) {
+                 val clean = uuid?.takeIf { it.isNotBlank() }
+                 if (clean != null) {
++                    // Late callbacks from a previous session must not re-own the tunnel
++                    // when the user has already moved on to a different profile.
++                    if (requestedUuid != null && clean != requestedUuid) return
+                     _activeUuid.value = clean
+                 } else {
+                     _activeUuid.value = null
+@@ -268,10 +284,23 @@ object GhajarOpenVpnBridge {
+         val profile = findProfile(app, uuid) ?: throw IllegalStateException("پروفایل OVPN پیدا نشد؛ دوباره ایمپورتش کن.")
+         require(profile.needUserPWInput(null, null) == 0) { "نام کاربری یا رمز عبور این پروفایل لازم است" }
+ 
++        // A session that is already coming up for this profile must not be restarted;
++        // two rapid start requests race the engine's management handshake otherwise.
++        if (requestedUuid == uuid && _status.value == GhajarOvpnState.CONNECTING &&
++            SystemClock.elapsedRealtime() - requestStartedAt < 6_000L
++        ) return@runCatching
++
++        // A different profile owning the tunnel must be stopped before a new engine
++        // process starts, otherwise the old process fights the new one for the tun fd.
++        if (requestedUuid != null && requestedUuid != uuid || engineReallyConnected() && _activeUuid.value != uuid) {
++            runCatching { stopEngineNow(app) }
++        }
++
+         requestedUuid = uuid
+         connectedConfirmed = false
+         connectedAtElapsed = 0L
+         explicitDisconnect = false
++        engineState = ""
+         requestStartedAt = SystemClock.elapsedRealtime()
+         _activeUuid.value = uuid
+         _status.value = GhajarOvpnState.CONNECTING
+@@ -288,13 +317,14 @@ object GhajarOpenVpnBridge {
+             connectedConfirmed = false
+             _activeUuid.value = null
+             _status.value = GhajarOvpnState.ERROR
+-            _lastMessage.value = publicEngineMessage(t.message ?: t.javaClass.simpleName)
++            _lastMessage.value = GhajarUiRules.ovpnEngineMessage(t.message ?: t.javaClass.simpleName)
+             VpnState.setError(_lastMessage.value)
+             throw IllegalStateException(_lastMessage.value, t)
+         }
+     }
+ 
+     suspend fun testSaved(context: Context, uuid: String, timeoutMs: Long = 18_000L): GhajarOvpnTestResult = withContext(Dispatchers.IO) {
++        if (_tests.value[uuid]?.running == true) return@withContext _tests.value[uuid]!!
+         _tests.value = _tests.value + (uuid to GhajarOvpnTestResult(running = true, message = "در حال تست اتصال واقعی…"))
+         val started = SystemClock.elapsedRealtime()
+         val launch = connectSaved(context, uuid)
+@@ -307,7 +337,9 @@ object GhajarOpenVpnBridge {
+         val final = withTimeoutOrNull(timeoutMs) {
+             while (true) {
+                 when (_status.value) {
+-                    GhajarOvpnState.CONNECTED -> return@withTimeoutOrNull GhajarOvpnState.CONNECTED
++                    // Only the engine's own management handshake counts as CONNECTED;
++                    // a TCP ping or a stale callback from a previous session never does.
++                    GhajarOvpnState.CONNECTED -> if (engineReallyConnected()) return@withTimeoutOrNull GhajarOvpnState.CONNECTED
+                     GhajarOvpnState.ERROR -> return@withTimeoutOrNull GhajarOvpnState.ERROR
+                     GhajarOvpnState.DISCONNECTED -> if (SystemClock.elapsedRealtime() - started > 1800) {
+                         return@withTimeoutOrNull GhajarOvpnState.DISCONNECTED
+@@ -322,9 +354,11 @@ object GhajarOpenVpnBridge {
+         val result = if (final == GhajarOvpnState.CONNECTED) {
+             val ms = SystemClock.elapsedRealtime() - started
+             delay(350)
++            explicitDisconnect = true
+             disconnect(context)
+             GhajarOvpnTestResult(ok = true, connectMs = ms, message = "اتصال واقعی موفق بود")
+         } else {
++            explicitDisconnect = true
+             disconnect(context)
+             GhajarOvpnTestResult(
+                 ok = false,
+@@ -345,34 +379,50 @@ object GhajarOpenVpnBridge {
+     }
+ 
+     fun delete(context: Context, uuid: String): Result<Unit> = runCatching {
++        // The engine serialises the profile on connect; deleting the active profile
++        // while a session is coming up leaves the service holding a dangling UUID.
++        if (requestedUuid == uuid || _activeUuid.value == uuid) {
++            runCatching { stopEngineNow(context.applicationContext) }
++            engineState = ""
++            requestedUuid = null
++            connectedConfirmed = false
++            _activeUuid.value = null
++            _status.value = GhajarOvpnState.DISCONNECTED
++        }
+         val profile = findProfile(context, uuid) ?: throw IllegalStateException("پروفایل OVPN پیدا نشد.")
+         ProfileManager.getInstance(context.applicationContext).removeProfile(context.applicationContext, profile)
+         _tests.value = _tests.value - uuid
+     }
+ 
++    /** Bind to the engine once, call stopVPN and release. Safe to call repeatedly. */
++    private fun stopEngineNow(app: android.content.Context) {
++        val latch = CountDownLatch(1)
++        var service: IOpenVPNServiceInternal? = null
++        val connection = object : ServiceConnection {
++            override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
++                service = IOpenVPNServiceInternal.Stub.asInterface(binder)
++                try { service?.stopVPN(false) } catch (_: Exception) {}
++                latch.countDown()
++            }
++            override fun onServiceDisconnected(name: ComponentName?) { latch.countDown() }
++        }
++        val intent = Intent(app, OpenVPNService::class.java).setAction(OpenVPNService.START_SERVICE)
++        val bound = runCatching { app.bindService(intent, connection, Context.BIND_AUTO_CREATE) }.getOrDefault(false)
++        if (bound) {
++            latch.await(5, TimeUnit.SECONDS)
++            runCatching { app.unbindService(connection) }
++        } else {
++            VpnStatus.updateStateString("DISCONNECTED", "", 0, ConnectionStatus.LEVEL_NOTCONNECTED)
++        }
++    }
++
+     suspend fun disconnect(context: Context): Result<Unit> = withContext(Dispatchers.IO) {
+         runCatching {
+             val app = context.applicationContext
+             ensureOpenVpnServiceInstalled(app)
+             explicitDisconnect = true
+-            val latch = CountDownLatch(1)
+-            var service: IOpenVPNServiceInternal? = null
+-            val connection = object : ServiceConnection {
+-                override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+-                    service = IOpenVPNServiceInternal.Stub.asInterface(binder)
+-                    try { service?.stopVPN(false) } catch (_: Exception) {}
+-                    latch.countDown()
+-                }
+-                override fun onServiceDisconnected(name: ComponentName?) { latch.countDown() }
+-            }
+-            val intent = Intent(app, OpenVPNService::class.java).setAction(OpenVPNService.START_SERVICE)
+-            val bound = app.bindService(intent, connection, Context.BIND_AUTO_CREATE)
+-            if (bound) {
+-                latch.await(5, TimeUnit.SECONDS)
+-                runCatching { app.unbindService(connection) }
+-            } else {
+-                VpnStatus.updateStateString("DISCONNECTED", "", 0, ConnectionStatus.LEVEL_NOTCONNECTED)
+-            }
++            stopEngineNow(app)
++            engineState = ""
+             requestedUuid = null
+             connectedConfirmed = false
+             _activeUuid.value = null
+@@ -395,17 +445,6 @@ object GhajarOpenVpnBridge {
+ 
+     private fun ownsGlobalTunnel(): Boolean = VpnState.activeId.value.orEmpty().startsWith("ovpn:")
+ 
+-    private fun publicEngineMessage(raw: String): String {
+-        val clean = BrandConfig.sanitizePublicText(raw).replace(Regex("\\s+"), " ").trim()
+-        return when {
+-            clean.contains("Unable to start service Intent", ignoreCase = true) ->
+-                "موتور OpenVPN اندروید اجرا نشد؛ سرویس داخلی قاجار در دسترس نیست"
+-            clean.contains("AUTH_FAILED", ignoreCase = true) -> "نام کاربری یا رمز OpenVPN رد شد"
+-            clean.length > 180 -> clean.take(177) + "…"
+-            else -> clean.ifBlank { "OpenVPN متصل نشد" }
+-        }
+-    }
+-
+     private fun toUi(profile: VpnProfile): GhajarOvpnProfile {
+         val host = profile.mConnections.firstOrNull()?.mServerName.orEmpty()
+         return GhajarOvpnProfile(
+diff --git a/app/src/main/java/net/gozar/app/GhajarUiRules.kt b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+index 116913a..63dbc3f 100644
+--- a/app/src/main/java/net/gozar/app/GhajarUiRules.kt
++++ b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+@@ -56,6 +56,42 @@ internal object GhajarUiRules {
+     private fun botUsername(username: String?): String = username?.trim()?.removePrefix("@")
+         ?.takeIf { it.matches(Regex("[A-Za-z0-9_]{5,32}")) } ?: "Ghajar_vpnbot"
+ 
++    /** OVPN engine states the UI may only show after a real management handshake. */
++    const val OVPN_MANAGEMENT_CONNECTED_STATE = "CONNECTED"
++
++    /** Pure mapping of raw engine messages to the safe Persian text shown in the UI. */
++    fun ovpnEngineMessage(raw: String): String {
++        val clean = BrandConfig.sanitizePublicText(raw).replace(Regex("\\s+"), " ").trim()
++        return when {
++            clean.contains("Unable to start service Intent", ignoreCase = true) ->
++                "موتور OpenVPN اندروید اجرا نشد؛ سرویس داخلی قاجار در دسترس نیست"
++            clean.contains("AUTH_FAILED", ignoreCase = true) -> "نام کاربری یا رمز OpenVPN رد شد"
++            else -> ovpnExitMessage(clean)
++        }
++    }
++
++    private fun ovpnExitMessage(clean: String): String {
++        val exit = Regex("NOPROCESS.*?exit code (\\d+)", RegexOption.IGNORE_CASE).find(clean)?.groupValues?.get(1)
++        return when {
++            exit != null -> when (exit) {
++                "1", "6" -> "پردازش OpenVPN با خطای پیکربندی بسته شد (کد $exit)"
++                else -> "پردازش OpenVPN بسته شد (کد $exit)"
++            }
++            clean.contains("OPTIONS ERROR", ignoreCase = true) ->
++                "پیکربندی فایل OVPN پذیرفته نشد؛ گزینه‌ای در آن پشتیبانی نمی‌شود"
++            clean.contains("TLS Error", ignoreCase = true) || clean.contains("TLS handshake failed", ignoreCase = true) ->
++                "دست‌دهی امن با سرور برقرار نشد؛ آدرس یا فیلتر را بررسی کن"
++            clean.contains("Connection refused", ignoreCase = true) ->
++                "سرور اتصال را رد کرد؛ پورت یا آدرس را بررسی کن"
++            clean.length > 180 -> clean.take(177) + "…"
++            else -> clean
++        }
++    }
++
++    /** True when the engine can answer a real connection test with saved credentials. */
++    fun ovpnNeedsSavedCredentials(username: String?, password: String?): Boolean =
++        username.isNullOrBlank() || password.isNullOrBlank()
++
+     fun botLink(username: String?, code: String?): String {
+         val bot = botUsername(username)
+         val payload = code?.takeIf { it.matches(Regex("[0-9]{6}")) }?.let { "?start=link_$it" }.orEmpty()
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index c53ab91..b5788a2 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -801,9 +801,20 @@ class MainActivity : ComponentActivity() {
+     private fun connectImportedOpenVpn(profile: PendingOpenVpnImport, username: String, password: String) {
+         val start: () -> Unit = {
+             lifecycleScope.launch {
+-                GhajarOpenVpnBridge.connect(this@MainActivity, profile, username, password)
+-                    .onSuccess { Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show() }
+-                    .onFailure { Toast.makeText(this@MainActivity, it.message ?: "اتصال OVPN ناموفق بود", Toast.LENGTH_LONG).show() }
++                // A bridge failure must never take the whole app down; report it and
++                // reset the global tunnel state instead.
++                runCatching {
++                    GhajarOpenVpnBridge.connect(this@MainActivity, profile, username, password)
++                }.onSuccess { result ->
++                    result.onSuccess {
++                        Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show()
++                    }.onFailure {
++                        Toast.makeText(this@MainActivity, it.message ?: "اتصال OVPN ناموفق بود", Toast.LENGTH_LONG).show()
++                    }
++                }.onFailure { error ->
++                    VpnState.setDisconnected()
++                    Toast.makeText(this@MainActivity, error.message ?: "اتصال OVPN ناموفق بود", Toast.LENGTH_LONG).show()
++                }
+             }
+             Unit
+         }
+@@ -827,14 +838,37 @@ class MainActivity : ComponentActivity() {
+         delay(250)
+     }
+ 
++    /** Reverse guard: a core (Xray/IKE) tunnel must not start while OpenVPN owns the tun. */
++    private suspend fun stopOpenVpnBeforeCoreTunnel() {
++        if (!VpnState.activeId.value.orEmpty().startsWith("ovpn:")) return
++        runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) }
++        withTimeoutOrNull(6_000L) {
++            while (VpnState.activeId.value.orEmpty().startsWith("ovpn:")) delay(150)
++        }
++        delay(250)
++    }
++
+     private fun connectSavedOpenVpn(uuid: String) {
+         val start: () -> Unit = {
+             lifecycleScope.launch {
+-                stopOtherTunnelBeforeOpenVpn()
+-                val launched = GhajarOpenVpnBridge.connectSaved(this@MainActivity, uuid)
+-                    .onFailure { Toast.makeText(this@MainActivity, it.message ?: "اتصال OVPN ناموفق بود", Toast.LENGTH_LONG).show() }
+-                if (launched.isFailure) Toast.makeText(this@MainActivity, "اتصال OVPN آغاز نشد", Toast.LENGTH_LONG).show()
+-                else Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show()
++                runCatching {
++                    stopOtherTunnelBeforeOpenVpn()
++                    GhajarOpenVpnBridge.connectSaved(this@MainActivity, uuid)
++                }.fold(
++                    onSuccess = { launched ->
++                        if (launched.isFailure) {
++                            Toast.makeText(this@MainActivity,
++                                launched.exceptionOrNull()?.message ?: "اتصال OVPN آغاز نشد",
++                                Toast.LENGTH_LONG).show()
++                        } else {
++                            Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show()
++                        }
++                    },
++                    onFailure = { error ->
++                        VpnState.setDisconnected()
++                        Toast.makeText(this@MainActivity, error.message ?: "اتصال OVPN آغاز نشد", Toast.LENGTH_LONG).show()
++                    }
++                )
+             }
+             Unit
+         }
+@@ -848,15 +882,20 @@ class MainActivity : ComponentActivity() {
+ 
+     private fun disconnectOpenVpn() {
+         lifecycleScope.launch {
+-            GhajarOpenVpnBridge.disconnect(this@MainActivity)
++            runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) }
+         }
+     }
+ 
+     private fun testSavedOpenVpn(uuid: String) {
+         val start: () -> Unit = {
+             lifecycleScope.launch {
+-                stopOtherTunnelBeforeOpenVpn()
+-                val result = GhajarOpenVpnBridge.testSaved(this@MainActivity, uuid)
++                val result = runCatching {
++                    stopOtherTunnelBeforeOpenVpn()
++                    GhajarOpenVpnBridge.testSaved(this@MainActivity, uuid)
++                }.getOrElse {
++                    VpnState.setDisconnected()
++                    GhajarOvpnTestResult(ok = false, message = it.message ?: "تست اجرا نشد")
++                }
+                 Toast.makeText(
+                     this@MainActivity,
+                     if (result.ok == true) "تست واقعی موفق: ${result.connectMs ?: 0}ms"
+@@ -874,6 +913,15 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun launchConnect(config: ProxyConfig) {
++        // OpenVPN owns the tun while its state is live; tear it down first so the
++        // core tunnel does not fight the engine for the VPN interface.
++        if (GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED) {
++            lifecycleScope.launch {
++                runCatching { stopOpenVpnBeforeCoreTunnel() }
++                launchConnect(config)
++            }
++            return
++        }
+         if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
+             config.security.trim().lowercase() == "tls"
+         ) {
+@@ -939,6 +987,10 @@ class MainActivity : ComponentActivity() {
+         lifecycleScope.launch {
+             VpnState.state.collect { state ->
+                 if (state == Connection.CONNECTED && !IkeController.active) {
++                    // OpenVPN drives VpnState through its own bridge; the Xray-based
++                    // health probe cannot run through an OpenVPN tun and only produces
++                    // false "not alive" verdicts there.
++                    if (VpnState.activeId.value.orEmpty().startsWith("ovpn:")) return@collect
+                     TunnelHealth.check()
+                     RadarRunner.start(true)
+                     val id = VpnState.activeId.value
+@@ -1114,9 +1166,13 @@ class MainActivity : ComponentActivity() {
+     }
+ 
+     private fun disconnect() {
+-        if (VpnState.activeId.value.orEmpty().startsWith("ovpn:")) {
+-            lifecycleScope.launch { GhajarOpenVpnBridge.disconnect(this@MainActivity) }
+-            return
++        // Ask the embedded engine to stop even when the app process was recreated and
++        // no longer remembers the ovpn: id, otherwise its notification lingers.
++        if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") ||
++            GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED
++        ) {
++            lifecycleScope.launch { runCatching { GhajarOpenVpnBridge.disconnect(this@MainActivity) } }
++            if (VpnState.activeId.value.orEmpty().startsWith("ovpn:")) return
+         }
+         if (IkeController.active) {
+             IkeController.disconnect(this)
+@@ -9117,11 +9173,14 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+             confirmLabel = "ذخیره",
+             dismissLabel = "انصراف",
+             onConfirm = {
+-                GhajarOpenVpnBridge.updateCredentials(context, profile.uuid, editUser.trim(), editPass.trim())
+-                    .onSuccess { tick++ }
+-                    .onFailure { message ->
+-                        android.widget.Toast.makeText(context, message.message ?: "ذخیره نشد", Toast.LENGTH_LONG).show()
+-                    }
++                scope.launch {
++                    // Profile deserialisation touches disk; keep it off the main thread.
++                    runCatching { GhajarOpenVpnBridge.updateCredentials(context, profile.uuid, editUser.trim(), editPass.trim()) }
++                        .onSuccess { tick++ }
++                        .onFailure { message ->
++                            Toast.makeText(context, message.message ?: "ذخیره نشد", Toast.LENGTH_LONG).show()
++                        }
++                }
+                 editing = null
+             }
+         ) {
+@@ -9140,11 +9199,13 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+             confirmLabel = "حذف",
+             dismissLabel = "انصراف",
+             onConfirm = {
+-                GhajarOpenVpnBridge.delete(context, profile.uuid)
+-                    .onSuccess { tick++ }
+-                    .onFailure { message ->
+-                        android.widget.Toast.makeText(context, message.message ?: "حذف نشد", Toast.LENGTH_LONG).show()
+-                    }
++                scope.launch {
++                    runCatching { GhajarOpenVpnBridge.delete(context, profile.uuid) }
++                        .onSuccess { tick++ }
++                        .onFailure { message ->
++                            Toast.makeText(context, message.message ?: "حذف نشد", Toast.LENGTH_LONG).show()
++                        }
++                }
+                 confirmDelete = null
+             }
+         ) {
+diff --git a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+index 96badb0..515097e 100644
+--- a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
++++ b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+@@ -90,4 +90,47 @@ class GhajarUiRulesTest {
+         assertEquals("1234567890", GhajarUiRules.asciiDigits("۱۲۳۴۵٦٧٨٩٠"))
+         assertEquals("30", GhajarUiRules.asciiDigits("۳۰ روز"))
+     }
++
++    @Test fun ovpnEngineAuthFailureIsReportedAsRejectedCredentials() {
++        assertEquals(
++            "نام کاربری یا رمز OpenVPN رد شد",
++            GhajarUiRules.ovpnEngineMessage("AUTH_FAILED: wrong username/password")
++        )
++    }
++
++    @Test fun ovpnEngineProcessExitReportsTheExitCode() {
++        val message = GhajarUiRules.ovpnEngineMessage(
++            "NOPROCESS: No process running. exit code 1"
++        )
++        assertTrue(message.contains("کد 1"))
++        assertTrue(message.contains("پیکربندی") || message.contains("پردازش"))
++        assertTrue(message.contains("OpenVPN"))
++    }
++
++    @Test fun ovpnEngineServiceIntentFailureIsTranslatedForTheUser() {
++        val message = GhajarUiRules.ovpnEngineMessage(
++            "java.lang.SecurityException: Unable to start service Intent { cmp=com.ghajarvpn.app/de.blinkt.openvpn.core.OpenVPNService }"
++        )
++        assertEquals("موتور OpenVPN اندروید اجرا نشد؛ سرویس داخلی قاجار در دسترس نیست", message)
++    }
++
++    @Test fun ovpnEngineFatalTlsErrorPointsAtTheServerHandshake() {
++        val message = GhajarUiRules.ovpnEngineMessage(
++            "OpenVPN: TLS Error: TLS key negotiation failed to occur within 60 seconds"
++        )
++        assertTrue(message.contains("دست‌دهی"))
++    }
++
++    @Test fun ovpnEngineLongMessagesAreTruncatedButKeepTheirMeaning() {
++        val raw = "A".repeat(500)
++        val message = GhajarUiRules.ovpnEngineMessage(raw)
++        assertTrue(message.length <= 181)
++        assertTrue(message.endsWith("…"))
++    }
++
++    @Test fun ovpnSavedCredentialRequirementMatchesTheBridgeRule() {
++        assertTrue(GhajarUiRules.ovpnNeedsSavedCredentials(null, "secret"))
++        assertTrue(GhajarUiRules.ovpnNeedsSavedCredentials("user", "  "))
++        assertFalse(GhajarUiRules.ovpnNeedsSavedCredentials("user", "secret"))
++    }
+ }
+diff --git a/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java b/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+index 652d3eb..6ffcdb5 100644
+--- a/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
++++ b/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+@@ -237,7 +237,8 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+     public void onRevoke() {
+         VpnStatus.logError(R.string.permission_revoked);
+         final OpenVPNManagement managment = mManagement;
+-        mCommandHandler.post(() -> managment.stopVPN(false));
++        if (managment != null)
++            mCommandHandler.post(() -> managment.stopVPN(false));
+ 
+         endVpnService();
+     }
+@@ -274,6 +275,9 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+         mDeviceStateReceiver = null;
+         ProfileManager.setConntectedVpnProfileDisconnected(this);
+         mOpenVPNThread = null;
++        // The management interface belongs to the ended session; keeping it lets a
++        // later stopVPN() call talk to a dead socket instead of stopping cleanly.
++        mManagement = null;
+         if (!mStarting) {
+             stopForeground(!mNotificationAlwaysVisible);
+ 
+@@ -507,8 +511,10 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+     public boolean stopVPN(boolean replaceConnection) throws RemoteException {
+         if (getManagement() != null)
+             return getManagement().stopVPN(replaceConnection);
+-        else
+-            return false;
++        // No management interface (engine not started or already dead). Make sure no
++        // half-started process lingers and report the VPN as stopped.
++        forceStopOpenVpnProcess();
++        return true;
+     }
+ 
+     @Override
+@@ -550,7 +556,18 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+         }
+ 
+         /* start the OpenVPN process itself in a background thread */
+-        mCommandHandler.post(() -> startOpenVPN(intent, startId));
++        mCommandHandler.post(() -> {
++            try {
++                startOpenVPN(intent, startId);
++            } catch (Throwable failure) {
++                // A missing native binary or an ABI mismatch must never take the whole
++                // app down; surface the failure through the normal state machine.
++                VpnStatus.logException("Starting OpenVPN engine", failure);
++                VpnStatus.updateStateString("NOPROCESS", "engine start failed",
++                        R.string.state_noprocess, ConnectionStatus.LEVEL_NOTCONNECTED);
++                endVpnService();
++            }
++        });
+ 
+         return START_STICKY;
+     }
+@@ -720,6 +737,10 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+             mManagement = mOpenVPN3;
+         } else {
+             processThread = new OpenVPNThread(this, argv, nativeLibraryDirectory, tmpDir);
++            // Remember the thread so a replacing start marks the dying process with
++            // setReplaceConnection(); otherwise its NOPROCESS state races the new
++            // session and flips a fresh CONNECTED back to NOTCONNECTED.
++            mOpenVPNThread = processThread;
+         }
+ 
+         synchronized (mProcessLock) {
+@@ -753,15 +774,19 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+     private void stopOldOpenVPNProcess(OpenVPNManagement management,
+                                        Runnable mamanagmentThread) {
+         if (management != null) {
+-            if (mamanagmentThread != null)
++            if (mamanagmentThread instanceof OpenVPNThread)
+                 ((OpenVPNThread) mamanagmentThread).setReplaceConnection();
+-            if (management.stopVPN(true)) {
+-                // an old was asked to exit, wait 1s
+-                try {
+-                    Thread.sleep(1000);
+-                } catch (InterruptedException e) {
+-                    //ignore
++            try {
++                if (management.stopVPN(true)) {
++                    // an old was asked to exit, wait 1s
++                    try {
++                        Thread.sleep(1000);
++                    } catch (InterruptedException e) {
++                        //ignore
++                    }
+                 }
++            } catch (RuntimeException stopFailed) {
++                VpnStatus.logException("Stopping previous OpenVPN session", stopFailed);
+             }
+         }
+ 
+@@ -777,6 +802,7 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+                 } catch (InterruptedException e) {
+                     //ignore
+                 }
++                mProcessThread = null;
+             }
+         }
+     }
+@@ -811,7 +837,14 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+     public void onDestroy() {
+         synchronized (mProcessLock) {
+             if (mProcessThread != null) {
+-                mManagement.stopVPN(true);
++                final OpenVPNManagement managment = mManagement;
++                if (managment != null) {
++                    try {
++                        managment.stopVPN(true);
++                    } catch (RuntimeException stopFailed) {
++                        VpnStatus.logException("Stopping OpenVPN on service destroy", stopFailed);
++                    }
++                }
+             }
+         }
+ 
+-- 
+2.55.0
+

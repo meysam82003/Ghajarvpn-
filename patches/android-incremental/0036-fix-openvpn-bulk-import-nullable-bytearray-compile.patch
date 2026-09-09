@@ -1,0 +1,26 @@
+From 8d6b1f20d6f3f4e5958cc680f1336f8d9b881d1f Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 16:17:00 +0000
+Subject: [PATCH] fix(openvpn): compile nullable bytes in bulk import
+
+---
+ app/src/main/java/net/gozar/app/MainActivity.kt | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+index bd77df4..f99a001 100644
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -8895,7 +8895,8 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
+                 var bad = 0
+                 val good = uris.mapNotNull { uri ->
+                     val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+-                    if (bytes.isNullOrEmpty()) { bad++; null }
++                    if (bytes == null) { bad++; null }
++                    else if (bytes.isEmpty()) { bad++; null }
+                     else GhajarOpenVpnBridge.inspect(bytes).getOrElse { bad++; null }
+                 }
+                 good to bad
+-- 
+2.47.3
+

@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 19:05:00 +0000
+Subject: [PATCH] fix: match system bars to theme and protect checkout controls
+
+---
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -624,4 +624,10 @@
+             val controller = WindowCompat.getInsetsController(window, window.decorView)
++            androidx.compose.runtime.SideEffect {
++                controller.isAppearanceLightStatusBars = !dark
++                controller.isAppearanceLightNavigationBars = !dark
++                @Suppress("DEPRECATION")
++                window.navigationBarColor = if (dark) 0xFF071B2E.toInt() else 0xFFEEF3FA.toInt()
++                if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
++            }
+-            controller.isAppearanceLightStatusBars = !dark
+             val lang by store.lang.collectAsState()
+             val direction = if (lang == Lang.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
+diff --git a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+--- a/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
++++ b/app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+@@ -41,6 +41,11 @@
+         super.onCreate(savedInstanceState)
+         window.statusBarColor = Color.rgb(7, 27, 46)
+         window.navigationBarColor = Color.rgb(7, 27, 46)
++        androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
++            isAppearanceLightStatusBars = false
++            isAppearanceLightNavigationBars = false
++        }
++        if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
+         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
+ 
+         val checkoutUrl = intent.getStringExtra(EXTRA_URL)?.toUri()
+@@ -100,7 +105,14 @@
+             addView(column, FrameLayout.LayoutParams(-1, -1))
+             addView(progress, FrameLayout.LayoutParams(dp(56), dp(56), Gravity.CENTER))
+         }
++        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
++            val bars = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.systemBars() or
++                androidx.core.view.WindowInsetsCompat.Type.displayCutout())
++            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
++            insets
++        }
+         setContentView(root)
++        androidx.core.view.ViewCompat.requestApplyInsets(root)
+         if (savedInstanceState == null || webView.restoreState(savedInstanceState) == null) webView.loadUrl(checkoutUrl.toString())
+     }
+ 
+-- 
+2.43.0

@@ -1,0 +1,611 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Sat, 6 Sep 2026 12:00:00 +0000
+Subject: [PATCH] feat(config): config center chooser and quick connect
+
+---
+diff --git a/app/src/main/AndroidManifest.xml b/app/src/main/AndroidManifest.xml
+
+--- a/app/src/main/AndroidManifest.xml
++++ b/app/src/main/AndroidManifest.xml
+@@ -81,6 +81,48 @@
+             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden"
+             android:label="پرداخت امن قاجار وی پی ان"
+             android:theme="@style/Theme.Ghajarvpn" />
++        <activity
++            android:name=".ConfigCenterActivity"
++            android:exported="true"
++            android:launchMode="singleTop"
++            android:label="مرکز کانفیگ قاجار"
++            android:theme="@style/Theme.Ghajarvpn">
++            <intent-filter android:label="مرکز کانفیگ قاجار">
++                <action android:name="android.intent.action.VIEW" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <data android:scheme="content" />
++                <data android:scheme="file" />
++                <data android:mimeType="application/json" />
++                <data android:mimeType="text/plain" />
++                <data android:mimeType="application/octet-stream" />
++            </intent-filter>
++            <intent-filter android:label="مرکز کانفیگ قاجار">
++                <action android:name="android.intent.action.VIEW" />
++                <category android:name="android.intent.category.DEFAULT" />
++                <data android:scheme="content" />
++                <data android:scheme="file" />
++                <data android:mimeType="*/*" />
++                <data android:pathPattern=".*\\.npvt" />
++                <data android:pathPattern=".*\\.npvs" />
++                <data android:pathPattern=".*\\.npvtsub" />
++                <data android:pathPattern=".*\\.happ" />
++                <data android:pathPattern=".*\\.nm" />
++                <data android:pathPattern=".*\\.ehi" />
++                <data android:pathPattern=".*\\.slip" />
++                <data android:pathPattern=".*\\.hat" />
++                <data android:pathPattern=".*\\.dark" />
++                <data android:pathPattern=".*\\.tnl" />
++                <data android:pathPattern=".*\\.ovpn" />
++                <data android:pathPattern=".*\\.json" />
++                <data android:pathPattern=".*\\.txt" />
++            </intent-filter>
++        </activity>
++        <activity
++            android:name=".ConfigQuickConnectActivity"
++            android:exported="false"
++            android:launchMode="singleTop"
++            android:label="اتصال به کانفیگ"
++            android:theme="@style/Theme.Ghajarvpn" />
+         <activity
+             android:name=".configtoolkit.ConfigToolkitActivity"
+             android:exported="true"
+diff --git a/app/src/main/java/net/gozar/app/ConfigCenterActivity.kt b/app/src/main/java/net/gozar/app/ConfigCenterActivity.kt
+new file mode 100644
+
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/ConfigCenterActivity.kt
+@@ -0,0 +1,124 @@
++package net.gozar.app
++
++import android.net.Uri
++import android.os.Bundle
++import androidx.activity.ComponentActivity
++import androidx.activity.compose.setContent
++import androidx.compose.foundation.background
++import androidx.compose.foundation.layout.*
++import androidx.compose.foundation.shape.RoundedCornerShape
++import androidx.compose.material3.*
++import androidx.compose.material3.darkColorScheme
++import androidx.compose.runtime.*
++import androidx.compose.ui.Alignment
++import androidx.compose.ui.Modifier
++import androidx.compose.ui.graphics.Brush
++import androidx.compose.ui.graphics.Color
++import androidx.compose.ui.text.font.FontWeight
++import androidx.compose.ui.unit.dp
++import androidx.compose.ui.unit.sp
++import net.gozar.app.configcenter.ConfigDetector
++import net.gozar.app.configcenter.ConfigExtractor
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++/**
++ * Ghajar-styled chooser for externally opened configs: content is detected
++ * first, then the user picks between the toolkit and quick connect. Shows a
++ * human summary (counts + formats) before either action.
++ */
++class ConfigCenterActivity : ComponentActivity() {
++
++    private var summary by mutableStateOf("در حال بررسی فایل…")
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        val uri: Uri? = intent?.data
++        setContent {
++            MaterialTheme(
++                colorScheme = darkColorScheme(
++                    primary = Color(0xFFD9B15C),
++                    secondary = Color(0xFFB48B32),
++                    background = Color(0xFF071B2E),
++                    onBackground = Color(0xFFF6F1E4),
++                    surface = Color(0xFF0E2C49),
++                    onSurface = Color(0xFFF6F1E4),
++                    onSurfaceVariant = Color(0xFF9DB0C2)
++                )
++            ) {
++                LaunchedEffect(uri) {
++                if (uri == null) summary = "فایلی دریافت نشد"
++            }
++                Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
++                    Column(
++                        modifier = Modifier.fillMaxWidth().padding(20.dp),
++                        horizontalAlignment = Alignment.CenterHorizontally
++                    ) {
++                        Text(
++                            "مرکز کانفیگ قاجار",
++                            fontSize = 20.sp, fontWeight = FontWeight.Bold,
++                            color = MaterialTheme.colorScheme.onBackground
++                        )
++                        Spacer(Modifier.height(14.dp))
++                        Text(summary, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
++                        Spacer(Modifier.height(22.dp))
++                        ConfigCenterAction("ابزار کانفیگ", "بررسی، استخراج، تست و Import") {
++                            uri?.let {
++                                startActivity(ConfigCenterRouter.toolkitIntent(this@ConfigCenterActivity, it))
++                                finish()
++                            }
++                        }
++                        Spacer(Modifier.height(12.dp))
++                        ConfigCenterAction("اتصال به کانفیگ", "اتصال سریع با کانفیگ انتخابی") {
++                            uri?.let {
++                                startActivity(ConfigCenterRouter.quickConnectIntent(this@ConfigCenterActivity, it))
++                                finish()
++                            }
++                        }
++                    }
++                }
++            }
++        }
++        uri?.let { analyze(it) }
++    }
++
++    private fun analyze(uri: Uri) {
++        kotlinx.coroutines.CoroutineScope(Dispatchers.Main).launch {
++            val outcome: String = withContext(Dispatchers.IO) {
++                val read: Triple<String, String, Int>? = runCatching {
++                    val bytes: ByteArray = contentResolver.openInputStream(uri)?.use { stream -> stream.readBytes() } ?: ByteArray(0)
++                    val detection: ConfigDetector.Detection = ConfigDetector.detect(uri.lastPathSegment, bytes)
++                    val extraction: ConfigExtractor.Extraction = ConfigExtractor.extract(uri.lastPathSegment, bytes)
++                    Triple(detection.format.name, extraction.summary(), bytes.size)
++                }.getOrNull()
++                when {
++                    read == null -> "خواندن فایل ممکن نشد"
++                    read.second == "LOCKED" -> "نیازمند رمز عبور — در ابزار کانفیگ رمز را وارد کنید"
++                    read.third == 0 -> "فایل خالی است"
++                    else -> {
++                        val count = read.second.substringAfter("links=").substringBefore(")").toIntOrNull()
++                        if (count != null && count > 0) "$count کانفیگ پیدا شد · فرمت " + read.first.lowercase()
++                        else "فرمت شناسایی شد: " + read.first.lowercase()
++                    }
++                }
++            }
++            summary = outcome
++        }
++    }
++}
++
++@Composable
++private fun ConfigCenterAction(title: String, subtitle: String, onClick: () -> Unit) {
++    Card(
++        onClick = onClick,
++        modifier = Modifier.fillMaxWidth(),
++        shape = RoundedCornerShape(18.dp),
++        colors = CardDefaults.cardColors(containerColor = Color(0xFF12395E))
++    ) {
++        Column(Modifier.padding(18.dp)) {
++            Text(title, fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Color(0xFFD9B15C))
++            Text(subtitle, fontSize = 12.sp, color = Color(0xFF9DB0C2), modifier = Modifier.padding(top = 4.dp))
++        }
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/ConfigCenterRouter.kt b/app/src/main/java/net/gozar/app/ConfigCenterRouter.kt
+new file mode 100644
+
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/ConfigCenterRouter.kt
+@@ -0,0 +1,40 @@
++package net.gozar.app
++
++import android.content.Context
++import android.content.Intent
++import android.net.Uri
++import net.gozar.app.configtoolkit.ConfigToolkitActivity
++
++/**
++ * Central router for every externally-opened config (file manager VIEW/SEND,
++ * browser downloads, share targets). It always shows the Ghajar-styled chooser
++ * first — "ابزار کانفیگ" then "اتصال به کانفیگ" — instead of dropping the user
++ * straight into a tool or the engine.
++ */
++object ConfigCenterRouter {
++
++    enum class Destination { TOOLKIT, QUICK_CONNECT }
++
++    /**
++     * Entry chooser activity handles both options; this decides the launch intent.
++     * Payment links are never touched here — StoreLinkRouter stays the only
++     * authority for payment routing.
++     */
++    fun chooserIntent(context: Context, uri: Uri): Intent =
++        Intent(context, ConfigCenterActivity::class.java)
++            .setAction(Intent.ACTION_VIEW)
++            .setData(uri)
++            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++
++    fun toolkitIntent(context: Context, uri: Uri): Intent =
++        Intent(context, ConfigToolkitActivity::class.java)
++            .setAction(Intent.ACTION_VIEW)
++            .setData(uri)
++            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++
++    fun quickConnectIntent(context: Context, uri: Uri): Intent =
++        Intent(context, ConfigQuickConnectActivity::class.java)
++            .setAction(Intent.ACTION_VIEW)
++            .setData(uri)
++            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
++}
+diff --git a/app/src/main/java/net/gozar/app/ConfigQuickConnectActivity.kt b/app/src/main/java/net/gozar/app/ConfigQuickConnectActivity.kt
+new file mode 100644
+
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/ConfigQuickConnectActivity.kt
+@@ -0,0 +1,80 @@
++package net.gozar.app
++
++import android.net.Uri
++import android.os.Bundle
++import android.widget.Toast
++import androidx.activity.ComponentActivity
++import androidx.lifecycle.lifecycleScope
++import net.gozar.app.configcenter.ConfigExtractor
++import net.gozar.app.configcenter.ConfigNormalizer
++import kotlinx.coroutines.Dispatchers
++import kotlinx.coroutines.launch
++import kotlinx.coroutines.withContext
++
++/**
++ * "اتصال به کانفیگ" — reads the shared content, imports every valid profile
++ * through the existing toolkit pipeline and immediately launches the first
++ * healthy one. Unsupported protocols report honestly; nothing fakes success.
++ */
++class ConfigQuickConnectActivity : ComponentActivity() {
++
++    override fun onCreate(savedInstanceState: Bundle?) {
++        super.onCreate(savedInstanceState)
++        val uri = intent?.data
++        if (uri == null) { finish(); return }
++        val store = ConfigStore.get(applicationContext)
++        lifecycleScope.launch {
++            store.awaitReady()
++            val summary = withContext(Dispatchers.IO) {
++                runCatching {
++                    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
++                        ?: return@runCatching Result.fail("خواندن فایل ممکن نشد")
++                    val result = ConfigNormalizer.normalizeFile(uri.lastPathSegment, bytes, mutableSetOf())
++                    if (result.validCount == 0) {
++                        val locked = ConfigExtractor.extract(uri.lastPathSegment, bytes).locked
++                        return@runCatching if (locked) Result.fail("🔒 نیازمند رمز عبور — از ابزار کانفیگ استفاده کنید")
++                        else Result.fail("هیچ کانفیگ سالمی پیدا نشد")
++                    }
++                    val proxies = result.items.mapNotNull { it.profile?.toProxyConfig() }
++                    val added = store.addImported(proxies)
++                    Result.ok(added, result)
++                }.getOrElse { Result.fail(it.message ?: "پردازش فایل ناموفق بود") }
++            }
++            when {
++                summary.added > 0 || summary.result.validCount > 0 -> {
++                    val first = summary.result.items.firstOrNull { it.outcome == ConfigNormalizer.Outcome.VALID && it.profile != null }
++                        ?: summary.result.items.firstOrNull { it.profile != null }
++                    if (first != null) {
++                        Toast.makeText(this@ConfigQuickConnectActivity, "«${first.profile?.name}» برای اتصال آماده شد", Toast.LENGTH_SHORT).show()
++                        val config = store.configs.value.firstOrNull { it.name == first.profile?.name }
++                            ?: store.configs.value.firstOrNull()
++                        if (config != null) {
++                            ConfigQuickConnectBridge.activity?.quickConnect(config)
++                            ?: Toast.makeText(this@ConfigQuickConnectActivity, "برای اتصال، برنامه را باز کنید", Toast.LENGTH_LONG).show()
++                            finish()
++                            return@launch
++                        }
++                    }
++                    Toast.makeText(this@ConfigQuickConnectActivity, "کانفیگ قابل اجرا پیدا نشد", Toast.LENGTH_LONG).show()
++                }
++                else -> {
++                    Toast.makeText(this@ConfigQuickConnectActivity, summary.message, Toast.LENGTH_LONG).show()
++                }
++            }
++            finish()
++        }
++    }
++
++
++    private data class Result(val added: Int, val result: ConfigNormalizer.Result, val message: String) {
++        companion object {
++            fun ok(added: Int, result: ConfigNormalizer.Result) = Result(added, result, "")
++            fun fail(message: String) = Result(0, ConfigNormalizer.Result(emptyList()), message)
++        }
++    }
++}
++
++/** MainActivity hand-off used only for the guarded quick-connect entry point. */
++object ConfigQuickConnectBridge {
++    @Volatile var activity: MainActivity? = null
++}
+diff --git a/app/src/main/java/net/gozar/app/configcenter/ConfigDetector.kt b/app/src/main/java/net/gozar/app/configcenter/ConfigDetector.kt
+new file mode 100644
+
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configcenter/ConfigDetector.kt
+@@ -0,0 +1,133 @@
++package net.gozar.app.configcenter
++
++/**
++ * Content-first config format detection. Extension is a hint, never the
++ * authority: bytes/text are sniffed for magic markers, structures and links.
++ */
++object ConfigDetector {
++
++    enum class Format {
++        V2RAY_SUB,       // base64 blob of links
++        RAW_LINKS,       // plain text with vless://... lines
++        VLESS, VMESS, TROJAN, SHADOWSOCKS, SOCKS, HYSTERIA2, TUIC,
++        CLASH_YAML,
++        SINGBOX_JSON,
++        JSON_ARRAY,
++        OPENVPN,
++        WIREGUARD,
++        SSH,
++        NPVT, NPVS, NPVTSUB, EHI, NM, HAPP, DARK, TNL, SLIP,
++        UNKNOWN
++    }
++
++    enum class Confidence { FULL, PARTIAL, UNSUPPORTED }
++
++    data class Detection(val format: Format, val confidence: Confidence, val hint: String = "")
++
++    private val PROXY_SCHEMES = listOf(
++        "vless://", "vmess://", "trojan://", "ss://", "socks://", "socks5://",
++        "hysteria2://", "hy2://", "tuic://"
++    )
++
++    private val SCHEME_TO_FORMAT = mapOf(
++        "vless://" to Format.VLESS, "vmess://" to Format.VMESS,
++        "trojan://" to Format.TROJAN, "ss://" to Format.SHADOWSOCKS,
++        "socks://" to Format.SOCKS, "socks5://" to Format.SOCKS,
++        "hysteria2://" to Format.HYSTERIA2, "hy2://" to Format.HYSTERIA2,
++        "tuic://" to Format.TUIC
++    )
++
++    fun detect(fileName: String?, bytes: ByteArray): Detection {
++        val text = runCatching { bytes.toString(Charsets.UTF_8) }.getOrDefault("")
++        val printable = text.count { it.code in 9..13 || it.code in 32..126 || it.code > 127 }
++        val looksText = bytes.isNotEmpty() && printable >= bytes.size * 0.85
++
++        val byContent = detectText(text, looksText)
++        if (byContent != null && byContent.confidence == Confidence.FULL) return byContent
++
++        val ext = fileName.orEmpty().substringAfterLast('.', "").lowercase()
++        val byExt = when (ext) {
++            "npvt" -> Format.NPVT; "npvs" -> Format.NPVS; "npvtsub" -> Format.NPVTSUB
++            "ehi" -> Format.EHI; "nm" -> Format.NM; "happ" -> Format.HAPP
++            "dark" -> Format.DARK; "tnl" -> Format.TNL; "slip" -> Format.SLIP
++            "ovpn" -> Format.OPENVPN; "json" -> Format.SINGBOX_JSON
++            "yaml", "yml" -> Format.CLASH_YAML; "txt" -> Format.RAW_LINKS
++            else -> null
++        }
++        if (byContent != null) return byContent
++        if (byExt != null && looksText) return Detection(byExt, Confidence.PARTIAL, "extension")
++        if (byExt != null) return Detection(byExt, Confidence.UNSUPPORTED, "binary")
++        return Detection(Format.UNKNOWN, Confidence.UNSUPPORTED)
++    }
++
++    private fun detectText(text: String, looksText: Boolean): Detection? {
++        if (text.isBlank()) return null
++        val lower = text.lowercase()
++
++        // Direct single link
++        SCHEME_TO_FORMAT.forEach { (scheme, format) ->
++            if (lower.startsWith(scheme)) return Detection(format, Confidence.FULL, "scheme")
++        }
++
++        // Aggregate links anywhere in the text
++        val linkCount = PROXY_SCHEMES.count { lower.contains(it) }
++        if (linkCount >= 1) return Detection(Format.RAW_LINKS, Confidence.FULL, "links=$linkCount")
++
++        // Base64 subscription blob (decodes into proxy links)
++        if (looksText && isMostlyBase64(text)) {
++            val decoded = runCatching {
++                java.util.Base64.getMimeDecoder().decode(text.replace("\n", ""))
++                    .toString(Charsets.UTF_8).lowercase()
++            }.getOrDefault("")
++            if (PROXY_SCHEMES.any { decoded.contains(it) }) {
++                return Detection(Format.V2RAY_SUB, Confidence.FULL, "base64")
++            }
++        }
++
++        // Clash YAML
++        if (lower.contains("proxies:") && (lower.contains("type:") || lower.contains("server:"))) {
++            return Detection(Format.CLASH_YAML, if (lower.contains("port:") && lower.contains("cipher:")) Confidence.FULL else Confidence.PARTIAL, "yaml")
++        }
++
++        // sing-box JSON
++        if (lower.contains("\"outbounds\"") && lower.contains("\"type\"")) {
++            return Detection(Format.SINGBOX_JSON, Confidence.FULL, "singbox")
++        }
++
++        // Generic JSON array of profiles
++        if (text.trimStart().startsWith("[") && lower.contains("\"server\"")) {
++            return Detection(Format.JSON_ARRAY, Confidence.PARTIAL, "json-array")
++        }
++
++        // OpenVPN
++        if (lower.contains("<ca>") || Regex("(?im)^\\s*(client|remote)\\b").containsMatchIn(text)) {
++            return Detection(Format.OPENVPN, if (lower.contains("<ca>")) Confidence.FULL else Confidence.PARTIAL, "openvpn")
++        }
++
++        // WireGuard
++        if (lower.contains("[interface]") && lower.contains("privatekey")) {
++            return Detection(Format.WIREGUARD, Confidence.FULL, "wg")
++        }
++
++        // SSH container (dark/tnl/slip family)
++        if (lower.contains("sshcore:") || lower.contains("sshtype:") || lower.contains("slipnet")) {
++            return Detection(Format.SLIP, Confidence.PARTIAL, "ssh-container")
++        }
++
++        // App-specific text containers (ehi/nm/happ/dark/tnl store base64 or header blobs)
++        if (looksText && (lower.contains("http-inject") || lower.contains("[ssh]") ||
++                lower.contains("payload=") || lower.contains("v2core=") ||
++                lower.contains("ssl=true") || lower.contains("proxygroup"))) {
++            return Detection(Format.EHI, Confidence.PARTIAL, "container-text")
++        }
++
++        return null
++    }
++
++    private fun isMostlyBase64(text: String): Boolean {
++        val sample = text.take(4096).replace(Regex("\\s"), "")
++        if (sample.length < 16) return false
++        val valid = sample.count { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' }
++        return valid >= sample.length * 0.95
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/configcenter/ConfigExtractor.kt b/app/src/main/java/net/gozar/app/configcenter/ConfigExtractor.kt
+new file mode 100644
+
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configcenter/ConfigExtractor.kt
+@@ -0,0 +1,62 @@
++package net.gozar.app.configcenter
++
++/**
++ * Generic extraction pipeline: dig every proxy link out of arbitrary text,
++ * nested base64, JSON and YAML containers. Recurses one level into decoded
++ * payloads so subscriptions-in-subscriptions still yield links.
++ */
++object ConfigExtractor {
++
++    private val LINK_REGEX = Regex(
++        "(?im)\\b(?:vless|vmess|trojan|ss|socks5?|hysteria2?|hy2|tuic)://\\S+"
++    )
++
++    data class Extraction(
++        val links: List<String> = emptyList(),
++        val rawText: String = "",
++        val locked: Boolean = false,
++        val lockedHint: String = ""
++    ) {
++        /** Compact status line for UI summaries. */
++        fun summary(): String = when {
++            locked -> "LOCKED"
++            links.isNotEmpty() -> "links=" + links.size
++            rawText.isNotBlank() -> "text"
++            else -> "empty"
++        }
++    }
++
++    fun extract(fileName: String?, bytes: ByteArray): Extraction {
++        val text = runCatching { bytes.toString(Charsets.UTF_8) }.getOrDefault("")
++        return extractText(text)
++    }
++
++    fun extractText(text: String): Extraction {
++        val links = LINK_REGEX.findAll(text).map { it.value.trim().removeSuffix(",").removeSuffix(";") }.toList()
++        if (links.isNotEmpty()) return Extraction(links.distinct(), text)
++
++        // One-level base64 unwrap (V2Ray subscriptions)
++        val compact = text.replace(Regex("\\s"), "")
++        if (compact.length >= 16 && compact.length % 4 >= 0 &&
++            compact.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' }
++        ) {
++            val decoded = runCatching {
++                java.util.Base64.getMimeDecoder().decode(compact).toString(Charsets.UTF_8)
++            }.getOrDefault("")
++            val decodedLinks = LINK_REGEX.findAll(decoded)
++                .map { it.value.trim() }.toList()
++            if (decodedLinks.isNotEmpty()) return Extraction(decodedLinks.distinct(), decoded)
++        }
++
++        // Locked payloads announce themselves instead of being brute-forced.
++        if (text.contains(Regex("(?i)(password|passkey|encrypted)\\s*[:=]")) &&
++            text.contains("base64") == false && links.isEmpty()
++        ) {
++            val hint = Regex("(?i)(password|passkey)\\s*[:=]\\s*\\S{0,3}")
++                .find(text)?.value ?: "locked"
++            return Extraction(rawText = text, locked = true, lockedHint = hint)
++        }
++
++        return Extraction(rawText = text)
++    }
++}
+diff --git a/app/src/main/java/net/gozar/app/configcenter/ConfigNormalizer.kt b/app/src/main/java/net/gozar/app/configcenter/ConfigNormalizer.kt
+new file mode 100644
+
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/configcenter/ConfigNormalizer.kt
+@@ -0,0 +1,77 @@
++package net.gozar.app.configcenter
++
++import net.gozar.app.configtoolkit.ConfigInput
++import net.gozar.app.configtoolkit.DecoderRegistry
++import java.security.MessageDigest
++import java.util.Locale
++
++/**
++ * Bridges the Config Center onto the existing toolkit pipeline: Decoders +
++ * FormatDetector + ProfileValidator. Links become NormalizedProfiles through
++ * the same code path the toolkit uses, then deduplicate by content hash.
++ */
++object ConfigNormalizer {
++
++    enum class Outcome { VALID, DUPLICATE, INVALID, UNSUPPORTED }
++
++    data class Item(
++        val link: String,
++        val hash: String,
++        val protocol: String,
++        val outcome: Outcome,
++        val profile: net.gozar.app.configtoolkit.NormalizedProfile? = null,
++        val note: String = ""
++    )
++
++    data class Result(
++        val items: List<Item>,
++        val validCount: Int = items.count { it.outcome == Outcome.VALID },
++        val duplicateCount: Int = items.count { it.outcome == Outcome.DUPLICATE },
++        val invalidCount: Int = items.count { it.outcome == Outcome.INVALID },
++        val unsupportedCount: Int = items.count { it.outcome == Outcome.UNSUPPORTED }
++    )
++
++    private val SUPPORTED = setOf("vless", "vmess", "trojan", "shadowsocks", "socks")
++
++    /** Extracts and normalizes every config from [bytes] via the toolkit decoders. */
++    fun normalizeFile(fileName: String?, bytes: ByteArray, knownHashes: MutableSet<String>): Result {
++        val toolkitResult = runCatching {
++            DecoderRegistry().decode(ConfigInput(bytes, displayName = fileName ?: "config"))
++        }.getOrNull()
++        val profiles = toolkitResult?.profiles.orEmpty()
++
++        val items = mutableListOf<Item>()
++        val linksSeen = mutableSetOf<String>()
++        profiles.forEach { profile ->
++            val link = runCatching {
++                net.gozar.app.configtoolkit.V2RayLinkGenerator.generate(profile)
++            }.getOrNull() ?: ""
++            val hash = if (link.isNotBlank()) sha256(link) else sha256("${profile.protocol}|${profile.server}|${profile.port}|${profile.uuid}|${profile.password}")
++            val outcome = when {
++                hash in knownHashes -> Outcome.DUPLICATE
++                else -> { knownHashes += hash; Outcome.VALID }
++            }
++            linksSeen += link
++            items += Item(link, hash, profile.protocol.lowercase(Locale.US), outcome, profile = profile)
++        }
++
++        // Raw links from generic extraction that the toolkit containers missed.
++        ConfigExtractor.extract(fileName, bytes).links.forEach { link ->
++            if (link in linksSeen) return@forEach
++            val protocol = link.substringBefore("://").lowercase(Locale.US)
++            val hash = sha256(link)
++            val outcome = when {
++                protocol !in SUPPORTED -> Outcome.UNSUPPORTED
++                hash in knownHashes -> Outcome.DUPLICATE
++                else -> { knownHashes += hash; Outcome.VALID }
++            }
++            items += Item(link, hash, protocol, outcome, note = if (outcome == Outcome.UNSUPPORTED) "هسته فعلی این پروتکل را اجرا نمی‌کند" else "")
++        }
++
++        return Result(items)
++    }
++
++    fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
++        .digest(value.toByteArray(Charsets.UTF_8))
++        .joinToString("") { "%02x".format(it) }.take(24)
++}

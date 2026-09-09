@@ -1,0 +1,327 @@
+From e112784cd04eeeb58b4ca162cc6a8873e2e37f5b Mon Sep 17 00:00:00 2001
+From: meysam82003 <meysamsalamatnasab@gmail.com>
+Date: Sat, 5 Sep 2026 07:26:29 +0330
+Subject: [PATCH] feat(store): open store web pages in an embedded browser mode
+
+- StoreEmbeddedPolicy: single https launch gate limited to the store
+  host; navigation guard keeps redirects on the origin (subdomains and
+  known store hosts allowed, everything else blocked)
+- STORE_EMBEDDED chrome: address bar, tab counter, video handoff, bottom
+  bar, downloads, bookmarks, share URL and open-external are all hidden
+  or refused; the page title is shown instead of any raw URL
+- StoreLinkRouter.browserIntent now routes Terms/Help/Panel/Support
+  through the embedded mode; payment keeps flowing to
+  SecurePaymentActivity untouched
+---
+ .../java/net/gozar/app/StoreLinkRouter.kt     |  8 ++-
+ .../com/ghajarvpn/browser/BrowserContract.kt  |  1 +
+ .../browser/GhajarBrowserActivity.kt          | 47 +++++++++++++-
+ .../ghajarvpn/browser/StoreEmbeddedPolicy.kt  | 50 +++++++++++++++
+ .../browser/StoreEmbeddedPolicyTest.kt        | 61 +++++++++++++++++++
+ 5 files changed, 162 insertions(+), 5 deletions(-)
+ create mode 100644 browser/src/main/java/com/ghajarvpn/browser/StoreEmbeddedPolicy.kt
+ create mode 100644 browser/src/test/java/com/ghajarvpn/browser/StoreEmbeddedPolicyTest.kt
+
+diff --git a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+--- a/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
++++ b/app/src/main/java/net/gozar/app/StoreLinkRouter.kt
+@@ -40,8 +40,10 @@ object StoreLinkRouter {
+     fun browserIntent(context: Context, raw: String): Intent? {
+         val route = classify(raw)
+         if (route.kind !in setOf(StoreLinkKind.TERMS, StoreLinkKind.HELP, StoreLinkKind.USER_PANEL, StoreLinkKind.WEB_SUPPORT)) return null
+-        return Intent(context, com.ghajarvpn.browser.GhajarBrowserActivity::class.java)
+-            .putExtra(com.ghajarvpn.browser.BrowserContract.EXTRA_URL, route.uri.toString())
+-            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
++        // Store web pages open in the Ghajar browser's embedded store mode:
++        // no address bar, no URL exposure, navigation locked to the store origin.
++        val decision = com.ghajarvpn.browser.StoreEmbeddedPolicy.decide(route.uri.toString())
++        if (!decision.allowed) return null
++        return com.ghajarvpn.browser.StoreEmbeddedPolicy.launchIntent(context, decision.uri!!)
+     }
+ }
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt b/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/BrowserContract.kt
+@@ -12,6 +12,7 @@ object BrowserContract {
+     const val EXTRA_CONTENT_DISPOSITION = "content_disposition"
+     const val EXTRA_CONTENT_TYPE = "content_type"
+     const val EXTRA_PRIVATE = "private"
++    const val EXTRA_EMBEDDED_STORE = "embedded_store"
+ 
+     fun open(context: Context, url: String? = null, private: Boolean = false) {
+         context.startActivity(Intent(context, GhajarBrowserActivity::class.java).apply {
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+--- a/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
++++ b/browser/src/main/java/com/ghajarvpn/browser/GhajarBrowserActivity.kt
+@@ -92,6 +92,7 @@ class GhajarBrowserActivity : Activity() {
+     private lateinit var forwardButton: ImageButton
+     private lateinit var backButton: ImageButton
+     private lateinit var privateIndicator: TextView
++    private lateinit var embeddedTitle: TextView
+     private var addressClearVisible = false
+     private var activeId = ""
+     private var fullScreenView: View? = null
+@@ -102,6 +103,7 @@ class GhajarBrowserActivity : Activity() {
+     private var pendingGeolocation: String? = null
+     private var pendingGeolocationCallback: android.webkit.GeolocationPermissions.Callback? = null
+     private var dialog: AlertDialog? = null
++    private var embeddedStore = false
+ 
+     override fun onCreate(savedInstanceState: Bundle?) {
+         super.onCreate(savedInstanceState)
+@@ -146,6 +148,17 @@ class GhajarBrowserActivity : Activity() {
+             setPadding(0, 0, 0, dp(4))
+         }
+         topBar.addView(buildToolbarRow(), LinearLayout.LayoutParams(-1, -2))
++        embeddedTitle = TextView(this).apply {
++            textSize = 14f
++            setTextColor(BrowserUi.IVORY)
++            setTypeface(typeface, android.graphics.Typeface.BOLD)
++            maxLines = 1
++            gravity = Gravity.CENTER
++            visibility = View.GONE
++            setPadding(dp(12), dp(4), dp(12), dp(4))
++        }
++        topBar.addView(embeddedTitle, LinearLayout.LayoutParams(-1, -2))
++        embeddedTitle.setOnClickListener { if (embeddedStore) finish() }
+         progress = ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal).apply {
+             max = 100
+             visibility = View.GONE
+@@ -162,9 +175,24 @@ class GhajarBrowserActivity : Activity() {
+         root.addView(webContainer, LinearLayout.LayoutParams(-1, 0, 1f))
+         root.addView(bottomBar, LinearLayout.LayoutParams(-1, -2))
+         BrowserInsets.apply(root, topBar, bottomBar)
++        applyEmbeddedChrome()
+         return root
+     }
+ 
++    /**
++     * Store Embedded mode: no address bar, no tab counter, no video handoff and
++     * no bottom bar — the page title plus Back/Close is the entire chrome.
++     */
++    private fun applyEmbeddedChrome() {
++        if (!embeddedStore) return
++        address.visibility = View.GONE
++        tabCounter.visibility = View.GONE
++        videoButton.visibility = View.GONE
++        forwardButton.visibility = View.GONE
++        bottomBar.visibility = View.GONE
++        privateIndicator.visibility = View.GONE
++    }
++
+     private fun buildToolbarRow(): View {
+         val row = LinearLayout(this).apply {
+             gravity = Gravity.CENTER_VERTICAL
+@@ -328,6 +356,7 @@ class GhajarBrowserActivity : Activity() {
+     // ------------------------------------------------------------- tab engine
+ 
+     private fun newTab(raw: String = BrowserTab.HOME_URL, private: Boolean = false) {
++        if (embeddedStore) { return }
+         if (tabs.size >= BrowserRepository.MAX_TABS) {
+             tabs.firstOrNull { !it.private && it.id != activeId }?.let(::closeTab)
+         }
+@@ -350,6 +379,11 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun refreshChrome(tab: BrowserTab) {
++        if (embeddedStore) {
++            embeddedTitle.text = tab.title.ifBlank { "فروشگاه قاجار" }
++            embeddedTitle.visibility = View.VISIBLE
++            return
++        }
+         tabCounter.text = tabs.size.toString()
+         tabCounter.setTextColor(if (tab.private) BrowserUi.GOLD_SOFT else Color.WHITE)
+         tabCounter.background = BrowserUi.pill(this, if (tab.private) 0x33D9B15C.toInt() else BrowserUi.NAVY_RAISED, 12)
+@@ -612,6 +646,7 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun updateAddress(url: String?) {
++        if (embeddedStore) return
+         if (!::address.isInitialized || address.hasFocus()) return
+         val value = url.orEmpty()
+         if (value == BrowserTab.HOME_URL || value.isBlank()) {
+@@ -875,6 +910,7 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun showTabSwitcher() {
++        if (embeddedStore) return
+         dialog?.dismiss()
+         val pad = dp(16)
+         val container = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; setPadding(pad, pad, pad, pad); setBackgroundColor(BrowserUi.IVORY) }
+@@ -927,6 +963,7 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun toggleBookmark(url: String?) {
++        if (embeddedStore) { toast("در حالت فروشگاه نشانک‌گذاری مجاز نیست"); return }
+         if (!BrowserRequestPolicy.safeExternal(url.orEmpty()) || currentTab()?.private == true) {
+             toast("این صفحه قابل ذخیره نیست"); return
+         }
+@@ -959,6 +996,7 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun share(url: String?) {
++        if (embeddedStore) { toast("در حالت فروشگاه اشتراک‌گذاری نشانی مجاز نیست"); return }
+         if (!BrowserRequestPolicy.safeExternal(url.orEmpty())) return
+         startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+             type = "text/plain"; putExtra(Intent.EXTRA_TEXT, url)
+@@ -966,6 +1004,7 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun openExternal(url: String?) {
++        if (embeddedStore) { toast("در حالت فروشگاه باز کردن مرورگر دیگر مجاز نیست"); return }
+         if (!BrowserRequestPolicy.safeExternal(url.orEmpty())) return
+         runCatching { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)).addCategory(Intent.CATEGORY_BROWSABLE)) }
+             .onFailure { toast("مرورگر دیگری پیدا نشد") }
+@@ -1046,7 +1085,7 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun downloadListener(tab: BrowserTab) = DownloadListener { url, userAgent, disposition, mime, _ ->
+-        if (!BrowserRequestPolicy.safeExternal(url) || tab.private) {
++        if (!BrowserRequestPolicy.safeExternal(url) || tab.private || embeddedStore) {
+             toast(if (tab.private) "دانلود در تب خصوصی غیرفعال است" else "نشانی دانلود امن نیست"); return@DownloadListener
+         }
+         val handoff = Intent(BrowserContract.ACTION_ENQUEUE_DOWNLOAD).setPackage(packageName).apply {
+@@ -1117,6 +1156,10 @@ class GhajarBrowserActivity : Activity() {
+             val uri = request.url
+             when (uri.scheme?.lowercase()) {
+                 "http", "https" -> {
++                    if (embeddedStore && !StoreEmbeddedPolicy.navigationAllowed(tab.url, request.url.toString())) {
++                        if (tab.id == activeId) toast("این مقصد خارج از فروشگاه مجاز نیست")
++                        return true
++                    }
+                     if (uri.path.orEmpty().endsWith(".pdf", true)) {
+                         if (tab.id == activeId) openPdf(request.url.toString())
+                         return true
+@@ -1162,7 +1205,7 @@ class GhajarBrowserActivity : Activity() {
+     }
+ 
+     private fun handleHomeAction(uri: Uri) = when (uri.host) {
+-        "private" -> newTab(private = true)
++        "private" -> if (embeddedStore) Unit else newTab(private = true)
+         "bookmarks", "history" -> showLibrary()
+         else -> Unit
+     }
+diff --git a/browser/src/main/java/com/ghajarvpn/browser/StoreEmbeddedPolicy.kt b/browser/src/main/java/com/ghajarvpn/browser/StoreEmbeddedPolicy.kt
+new file mode 100644
+--- /dev/null
++++ b/browser/src/main/java/com/ghajarvpn/browser/StoreEmbeddedPolicy.kt
+@@ -0,0 +1,50 @@
++package com.ghajarvpn.browser
++
++import android.content.Context
++import android.content.Intent
++import java.net.URI
++
++/**
++ * Embedded store browsing mode. Store/Wallet web destinations open inside the
++ * Ghajar browser with the address bar hidden and navigation restricted to the
++ * launching https origin: no raw URL display, no copy/share/open-external, no
++ * fallback to any other browser. Payment links never route here.
++ */
++object StoreEmbeddedPolicy {
++
++    /** Hosts allowed to be launched as embedded store pages. */
++    private val trustedLaunchHosts = setOf(
++        "httpuser87890.ir", "www.httpuser87890.ir"
++    )
++
++    data class Decision(val allowed: Boolean, val uri: String? = null, val reason: String = "")
++
++    /** Validates the launch URL exactly once, at entry. */
++    fun decide(raw: String): Decision {
++        val uri = runCatching { URI(raw) }.getOrNull() ?: return Decision(false, reason = "invalid")
++        if (uri.scheme?.lowercase() != "https") return Decision(false, reason = "scheme")
++        if (!uri.userInfo.isNullOrEmpty()) return Decision(false, reason = "userinfo")
++        val host = uri.host?.lowercase()?.trimEnd('.') ?: return Decision(false, reason = "host")
++        if (host !in trustedLaunchHosts) return Decision(false, reason = "untrusted")
++        return Decision(true, uri.toASCIIString())
++    }
++
++    /** Navigation guard while the embedded page is open. */
++    fun navigationAllowed(from: String?, to: String?): Boolean {
++        val next = runCatching { URI(to.orEmpty()) }.getOrNull() ?: return false
++        if (next.scheme?.lowercase() !in setOf("https")) return false
++        if (!next.userInfo.isNullOrEmpty()) return false
++        val host = next.host?.lowercase()?.trimEnd('.') ?: return false
++        val origin = from?.let { runCatching { URI(it) }.getOrNull() }
++        val originHost = origin?.host?.lowercase()?.trimEnd('.') ?: return host in trustedLaunchHosts
++        // Same host always allowed; subdomains of the origin host allowed.
++        return host == originHost || host.endsWith(".$originHost") ||
++            (host in trustedLaunchHosts && originHost in trustedLaunchHosts)
++    }
++
++    fun launchIntent(context: Context, url: String): Intent =
++        Intent(context, GhajarBrowserActivity::class.java)
++            .putExtra(BrowserContract.EXTRA_URL, url)
++            .putExtra(BrowserContract.EXTRA_EMBEDDED_STORE, true)
++            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
++}
+diff --git a/browser/src/test/java/com/ghajarvpn/browser/StoreEmbeddedPolicyTest.kt b/browser/src/test/java/com/ghajarvpn/browser/StoreEmbeddedPolicyTest.kt
+new file mode 100644
+--- /dev/null
++++ b/browser/src/test/java/com/ghajarvpn/browser/StoreEmbeddedPolicyTest.kt
+@@ -0,0 +1,61 @@
++package com.ghajarvpn.browser
++
++import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertNull
++import org.junit.Assert.assertTrue
++import org.junit.Test
++
++class StoreEmbeddedPolicyTest {
++
++    @Test
++    fun `trusted https store urls are allowed`() {
++        val decision = StoreEmbeddedPolicy.decide("https://httpuser87890.ir/terms")
++        assertTrue(decision.allowed)
++        assertTrue(decision.uri!!.startsWith("https://httpuser87890.ir"))
++    }
++
++    @Test
++    fun `untrusted hosts are rejected`() {
++        assertFalse(StoreEmbeddedPolicy.decide("https://evil.example.com/terms").allowed)
++    }
++
++    @Test
++    fun `http and userinfo are rejected`() {
++        assertFalse(StoreEmbeddedPolicy.decide("http://httpuser87890.ir/terms").allowed)
++        assertFalse(StoreEmbeddedPolicy.decide("https://user:pass@httpuser87890.ir/terms").allowed)
++    }
++
++    @Test
++    fun `non-https schemes are rejected outright`() {
++        for (raw in listOf("file:///etc/passwd", "content://media/x", "javascript:alert(1)", "about:blank", "data:text/html,x")) {
++            val decision = StoreEmbeddedPolicy.decide(raw)
++            assertFalse("scheme rejected: $raw", decision.allowed)
++            assertNull(decision.uri)
++        }
++    }
++
++    @Test
++    fun `navigation stays inside the store origin`() {
++        val entry = "https://httpuser87890.ir/help"
++        assertTrue(StoreEmbeddedPolicy.navigationAllowed(entry, "https://httpuser87890.ir/faq"))
++        assertTrue(StoreEmbeddedPolicy.navigationAllowed(entry, "https://support.httpuser87890.ir/contact"))
++        assertTrue(StoreEmbeddedPolicy.navigationAllowed(entry, "https://panel.httpuser87890.ir/account"))
++    }
++
++    @Test
++    fun `navigation to a foreign host is blocked`() {
++        val entry = "https://httpuser87890.ir/help"
++        assertFalse(StoreEmbeddedPolicy.navigationAllowed(entry, "https://evil.example.com/"))
++        assertFalse(StoreEmbeddedPolicy.navigationAllowed(entry, "http://httpuser87890.ir/insecure"))
++        assertFalse(StoreEmbeddedPolicy.navigationAllowed(entry, "https://user@httpuser87890.ir/phish"))
++        assertFalse(StoreEmbeddedPolicy.navigationAllowed(entry, "javascript:alert(1)"))
++    }
++
++    @Test
++    fun `invalid navigation targets are blocked`() {
++        assertFalse(StoreEmbeddedPolicy.navigationAllowed("https://httpuser87890.ir", "::::"))
++        assertFalse(StoreEmbeddedPolicy.navigationAllowed("https://httpuser87890.ir", null))
++    }
++
++}
+-- 
+2.55.0
+

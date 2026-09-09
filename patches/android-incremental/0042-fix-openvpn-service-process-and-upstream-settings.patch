@@ -1,0 +1,146 @@
+From 239a1c411f447b033e85701016e72510a8e0252d Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Wed, 2 Sep 2026 16:21:07 +0000
+Subject: [PATCH] fix(openvpn): harden embedded service process
+
+---
+ .../java/net/gozar/app/GhajarOpenVpnBridge.kt | 30 +++++++++-
+ .../net/gozar/app/GhajarOpenVpnSettings.kt    | 59 +++++++++++++++++++
+ openvpn/src/main/AndroidManifest.xml          |  1 +
+ 3 files changed, 88 insertions(+), 2 deletions(-)
+ create mode 100644 app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt
+
+diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+index a4ceb3e..12d5ac4 100644
+--- a/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
++++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnBridge.kt
+@@ -87,6 +87,7 @@ object GhajarOpenVpnBridge {
+ 
+     fun initialize(context: Context) {
+         val app = context.applicationContext
++        GhajarOpenVpnSettings.ensureDefaults(app)
+         if (statusListener == null) {
+             statusListener = StatusListener().also { it.init(app) }
+         }
+@@ -310,8 +311,7 @@ object GhajarOpenVpnBridge {
+         val intent = profile.getStartServiceIntent(app, "Ghajarvpn user request", true)
+             ?: throw IllegalStateException("OpenVPN نتوانست Intent اتصال را بسازد")
+         try {
+-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(intent)
+-            else app.startService(intent)
++            startOpenVpnService(app, intent)
+         } catch (t: Throwable) {
+             requestedUuid = null
+             connectedConfirmed = false
+@@ -323,6 +323,32 @@ object GhajarOpenVpnBridge {
+         }
+     }
+ 
++    /**
++     * Start the exact service component shipped by ics-openvpn. Some Android
++     * builds reject startForegroundService() while the app is foreground; in
++     * that narrow case retry the same explicit component with startService().
++     */
++    private fun startOpenVpnService(app: Context, intent: Intent) {
++        val component = intent.component ?: ComponentName(app, OpenVPNService::class.java)
++        val explicit = Intent(intent).setComponent(component).setPackage(app.packageName)
++        val resolved = runCatching {
++            @Suppress("DEPRECATION")
++            app.packageManager.getServiceInfo(component, PackageManager.GET_META_DATA)
++        }.getOrElse { throw IllegalStateException("OpenVPN service component is missing: ${component.className}", it) }
++        check(resolved.enabled) { "OpenVPN service component is disabled: ${component.className}" }
++
++        try {
++            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) app.startForegroundService(explicit)
++            else app.startService(explicit)
++        } catch (first: IllegalStateException) {
++            val unableToStart = first.message?.contains("Unable to start service Intent", ignoreCase = true) == true
++            if (!unableToStart || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) throw first
++            android.util.Log.w("GhajarOpenVPN", "Foreground start rejected; retrying explicit service start", first)
++            val started = app.startService(explicit)
++            if (started == null) throw first
++        }
++    }
++
+     suspend fun testSaved(context: Context, uuid: String, timeoutMs: Long = 18_000L): GhajarOvpnTestResult = withContext(Dispatchers.IO) {
+         if (_tests.value[uuid]?.running == true) return@withContext _tests.value[uuid]!!
+         _tests.value = _tests.value + (uuid to GhajarOvpnTestResult(running = true, message = "در حال تست اتصال واقعی…"))
+diff --git a/app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt b/app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt
+new file mode 100644
+index 0000000..0f9e2a6
+--- /dev/null
++++ b/app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt
+@@ -0,0 +1,59 @@
++package net.gozar.app
++
++import android.content.Context
++
++/**
++ * Ghajar-facing view of the real preference keys consumed by ics-openvpn.
++ * Keeping these keys identical to upstream means the engine reads the values
++ * directly; the settings UI is not a disconnected cosmetic layer.
++ */
++object GhajarOpenVpnSettings {
++    private const val KEY_RECONNECT_NETWORK = "netchangereconnect"
++    private const val KEY_SYSTEM_PROXY = "usesystemproxy"
++    private const val KEY_SCREEN_OFF = "screenoff"
++    private const val KEY_ENCRYPT_PROFILES = "preferencryption"
++
++    data class Snapshot(
++        val reconnectOnNetworkChange: Boolean,
++        val useSystemProxy: Boolean,
++        val pauseOnScreenOff: Boolean,
++        val encryptProfiles: Boolean,
++    )
++
++    fun ensureDefaults(context: Context) {
++        val prefs = prefs(context)
++        val edit = prefs.edit()
++        var changed = false
++        if (!prefs.contains(KEY_RECONNECT_NETWORK)) { edit.putBoolean(KEY_RECONNECT_NETWORK, true); changed = true }
++        if (!prefs.contains(KEY_SYSTEM_PROXY)) { edit.putBoolean(KEY_SYSTEM_PROXY, true); changed = true }
++        if (!prefs.contains(KEY_SCREEN_OFF)) { edit.putBoolean(KEY_SCREEN_OFF, false); changed = true }
++        if (!prefs.contains(KEY_ENCRYPT_PROFILES)) { edit.putBoolean(KEY_ENCRYPT_PROFILES, true); changed = true }
++        if (changed) edit.apply()
++    }
++
++    fun read(context: Context): Snapshot {
++        ensureDefaults(context)
++        val prefs = prefs(context)
++        return Snapshot(
++            reconnectOnNetworkChange = prefs.getBoolean(KEY_RECONNECT_NETWORK, true),
++            useSystemProxy = prefs.getBoolean(KEY_SYSTEM_PROXY, true),
++            pauseOnScreenOff = prefs.getBoolean(KEY_SCREEN_OFF, false),
++            encryptProfiles = prefs.getBoolean(KEY_ENCRYPT_PROFILES, true),
++        )
++    }
++
++    fun setReconnectOnNetworkChange(context: Context, value: Boolean) = put(context, KEY_RECONNECT_NETWORK, value)
++    fun setUseSystemProxy(context: Context, value: Boolean) = put(context, KEY_SYSTEM_PROXY, value)
++    fun setPauseOnScreenOff(context: Context, value: Boolean) = put(context, KEY_SCREEN_OFF, value)
++    fun setEncryptProfiles(context: Context, value: Boolean) = put(context, KEY_ENCRYPT_PROFILES, value)
++
++    private fun put(context: Context, key: String, value: Boolean) {
++        prefs(context).edit().putBoolean(key, value).apply()
++    }
++
++    @Suppress("DEPRECATION")
++    private fun prefs(context: Context) = context.applicationContext.getSharedPreferences(
++        "${context.applicationContext.packageName}_preferences",
++        Context.MODE_MULTI_PROCESS or Context.MODE_PRIVATE,
++    )
++}
+diff --git a/openvpn/src/main/AndroidManifest.xml b/openvpn/src/main/AndroidManifest.xml
+index 9de8e40..4adc586 100644
+--- a/openvpn/src/main/AndroidManifest.xml
++++ b/openvpn/src/main/AndroidManifest.xml
+@@ -83,6 +83,7 @@
+ 
+         <service android:name=".core.keepVPNAlive"
+                 android:exported="false"
++                android:process=":openvpn"
+                 android:permission="android.permission.BIND_JOB_SERVICE"/>
+ 
+ 
+-- 
+2.47.3

@@ -1,0 +1,47 @@
+From 43c5c568d7567291fb86365c89f55d85ea47fe6d Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Tue, 1 Sep 2026 16:07:56 +0000
+Subject: [PATCH 4/4] fix(openvpn): route embedded engine intents back to
+ Ghajar
+
+---
+ .../blinkt/openvpn/core/OpenVPNService.java   | 23 +++++++++----------
+ 1 file changed, 11 insertions(+), 12 deletions(-)
+
+diff --git a/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java b/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+index f9f24fd..652d3eb 100644
+--- a/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
++++ b/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
+@@ -458,18 +458,17 @@ public class OpenVPNService extends VpnService implements StateListener, Callbac
+     }
+ 
+     PendingIntent getGraphPendingIntent() {
+-        // Let the configure Button show the Log
+-
+-
+-        Intent intent = new Intent();
+-        intent.setComponent(new ComponentName(this, getPackageName() + ".activities.MainActivity"));
+-
+-        intent.putExtra("PAGE", "graph");
+-        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+-        PendingIntent startLW = PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE);
+-        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT);
+-        return startLW;
+-
++        // This engine is embedded inside Ghajarvpn. Do not construct the host
++        // activity name from the OpenVPN package; the host activity lives in
++        // net.gozar.app. Resolve the application's launcher intent instead.
++        Intent intent = getPackageManager().getLaunchIntentForPackage(getPackageName());
++        if (intent == null) {
++            intent = new Intent(Intent.ACTION_MAIN);
++            intent.setPackage(getPackageName());
++        }
++        intent.putExtra("PAGE", "connection");
++        intent.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT | Intent.FLAG_ACTIVITY_SINGLE_TOP);
++        return PendingIntent.getActivity(this, 0, intent, PendingIntent.FLAG_IMMUTABLE | PendingIntent.FLAG_UPDATE_CURRENT);
+     }
+ 
+     synchronized void registerDeviceStateReceiver(DeviceStateReceiver newDeviceStateReceiver) {
+-- 
+2.47.3
+

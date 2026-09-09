@@ -1,0 +1,33 @@
+From 775b15963a962b30647e67615398d3fcb8654f58 Mon Sep 17 00:00:00 2001
+From: Ghajar Browser CI <build@ghajarvpn.local>
+Date: Fri, 4 Sep 2026 14:47:16 +0330
+Subject: [PATCH] fix(ci): make fetch engine cleanup resilient to read-only
+ submodules
+
+---
+ scripts/fetch-openvpn-native.sh | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/fetch-openvpn-native.sh b/scripts/fetch-openvpn-native.sh
+index 957695f..645a586 100755
+--- a/scripts/fetch-openvpn-native.sh
++++ b/scripts/fetch-openvpn-native.sh
+@@ -28,7 +28,14 @@ if [[ ${#missing[@]} -eq 0 ]]; then
+ fi
+ 
+ work="$(mktemp -d)"
+-trap 'rm -rf "${work}"' EXIT
++# Git marks submodule checkouts read-only on some filesystems, which makes a
++# plain `rm -rf` fail with "Directory not empty" and abort the whole script
++# through the trap. Widen permissions first and never let cleanup fail the run.
++cleanup_work() {
++  chmod -R u+w "${work}" 2>/dev/null || true
++  rm -rf "${work}" 2>/dev/null || true
++}
++trap cleanup_work EXIT
+ 
+ git init --quiet "${work}/ics-openvpn"
+ git -C "${work}/ics-openvpn" remote add origin "${ICS_OPENVPN_URL}"
+-- 
+2.55.0
+

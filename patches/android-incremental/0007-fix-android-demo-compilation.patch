@@ -1,0 +1,153 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 10:00:00 +0000
+Subject: [PATCH] fix(android): restore demo compilation and declare its core API floor
+
+Restore the small compile fixes present in the downloaded local demo:
+JobScheduler imports, Compose scope import, store URL, Set conversion,
+the VPN permission callback type and the OpenVPN BuildConfig flavor.
+
+Use -Pghajar.demo=true for API 26+ demo builds, matching the bundled core
+AAR. Keep the API 24 production target and manifest merger checks intact;
+Android 7 support still requires rebuilding or replacing the core.
+
+---
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -5,20 +5,24 @@
+     alias(libs.plugins.kotlin.compose)
+ }
+ 
+-android {
+-    namespace = "net.gozar.app"
+-    compileSdk {
+-        version = release(36) {
+-            minorApiLevel = 1
+-        }
+-    }
+-
+-    defaultConfig {
+-        applicationId = "com.ghajarvpn.app"
+-        minSdk = 24
+-        targetSdk = 36
+-        versionCode = 30000
+-        versionName = "3.0.0"
++val ghajarDemoBuild = providers.gradleProperty("ghajar.demo").orNull == "true"
++
++android {
++    namespace = "net.gozar.app"
++    compileSdk {
++        version = release(36) {
++            minorApiLevel = 1
++        }
++    }
++
++    defaultConfig {
++        applicationId = "com.ghajarvpn.app"
++        // The bundled core AAR requires API 26. Keep the API 24 release target
++        // explicit while building an honestly labelled Android 8+ demo.
++        minSdk = if (ghajarDemoBuild) 26 else 24
++        targetSdk = 36
++        versionCode = 30000
++        versionName = if (ghajarDemoBuild) "3.0.0-demo" else "3.0.0"
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+     }
+ 
+diff --git a/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt b/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
+--- a/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
++++ b/app/src/main/java/net/gozar/app/GhajarNotificationMonitor.kt
+@@ -1,10 +1,10 @@
+ package net.gozar.app
+ 
+ import android.Manifest
+-import android.app.JobInfo
+-import android.app.JobParameters
+-import android.app.JobScheduler
+-import android.app.JobService
++import android.app.job.JobInfo
++import android.app.job.JobParameters
++import android.app.job.JobScheduler
++import android.app.job.JobService
+ import android.app.NotificationChannel
+ import android.app.NotificationManager
+ import android.app.PendingIntent
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -19,7 +19,6 @@
+ import androidx.compose.foundation.layout.padding
+ import androidx.compose.foundation.layout.size
+ import androidx.compose.foundation.layout.width
+-import androidx.compose.foundation.layout.weight
+ import androidx.compose.foundation.lazy.LazyColumn
+ import androidx.compose.foundation.lazy.items
+ import androidx.compose.foundation.rememberScrollState
+diff --git a/app/src/main/java/net/gozar/app/GhajarSplashRepository.kt b/app/src/main/java/net/gozar/app/GhajarSplashRepository.kt
+--- a/app/src/main/java/net/gozar/app/GhajarSplashRepository.kt
++++ b/app/src/main/java/net/gozar/app/GhajarSplashRepository.kt
+@@ -20,11 +20,11 @@
+     }
+ 
+     private fun fetchLivePoster(cache: File): Bitmap? {
+-        val html = readBytes(BrandConfig.STORE_BASE_URL, 1_500_000).toString(Charsets.UTF_8)
+-        val match = Regex(
+-            "(?i)(https://[^\\\"' ]+/assets/boot-media/[^\\\"'<> ]+|/[^\\\"' ]*assets/boot-media/[^\\\"'<> ]+)"
+-        ).find(html)?.value ?: return null
+-        val absolute = URL(URL(BrandConfig.STORE_BASE_URL), match).toString()
++        val html = readBytes(BrandConfig.STORE_URL, 1_500_000).toString(Charsets.UTF_8)
++        val match = Regex(
++            "(?i)(https://[^\\\"' ]+/assets/boot-media/[^\\\"'<> ]+|/[^\\\"' ]*assets/boot-media/[^\\\"'<> ]+)"
++        ).find(html)?.value ?: return null
++        val absolute = URL(URL(BrandConfig.STORE_URL), match).toString()
+         val uri = URI(absolute)
+         if (uri.scheme != "https" || uri.host != BrandConfig.STORE_HOST) return null
+         if (!uri.path.contains("/assets/boot-media/")) return null
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -463,7 +463,7 @@
+         }
+         if (imported > 0) {
+             installed += fingerprint
+-            prefs.edit().putStringSet("installed", installed.takeLast(200).toSet()).apply()
++            prefs.edit().putStringSet("installed", installed.toList().takeLast(200).toSet()).apply()
+         }
+         return imported
+     }
+diff --git a/app/src/main/java/net/gozar/app/MainActivity.kt b/app/src/main/java/net/gozar/app/MainActivity.kt
+--- a/app/src/main/java/net/gozar/app/MainActivity.kt
++++ b/app/src/main/java/net/gozar/app/MainActivity.kt
+@@ -921,12 +921,13 @@
+     }
+ 
+     private fun connectImportedOpenVpn(profile: PendingOpenVpnImport, username: String, password: String) {
+-        val start = {
+-            lifecycleScope.launch {
+-                GhajarOpenVpnBridge.connect(this@MainActivity, profile, username, password)
+-                    .onSuccess { Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show() }
+-                    .onFailure { Toast.makeText(this@MainActivity, it.message ?: "اتصال OVPN ناموفق بود", Toast.LENGTH_LONG).show() }
+-            }
++        val start: () -> Unit = {
++            lifecycleScope.launch {
++                GhajarOpenVpnBridge.connect(this@MainActivity, profile, username, password)
++                    .onSuccess { Toast.makeText(this@MainActivity, "اتصال OVPN آغاز شد", Toast.LENGTH_SHORT).show() }
++                    .onFailure { Toast.makeText(this@MainActivity, it.message ?: "اتصال OVPN ناموفق بود", Toast.LENGTH_LONG).show() }
++            }
++            Unit
+         }
+         val permission = VpnService.prepare(this)
+         if (permission == null) start()
+diff --git a/openvpn/build.gradle.kts b/openvpn/build.gradle.kts
+--- a/openvpn/build.gradle.kts
++++ b/openvpn/build.gradle.kts
+@@ -26,6 +26,7 @@
+         minSdk = 24
+         externalNativeBuild { cmake { } }
+         buildConfigField("boolean", "openvpn3", "true")
++        buildConfigField("String", "FLAVOR", "\"normal\"")
+     }
+ 
+     compileOptions {
+-- 
+2.55.0

@@ -1,0 +1,543 @@
+From b99f3c417ce532cb655cd265399f4b88d2c0dc4f Mon Sep 17 00:00:00 2001
+From: Ghajarvpn Build <build@ghajarvpn.local>
+Date: Thu, 27 Aug 2026 20:52:54 +0530
+Subject: [PATCH] fix: preserve Telegram login payloads and harden native demo
+ builds
+
+---
+ app/build.gradle.kts                          | 22 +++++++-
+ .../java/net/gozar/app/GhajarAccountStore.kt  | 33 +++++++++++-
+ .../java/net/gozar/app/GhajarShopScreen.kt    | 45 ++++++++++++----
+ .../main/java/net/gozar/app/GhajarStoreApi.kt | 15 +++++-
+ .../main/java/net/gozar/app/GhajarUiRules.kt  | 25 ++++++++-
+ .../java/net/gozar/app/GhajarUiRulesTest.kt   | 51 +++++++++++++++++++
+ openvpn/src/main/cpp/CMakeLists.txt           |  3 +-
+ .../src/main/cpp/ghajar-openssl-arch.cmake    | 44 ++++++++++++++++
+ tests/native-arch/CMakeLists.txt              | 42 +++++++++++++++
+ tests/native-arch/invalid/CMakeLists.txt      | 18 +++++++
+ 10 files changed, 279 insertions(+), 19 deletions(-)
+ create mode 100644 openvpn/src/main/cpp/ghajar-openssl-arch.cmake
+ create mode 100644 tests/native-arch/CMakeLists.txt
+ create mode 100644 tests/native-arch/invalid/CMakeLists.txt
+
+diff --git a/app/build.gradle.kts b/app/build.gradle.kts
+index af60769..d1d557f 100644
+--- a/app/build.gradle.kts
++++ b/app/build.gradle.kts
+@@ -6,6 +6,12 @@ plugins {
+ }
+ 
+ val ghajarDemoBuild = providers.gradleProperty("ghajar.demo").orNull == "true"
++val ghajarSignedDemo = providers.gradleProperty("ghajar.demo.signed").orNull == "true"
++check(!ghajarSignedDemo || ghajarDemoBuild) { "Signed demo requires -Pghajar.demo=true" }
++
++fun demoSigningValue(name: String): String = System.getenv(name)
++    ?.takeIf { it.isNotBlank() }
++    ?: error("Missing demo signing setting: $name. No ephemeral-key fallback is allowed.")
+ 
+ android {
+     namespace = "net.gozar.app"
+@@ -21,12 +27,21 @@ android {
+         // explicit while building an honestly labelled Android 8+ demo.
+         minSdk = if (ghajarDemoBuild) 26 else 24
+         targetSdk = 36
+-        versionCode = 30001
+-        versionName = if (ghajarDemoBuild) "3.0.1-demo-ui" else "3.0.1"
++        versionCode = 30002
++        versionName = if (ghajarDemoBuild) "3.0.2-demo" else "3.0.2"
+         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+     }
+ 
+     signingConfigs {
++        if (ghajarSignedDemo) {
++            create("demo") {
++                storeFile = file(demoSigningValue("GHAJAR_DEMO_KEYSTORE_FILE"))
++                    .also { check(it.isFile) { "Demo keystore file is missing" } }
++                storePassword = demoSigningValue("GHAJAR_DEMO_KEYSTORE_PASSWORD")
++                keyAlias = demoSigningValue("GHAJAR_DEMO_KEY_ALIAS")
++                keyPassword = demoSigningValue("GHAJAR_DEMO_KEY_PASSWORD")
++            }
++        }
+         create("release") {
+             val envKeystore = System.getenv("KEYSTORE_FILE")
+             val propsFile = rootProject.file("keystore.properties")
+@@ -64,6 +79,9 @@ android {
+     }
+ 
+     buildTypes {
++        debug {
++            if (ghajarSignedDemo) signingConfig = signingConfigs.getByName("demo")
++        }
+         release {
+             val hasSigning = System.getenv("KEYSTORE_FILE") != null ||
+                     rootProject.file("keystore.properties").exists()
+diff --git a/app/src/main/java/net/gozar/app/GhajarAccountStore.kt b/app/src/main/java/net/gozar/app/GhajarAccountStore.kt
+index 77bb48a..bbc33a7 100644
+--- a/app/src/main/java/net/gozar/app/GhajarAccountStore.kt
++++ b/app/src/main/java/net/gozar/app/GhajarAccountStore.kt
+@@ -1,6 +1,7 @@
+ package net.gozar.app
+ 
+ import android.content.Context
++import org.json.JSONObject
+ 
+ /**
+  * Keeps the Mini App bearer token encrypted by Android Keystore (AES-GCM).
+@@ -10,6 +11,34 @@ class GhajarAccountStore(context: Context) {
+     private val appContext = context.applicationContext
+     private val prefs = appContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+ 
++    fun pendingLink(): GhajarLinkSession? {
++        val encrypted = prefs.getString(KEY_PENDING_LINK, null) ?: return null
++        val link = runCatching {
++            val plain = Crypto.decrypt(encrypted) ?: return@runCatching null
++            val json = JSONObject(plain)
++            if (json.optInt("version") != 1) return@runCatching null
++            GhajarLinkSession(json.getString("code"), json.getString("session_token"),
++                json.optString("bot_username", "Ghajar_vpnbot"), json.getInt("expires_in"),
++                json.getLong("expires_at_ms"))
++        }.getOrNull()?.takeIf { GhajarUiRules.validPendingLink(it.code, it.sessionToken,
++            it.expiresAtMillis, System.currentTimeMillis()) }
++        if (link == null) clearPendingLink()
++        return link
++    }
++
++    /** Called on the API's IO dispatcher before the external bot is opened. */
++    fun savePendingLink(link: GhajarLinkSession): Boolean {
++        if (!GhajarUiRules.validPendingLink(link.code, link.sessionToken,
++                link.expiresAtMillis, System.currentTimeMillis())) return false
++        val plain = JSONObject().put("version", 1).put("code", link.code)
++            .put("session_token", link.sessionToken).put("bot_username", link.botUsername)
++            .put("expires_in", link.expiresInSeconds).put("expires_at_ms", link.expiresAtMillis).toString()
++        val encrypted = Crypto.encrypt(plain) ?: return false
++        return prefs.edit().putString(KEY_PENDING_LINK, encrypted).commit()
++    }
++
++    fun clearPendingLink() { prefs.edit().remove(KEY_PENDING_LINK).apply() }
++
+     fun token(): String {
+         prefs.getString(KEY_TOKEN_ENCRYPTED, null)
+             ?.let(Crypto::decrypt)
+@@ -35,13 +64,14 @@ class GhajarAccountStore(context: Context) {
+         prefs.edit()
+             .putString(KEY_TOKEN_ENCRYPTED, encrypted)
+             .remove(KEY_TOKEN_PLAINTEXT)
++            .remove(KEY_PENDING_LINK)
+             .apply()
+         clearLegacyPlaintext()
+         return true
+     }
+ 
+     fun clear() {
+-        prefs.edit().remove(KEY_TOKEN_ENCRYPTED).remove(KEY_TOKEN_PLAINTEXT).apply()
++        prefs.edit().remove(KEY_TOKEN_ENCRYPTED).remove(KEY_TOKEN_PLAINTEXT).remove(KEY_PENDING_LINK).apply()
+         clearLegacyPlaintext()
+     }
+ 
+@@ -56,5 +86,6 @@ class GhajarAccountStore(context: Context) {
+         const val PREFS = "ghajarvpn_account_v2"
+         private const val KEY_TOKEN_ENCRYPTED = "account_token_aes_gcm"
+         private const val KEY_TOKEN_PLAINTEXT = "account_token"
++        private const val KEY_PENDING_LINK = "pending_link_aes_gcm"
+     }
+ }
+diff --git a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+index 4fc6be1..23dd8fe 100644
+--- a/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
++++ b/app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+@@ -81,6 +81,7 @@ import androidx.compose.foundation.text.KeyboardOptions
+ import androidx.compose.ui.text.style.TextAlign
+ import androidx.compose.ui.unit.dp
+ import kotlinx.coroutines.delay
++import kotlinx.coroutines.CancellationException
+ import kotlinx.coroutines.launch
+ import java.text.NumberFormat
+ import java.util.Locale
+@@ -95,7 +96,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+     val scope = rememberCoroutineScope()
+ 
+     var linked by remember { mutableStateOf(api.isLinked) }
+-    var linkSession by remember { mutableStateOf<GhajarLinkSession?>(null) }
++    var linkSession by remember { mutableStateOf(api.pendingLink()) }
+     var busy by remember { mutableStateOf(false) }
+     var error by remember { mutableStateOf<String?>(null) }
+     var message by remember { mutableStateOf<String?>(null) }
+@@ -167,9 +168,24 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+     }
+ 
+     fun openBot(session: GhajarLinkSession? = linkSession) {
+-        val uri = Uri.parse(GhajarUiRules.botLink(session?.botUsername, session?.code))
+-        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+-            .onFailure { error = "تلگرام یا مرورگر در دسترس نیست؛ فرمان اتصال را کپی کن." }
++        if (session == null || !GhajarUiRules.validPendingLink(session.code, session.sessionToken,
++                session.expiresAtMillis, System.currentTimeMillis())) {
++            api.clearPendingLink()
++            linkSession = null
++            error = "کد اتصال معتبر نیست یا منقضی شده؛ دوباره «اتصال با تلگرام» را بزن."
++            return
++        }
++        val opened = GhajarUiRules.launchBotLogin(session.botUsername, session.code) { url ->
++            runCatching {
++                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
++                    .addCategory(Intent.CATEGORY_BROWSABLE))
++            }.isSuccess
++        }
++        if (opened) {
++            message = "لینک تلگرام با کد اتصال آماده باز شد؛ «Start / شروع» را بزن و برگرد. نیازی به تایپ کد نیست."
++        } else {
++            error = "تلگرام یا مرورگر در دسترس نیست؛ فرمان کامل اتصال را کپی کن."
++        }
+     }
+ 
+     suspend fun beginPurchase(request: GhajarPurchaseRequest) {
+@@ -229,10 +245,10 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+ 
+     LaunchedEffect(linkSession?.sessionToken) {
+         val session = linkSession ?: return@LaunchedEffect
+-        val attempts = (session.expiresInSeconds / 2).coerceIn(30, 180)
+-        repeat(attempts) {
+-            delay(2_000)
+-            val linkedNow = runCatching { api.pollLink(session.sessionToken) }.getOrDefault(false)
++        while (System.currentTimeMillis() < session.expiresAtMillis) {
++            val linkedNow = try { api.pollLink(session.sessionToken) }
++                catch (cancelled: CancellationException) { throw cancelled }
++                catch (_: Exception) { false }
+             if (linkedNow) {
+                 linked = true
+                 linkSession = null
+@@ -240,7 +256,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier) {
+                 GhajarNotificationMonitor.refresh(context.applicationContext)
+                 return@LaunchedEffect
+             }
++            delay(2_000)
+         }
++        api.clearPendingLink()
+         error = "زمان کد اتصال تمام شد؛ دوباره کد بساز"
+         linkSession = null
+     }
+@@ -567,9 +585,14 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, onBegin:
+             if (session == null) {
+                 Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("اتصال با تلگرام") }
+             } else {
+-                Text(session.code, style = MaterialTheme.typography.headlineMedium, color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
+-                Text("کد همراه لینک به ربات می‌رود. در تلگرام «شروع / Start» را بزن و سپس به برنامه برگرد.", color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
+-                Button(onClick = onOpenBot) { Icon(Icons.Filled.OpenInNew, null); Spacer(Modifier.width(7.dp)); Text("باز کردن ربات") }
++                TextButton(onClick = onOpenBot) {
++                    Text(session.code, style = MaterialTheme.typography.headlineMedium,
++                        color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
++                }
++                Text("۱. «تأیید اتصال در تلگرام» را بزن.\n۲. پایین چت ربات، «شروع / Start» را بزن.\n۳. به قاجار برگرد؛ حساب خودکار متصل می‌شود.",
++                    color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
++                Text("کد از قبل داخل لینک است؛ آن را تایپ یا اصلاح نکن.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
++                Button(onClick = onOpenBot) { Icon(Icons.Filled.OpenInNew, null); Spacer(Modifier.width(7.dp)); Text("تأیید اتصال در تلگرام") }
+                 TextButton(onClick = onCopyCommand) { Text("کپی فرمان کامل اتصال") }
+             }
+         }
+diff --git a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+index 417ceb4..b59dfaf 100644
+--- a/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
++++ b/app/src/main/java/net/gozar/app/GhajarStoreApi.kt
+@@ -18,7 +18,8 @@ data class GhajarLinkSession(
+     val code: String,
+     val sessionToken: String,
+     val botUsername: String,
+-    val expiresInSeconds: Int
++    val expiresInSeconds: Int,
++    val expiresAtMillis: Long = GhajarUiRules.linkExpiresAt(System.currentTimeMillis(), expiresInSeconds)
+ )
+ 
+ data class GhajarPanel(
+@@ -146,6 +147,10 @@ class GhajarStoreApi(context: Context) {
+ 
+     val isLinked: Boolean get() = account.token().isNotBlank()
+ 
++    fun pendingLink(): GhajarLinkSession? = account.pendingLink()
++
++    fun clearPendingLink() = account.clearPendingLink()
++
+     suspend fun beginLink(): GhajarLinkSession = withContext(Dispatchers.IO) {
+         val root = requestJson(
+             URL("${BrandConfig.WEBLINK_API_URL}?action=generate"),
+@@ -156,15 +161,19 @@ class GhajarStoreApi(context: Context) {
+         val code = root.optString("code")
+         val session = root.optString("session_token")
+         if (code.isBlank() || session.isBlank()) throw GhajarApiException("سرور کد اتصال صادر نکرد")
+-        GhajarLinkSession(
++        val link = GhajarLinkSession(
+             code = code,
+             sessionToken = session,
+             botUsername = root.optString("bot_username", "Ghajar_vpnbot"),
+             expiresInSeconds = root.optInt("expires_in", 300)
+         )
++        // Complete durable, encrypted storage before leaving for Telegram.
++        if (!account.savePendingLink(link)) throw GhajarApiException("ذخیرهٔ امن کد اتصال ناموفق بود؛ دوباره تلاش کن")
++        link
+     }
+ 
+     suspend fun pollLink(sessionToken: String): Boolean = withContext(Dispatchers.IO) {
++        if (account.pendingLink()?.sessionToken != sessionToken) return@withContext false
+         val encoded = URLEncoder.encode(sessionToken, Charsets.UTF_8.name())
+         val root = requestJson(
+             URL("${BrandConfig.WEBLINK_API_URL}?action=status&session_token=$encoded"),
+@@ -175,6 +184,8 @@ class GhajarStoreApi(context: Context) {
+         if (!root.optString("link_status").equals("linked", true)) return@withContext false
+         val issued = root.optString("token")
+         if (issued.isBlank()) return@withContext false
++        // A response to a cancelled/older session must not replace a newer one.
++        if (account.pendingLink()?.sessionToken != sessionToken) return@withContext false
+         if (!account.saveToken(issued)) throw GhajarApiException("ذخیرهٔ امن حساب در گوشی ناموفق بود")
+         true
+     }
+diff --git a/app/src/main/java/net/gozar/app/GhajarUiRules.kt b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+index 264aeb7..365909d 100644
+--- a/app/src/main/java/net/gozar/app/GhajarUiRules.kt
++++ b/app/src/main/java/net/gozar/app/GhajarUiRules.kt
+@@ -2,6 +2,15 @@ package net.gozar.app
+ 
+ /** Pure contracts shared by native UI and regression tests. */
+ internal object GhajarUiRules {
++    private const val MAX_LINK_LIFETIME_MS = 15 * 60 * 1000L
++
++    fun linkExpiresAt(nowMillis: Long, ttlSeconds: Int): Long =
++        nowMillis + ttlSeconds.coerceIn(0, (MAX_LINK_LIFETIME_MS / 1000).toInt()) * 1000L
++
++    fun validPendingLink(code: String, token: String, expiresAtMillis: Long, nowMillis: Long): Boolean =
++        code.matches(Regex("[0-9]{6}")) && token.matches(Regex("[a-fA-F0-9]{48}")) &&
++            expiresAtMillis > nowMillis && expiresAtMillis - nowMillis <= MAX_LINK_LIFETIME_MS
++
+     fun isLegacyAutomaticFreeFeed(name: String, url: String): Boolean =
+         name in setOf("Free Configs", "کانفیگ‌های رایگان") &&
+             url.trimEnd('/').equals("https://t.me/s/ConfigsHUB", ignoreCase = true)
+@@ -10,10 +19,22 @@ internal object GhajarUiRules {
+         char.digitToIntOrNull()?.let { ('0'.code + it).toChar() }
+     }.joinToString("")
+ 
++    private fun botUsername(username: String?): String = username?.trim()?.removePrefix("@")
++        ?.takeIf { it.matches(Regex("[A-Za-z0-9_]{5,32}")) } ?: "Ghajar_vpnbot"
++
+     fun botLink(username: String?, code: String?): String {
+-        val bot = username?.trim()?.removePrefix("@")
+-            ?.takeIf { it.matches(Regex("[A-Za-z0-9_]{5,32}")) } ?: "Ghajar_vpnbot"
++        val bot = botUsername(username)
+         val payload = code?.takeIf { it.matches(Regex("[0-9]{6}")) }?.let { "?start=link_$it" }.orEmpty()
+         return "https://t.me/$bot$payload"
+     }
++
++    /** Login must never silently degrade into opening a bot without its code. */
++    fun botLoginUrls(username: String?, code: String?): List<String> {
++        if (code == null || !code.matches(Regex("[0-9]{6}"))) return emptyList()
++        val bot = botUsername(username)
++        return listOf("tg://resolve?domain=$bot&start=link_$code", botLink(bot, code))
++    }
++
++    fun launchBotLogin(username: String?, code: String?, launch: (String) -> Boolean): Boolean =
++        botLoginUrls(username, code).any(launch)
+ }
+diff --git a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+index e9649a4..3d3f01a 100644
+--- a/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
++++ b/app/src/test/java/net/gozar/app/GhajarUiRulesTest.kt
+@@ -1,9 +1,60 @@
+ package net.gozar.app
+ 
+ import org.junit.Assert.assertEquals
++import org.junit.Assert.assertFalse
++import org.junit.Assert.assertTrue
+ import org.junit.Test
+ 
+ class GhajarUiRulesTest {
++    private val linkToken = "a".repeat(48)
++
++    @Test fun nativeTelegramIntentCarriesTheSameCommandAsTheWebFallback() {
++        assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=link_012345",
++            "https://t.me/Ghajar_vpnbot?start=link_012345"),
++            GhajarUiRules.botLoginUrls("@Ghajar_vpnbot", "012345"))
++    }
++    @Test fun nativeTelegramIsOpenedWithoutLaunchingTheBrowserAgain() {
++        val opened = mutableListOf<String>()
++        assertTrue(GhajarUiRules.launchBotLogin("Ghajar_vpnbot", "123456") { opened += it; true })
++        assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=link_123456"), opened)
++    }
++    @Test fun unavailableTelegramFallsBackWithoutLosingTheCode() {
++        val opened = mutableListOf<String>()
++        assertTrue(GhajarUiRules.launchBotLogin("Ghajar_vpnbot", "123456") {
++            opened += it; it.startsWith("https:")
++        })
++        assertEquals(2, opened.size)
++        assertEquals("https://t.me/Ghajar_vpnbot?start=link_123456", opened.last())
++    }
++    @Test fun invalidLoginCodeNeverOpensABareBotChat() {
++        var launched = false
++        assertFalse(GhajarUiRules.launchBotLogin("Ghajar_vpnbot", null) { launched = true; true })
++        assertFalse(GhajarUiRules.launchBotLogin("Ghajar_vpnbot", "123&start=x") { launched = true; true })
++        assertFalse(launched)
++    }
++    @Test fun unavailableHandlersAreReportedAsFailure() {
++        assertFalse(GhajarUiRules.launchBotLogin("Ghajar_vpnbot", "123456") { false })
++    }
++
++    @Test fun restoringLinkKeepsItsOriginalExpiry() {
++        val expires = GhajarUiRules.linkExpiresAt(1_000, 300)
++        assertEquals(301_000L, expires)
++        assertTrue(GhajarUiRules.validPendingLink("123456", linkToken, expires, 200_000))
++        assertFalse(GhajarUiRules.validPendingLink("123456", linkToken, expires, 301_000))
++    }
++    @Test fun expiredOrMalformedLinksCannotBeRestored() {
++        assertFalse(GhajarUiRules.validPendingLink("123456", linkToken, 1_000, 2_000))
++        assertFalse(GhajarUiRules.validPendingLink("12345x", linkToken, 3_000, 2_000))
++        assertFalse(GhajarUiRules.validPendingLink("123456", "not-a-session", 3_000, 2_000))
++    }
++    @Test fun clockRollbackCannotGiveLinkAnUnboundedLifetime() {
++        assertFalse(GhajarUiRules.validPendingLink("123456", linkToken, 2_000_000, 1_000))
++    }
++    @Test fun invalidServerTtlCannotCreateAnUnboundedSession() {
++        assertEquals(1_000L, GhajarUiRules.linkExpiresAt(1_000, -30))
++        assertEquals(901_000L, GhajarUiRules.linkExpiresAt(1_000, Int.MAX_VALUE))
++    }
++
+     @Test fun onlyTheOldAutomaticFeedIsArchived() {
+         org.junit.Assert.assertTrue(GhajarUiRules.isLegacyAutomaticFreeFeed("Free Configs", "https://t.me/s/ConfigsHUB"))
+         org.junit.Assert.assertTrue(GhajarUiRules.isLegacyAutomaticFreeFeed("کانفیگ‌های رایگان", "https://t.me/s/configshub/"))
+diff --git a/openvpn/src/main/cpp/CMakeLists.txt b/openvpn/src/main/cpp/CMakeLists.txt
+index e57e5e5..c1f7562 100644
+--- a/openvpn/src/main/cpp/CMakeLists.txt
++++ b/openvpn/src/main/cpp/CMakeLists.txt
+@@ -33,6 +33,8 @@ include(tools.cmake)
+ include(lzo.cmake)
+ include(lz4.cmake)
+ include(openssl/openssl.cmake)
++include(ghajar-openssl-arch.cmake)
++ghajar_harden_openssl(crypto "${ANDROID_ABI}")
+ add_subdirectory(fmt)
+ 
+ if(NOT ${OPENVPN3OSSL} OR ${OPENVPN2MBED})
+@@ -277,4 +279,3 @@ add_custom_command(TARGET pie_openvpn.${ANDROID_ABI} POST_BUILD
+ # Hack that these targets are really executed
+ add_dependencies(ovpnutil pie_openvpn.${ANDROID_ABI})
+ add_dependencies(pie_openvpn.${ANDROID_ABI} makeassetdir)
+-
+diff --git a/openvpn/src/main/cpp/ghajar-openssl-arch.cmake b/openvpn/src/main/cpp/ghajar-openssl-arch.cmake
+new file mode 100644
+index 0000000..11261d9
+--- /dev/null
++++ b/openvpn/src/main/cpp/ghajar-openssl-arch.cmake
+@@ -0,0 +1,44 @@
++# The pinned Android OpenSSL CMake glue lists ecp_sm2p256.c unconditionally.
++# Upstream crypto/ec/build.info selects it only alongside an implementation of
++# ECP_SM2P256_ASM (aarch64 among the Android ABIs we build). Its four BN_ULONG
++# limbs and 32-byte copies are not a portable 32-bit implementation.
++# Keep the generic SM2 implementation on other ABIs; do not alter crypto math.
++function(ghajar_harden_openssl crypto_target android_abi)
++    if(NOT android_abi MATCHES "^(armeabi-v7a|arm64-v8a|x86|x86_64)$")
++        message(FATAL_ERROR "Review OpenSSL source selection for ABI: ${android_abi}")
++    endif()
++
++    get_target_property(crypto_sources ${crypto_target} SOURCES)
++    get_target_property(crypto_definitions ${crypto_target} COMPILE_DEFINITIONS)
++    set(sm2_asm_enabled FALSE)
++    foreach(definition IN LISTS crypto_definitions)
++        if(definition MATCHES "^(-D)?ECP_SM2P256_ASM(=1)?$")
++            set(sm2_asm_enabled TRUE)
++        endif()
++    endforeach()
++    if(android_abi STREQUAL "arm64-v8a")
++        if(NOT sm2_asm_enabled)
++            message(FATAL_ERROR "ARM64 SM2 source requires ECP_SM2P256_ASM")
++        endif()
++    elseif(sm2_asm_enabled)
++        message(FATAL_ERROR "Unexpected ARM64 SM2 assembly on ${android_abi}")
++    endif()
++
++    set(optimized_source_count 0)
++    foreach(source IN LISTS crypto_sources)
++        if(source MATCHES "(^|/)ecp_sm2p256\\.c$")
++            math(EXPR optimized_source_count "${optimized_source_count} + 1")
++            if(NOT android_abi STREQUAL "arm64-v8a")
++                list(REMOVE_ITEM crypto_sources "${source}")
++            endif()
++        endif()
++    endforeach()
++    if(NOT optimized_source_count EQUAL 1)
++        message(FATAL_ERROR "Pinned OpenSSL source list changed; review the SM2 architecture guard")
++    endif()
++    set_property(TARGET ${crypto_target} PROPERTY SOURCES "${crypto_sources}")
++
++    # A future accidental reintroduction must fail the Android Clang build.
++    target_compile_options(${crypto_target} PRIVATE
++        "$<$<COMPILE_LANG_AND_ID:C,Clang>:-Werror=fortify-source>")
++endfunction()
+diff --git a/tests/native-arch/CMakeLists.txt b/tests/native-arch/CMakeLists.txt
+new file mode 100644
+index 0000000..dace0bb
+--- /dev/null
++++ b/tests/native-arch/CMakeLists.txt
+@@ -0,0 +1,42 @@
++cmake_minimum_required(VERSION 3.22)
++project(GhajarNativeArchRegression LANGUAGES C)
++enable_testing()
++
++include("${CMAKE_CURRENT_LIST_DIR}/../../openvpn/src/main/cpp/ghajar-openssl-arch.cmake")
++file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generic_sm2.c" "int ghajar_generic_sm2(void) { return 1; }\n")
++file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ecp_sm2p256.c" "int ghajar_optimized_sm2(void) { return 1; }\n")
++
++foreach(abi armeabi-v7a arm64-v8a x86 x86_64)
++    string(REPLACE "-" "_" suffix "${abi}")
++    set(target "crypto_${suffix}")
++    add_library(${target} STATIC
++        "${CMAKE_CURRENT_BINARY_DIR}/generic_sm2.c"
++        "${CMAKE_CURRENT_BINARY_DIR}/ecp_sm2p256.c")
++    if(abi STREQUAL "arm64-v8a")
++        target_compile_definitions(${target} PRIVATE ECP_SM2P256_ASM)
++    endif()
++    ghajar_harden_openssl(${target} "${abi}")
++    get_target_property(selected ${target} SOURCES)
++    list(FIND selected "${CMAKE_CURRENT_BINARY_DIR}/generic_sm2.c" generic_index)
++    list(FIND selected "${CMAKE_CURRENT_BINARY_DIR}/ecp_sm2p256.c" optimized_index)
++    if(generic_index LESS 0)
++        message(FATAL_ERROR "Generic SM2 was removed for ${abi}")
++    endif()
++    if(abi STREQUAL "arm64-v8a")
++        if(optimized_index LESS 0)
++            message(FATAL_ERROR "ARM64 lost its optimized implementation")
++        endif()
++    elseif(NOT optimized_index LESS 0)
++        message(FATAL_ERROR "ARM64-only implementation leaked into ${abi}")
++    endif()
++    add_test(NAME "select_${abi}" COMMAND "${CMAKE_COMMAND}" -E true)
++endforeach()
++
++# Run malformed configurations separately and require them to be rejected.
++foreach(case unknown_abi wrong_asm missing_asm missing_source)
++    add_test(NAME "reject_${case}" COMMAND "${CMAKE_COMMAND}"
++        -S "${CMAKE_CURRENT_LIST_DIR}/invalid"
++        -B "${CMAKE_CURRENT_BINARY_DIR}/invalid_${case}"
++        "-DCASE=${case}")
++    set_tests_properties("reject_${case}" PROPERTIES WILL_FAIL TRUE)
++endforeach()
+diff --git a/tests/native-arch/invalid/CMakeLists.txt b/tests/native-arch/invalid/CMakeLists.txt
+new file mode 100644
+index 0000000..a80a6fc
+--- /dev/null
++++ b/tests/native-arch/invalid/CMakeLists.txt
+@@ -0,0 +1,18 @@
++cmake_minimum_required(VERSION 3.22)
++project(GhajarInvalidNativeArch LANGUAGES C)
++include("${CMAKE_CURRENT_LIST_DIR}/../../../openvpn/src/main/cpp/ghajar-openssl-arch.cmake")
++file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/generic.c" "int generic(void) { return 0; }\n")
++file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/ecp_sm2p256.c" "int optimized(void) { return 0; }\n")
++add_library(crypto STATIC "${CMAKE_CURRENT_BINARY_DIR}/generic.c")
++if(NOT CASE STREQUAL "missing_source")
++    target_sources(crypto PRIVATE "${CMAKE_CURRENT_BINARY_DIR}/ecp_sm2p256.c")
++endif()
++set(abi "armeabi-v7a")
++if(CASE STREQUAL "unknown_abi")
++    set(abi "unreviewed")
++elseif(CASE STREQUAL "wrong_asm")
++    target_compile_definitions(crypto PRIVATE ECP_SM2P256_ASM)
++elseif(CASE STREQUAL "missing_asm")
++    set(abi "arm64-v8a")
++endif()
++ghajar_harden_openssl(crypto "${abi}")
+-- 
+2.51.1
+
