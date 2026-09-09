@@ -31,16 +31,31 @@ jobs:
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358"
 
-      - name: Verify uploaded source tree
+      - name: Restore missing StrongSwan support tree only
+        run: |
+          if [[ ! -f strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java ]]; then
+            echo "StrongSwan export is incomplete; restoring only the StrongSwan module from the reviewed source distribution."
+            chmod +x scripts/bootstrap-from-upstream.sh
+            scripts/bootstrap-from-upstream.sh
+            test -f .ghajarvpn-src/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
+            rm -rf strongswan
+            cp -a .ghajarvpn-src/strongswan ./strongswan
+            rm -rf .ghajarvpn-src
+          fi
+
+      - name: Verify uploaded app source is still the build source
         run: |
           test -f settings.gradle.kts
           test -f app/build.gradle.kts
           test -f app/libs/gozarcore.aar
+          test -f app/src/main/java/net/gozar/app/AppColors.kt
+          test -f app/src/main/java/net/gozar/app/configtoolkit/Decoders.kt
+          test -f app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt
           test -f openvpn/build.gradle.kts
           test -f strongswan/build.gradle.kts
           test -d openvpn/src/main/jniLibs/arm64-v8a
           test -d openvpn/src/main/jniLibs/armeabi-v7a
-          echo "Building the uploaded repository directly (no bootstrap/reconstruction)."
+          echo "Building uploaded app/openvpn source directly; only missing StrongSwan support files were restored."
 
       - name: Build uploaded source - Debug and Release
         run: gradle --no-daemon -Pghajar.demo=true :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
