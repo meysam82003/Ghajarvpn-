@@ -1,0 +1,113 @@
+diff --git a/app/src/main/java/net/gozar/app/ConfigStore.kt b/app/src/main/java/net/gozar/app/ConfigStore.kt
+index 5b8846c..2dc6676 100644
+--- a/app/src/main/java/net/gozar/app/ConfigStore.kt
++++ b/app/src/main/java/net/gozar/app/ConfigStore.kt
+@@ -38,11 +38,9 @@ class ConfigStore private constructor(context: Context) {
+     init {
+         scope.launch {
+             val cfgs = loadConfigs()
+-            val storedSubs = loadSubscriptions()
+-            val subs = archiveLegacyFreeFeeds(storedSubs)
++            val subs = loadSubscriptions()
+             _configs.value = cfgs
+             _subscriptions.value = subs
+-            if (subs != storedSubs) persistSubscriptions()
+             loadedSignal.complete(Unit)
+         }
+     }
+@@ -181,7 +179,10 @@ class ConfigStore private constructor(context: Context) {
+     }
+ 
+     private val _sortMode = MutableStateFlow(
+-        prefs.getString(KEY_SORT_MODE, null) ?: SORT_FASTEST
++        // Default to fastest-first so a server's ping rank decides its position
++        // within a subscription without the user having to find the sort toggle.
++        prefs.getString(KEY_SORT_MODE, null)
++            ?: if (prefs.getBoolean(KEY_SORT_SPEED, true)) SORT_FASTEST else SORT_ADDED
+     )
+     val sortMode: StateFlow<String> = _sortMode.asStateFlow()
+ 
+@@ -267,11 +268,10 @@ class ConfigStore private constructor(context: Context) {
+             url = "",
+             lastUpdated = System.currentTimeMillis()
+         )
+-        if (existing == null) _subscriptions.value = _subscriptions.value + sub
++        if (existing == null) _subscriptions.value = listOf(sub) + _subscriptions.value
+         _configs.value = _configs.value + configs.map { it.copy(subId = sub.id) }
+         persistConfigs()
+         persistSubscriptions()
+-        expandNewSub(sub.id)
+     }
+ 
+     fun update(config: ProxyConfig) {
+@@ -325,12 +325,19 @@ class ConfigStore private constructor(context: Context) {
+             val kept = oldBySig.remove(sigOf(f))
+             f.copy(subId = sub.id, id = kept?.id ?: f.id)
+         }
+-        val isNew = _subscriptions.value.none { it.id == sub.id }
+         _configs.value = _configs.value.filterNot { it.subId == sub.id } + tagged
+-        _subscriptions.value = _subscriptions.value.filterNot { it.id == sub.id } + sub
++        // A brand-new subscription goes to the very top of the list. An existing
++        // subscription being refreshed (auto-refresh, manual update, quota sync)
++        // keeps its current position instead of jumping around every refresh.
++        val existingIndex = _subscriptions.value.indexOfFirst { it.id == sub.id }
++        val withoutSub = _subscriptions.value.filterNot { it.id == sub.id }
++        _subscriptions.value = if (existingIndex < 0) {
++            listOf(sub) + withoutSub
++        } else {
++            withoutSub.toMutableList().apply { add(existingIndex.coerceAtMost(size), sub) }
++        }
+         persistConfigs()
+         persistSubscriptions()
+-        if (isNew) expandNewSub(sub.id)
+     }
+ 
+     private fun sigOf(c: ProxyConfig): String =
+@@ -441,7 +448,7 @@ class ConfigStore private constructor(context: Context) {
+ 
+     fun restoreBackup(configs: List<ProxyConfig>, subs: List<Subscription>, settings: JSONObject?) {
+         _configs.value = configs
+-        _subscriptions.value = archiveLegacyFreeFeeds(subs)
++        _subscriptions.value = subs
+         persistConfigs()
+         persistSubscriptions()
+         settings?.let { restoreSettings(it) }
+@@ -493,14 +500,6 @@ class ConfigStore private constructor(context: Context) {
+         } catch (e: Exception) { emptyList() }
+     }
+ 
+-    // Retain IDs and saved configs, but stop fetching the obsolete automatic
+-    // feed on upgrade/restore. Manually named subscriptions remain untouched.
+-    private fun archiveLegacyFreeFeeds(subs: List<Subscription>): List<Subscription> = subs.map { sub ->
+-        if (GhajarUiRules.isLegacyAutomaticFreeFeed(sub.name, sub.url))
+-            sub.copy(name = "${sub.name} · بایگانی", url = "")
+-        else sub
+-    }
+-
+     private fun loadSubscriptions(): List<Subscription> {
+         val raw = readSecret(KEY_SUBS) ?: return emptyList()
+         return try {
+@@ -551,16 +550,6 @@ class ConfigStore private constructor(context: Context) {
+         prefs.edit().putStringSet(KEY_EXPANDED_SUBS, cur).apply()
+     }
+ 
+-    /**
+-     * A freshly added subscription/config group opens expanded by default so the
+-     * user sees its locations immediately; collapsing stays a user choice.
+-     */
+-    private fun expandNewSub(id: String) {
+-        if (id in _expandedSubs.value) return
+-        _expandedSubs.value = _expandedSubs.value + id
+-        prefs.edit().putStringSet(KEY_EXPANDED_SUBS, _expandedSubs.value).apply()
+-    }
+-
+     fun lastUpdateCheck(): Long = prefs.getLong(KEY_LAST_UPDATE_CHECK, 0L)
+ 
+     fun markUpdateChecked() {
+@@ -622,4 +611,4 @@ class ConfigStore private constructor(context: Context) {
+         private const val KEY_LAST_TEST = "last_test_json"
+         private const val KEY_LAST_TEST_TIME = "last_test_time"
+     }
+-}
++}
+\ No newline at end of file
