@@ -19,13 +19,10 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '9.4.1'
+          cache: gradle
 
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build rsync
 
       - uses: android-actions/setup-android@v3
         with:
@@ -34,39 +31,64 @@ jobs:
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
-      - name: Restore complete VPN engine modules while preserving uploaded app
+      - name: Materialize complete build tree and overlay NEW uploaded app
         run: |
-          echo "Keeping the newly uploaded app source unchanged."
           chmod +x scripts/bootstrap-from-upstream.sh
           scripts/bootstrap-from-upstream.sh
 
-          test -f .ghajarvpn-src/openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
-          test -f .ghajarvpn-src/strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
+          # Keep the complete reviewed Gradle/browser/VPN support tree, but put
+          # the newly uploaded app source/resources/core on top of it.
+          rsync -a app/src/ .ghajarvpn-src/app/src/
+          rsync -a app/libs/ .ghajarvpn-src/app/libs/
 
+          # Resolve two stale baseline declarations that collide with the new export.
+          rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/Ikecontroller.kt
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          dot = Path('.ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt')
+          if dot.exists():
+              text = dot.read_text()
+              text, count = re.subn(
+                  r'(?m)^[ \t]*(?:(?:private|internal|public)\s+)?val\s+AppGreen\b[^\n]*\n',
+                  '',
+                  text,
+                  count=1,
+              )
+              dot.write_text(text)
+              print('Removed stale DotGlobe AppGreen declarations:', count)
+
+          log = Path('.ghajarvpn-src/app/src/main/java/net/gozar/app/GhajarLog.kt')
+          if log.exists():
+              text = log.read_text().replace('previous?.onUncaughtException(thread, throwable)', 'previous?.uncaughtException(thread, throwable)')
+              log.write_text(text)
+          PY
+
+          test -f .ghajarvpn-src/gradlew
+          test -f .ghajarvpn-src/browser/build.gradle.kts
+          test -f .ghajarvpn-src/app/libs/gozarcore.aar
+          test -f .ghajarvpn-src/app/src/main/java/net/gozar/app/AppColors.kt
+          test -f .ghajarvpn-src/app/src/main/java/net/gozar/app/configcenter/ConfigNormalizer.kt
+          test -f .ghajarvpn-src/app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt
+          chmod +x .ghajarvpn-src/gradlew
+
+          # Prove the new uploaded MainActivity is what will compile.
+          cmp -s app/src/main/java/net/gozar/app/MainActivity.kt .ghajarvpn-src/app/src/main/java/net/gozar/app/MainActivity.kt
+          echo 'NEW uploaded app overlay verified.'
+
+      - name: Fetch pinned native OpenVPN engine sources
+        run: |
           chmod +x .ghajarvpn-src/scripts/fetch-openvpn-native.sh
           .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
+          test -s .ghajarvpn-src/openvpn/src/main/cpp/openvpn3/client/ovpncli.i
 
-          rm -rf openvpn strongswan
-          cp -a .ghajarvpn-src/openvpn ./openvpn
-          cp -a .ghajarvpn-src/strongswan ./strongswan
-          rm -rf .ghajarvpn-src
-
-      - name: Verify new uploaded app is the app being built
-        run: |
-          test -f settings.gradle.kts
-          test -f app/build.gradle.kts
-          test -f app/libs/gozarcore.aar
-          test -f app/src/main/java/net/gozar/app/AppColors.kt
-          test -f app/src/main/java/net/gozar/app/configtoolkit/Decoders.kt
-          test -f app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt
-          test -f openvpn/src/main/java/de/blinkt/openvpn/core/OpenVPNService.java
-          test -f strongswan/src/frontends/android/app/src/main/java/org/strongswan/android/data/VpnProfile.java
-          echo "Uploaded app source preserved; complete OpenVPN/StrongSwan engines restored for compilation."
-
-      - name: Build new uploaded source - Debug and Release
-        run: gradle --no-daemon -Pghajar.demo=true :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+      - name: Build NEW uploaded GhajarVPN app
+        working-directory: .ghajarvpn-src
+        run: ./gradlew --no-daemon -Pghajar.demo=true :browser:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
 
       - name: Verify APKs
+        working-directory: .ghajarvpn-src
         run: |
           shopt -s nullglob
           apks=(app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk)
@@ -75,21 +97,22 @@ jobs:
             exit 1
           fi
           for apk in "${apks[@]}"; do
-            echo "APK: $apk"
             "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs "$apk"
             sha256sum "$apk"
           done
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-NEW-UPLOADED-APP-Android8plus
-          path: app/build/outputs/apk/**/*.apk
+          name: Ghajarvpn-NEW-UPLOADED-SOURCE-Android8plus
+          path: .ghajarvpn-src/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-new-uploaded-app-test-reports
-          path: app/build/test-results/testDebugUnitTest/*.xml
+          name: Ghajarvpn-new-uploaded-source-test-reports
+          path: |
+            .ghajarvpn-src/app/build/test-results/testDebugUnitTest/*.xml
+            .ghajarvpn-src/browser/build/test-results/testDebugUnitTest/*.xml
           if-no-files-found: warn
