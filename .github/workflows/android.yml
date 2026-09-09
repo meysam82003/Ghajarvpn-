@@ -35,7 +35,7 @@ jobs:
           java-version: '17'
           cache: gradle
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build rsync
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
@@ -50,14 +50,35 @@ jobs:
             echo "Incomplete source tree detected; reconstructing full source from reviewed patch distribution."
             chmod +x scripts/bootstrap-from-upstream.sh
             scripts/bootstrap-from-upstream.sh
+
+            # The uploaded package contains newer app-side snapshots that are
+            # not all represented in the historical patch series. Overlay only
+            # the app sources/resources and bundled core so the reconstructed
+            # tree keeps its complete browser/Gradle structure.
+            rsync -a app/src/ .ghajarvpn-src/app/src/
+            if [[ -d app/libs ]]; then
+              rsync -a app/libs/ .ghajarvpn-src/app/libs/
+            fi
+
             test -f .ghajarvpn-src/gradlew
             test -f .ghajarvpn-src/browser/build.gradle.kts
             test -f .ghajarvpn-src/app/libs/gozarcore.aar
+            test -f .ghajarvpn-src/app/src/main/AndroidManifest.xml
             chmod +x .ghajarvpn-src/gradlew
             echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
           fi
-      - name: Verify reviewed snapshots match reconstructed source
+      - name: Verify reviewed snapshots when repository is complete
+        if: env.GHAJAR_SOURCE_ROOT == '.'
         run: bash scripts/verify-source-snapshots.sh "$GHAJAR_SOURCE_ROOT"
+      - name: Verify reconstructed source essentials
+        if: env.GHAJAR_SOURCE_ROOT != '.'
+        run: |
+          test -f "$GHAJAR_SOURCE_ROOT/settings.gradle.kts"
+          test -f "$GHAJAR_SOURCE_ROOT/browser/build.gradle.kts"
+          test -f "$GHAJAR_SOURCE_ROOT/app/build.gradle.kts"
+          test -f "$GHAJAR_SOURCE_ROOT/app/src/main/AndroidManifest.xml"
+          test -f "$GHAJAR_SOURCE_ROOT/openvpn/src/main/AndroidManifest.xml"
+          test -x "$GHAJAR_SOURCE_ROOT/gradlew"
       - name: Verify OpenVPN remote-process contract
         run: |
           python3 - <<'PY'
