@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
@@ -14,44 +14,6 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Import latest uploaded GhajarVPN source changes
-        run: |
-          shopt -s nullglob
-          parts=(.ci/import/ghajar-src5.b64.part-*)
-          if (( ${#parts[@]} == 0 )); then
-            echo 'No staged upload payload; source is already materialized in the repository.'
-          else
-            cat "${parts[@]}" | base64 --decode > "$RUNNER_TEMP/ghajar-src5.tar.bz2"
-            echo "f826823a2ffd422d040d4d17bbc31b3d87bc13b4b957c20cf41a2fa9e4648dae  $RUNNER_TEMP/ghajar-src5.tar.bz2" | sha256sum -c -
-
-            mkdir -p "$RUNNER_TEMP/ghajar-import"
-            tar -xjf "$RUNNER_TEMP/ghajar-src5.tar.bz2" -C "$RUNNER_TEMP/ghajar-import"
-
-            src="$RUNNER_TEMP/ghajar-import/app/src/main/java/net/gozar/app"
-            dst="app/src/main/java/net/gozar/app"
-            files=(MainActivity.kt GozarVpnService.kt Subscriptionrefresher.kt Gozarapplication.kt ConfigStore.kt)
-            for f in "${files[@]}"; do
-              test -s "$src/$f"
-              cp "$src/$f" "$dst/$f"
-              cmp -s "$src/$f" "$dst/$f"
-            done
-
-            git config user.name "Ghajarvpn Build"
-            git config user.email "build@ghajarvpn.local"
-            git add \
-              app/src/main/java/net/gozar/app/MainActivity.kt \
-              app/src/main/java/net/gozar/app/GozarVpnService.kt \
-              app/src/main/java/net/gozar/app/Subscriptionrefresher.kt \
-              app/src/main/java/net/gozar/app/Gozarapplication.kt \
-              app/src/main/java/net/gozar/app/ConfigStore.kt
-            git rm -f .ci/import/ghajar-src5.b64.part-*
-            git commit -m "feat: import latest uploaded GhajarVPN source changes"
-            git push origin HEAD:main
-            echo 'Latest uploaded source changes committed to main.'
-          fi
 
       - uses: actions/setup-java@v5
         with:
@@ -61,9 +23,6 @@ jobs:
 
       - name: Install native prerequisites
         run: |
-          # Restrict apt to Ubuntu's own archive. Hosted runners can temporarily
-          # carry stale third-party indexes (e.g. Google Chrome), which are not
-          # needed for this Android build and can cause Hash Sum mismatch errors.
           APT_UBUNTU_OPTS=(
             -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources"
             -o Dir::Etc::sourceparts="-"
@@ -80,26 +39,42 @@ jobs:
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
 
-      - name: Materialize complete build tree and overlay uploaded app
+      - name: Materialize complete build tree and apply latest uploaded changes
         run: |
           chmod +x scripts/bootstrap-from-upstream.sh
           scripts/bootstrap-from-upstream.sh
 
-          # Keep the complete reviewed Gradle/browser/VPN tree, then overlay the
-          # latest uploaded app source/resources from this repository.
-          rsync -a app/src/ .ghajarvpn-src/app/src/
+          # Keep all previously reviewed app overlays, but do not let the five
+          # placeholder snapshot files overwrite the complete reconstructed files.
+          rsync -a \
+            --exclude='main/java/net/gozar/app/MainActivity.kt' \
+            --exclude='main/java/net/gozar/app/GozarVpnService.kt' \
+            --exclude='main/java/net/gozar/app/Subscriptionrefresher.kt' \
+            --exclude='main/java/net/gozar/app/Gozarapplication.kt' \
+            --exclude='main/java/net/gozar/app/ConfigStore.kt' \
+            app/src/ .ghajarvpn-src/app/src/
           rsync -a app/libs/ .ghajarvpn-src/app/libs/
 
+          # Apply the exact source delta calculated from the newest uploaded ZIP
+          # against the pinned reconstructed baseline.
+          shopt -s nullglob
+          patches=(patches/latest-upload/*.patch)
+          if (( ${#patches[@]} != 5 )); then
+            echo "Expected 5 latest-upload patches, found ${#patches[@]}" >&2
+            exit 1
+          fi
+          for patch in "${patches[@]}"; do
+            git -C .ghajarvpn-src apply --check "$GITHUB_WORKSPACE/$patch"
+            git -C .ghajarvpn-src apply "$GITHUB_WORKSPACE/$patch"
+          done
+
           # The reconstructed baseline already owns AppGreen in DotGlobe.kt.
-          # The uploaded AppColors.kt is a compatibility shim for incomplete
-          # exports, so do not compile both declarations together.
           if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt ]] && \
              grep -q 'val AppGreen' .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt; then
             rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/AppColors.kt
           fi
 
           # Linux treats these as distinct files, but both declare IkeController.
-          # Prefer the canonical-cased source.
           if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/IkeController.kt ]]; then
             rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/Ikecontroller.kt
           fi
@@ -111,16 +86,17 @@ jobs:
           test -f .ghajarvpn-src/app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt
           chmod +x .ghajarvpn-src/gradlew
 
-          # Prove every file from the newest uploaded ZIP is exactly what will compile.
-          for f in MainActivity.kt GozarVpnService.kt Subscriptionrefresher.kt Gozarapplication.kt ConfigStore.kt; do
-            cmp -s "app/src/main/java/net/gozar/app/$f" \
-                   ".ghajarvpn-src/app/src/main/java/net/gozar/app/$f"
-          done
-          cmp -s app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt \
-                 .ghajarvpn-src/app/src/main/java/net/gozar/app/freecfg/FreeConfigPipeline.kt
-          cmp -s app/src/main/java/net/gozar/app/GhajarLog.kt \
-                 .ghajarvpn-src/app/src/main/java/net/gozar/app/GhajarLog.kt
-          echo 'Latest uploaded app overlay verified.'
+          # Byte-for-byte proof that the five newest uploaded files are exactly
+          # the files that will be compiled into the APK.
+          cd .ghajarvpn-src
+          cat <<'SHA256' | sha256sum -c -
+          ef0c31dfa85eacac9a505812c597aa4c83fc796b187c540a33ace9fd1ac20e48  app/src/main/java/net/gozar/app/MainActivity.kt
+          6a77e5b8f144a85389a63a29aa188fb38a0bc47c1755126e5163ee94639d696b  app/src/main/java/net/gozar/app/GozarVpnService.kt
+          5231734910241f05211dd1662e2d73b321bf08f791958512c55fb558eec07467  app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+          e6d3b007ccd9cef2739c524f93b031731a80485db4217fa74f1b5ba49f8a6d9d  app/src/main/java/net/gozar/app/Gozarapplication.kt
+          6d09995caa9f4c06232602d5dc5ec1d0afde416408c45fecafd0a698df088321  app/src/main/java/net/gozar/app/ConfigStore.kt
+          SHA256
+          echo 'Newest uploaded source changes verified byte-for-byte.'
 
       - name: Fetch pinned native OpenVPN engine sources
         run: |
