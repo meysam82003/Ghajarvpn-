@@ -299,6 +299,7 @@ class SecurePaymentActivity : Activity() {
         }
 
         override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {
+            GhajarLog.w("Payment", "onReceivedSslError code=${error?.primaryError}")
             handler?.cancel()
             Toast.makeText(this@SecurePaymentActivity, "گواهی امنیتی درگاه معتبر نیست", Toast.LENGTH_LONG).show()
             showCheckoutFailure("گواهی امنیتی درگاه معتبر نیست؛ صفحه را دوباره بارگذاری کن.")
@@ -306,6 +307,7 @@ class SecurePaymentActivity : Activity() {
 
         override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
             if (request?.isForMainFrame == true) {
+                GhajarLog.w("Payment", "onReceivedError code=${error?.errorCode} desc=${error?.description}")
                 showCheckoutFailure("صفحهٔ درگاه بارگذاری نشد؛ می‌توانی دوباره تلاش کنی یا از فروشگاه «ادامهٔ همین پرداخت» را بزنی.")
             }
         }
@@ -313,6 +315,7 @@ class SecurePaymentActivity : Activity() {
         override fun onRenderProcessGone(view: WebView?, detail: android.webkit.RenderProcessGoneDetail?): Boolean {
             // A crashed renderer previously killed the whole process and flung the
             // user to the home screen; keep the app alive and rebuild the page.
+            GhajarLog.e("Payment", "onRenderProcessGone crashed=${detail?.didCrash()} reason=${detail?.rendererPriorityAtExit()}")
             if (view == null || view === webView) {
                 runCatching {
                     (view?.parent as? ViewGroup)?.removeView(view)

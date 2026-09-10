@@ -179,8 +179,10 @@ class ConfigStore private constructor(context: Context) {
     }
 
     private val _sortMode = MutableStateFlow(
+        // Default to fastest-first so a server's ping rank decides its position
+        // within a subscription without the user having to find the sort toggle.
         prefs.getString(KEY_SORT_MODE, null)
-            ?: if (prefs.getBoolean(KEY_SORT_SPEED, false)) SORT_FASTEST else SORT_ADDED
+            ?: if (prefs.getBoolean(KEY_SORT_SPEED, true)) SORT_FASTEST else SORT_ADDED
     )
     val sortMode: StateFlow<String> = _sortMode.asStateFlow()
 
@@ -266,7 +268,7 @@ class ConfigStore private constructor(context: Context) {
             url = "",
             lastUpdated = System.currentTimeMillis()
         )
-        if (existing == null) _subscriptions.value = _subscriptions.value + sub
+        if (existing == null) _subscriptions.value = listOf(sub) + _subscriptions.value
         _configs.value = _configs.value + configs.map { it.copy(subId = sub.id) }
         persistConfigs()
         persistSubscriptions()
@@ -324,7 +326,16 @@ class ConfigStore private constructor(context: Context) {
             f.copy(subId = sub.id, id = kept?.id ?: f.id)
         }
         _configs.value = _configs.value.filterNot { it.subId == sub.id } + tagged
-        _subscriptions.value = _subscriptions.value.filterNot { it.id == sub.id } + sub
+        // A brand-new subscription goes to the very top of the list. An existing
+        // subscription being refreshed (auto-refresh, manual update, quota sync)
+        // keeps its current position instead of jumping around every refresh.
+        val existingIndex = _subscriptions.value.indexOfFirst { it.id == sub.id }
+        val withoutSub = _subscriptions.value.filterNot { it.id == sub.id }
+        _subscriptions.value = if (existingIndex < 0) {
+            listOf(sub) + withoutSub
+        } else {
+            withoutSub.toMutableList().apply { add(existingIndex.coerceAtMost(size), sub) }
+        }
         persistConfigs()
         persistSubscriptions()
     }

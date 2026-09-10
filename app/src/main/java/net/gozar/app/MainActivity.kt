@@ -926,13 +926,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun launchConnect(config: ProxyConfig) {
-        // OpenVPN owns the tun while its state is live; tear it down first so the
-        // core tunnel does not fight the engine for the VPN interface.
-        if (GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED) {
+    private fun launchConnect(config: ProxyConfig, attempt: Int = 0) {
+        // OpenVPN owns the tun while it is actively connecting/connected; tear it
+        // down first so the core tunnel does not fight the engine for the VPN
+        // interface. NOTE: the guard used to be `!= DISCONNECTED`, which also
+        // matched ERROR (OpenVPN's resting state after any failed/crashed
+        // connect). Since stopOpenVpnBeforeCoreTunnel() never changes a resting
+        // ERROR status, that made this recurse into itself with zero delay
+        // forever any time OpenVPN had previously failed once - flooding
+        // VpnCommandCoordinator.onConnectRequested (seen in logs as connect#7..
+        // #25 within ~3s) and ultimately crashing GozarVpnService. Only actually
+        // wait when OpenVPN is mid-flight.
+        val ovpnBusy = GhajarOpenVpnBridge.status.value == GhajarOvpnState.CONNECTING ||
+            GhajarOpenVpnBridge.status.value == GhajarOvpnState.CONNECTED
+        if (ovpnBusy) {
+            if (attempt >= 20) {
+                VpnState.setError("موتور OpenVPN پاسخ نمی‌دهد؛ برنامه را ببند و دوباره باز کن.")
+                return
+            }
             lifecycleScope.launch {
                 runCatching { stopOpenVpnBeforeCoreTunnel() }
-                launchConnect(config)
+                delay(150)
+                launchConnect(config, attempt + 1)
             }
             return
         }
@@ -9225,11 +9240,6 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
                                         onClick = { pingOvpn(profile) }, minHeight = 32.dp,
                                         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
                                     ) { Text("پینگ", style = MaterialTheme.typography.labelSmall) }
-                                    BounceOutlinedButton(
-                                        onClick = { onTest(profile.uuid) },
-                                        enabled = !profile.needsCredentials && testResults[profile.uuid]?.running != true && !isBusy,
-                                        minHeight = 32.dp, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
-                                    ) { Text("تست", style = MaterialTheme.typography.labelSmall) }
                                 }
                                 if (isActive || isBusy) {
                                     BounceOutlinedButton(

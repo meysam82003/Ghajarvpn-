@@ -75,9 +75,18 @@ class GozarVpnService : VpnService() {
     }
 
     private fun startTunnel(configJson: String) {
+        // startForeground() must run unconditionally and first: this service is
+        // launched with startForegroundService(), and Android requires
+        // startForeground() within a few seconds of that call regardless of what
+        // happens next. The old code returned early here (tunFd != null) before
+        // ever reaching startForeground(), so a rapid retry storm from the UI
+        // (see MainActivity.launchConnect) could start this service several
+        // times without ever promoting it - triggering
+        // ForegroundServiceDidNotStartInTimeException and crashing the process,
+        // which is what forced a full device reboot to recover from.
+        startForeground(NOTIF_ID, buildNotification())
         if (tunFd != null) return
         tearingDown = false
-        startForeground(NOTIF_ID, buildNotification())
 
         scope.launch {
             val builder = Builder()

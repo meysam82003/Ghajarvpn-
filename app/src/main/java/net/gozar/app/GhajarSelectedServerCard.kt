@@ -59,6 +59,18 @@ internal fun GhajarSelectedServerCard(config: ProxyConfig?, connection: Connecti
                     }
                     Text("$engine • $endpoint", style = MaterialTheme.typography.labelSmall,
                         color = colors.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                } else {
+                    // This card can only ever hold a core config (config == null
+                    // means either nothing is selected, or OpenVPN is the one
+                    // active - OpenVPN profiles are never selectable here by
+                    // design). Explain the OpenVPN path so tapping this card and
+                    // finding no OpenVPN option isn't confusing.
+                    Text(
+                        "برای اتصال به OpenVPN، از «انتخاب سرور» وارد بخش OpenVPN شو و از همان‌جا وصل شو.",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = colors.onSurfaceVariant,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis
+                    )
                 }
                 Text(when (connection) {
                     Connection.CONNECTED -> "متصل"

@@ -79,6 +79,11 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
+                // This is the only place a checkout/payment operation's failure is
+                // surfaced. Previously nothing here reached the log, so a failed
+                // beginPayment/purchase call left the user looking at a generic
+                // error with zero trace in Debugger/log export to diagnose from.
+                GhajarLog.e("Payment", "operation failed: ${failure.javaClass.simpleName}: ${failure.message}")
                 error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
             } finally {
                 busy.value = false
@@ -120,6 +125,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     fun refreshMethods() = runOperation { methods.value = api.paymentOptions() }
 
     fun beginPayment(method: GhajarPaymentMethod) = runOperation {
+        GhajarLog.d("Payment", "beginPayment method=${method.id}")
         val target = purchase.value ?: return@runOperation
         if (payment.value != null) {
             message.value = "فاکتور فعلی را تکمیل یا وضعیتش را بررسی کن؛ پرداخت دوباره لازم نیست."

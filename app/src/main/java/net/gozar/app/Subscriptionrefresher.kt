@@ -2,14 +2,23 @@ package net.gozar.app
 
 object SubscriptionRefresher {
 
+    /**
+     * @param force When true, refresh every subscription regardless of the
+     * auto-refresh interval - used on app open so all subs (usage/quota, expiry,
+     * server list) are current the moment the user looks at them. When false,
+     * only subscriptions older than [ConfigStore.autoRefreshHours] are touched.
+     */
     suspend fun refreshStale(store: ConfigStore, force: Boolean = false) {
-        val hours = store.autoRefreshHours.value
-        if (hours <= 0 && !force) return
-        val cutoff = System.currentTimeMillis() - hours.coerceAtLeast(0) * 3_600_000L
+        val targets = if (force) {
+            store.subscriptions.value
+        } else {
+            val hours = store.autoRefreshHours.value
+            if (hours <= 0) return
+            val cutoff = System.currentTimeMillis() - hours * 3_600_000L
+            store.subscriptions.value.filter { it.lastUpdated <= cutoff }
+        }
 
-        store.subscriptions.value
-            .filter { force || it.lastUpdated <= cutoff }
-            .forEach { sub ->
+        targets.forEach { sub ->
                 runCatching {
                     val result = SubscriptionFetcher.fetchFull(sub.url)
                     if (result.configs.isNotEmpty()) {
