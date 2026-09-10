@@ -51,6 +51,18 @@ jobs:
           # are the canonical app overlay; the reviewed baseline owns the rest.
           rsync -a app/src/ .ghajarvpn-src/app/src/
           rsync -a app/libs/ .ghajarvpn-src/app/libs/
+
+          # The reconstructed baseline already owns AppGreen in DotGlobe.kt.
+          if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt ]] && \
+             grep -q 'val AppGreen' .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt; then
+            rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/AppColors.kt
+          fi
+
+          # Linux treats these as distinct files, but both declare IkeController.
+          if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/IkeController.kt ]]; then
+            rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/Ikecontroller.kt
+          fi
+
           echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
           test -f .ghajarvpn-src/gradlew
           test -f .ghajarvpn-src/browser/build.gradle.kts
