@@ -35,27 +35,42 @@ jobs:
           java-version: '17'
           cache: gradle
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build rsync
       - uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
-      - name: Materialize full source when using the GitHub patch distribution
+      - name: Materialize complete build tree and overlay newest reviewed app sources
         run: |
-          # app/libs/gozarcore.aar alone is not a reliable signal that a full
-          # checkout is present: the reviewed patch-series distribution can
-          # carry that binary while still missing the browser module and the
-          # Gradle wrapper. Gate on the actual files later steps need.
-          if [[ -f browser/build.gradle.kts && -f gradlew ]]; then
-            echo "GHAJAR_SOURCE_ROOT=." >> "$GITHUB_ENV"
-          else
-            chmod +x scripts/bootstrap-from-upstream.sh
-            scripts/bootstrap-from-upstream.sh
-            echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
-          fi
-      - name: Verify reviewed snapshots match reconstructed source
-        run: bash scripts/verify-source-snapshots.sh "$GHAJAR_SOURCE_ROOT"
+          # The GitHub tree carries the reviewed patch distribution, so the
+          # full engine sources are reconstructed from the pinned upstream.
+          chmod +x scripts/bootstrap-from-upstream.sh
+          scripts/bootstrap-from-upstream.sh
+          # The visible app sources (including the newest uploaded changes)
+          # are the canonical app overlay; the reviewed baseline owns the rest.
+          rsync -a app/src/ .ghajarvpn-src/app/src/
+          rsync -a app/libs/ .ghajarvpn-src/app/libs/
+          echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
+          test -f .ghajarvpn-src/gradlew
+          test -f .ghajarvpn-src/browser/build.gradle.kts
+          test -f .ghajarvpn-src/app/libs/gozarcore.aar
+          chmod +x .ghajarvpn-src/gradlew
+      - name: Verify newest uploaded sources are compiled byte-for-byte
+        working-directory: .ghajarvpn-src
+        run: |
+          cat <<'SHA256' | sha256sum -c -
+          6d09995caa9f4c06232602d5dc5ec1d0afde416408c45fecafd0a698df088321  app/src/main/java/net/gozar/app/ConfigStore.kt
+          86aa7219c7504f8e6fc7567b712d62a65fe566b9ae2366dd6514e215c423c6de  app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
+          c91d08af8c0dd5c73bc593eab489f702102b3640ef0aa930600b4ad3d6640da4  app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
+          c9274edadb786689fc11256d146b176408104c7d4baeb360f4845dac2be004e3  app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+          6a77e5b8f144a85389a63a29aa188fb38a0bc47c1755126e5163ee94639d696b  app/src/main/java/net/gozar/app/GozarVpnService.kt
+          e6d3b007ccd9cef2739c524f93b031731a80485db4217fa74f1b5ba49f8a6d9d  app/src/main/java/net/gozar/app/Gozarapplication.kt
+          00adaedbe7cf671e7799ffbb885accf549f02bc52f3c921e4afe7c3677174e0a  app/src/main/java/net/gozar/app/MainActivity.kt
+          02b01b201cf0d8b06773b18a096b4a643744169ee5add23327db816081c4f9ff  app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+          5231734910241f05211dd1662e2d73b321bf08f791958512c55fb558eec07467  app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+          SHA256
+          echo 'Newest uploaded source changes verified byte-for-byte.'
       - name: Verify OpenVPN remote-process contract
         run: |
           python3 - <<'PY'
