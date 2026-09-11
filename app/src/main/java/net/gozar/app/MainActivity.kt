@@ -594,14 +594,18 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        GhajarLog.i("Startup", "phase: main activity onCreate begin")
         ConfigQuickConnectBridge.activity = this
         store = ConfigStore.get(applicationContext)
+        GhajarLog.i("Startup", "phase: config store loaded")
         UsageStore.init(applicationContext)
         VpnBridge.register(applicationContext)
         GhajarOpenVpnBridge.initialize(applicationContext)
+        GhajarLog.i("Startup", "phase: bridges registered")
         handleImportIntent(intent)
         IkeController.bind(this)
         watchTunnel()
+        GhajarLog.i("Startup", "phase: services bound")
         lifecycleScope.launch {
             VpnState.state.collect { s ->
                 if (s == Connection.DISCONNECTED && !IkeController.active) {

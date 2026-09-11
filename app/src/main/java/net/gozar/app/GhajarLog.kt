@@ -58,12 +58,16 @@ object GhajarLog {
     val entries: StateFlow<List<GhajarLogEntry>> = _entries.asStateFlow()
 
     private lateinit var logDir: File
+    private var extLogDir: File? = null
     private fun currentFile() = File(logDir, "ghajar.log")
     private fun rotatedFile(n: Int) = File(logDir, "ghajar.log.$n")
 
     fun init(context: Context) {
         if (!started.compareAndSet(false, true)) return
         logDir = File(context.filesDir, "ghajar_logs").apply { mkdirs() }
+        // Mirror to external app storage so the log is reachable without adb
+        // (readable at /storage/emulated/0/Android/data/<pkg>/files/).
+        extLogDir = context.getExternalFilesDir(null)?.let { File(it, "ghajar_logs_ext").apply { mkdirs() } }
         i("Logger", "=== Ghajar log session started (v${runCatching { BuildConfig.VERSION_NAME }.getOrDefault("?")}) ===")
     }
 
@@ -87,6 +91,13 @@ object GhajarLog {
                 }
                 if (started.get()) {
                     FileOutputStream(currentFile(), true).use { it.write(block.toByteArray()) }
+                    extLogDir?.let { dir ->
+                        runCatching {
+                            FileOutputStream(File(dir, "ghajar-crash.log"), true).use {
+                                it.write(block.toByteArray())
+                            }
+                        }
+                    }
                 }
             }
             previous?.uncaughtException(thread, throwable)
@@ -128,15 +139,41 @@ object GhajarLog {
         }
 
         if (started.get()) {
+            if (tag == "Startup") {
+                // Startup phase markers must survive a native crash that never
+                // reaches the uncaught-exception handler: write synchronously.
+                runCatching {
+                    writeEntrySync(entry)
+                }
+                return
+            }
             scope.launch {
                 writeMutex.withLock {
                     runCatching {
                         rotateIfNeeded()
-                        FileOutputStream(currentFile(), true).use {
-                            it.write((entry.formatted() + "\n").toByteArray())
-                        }
+                        writeEntryLocked(entry)
                     }
                 }
+            }
+        }
+    }
+
+    private fun writeEntrySync(entry: GhajarLogEntry) {
+        val line = (entry.formatted() + "\n").toByteArray()
+        FileOutputStream(currentFile(), true).use { it.write(line) }
+        extLogDir?.let { dir ->
+            FileOutputStream(File(dir, "ghajar.log"), true).use { it.write(line) }
+        }
+    }
+
+    private fun writeEntryLocked(entry: GhajarLogEntry) {
+        rotateIfNeeded()
+        FileOutputStream(currentFile(), true).use {
+            it.write((entry.formatted() + "\n").toByteArray())
+        }
+        extLogDir?.let { dir ->
+            FileOutputStream(File(dir, "ghajar.log"), true).use {
+                it.write((entry.formatted() + "\n").toByteArray())
             }
         }
     }
