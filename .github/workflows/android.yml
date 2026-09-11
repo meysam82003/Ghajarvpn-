@@ -111,7 +111,7 @@ jobs:
           c9274edadb786689fc11256d146b176408104c7d4baeb360f4845dac2be004e3  app/src/main/java/net/gozar/app/GhajarShopScreen.kt
           e88a7947c9562d35151d3f75b03f50c14adfb88360052e596a55a9d49f463984  app/src/main/java/net/gozar/app/GozarVpnService.kt
           e6d3b007ccd9cef2739c524f93b031731a80485db4217fa74f1b5ba49f8a6d9d  app/src/main/java/net/gozar/app/Gozarapplication.kt
-          89b264bc6df6e188560cfd6505b8d5ce8ef59e7ef7f44fd76cfc86a56e101c51  app/src/main/java/net/gozar/app/MainActivity.kt
+          59b5e9193522f34343f8382886e4d457e392eb39b018cd7cebfff29c6bf23694  app/src/main/java/net/gozar/app/MainActivity.kt
           d71d1692a7a941e49b80dad3dc5040b197fbdc0a8d631e6357ccc637e47faded  app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
           5231734910241f05211dd1662e2d73b321bf08f791958512c55fb558eec07467  app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
           af5025b79e7be582ee4b7137eb74065a86f88e7298d087f245e275ea0088b8fc  app/src/main/java/net/gozar/app/PsiphonConfig.kt
