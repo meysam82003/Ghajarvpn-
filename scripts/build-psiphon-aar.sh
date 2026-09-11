@@ -17,7 +17,9 @@ here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 repo="$(cd "$here/.." && pwd)"
 
 source_root="${1:-${SOURCE_ROOT:-$repo/.ghajarvpn-src}}"
+source_root="$(cd "$source_root" && pwd)"
 psiphon_dir="${2:-${PSIPHON_DIR:-$(cd "$repo/.." && pwd)/psiphon-tunnel-core}}"
+psiphon_dir="$(cd "$psiphon_dir" 2>/dev/null && pwd || echo "$psiphon_dir")"
 gomobile_version="${GOMOBILE_VERSION:-v0.0.0-20260821190718-4776eadac327}"
 android_api="${PSIPHON_ANDROID_API:-35}"
 targets="${PSIPHON_TARGETS:-android/arm,android/arm64,android/386,android/amd64}"
@@ -297,7 +299,7 @@ if [ ! -f "$qpack_v4_dir/go.mod" ]; then
 fi
 # Rename self-imports inside the qpack copy (quote-anchored => idempotent).
 grep -rl '"github.com/quic-go/qpack"' "$qpack_v4_dir" --include='*.go' | \
-  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g'
+  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g' || true
 
 quicgo_dir="$psiphon_dir/third_party/quic-go-fork"
 if [ ! -d "$quicgo_dir/.git" ]; then
@@ -312,12 +314,12 @@ if [ "$quicgo_sha" != "$quicgo_pin" ]; then
 fi
 # Point the fork's qpack imports at the v4legacy copy (quote-anchored).
 grep -rl '"github.com/quic-go/qpack"' "$quicgo_dir" --include='*.go' | \
-  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g'
+  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g' || true
 
 # Rewrite the tunnel-core fork's own qpack references, then override both
 # modules with the patched local copies.
 grep -rl '"github.com/quic-go/qpack"' "$psiphon_dir" --include='*.go' --exclude-dir=vendor | \
-  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g'
+  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g' || true
 sed -i 's|github.com/quic-go/qpack v0.4.0|github.com/quic-go/qpack/v4legacy v0.4.0|' "$psiphon_dir/go.mod"
 
 go mod edit -require=github.com/Psiphon-Labs/psiphon-tunnel-core@v0.0.0
