@@ -276,6 +276,22 @@ jobs:
           name: Ghajarvpn-0.0.1-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
           path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+      - name: Deliver arm64 release APK via git branch
+        if: success()
+        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
+        run: |
+          # Blob-storage artifacts are unreachable from some networks; publish
+          # the installable APK on a git side branch instead.
+          apk="app/build/outputs/apk/release/app-arm64-v8a-release.apk"
+          test -s "$apk"
+          git -C "$GITHUB_WORKSPACE" config user.name "CI Delivery"
+          git -C "$GITHUB_WORKSPACE" config user.email "ci@ghajarvpn.local"
+          git -C "$GITHUB_WORKSPACE" checkout --orphan apk-delivery
+          git -C "$GITHUB_WORKSPACE" reset --quiet
+          cp "$apk" "$GITHUB_WORKSPACE/Ghajarvpn-arm64-v8a-release.apk"
+          git -C "$GITHUB_WORKSPACE" add -f Ghajarvpn-arm64-v8a-release.apk
+          git -C "$GITHUB_WORKSPACE" commit --quiet -m "arm64 release APK from run ${GITHUB_RUN_ID}"
+          git -C "$GITHUB_WORKSPACE" push --force origin apk-delivery
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
