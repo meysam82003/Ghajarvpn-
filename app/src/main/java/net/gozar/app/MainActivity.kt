@@ -201,6 +201,7 @@ import com.google.zxing.MultiFormatReader
 import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import java.io.File
+import java.util.Locale
 import java.util.concurrent.Executors
 import androidx.compose.material.icons.filled.EditOff
 import androidx.compose.material.icons.filled.ErrorOutline
@@ -9130,7 +9131,6 @@ private fun formatBytesParts(bytes: Long, lang: Lang): Pair<String, String> {
 }
 
 /** Visible OpenVPN card: saved profiles, state, pre-connect ping, connect/disconnect, edit/delete. */
-@Composable
 @Composable
 private fun GhajarOpenVpnSummaryTile(onOpen: () -> Unit) {
     // A slim status row instead of the full OpenVPN card: the full profile
