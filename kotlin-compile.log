@@ -1,0 +1,216 @@
+
+Welcome to Gradle 9.4.1!
+
+Here are the highlights of this release:
+ - Java 26 support
+ - Non-class-based JVM tests
+ - Enhanced console progress bar
+
+For more details see https://docs.gradle.org/9.4.1/release-notes.html
+
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/9.4.1/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+Configuration on demand is an incubating feature.
+> Task :openvpn:preBuild UP-TO-DATE
+> Task :app:preBuild UP-TO-DATE
+> Task :openvpn:preDebugBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :browser:preBuild UP-TO-DATE
+> Task :browser:preDebugBuild UP-TO-DATE
+> Task :openvpn:processDebugNavigationResources FROM-CACHE
+> Task :app:generateDebugBuildConfig FROM-CACHE
+> Task :browser:generateDebugResources FROM-CACHE
+> Task :browser:packageDebugResources FROM-CACHE
+> Task :browser:processDebugNavigationResources FROM-CACHE
+> Task :strongswan:syncUpstreamJava
+> Task :strongswan:preBuild
+> Task :strongswan:preDebugBuild
+> Task :app:generateDebugResources FROM-CACHE
+> Task :strongswan:processDebugNavigationResources FROM-CACHE
+> Task :strongswan:generateDebugResources FROM-CACHE
+> Task :strongswan:packageDebugResources FROM-CACHE
+> Task :openvpn:compileDebugAidl FROM-CACHE
+> Task :openvpn:generateDebugBuildConfig FROM-CACHE
+> Task :openvpn:generateDebugResources FROM-CACHE
+> Task :openvpn:packageDebugResources FROM-CACHE
+> Task :app:packageDebugResources FROM-CACHE
+> Task :strongswan:parseDebugLocalResources FROM-CACHE
+> Task :browser:parseDebugLocalResources FROM-CACHE
+> Task :strongswan:generateDebugRFile FROM-CACHE
+> Task :browser:generateDebugRFile FROM-CACHE
+> Task :openvpn:parseDebugLocalResources FROM-CACHE
+> Task :strongswan:compileDebugKotlin NO-SOURCE
+> Task :openvpn:generateDebugRFile FROM-CACHE
+> Task :strongswan:javaPreCompileDebug FROM-CACHE
+> Task :browser:compileDebugKotlin FROM-CACHE
+> Task :browser:javaPreCompileDebug FROM-CACHE
+> Task :browser:compileDebugJavaWithJavac NO-SOURCE
+> Task :browser:bundleLibRuntimeToJarDebug
+> Task :browser:bundleLibCompileToJarDebug
+> Task :browser:preDebugUnitTestBuild UP-TO-DATE
+> Task :browser:generateDebugUnitTestStubRFile FROM-CACHE
+> Task :browser:compileDebugUnitTestKotlin FROM-CACHE
+> Task :browser:javaPreCompileDebugUnitTest FROM-CACHE
+> Task :browser:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :browser:processDebugJavaRes
+> Task :browser:processDebugUnitTestJavaRes
+> Task :browser:testDebugUnitTest FROM-CACHE
+> Task :browser:writeDebugAarMetadata
+> Task :browser:extractDeepLinksDebug FROM-CACHE
+> Task :browser:processDebugManifest FROM-CACHE
+
+> Task :openvpn:generateOpenVPN3SwigDebug
+src/main/cpp/openvpn3/openvpn/client/dns_options.hpp:155: Warning 503: Can't wrap 'operator ==' unless renamed to a valid identifier.
+src/main/cpp/openvpn3/openvpn/client/dns_options.hpp:208: Warning 503: Can't wrap 'operator ==' unless renamed to a valid identifier.
+src/main/cpp/openvpn3/openvpn/client/dns_options.hpp:508: Warning 503: Can't wrap 'operator ==' unless renamed to a valid identifier.
+src/main/cpp/openvpn3/openvpn/client/dns_options.hpp:627: Warning 503: Can't wrap 'operator ==' unless renamed to a valid identifier.
+
+> Task :browser:mapDebugSourceSetPaths
+> Task :openvpn:compileDebugKotlin NO-SOURCE
+> Task :browser:compileDebugLibraryResources FROM-CACHE
+> Task :browser:generateDebugAssets UP-TO-DATE
+> Task :openvpn:javaPreCompileDebug FROM-CACHE
+> Task :browser:mergeDebugAssets
+> Task :openvpn:compileDebugJavaWithJavac FROM-CACHE
+> Task :strongswan:compileDebugJavaWithJavac FROM-CACHE
+> Task :strongswan:bundleLibCompileToJarDebug
+> Task :openvpn:bundleLibCompileToJarDebug
+> Task :browser:bundleLibRuntimeToDirDebug
+> Task :strongswan:writeDebugAarMetadata
+> Task :openvpn:extractDeepLinksDebug FROM-CACHE
+> Task :strongswan:extractDeepLinksDebug FROM-CACHE
+> Task :strongswan:processDebugManifest FROM-CACHE
+> Task :openvpn:processDebugManifest FROM-CACHE
+> Task :openvpn:mapDebugSourceSetPaths
+> Task :strongswan:mapDebugSourceSetPaths
+> Task :openvpn:compileDebugLibraryResources FROM-CACHE
+> Task :strongswan:compileDebugLibraryResources FROM-CACHE
+> Task :openvpn:writeDebugAarMetadata
+> Task :openvpn:processDebugJavaRes NO-SOURCE
+> Task :strongswan:processDebugJavaRes NO-SOURCE
+> Task :openvpn:generateDebugAssets UP-TO-DATE
+> Task :openvpn:bundleLibRuntimeToJarDebug
+> Task :strongswan:generateDebugAssets UP-TO-DATE
+> Task :strongswan:bundleLibRuntimeToJarDebug
+> Task :openvpn:mergeDebugAssets
+> Task :strongswan:mergeDebugAssets
+> Task :openvpn:bundleLibRuntimeToDirDebug
+> Task :strongswan:bundleLibRuntimeToDirDebug
+> Task :browser:mergeDebugJniLibFolders
+> Task :browser:mergeDebugNativeLibs NO-SOURCE
+> Task :app:processDebugNavigationResources FROM-CACHE
+> Task :app:parseDebugLocalResources FROM-CACHE
+> Task :browser:copyDebugJniLibsProjectOnly
+> Task :browser:preReleaseBuild UP-TO-DATE
+> Task :app:generateDebugRFile FROM-CACHE
+> Task :browser:mergeReleaseJniLibFolders
+> Task :browser:mergeReleaseNativeLibs NO-SOURCE
+> Task :browser:copyReleaseJniLibsProjectOnly
+> Task :browser:generateReleaseResources FROM-CACHE
+> Task :browser:packageReleaseResources FROM-CACHE
+> Task :browser:processReleaseNavigationResources FROM-CACHE
+> Task :browser:parseReleaseLocalResources FROM-CACHE
+> Task :browser:generateReleaseRFile FROM-CACHE
+> Task :browser:compileReleaseKotlin FROM-CACHE
+> Task :browser:javaPreCompileRelease FROM-CACHE
+> Task :browser:compileReleaseJavaWithJavac NO-SOURCE
+> Task :browser:mergeReleaseGeneratedProguardFiles
+> Task :browser:exportReleaseConsumerProguardFiles
+> Task :browser:bundleLibCompileToJarRelease
+> Task :browser:prepareReleaseArtProfile
+> Task :browser:writeReleaseAarMetadata
+> Task :browser:extractDeepLinksRelease FROM-CACHE
+> Task :browser:processReleaseManifest FROM-CACHE
+> Task :browser:mapReleaseSourceSetPaths
+> Task :browser:compileReleaseLibraryResources FROM-CACHE
+> Task :browser:bundleLibRuntimeToJarRelease
+> Task :browser:processReleaseJavaRes
+> Task :browser:generateReleaseAssets UP-TO-DATE
+> Task :browser:mergeReleaseAssets
+> Task :app:javaPreCompileDebug FROM-CACHE
+> Task :app:checkDebugAarMetadata
+> Task :app:mapDebugSourceSetPaths
+> Task :app:compileDebugNavigationResources FROM-CACHE
+
+> Task :openvpn:configureCMakeDebug[arm64-v8a]
+C/C++: OpenVPN 2.x version v2.1.0-74-g19f4d11
+C/C++: OpenVPN 3.x version v2.1.0-74-g19f4d11
+
+> Task :app:mergeDebugResources FROM-CACHE
+> Task :app:createDebugCompatibleScreenManifests
+> Task :app:extractDeepLinksDebug FROM-CACHE
+> Task :app:processDebugMainManifest FROM-CACHE
+> Task :app:processDebugManifest FROM-CACHE
+> Task :app:processDebugManifestForPackage FROM-CACHE
+> Task :strongswan:configureNdkBuildDebug[arm64-v8a]
+> Task :app:processDebugResources FROM-CACHE
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest FROM-CACHE
+> Task :app:mergeDebugNativeDebugMetadata NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets
+> Task :app:compressDebugAssets FROM-CACHE
+> Task :app:generateDebugGlobalSynthetics FROM-CACHE
+> Task :app:checkDebugDuplicateClasses
+> Task :app:desugarDebugFileDependencies FROM-CACHE
+> Task :app:mergeExtDexDebug FROM-CACHE
+> Task :app:mergeLibDexDebug FROM-CACHE
+> Task :app:mergeDebugJniLibFolders
+> Task :app:validateSigningDebug
+> Task :app:writeDebugAppMetadata
+> Task :app:writeDebugSigningConfigVersions
+> Task :app:preReleaseBuild UP-TO-DATE
+> Task :app:mergeReleaseJniLibFolders
+> Task :app:checkReleaseDuplicateClasses
+> Task :app:generateReleaseBuildConfig FROM-CACHE
+> Task :app:generateReleaseResources FROM-CACHE
+> Task :app:packageReleaseResources FROM-CACHE
+> Task :app:javaPreCompileRelease FROM-CACHE
+> Task :app:mapReleaseSourceSetPaths
+> Task :app:createReleaseCompatibleScreenManifests
+> Task :app:extractDeepLinksRelease FROM-CACHE
+> Task :app:extractProguardFiles
+> Task :app:mergeReleaseStartupProfile
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :app:extractReleaseVersionControlInfo
+> Task :app:collectReleaseDependencies
+> Task :app:sdkReleaseDependencyData
+> Task :app:validateSigningRelease
+> Task :app:writeReleaseAppMetadata
+> Task :app:writeReleaseSigningConfigVersions
+> Task :app:compileDebugKotlin
+> Task :openvpn:buildCMakeDebug[arm64-v8a]
+> Task :strongswan:buildNdkBuildDebug[arm64-v8a]
+> Task :strongswan:configureNdkBuildDebug[armeabi-v7a]
+> Task :strongswan:buildNdkBuildDebug[armeabi-v7a]
+> Task :strongswan:mergeDebugJniLibFolders
+> Task :strongswan:preReleaseBuild
+> Task :strongswan:mergeDebugNativeLibs
+> Task :strongswan:configureNdkBuildRelease[arm64-v8a]
+> Task :strongswan:copyDebugJniLibsProjectOnly
+
+> Task :app:compileDebugKotlin
+e: file:///home/runner/work/Ghajarvpn-/Ghajarvpn-/.ghajarvpn-src/app/src/main/java/net/gozar/app/Gozarapplication.kt:19:9 Unresolved reference 'i'.
+e: file:///home/runner/work/Ghajarvpn-/Ghajarvpn-/.ghajarvpn-src/app/src/main/java/net/gozar/app/Gozarapplication.kt:27:9 Unresolved reference 'i'.
+e: file:///home/runner/work/Ghajarvpn-/Ghajarvpn-/.ghajarvpn-src/app/src/main/java/net/gozar/app/Gozarapplication.kt:30:9 Unresolved reference 'i'.
+e: file:///home/runner/work/Ghajarvpn-/Ghajarvpn-/.ghajarvpn-src/app/src/main/java/net/gozar/app/Gozarapplication.kt:32:9 Unresolved reference 'i'.
+e: file:///home/runner/work/Ghajarvpn-/Ghajarvpn-/.ghajarvpn-src/app/src/main/java/net/gozar/app/Gozarapplication.kt:34:9 Unresolved reference 'i'.
+
+> Task :app:compileDebugKotlin FAILED
+> Task :strongswan:buildNdkBuildRelease[arm64-v8a]
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileDebugKotlin'.
+> A failure occurred while executing org.jetbrains.kotlin.compilerRunner.GradleCompilerRunnerWithWorkers$GradleKotlinCompilerWorkAction
+   > Compilation error. See log for more details
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights from a Build Scan (powered by Develocity).
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 2m 18s
+139 actionable tasks: 68 executed, 71 from cache
