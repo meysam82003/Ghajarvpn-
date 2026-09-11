@@ -36,7 +36,10 @@ jobs:
           cache: gradle
       - uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
+          # go1.26: psiphon-tls's init reflects over crypto/tls.ConnectionState
+          # and panics (SIGABRT in libgojni at first use) under go1.27, whose
+          # ConnectionState layout differs. Psiphon pins toolchain go1.26.3.
+          go-version: '1.26.3'
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y swig ninja-build rsync
       - uses: android-actions/setup-android@v3
@@ -95,6 +98,8 @@ jobs:
           # Match the app's Android 8+ (API 26) minSdk; a higher AAR minSdk
           # would fail the manifest merger against app/src/main/AndroidManifest.xml.
           export PSIPHON_ANDROID_API=26
+          # Belt and suspenders: keep the whole Go build on the 1.26 toolchain.
+          export GOTOOLCHAIN=go1.26.3
           chmod +x scripts/build-psiphon-aar.sh
           set -o pipefail
           ./scripts/build-psiphon-aar.sh .ghajarvpn-src "$RUNNER_TEMP/psiphon-tunnel-core" 2>&1 | tee "$RUNNER_TEMP/psiphon-build.log"
