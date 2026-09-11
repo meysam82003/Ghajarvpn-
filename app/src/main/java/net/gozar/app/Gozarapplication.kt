@@ -16,7 +16,7 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
 
     override fun onCreate() {
         super.onCreate()
-        i("Startup", "phase: application create begin")
+        GhajarLog.i("Startup", "phase: application create begin")
         // GozarApplication extends StrongSwanApplication, not ICSOpenVPNApplication,
         // so the OpenVPN library's own restriction/preferences bootstrap never ran.
         // OpenVPNService (":openvpn" process) calls GlobalPreferences.getInstance()
@@ -24,14 +24,14 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         // this is skipped. Application.onCreate() runs once per process, so doing
         // this here covers both the main process and the ":openvpn" process.
         de.blinkt.openvpn.api.AppRestrictions.getInstance(this).checkRestrictions(this)
-        i("Startup", "phase: app restrictions done")
+        GhajarLog.i("Startup", "phase: app restrictions done")
         GhajarLog.init(this)
         GhajarLog.installCrashHandler(this)
-        i("Startup", "phase: logger ready")
+        GhajarLog.i("Startup", "phase: logger ready")
         GhajarNotificationMonitor.initialize(this)
-        i("Startup", "phase: notification monitor ready")
+        GhajarLog.i("Startup", "phase: notification monitor ready")
         GhajarOpenVpnBridge.initialize(this)
-        i("Startup", "phase: openvpn bridge ready")
+        GhajarLog.i("Startup", "phase: openvpn bridge ready")
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
