@@ -282,8 +282,50 @@ func PsiphonUpgradeDownloadFilePath(rootDataDirectoryPath string) string {
 GOEOF
 
 cd "$source_root"
+
+# Dependency split: xray (apernet quic-go) needs qpack v0.6 API while the
+# Psiphon quic-go fork still uses the v0.4 API (DecodeFull, 2-arg NewDecoder).
+# One Go build can hold only ONE version of a module path, so give the fork
+# private copies of qpack v0.4.0 and of its own quic-go fork under distinct
+# module paths and rewrite the imports. xray keeps upstream qpack v0.6.
+qpack_v4_dir="$psiphon_dir/third_party/qpack-v4legacy"
+if [ ! -f "$qpack_v4_dir/go.mod" ]; then
+  rm -rf "$qpack_v4_dir"
+  git clone --depth 1 -b v0.4.0 https://github.com/quic-go/qpack "$qpack_v4_dir"
+  printf 'module github.com/quic-go/qpack/v4legacy\n\ngo 1.21\n' > "$qpack_v4_dir/go.mod"
+  rm -rf "$qpack_v4_dir/.git"
+fi
+# Rename self-imports inside the qpack copy (quote-anchored => idempotent).
+grep -rl '"github.com/quic-go/qpack"' "$qpack_v4_dir" --include='*.go' | \
+  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g'
+
+quicgo_dir="$psiphon_dir/third_party/quic-go-fork"
+if [ ! -d "$quicgo_dir/.git" ]; then
+  rm -rf "$quicgo_dir"
+  git clone --depth 1 https://github.com/Psiphon-Labs/quic-go "$quicgo_dir"
+fi
+quicgo_pin='79fe45fb83b1cbcf9e9aa4b50419c7ad836ee786'
+quicgo_sha="$(git -C "$quicgo_dir" rev-parse HEAD)"
+if [ "$quicgo_sha" != "$quicgo_pin" ]; then
+  echo "::error::Psiphon-Labs/quic-go moved: expected $quicgo_pin, got $quicgo_sha; re-pin the combined build" >&2
+  exit 1
+fi
+# Point the fork's qpack imports at the v4legacy copy (quote-anchored).
+grep -rl '"github.com/quic-go/qpack"' "$quicgo_dir" --include='*.go' | \
+  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g'
+
+# Rewrite the tunnel-core fork's own qpack references, then override both
+# modules with the patched local copies.
+grep -rl '"github.com/quic-go/qpack"' "$psiphon_dir" --include='*.go' --exclude-dir=vendor | \
+  xargs -r sed -i 's|"github.com/quic-go/qpack"|"github.com/quic-go/qpack/v4legacy"|g'
+sed -i 's|github.com/quic-go/qpack v0.4.0|github.com/quic-go/qpack/v4legacy v0.4.0|' "$psiphon_dir/go.mod"
+
 go mod edit -require=github.com/Psiphon-Labs/psiphon-tunnel-core@v0.0.0
 go mod edit -replace=github.com/Psiphon-Labs/psiphon-tunnel-core="$psiphon_dir"
+go mod edit -require=github.com/quic-go/qpack/v4legacy@v0.0.0
+go mod edit -replace=github.com/quic-go/qpack/v4legacy="$qpack_v4_dir"
+go mod edit -require=github.com/Psiphon-Labs/quic-go@v0.0.0-20250527153145-79fe45fb83b1
+go mod edit -replace=github.com/Psiphon-Labs/quic-go="$quicgo_dir"
 go mod tidy
 
 # -checklinkname=0 is required by psiphon's in-proxy dependency (wlynxg/anet).
