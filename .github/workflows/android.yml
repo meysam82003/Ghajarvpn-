@@ -93,7 +93,8 @@ jobs:
           fi
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
           chmod +x scripts/build-psiphon-aar.sh
-          ./scripts/build-psiphon-aar.sh .ghajarvpn-src "$RUNNER_TEMP/psiphon-tunnel-core"
+          set -o pipefail
+          ./scripts/build-psiphon-aar.sh .ghajarvpn-src "$RUNNER_TEMP/psiphon-tunnel-core" 2>&1 | tee "$RUNNER_TEMP/psiphon-build.log"
           test -s app/libs/ca.psiphon.aar
           test -s .ghajarvpn-src/app/libs/ca.psiphon.aar
           unzip -l .ghajarvpn-src/app/libs/ca.psiphon.aar | grep -E 'classes.jar|libgojni.so'
@@ -209,14 +210,15 @@ jobs:
         run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true :browser:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
       - name: Collect Kotlin compile errors
         if: failure()
-        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: |
           set +e
-          if [ ! -s "$RUNNER_TEMP/build.log" ]; then
-            ./gradlew --no-daemon :app:compileDebugKotlin > "$RUNNER_TEMP/build.log" 2>&1
+          if [ -s "$RUNNER_TEMP/build.log" ]; then
+            cp "$RUNNER_TEMP/build.log" "$GITHUB_WORKSPACE/kotlin-compile.log"
+          elif [ -n "$GHAJAR_SOURCE_ROOT" ] && [ -d "$GHAJAR_SOURCE_ROOT" ]; then
+            (cd "$GHAJAR_SOURCE_ROOT" && ./gradlew --no-daemon :app:compileDebugKotlin) > "$RUNNER_TEMP/build.log" 2>&1
+            cp "$RUNNER_TEMP/build.log" "$GITHUB_WORKSPACE/kotlin-compile.log"
           fi
-          grep -E "^e: |error: |Caused by|FAILED" "$RUNNER_TEMP/build.log" | sort -u | head -80
-          cp "$RUNNER_TEMP/build.log" "$GITHUB_WORKSPACE/kotlin-compile.log"
+          cp "$RUNNER_TEMP"/*.log "$GITHUB_WORKSPACE"/ 2>/dev/null
           # Blob storage artifacts are unreachable from some networks; publish
           # the same log on a side branch so it stays fetchable via plain git.
           # NOTE: run from the Ghajarvpn checkout itself (not .ghajarvpn-src,
@@ -225,7 +227,7 @@ jobs:
           git -C "$GITHUB_WORKSPACE" config user.email "ci@ghajarvpn.local"
           git -C "$GITHUB_WORKSPACE" checkout --orphan ci-error-report
           git -C "$GITHUB_WORKSPACE" reset --quiet
-          git -C "$GITHUB_WORKSPACE" add -f kotlin-compile.log
+          git -C "$GITHUB_WORKSPACE" add -f ./*.log
           git -C "$GITHUB_WORKSPACE" commit --quiet -m "build log from run ${GITHUB_RUN_ID}"
           git -C "$GITHUB_WORKSPACE" push --force origin ci-error-report
       - uses: actions/upload-artifact@v4
