@@ -92,6 +92,9 @@ jobs:
             exit 1
           fi
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          # Match the app's Android 8+ (API 26) minSdk; a higher AAR minSdk
+          # would fail the manifest merger against app/src/main/AndroidManifest.xml.
+          export PSIPHON_ANDROID_API=26
           chmod +x scripts/build-psiphon-aar.sh
           set -o pipefail
           ./scripts/build-psiphon-aar.sh .ghajarvpn-src "$RUNNER_TEMP/psiphon-tunnel-core" 2>&1 | tee "$RUNNER_TEMP/psiphon-build.log"
