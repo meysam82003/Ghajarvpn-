@@ -44,25 +44,6 @@ jobs:
           packages: platform-tools
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
-      - name: Build Psiphon engine AAR (ca.psiphon.aar)
-        run: |
-          # Psiphon tunnel-core fork on the shirokhorshid branch, pinned to a
-          # reviewed commit so the Go/gomobile build stays reproducible.
-          psiphon_sha='83aa73b9b982e7421e00117f5b0c5aceb5dda452'
-          git clone --depth 1 -b shirokhorshid \
-            https://github.com/CluvexStudio/psiphon-tunnel-core \
-            "$RUNNER_TEMP/psiphon-tunnel-core"
-          actual_sha="$(git -C "$RUNNER_TEMP/psiphon-tunnel-core" rev-parse HEAD)"
-          if [ "$actual_sha" != "$psiphon_sha" ]; then
-            echo "::error::psiphon-tunnel-core shirokhorshid moved: expected $psiphon_sha, got $actual_sha" >&2
-            exit 1
-          fi
-          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
-          export PSIPHON_DIR="$RUNNER_TEMP/psiphon-tunnel-core"
-          chmod +x scripts/build-psiphon-aar.sh
-          ./scripts/build-psiphon-aar.sh
-          test -s app/libs/ca.psiphon.aar
-          unzip -l app/libs/ca.psiphon.aar | grep -E 'classes.jar|jni/.*/libgojni.so'
       - name: Materialize complete build tree and overlay newest reviewed app sources
         run: |
           # The GitHub tree carries the reviewed patch distribution, so the
@@ -74,13 +55,13 @@ jobs:
           rsync -a app/src/ .ghajarvpn-src/app/src/
           rsync -a app/libs/ .ghajarvpn-src/app/libs/
 
-          # The CI-built Psiphon AAR rides in app/libs; wire it into the
-          # reconstructed baseline's app/build.gradle.kts (idempotent).
-          test -s app/libs/ca.psiphon.aar
-          grep -q 'ca.psiphon.aar' .ghajarvpn-src/app/build.gradle.kts || \
-            sed -i '/libs\/gozarcore.aar/a\    implementation(files("libs/ca.psiphon.aar"))' \
-              .ghajarvpn-src/app/build.gradle.kts
+          # The combined gomobile AAR (gozarcore Xray engine + Psiphon tunnel
+          # in one Go runtime) replaces the inherited gozarcore.aar binary:
+          # two gomobile AARs cannot coexist (duplicate go.Seq/libgojni.so).
+          sed -i 's|implementation(files("libs/gozarcore.aar"))|implementation(files("libs/ca.psiphon.aar"))|' \
+            .ghajarvpn-src/app/build.gradle.kts
           grep -q 'ca.psiphon.aar' .ghajarvpn-src/app/build.gradle.kts
+          rm -f .ghajarvpn-src/app/libs/gozarcore.aar
 
           # The reconstructed baseline already owns AppGreen in DotGlobe.kt.
           if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt ]] && \
@@ -96,8 +77,26 @@ jobs:
           echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
           test -f .ghajarvpn-src/gradlew
           test -f .ghajarvpn-src/browser/build.gradle.kts
-          test -f .ghajarvpn-src/app/libs/gozarcore.aar
           chmod +x .ghajarvpn-src/gradlew
+      - name: Build combined gozarcore+psiphon AAR (ca.psiphon.aar)
+        run: |
+          # Psiphon tunnel-core fork on the shirokhorshid branch, pinned to a
+          # reviewed commit so the Go/gomobile build stays reproducible.
+          psiphon_sha='83aa73b9b982e7421e00117f5b0c5aceb5dda452'
+          git clone --depth 1 -b shirokhorshid \
+            https://github.com/CluvexStudio/psiphon-tunnel-core \
+            "$RUNNER_TEMP/psiphon-tunnel-core"
+          actual_sha="$(git -C "$RUNNER_TEMP/psiphon-tunnel-core" rev-parse HEAD)"
+          if [ "$actual_sha" != "$psiphon_sha" ]; then
+            echo "::error::psiphon-tunnel-core shirokhorshid moved: expected $psiphon_sha, got $actual_sha" >&2
+            exit 1
+          fi
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          chmod +x scripts/build-psiphon-aar.sh
+          ./scripts/build-psiphon-aar.sh .ghajarvpn-src "$RUNNER_TEMP/psiphon-tunnel-core"
+          test -s app/libs/ca.psiphon.aar
+          test -s .ghajarvpn-src/app/libs/ca.psiphon.aar
+          unzip -l .ghajarvpn-src/app/libs/ca.psiphon.aar | grep -E 'classes.jar|libgojni.so'
       - name: Verify newest uploaded sources are compiled byte-for-byte
         working-directory: .ghajarvpn-src
         run: |
