@@ -206,6 +206,20 @@ jobs:
           GHAJAR_DEMO_KEY_ALIAS: ${{ secrets.GHAJAR_DEMO_KEY_ALIAS }}
           GHAJAR_DEMO_KEY_PASSWORD: ${{ secrets.GHAJAR_DEMO_KEY_PASSWORD }}
         run: ./gradlew --no-daemon -Pghajar.demo=true -Pghajar.demo.signed=true :browser:testDebugUnitTest :app:testDebugUnitTest :app:assembleDebug
+      - name: Collect Kotlin compile errors
+        if: failure()
+        working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
+        run: |
+          set +e
+          ./gradlew --no-daemon :app:compileDebugKotlin > "$RUNNER_TEMP/kotlin-compile.log" 2>&1
+          grep -E "^e: |error: |Caused by|FAILED" "$RUNNER_TEMP/kotlin-compile.log" | sort -u | head -60
+          cp "$RUNNER_TEMP/kotlin-compile.log" "$GITHUB_WORKSPACE/kotlin-compile.log"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: kotlin-compile-errors
+          path: kotlin-compile.log
+          if-no-files-found: warn
       - name: Verify OpenVPN native launcher is packaged
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: |
