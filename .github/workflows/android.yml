@@ -216,13 +216,15 @@ jobs:
           cp "$RUNNER_TEMP/kotlin-compile.log" "$GITHUB_WORKSPACE/kotlin-compile.log"
           # Blob storage artifacts are unreachable from some networks; publish
           # the same log on a side branch so it stays fetchable via plain git.
-          git config user.name "CI Diagnostics"
-          git config user.email "ci@ghajarvpn.local"
-          git checkout --orphan ci-error-report
-          git reset --quiet
-          git add -f "$GITHUB_WORKSPACE/kotlin-compile.log"
-          git commit --quiet -m "kotlin compile errors from run ${GITHUB_RUN_ID}"
-          git push --force origin ci-error-report
+          # NOTE: run from the Ghajarvpn checkout itself (not .ghajarvpn-src,
+          # whose origin is the read-only upstream fork).
+          git -C "$GITHUB_WORKSPACE" config user.name "CI Diagnostics"
+          git -C "$GITHUB_WORKSPACE" config user.email "ci@ghajarvpn.local"
+          git -C "$GITHUB_WORKSPACE" checkout --orphan ci-error-report
+          git -C "$GITHUB_WORKSPACE" reset --quiet
+          git -C "$GITHUB_WORKSPACE" add -f kotlin-compile.log
+          git -C "$GITHUB_WORKSPACE" commit --quiet -m "kotlin compile errors from run ${GITHUB_RUN_ID}"
+          git -C "$GITHUB_WORKSPACE" push --force origin ci-error-report
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
