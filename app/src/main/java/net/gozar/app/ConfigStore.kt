@@ -318,6 +318,33 @@ class ConfigStore private constructor(context: Context) {
         return cfg
     }
 
+    /** Finds the singleton Psiphon config, creating it on first use. Unlike
+     * seedDefaultAetherIfNeeded() this isn't a one-shot on first app launch -
+     * it's created lazily the first time the user opens the Psiphon hub, since
+     * (unlike Aether) it isn't meant to appear in every install by default. */
+    fun ensurePsiphonConfig(): ProxyConfig {
+        _configs.value.firstOrNull { it.protocol == "psiphon" }?.let { return it }
+        val cfg = ProxyConfig(
+            name = "Psiphon",
+            protocol = "psiphon",
+            address = "127.0.0.1",
+            port = 0,
+            psiphonMode = "auto",
+            psiphonCountry = "",
+            source = ConfigSource.COMMUNITY
+        )
+        _configs.value = _configs.value + cfg
+        persistConfigs()
+        return cfg
+    }
+
+    fun updatePsiphonSettings(id: String, mode: String, country: String) {
+        _configs.value = _configs.value.map {
+            if (it.id == id) it.copy(psiphonMode = mode, psiphonCountry = country) else it
+        }
+        persistConfigs()
+    }
+
     fun upsertSubscription(sub: Subscription, fetched: List<ProxyConfig>) {
         val oldBySig = _configs.value.filter { it.subId == sub.id }
             .associateBy { sigOf(it) }.toMutableMap()

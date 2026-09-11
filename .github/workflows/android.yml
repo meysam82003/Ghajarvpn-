@@ -19,7 +19,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - name: Reject signed demos from non-main refs
         if: github.event_name == 'workflow_dispatch' && inputs.signed_demo && github.ref != 'refs/heads/main'
@@ -34,6 +34,9 @@ jobs:
           distribution: temurin
           java-version: '17'
           cache: gradle
+      - uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
       - name: Install native prerequisites
         run: sudo apt-get update && sudo apt-get install -y swig ninja-build rsync
       - uses: android-actions/setup-android@v3
@@ -41,6 +44,25 @@ jobs:
           packages: platform-tools
       - name: Install Android SDK and NDK
         run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+      - name: Build Psiphon engine AAR (ca.psiphon.aar)
+        run: |
+          # Psiphon tunnel-core fork on the shirokhorshid branch, pinned to a
+          # reviewed commit so the Go/gomobile build stays reproducible.
+          psiphon_sha='83aa73b9b982e7421e00117f5b0c5aceb5dda452'
+          git clone --depth 1 -b shirokhorshid \
+            https://github.com/CluvexStudio/psiphon-tunnel-core \
+            "$RUNNER_TEMP/psiphon-tunnel-core"
+          actual_sha="$(git -C "$RUNNER_TEMP/psiphon-tunnel-core" rev-parse HEAD)"
+          if [ "$actual_sha" != "$psiphon_sha" ]; then
+            echo "::error::psiphon-tunnel-core shirokhorshid moved: expected $psiphon_sha, got $actual_sha" >&2
+            exit 1
+          fi
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          export PSIPHON_DIR="$RUNNER_TEMP/psiphon-tunnel-core"
+          chmod +x scripts/build-psiphon-aar.sh
+          ./scripts/build-psiphon-aar.sh
+          test -s app/libs/ca.psiphon.aar
+          unzip -l app/libs/ca.psiphon.aar | grep -E 'classes.jar|jni/.*/libgojni.so'
       - name: Materialize complete build tree and overlay newest reviewed app sources
         run: |
           # The GitHub tree carries the reviewed patch distribution, so the
@@ -51,6 +73,14 @@ jobs:
           # are the canonical app overlay; the reviewed baseline owns the rest.
           rsync -a app/src/ .ghajarvpn-src/app/src/
           rsync -a app/libs/ .ghajarvpn-src/app/libs/
+
+          # The CI-built Psiphon AAR rides in app/libs; wire it into the
+          # reconstructed baseline's app/build.gradle.kts (idempotent).
+          test -s app/libs/ca.psiphon.aar
+          grep -q 'ca.psiphon.aar' .ghajarvpn-src/app/build.gradle.kts || \
+            sed -i '/libs\/gozarcore.aar/a\    implementation(files("libs/ca.psiphon.aar"))' \
+              .ghajarvpn-src/app/build.gradle.kts
+          grep -q 'ca.psiphon.aar' .ghajarvpn-src/app/build.gradle.kts
 
           # The reconstructed baseline already owns AppGreen in DotGlobe.kt.
           if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt ]] && \
@@ -72,15 +102,17 @@ jobs:
         working-directory: .ghajarvpn-src
         run: |
           cat <<'SHA256' | sha256sum -c -
-          6d09995caa9f4c06232602d5dc5ec1d0afde416408c45fecafd0a698df088321  app/src/main/java/net/gozar/app/ConfigStore.kt
+          d8f348c267ce5f19bad7ba74ece5373be8c286bf2b6740a6644535cd278e11a9  app/src/main/java/net/gozar/app/ConfigStore.kt
           86aa7219c7504f8e6fc7567b712d62a65fe566b9ae2366dd6514e215c423c6de  app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
           c91d08af8c0dd5c73bc593eab489f702102b3640ef0aa930600b4ad3d6640da4  app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
           c9274edadb786689fc11256d146b176408104c7d4baeb360f4845dac2be004e3  app/src/main/java/net/gozar/app/GhajarShopScreen.kt
-          6a77e5b8f144a85389a63a29aa188fb38a0bc47c1755126e5163ee94639d696b  app/src/main/java/net/gozar/app/GozarVpnService.kt
+          e88a7947c9562d35151d3f75b03f50c14adfb88360052e596a55a9d49f463984  app/src/main/java/net/gozar/app/GozarVpnService.kt
           e6d3b007ccd9cef2739c524f93b031731a80485db4217fa74f1b5ba49f8a6d9d  app/src/main/java/net/gozar/app/Gozarapplication.kt
-          00adaedbe7cf671e7799ffbb885accf549f02bc52f3c921e4afe7c3677174e0a  app/src/main/java/net/gozar/app/MainActivity.kt
-          02b01b201cf0d8b06773b18a096b4a643744169ee5add23327db816081c4f9ff  app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
+          847ae679c2c0a75578b4b7ac1a91e954eb7e88b9db5ddbdb22255e59b6b11fcb  app/src/main/java/net/gozar/app/MainActivity.kt
+          d71d1692a7a941e49b80dad3dc5040b197fbdc0a8d631e6357ccc637e47faded  app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
           5231734910241f05211dd1662e2d73b321bf08f791958512c55fb558eec07467  app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
+          af5025b79e7be582ee4b7137eb74065a86f88e7298d087f245e275ea0088b8fc  app/src/main/java/net/gozar/app/PsiphonConfig.kt
+          5dd550f3f4674ffe6dd68904bfc63c41c99933f14d680814d34ee536bba26835  app/src/main/java/net/gozar/app/PsiphonEngine.kt
           SHA256
           echo 'Newest uploaded source changes verified byte-for-byte.'
       - name: Verify OpenVPN remote-process contract
@@ -186,6 +218,10 @@ jobs:
           for apk in "${apks[@]}"; do
             if ! unzip -l "$apk" | grep -Eq 'lib/[^/]+/libovpnexec\.so$'; then
               echo "OpenVPN native launcher libovpnexec.so is missing from $apk" >&2
+              exit 1
+            fi
+            if ! unzip -l "$apk" | grep -Eq 'lib/[^/]+/libgojni\.so$'; then
+              echo "Psiphon engine libgojni.so is missing from $apk" >&2
               exit 1
             fi
           done

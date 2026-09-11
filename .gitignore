@@ -6,3 +6,6 @@ local.properties
 .externalNativeBuild/
 .cxx/
 captures/
+
+# Psiphon engine AAR is built in CI (scripts/build-psiphon-aar.sh), never committed
+app/libs/ca.psiphon.aar

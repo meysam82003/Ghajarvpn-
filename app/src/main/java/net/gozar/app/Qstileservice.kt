@@ -20,6 +20,8 @@ class QsTileService : TileService() {
 
     private var scope: CoroutineScope? = null
     private var collectJob: Job? = null
+    private var pingJob: Job? = null
+    private var livePingMs: Int? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -37,14 +39,42 @@ class QsTileService : TileService() {
             ConfigStore.get(applicationContext).awaitReady()
             render()
         }
+        s.launch { pingLoop() }.also { pingJob = it }
         render()
     }
 
     override fun onStopListening() {
         collectJob?.cancel()
         collectJob = null
+        pingJob?.cancel()
+        pingJob = null
         scope = null
+        livePingMs = null
         super.onStopListening()
+    }
+
+    /**
+     * Restores the "tap it and see the ping right away" behaviour: as soon as
+     * the tunnel is CONNECTED, this measures a real round trip to the active
+     * server and puts it in the tile's subtitle (e.g. "42ms") instead of the
+     * generic "متصل" text, refreshing every few seconds while connected.
+     */
+    private suspend fun pingLoop() {
+        while (true) {
+            if (VpnState.state.value == Connection.CONNECTED) {
+                val store = runCatching { ConfigStore.get(applicationContext) }.getOrNull()
+                val id = VpnState.activeId.value
+                val config = store?.configs?.value?.firstOrNull { it.id == id }
+                livePingMs = if (config != null && config.address.isNotBlank() && config.port > 0) {
+                    (Pinger.ping(config.address, config.port, timeoutMs = 4000) as? PingResult.Ok)?.ms
+                } else null
+                render()
+                kotlinx.coroutines.delay(8000)
+            } else {
+                if (livePingMs != null) { livePingMs = null; render() }
+                kotlinx.coroutines.delay(1000)
+            }
+        }
     }
 
     override fun onClick() {
@@ -175,6 +205,7 @@ class QsTileService : TileService() {
         tile.contentDescription = "${tile.label}، $status"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             tile.subtitle = when {
+                active && livePingMs != null -> "${livePingMs}ms"
                 active -> status
                 selectedName != null -> BrandConfig.sanitizePublicText(selectedName)
                 else -> Strings.get(lang, "tap_choose")

@@ -15,7 +15,7 @@ object ConfigDebug {
 
     private val KNOWN_PROTOCOLS = setOf(
         "vless", "vmess", "trojan", "shadowsocks", "hysteria2",
-        "wireguard", "ikev2", "socks", "http", "aether", "tor"
+        "wireguard", "ikev2", "socks", "http", "aether", "tor", "psiphon"
     )
     private val KNOWN_NETWORKS = setOf("tcp", "kcp", "ws", "httpupgrade", "xhttp", "grpc", "http")
     private val KNOWN_SECURITY = setOf("none", "tls", "reality")
@@ -41,7 +41,7 @@ object ConfigDebug {
     private val B64_RE = Regex("^[A-Za-z0-9+/_-]+=*$")
 
     fun usesTcpProbe(c: ProxyConfig): Boolean = when (c.protocol.trim().lowercase()) {
-        "hysteria2", "wireguard", "aether", "tor", "ikev2" -> false
+        "hysteria2", "wireguard", "aether", "tor", "psiphon", "ikev2" -> false
         else -> true
     }
 

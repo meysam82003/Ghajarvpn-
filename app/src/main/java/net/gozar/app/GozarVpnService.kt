@@ -23,6 +23,7 @@ class GozarVpnService : VpnService() {
 
     private var tunFd: ParcelFileDescriptor? = null
     private var aetherSpec: AetherSpec? = null
+    private var psiphonSpec: PsiphonSpec? = null
     private var torSpec: String? = null
     private var blockFd: ParcelFileDescriptor? = null
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -123,6 +124,23 @@ class GozarVpnService : VpnService() {
                         return@launch
                     }
                 }
+                val psi = psiphonSpec
+                if (psi != null) {
+                    if (!PsiphonController.available()) {
+                        die("Psiphon engine is not bundled in this build")
+                        return@launch
+                    }
+                    // Runs in-process and needs VpnService.protect(), unlike
+                    // Aether's subprocess - pass this service itself.
+                    val up = withContext(Dispatchers.IO) {
+                        PsiphonController.start(this@GozarVpnService, psi)
+                    }
+                    if (!up) {
+                        PsiphonController.stop()
+                        die("Psiphon failed to start")
+                        return@launch
+                    }
+                }
                 runCatching { Gozarcore.stop() }
                 Gozarcore.start(configJson, pfd.detachFd().toLong())
                 Log.i(TAG, "Xray core started, tunnel up")
@@ -189,9 +207,11 @@ class GozarVpnService : VpnService() {
         pollJob?.cancel(); pollJob = null
         runCatching { Gozarcore.stop() }
         AetherController.stop()
+        PsiphonController.stop()
         TorController.stop()
         runCatching { tunFd?.close() }; tunFd = null
         aetherSpec = AetherSpec.from(config)
+        psiphonSpec = PsiphonSpec.from(config)
         torSpec = if (config.protocol == "tor")
             config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
         configName = config.name
@@ -256,7 +276,7 @@ class GozarVpnService : VpnService() {
 
                 if (!tearingDown) {
                     getSystemService(NotificationManager::class.java)
-                        ?.notify(NOTIF_ID, buildNotification(downSpeed, upSpeed))
+                        ?.notify(NOTIF_ID, buildNotification(down, up, downSpeed, upSpeed))
                 }
 
                 delay(1000)
@@ -269,6 +289,7 @@ class GozarVpnService : VpnService() {
         val killOn = runCatching { ConfigStore.get(applicationContext).killSwitch.value }.getOrDefault(false)
         if (error != null && killOn) {
             AetherController.stop()
+            PsiphonController.stop()
             TorController.stop()
             enterKillSwitch(error)
             return
@@ -279,6 +300,7 @@ class GozarVpnService : VpnService() {
         pollJob = null
         runCatching { Gozarcore.stop() }
         AetherController.stop()
+        PsiphonController.stop()
         TorController.stop()
         if (error != null) VpnBridge.sendError(applicationContext, error)
         else VpnBridge.sendDisconnected(applicationContext)
@@ -313,13 +335,17 @@ class GozarVpnService : VpnService() {
     override fun onDestroy() {
         stopAutoSelect()
         AetherController.stop()
+        PsiphonController.stop()
         TorController.stop()
         runCatching { blockFd?.close() }; blockFd = null
         runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
         super.onDestroy()
     }
 
-    private fun buildNotification(downSpeed: Long = 0, upSpeed: Long = 0): Notification {
+    private fun buildNotification(
+        totalDown: Long = 0, totalUp: Long = 0,
+        downSpeed: Long = 0, upSpeed: Long = 0
+    ): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
@@ -333,11 +359,16 @@ class GozarVpnService : VpnService() {
             this, 1, Intent(this, GozarVpnService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
+        // First line: live instantaneous speed (updates every second). Second
+        // line: total data used this session so far. Both, not one replacing
+        // the other.
         val speedLine = "↓ ${fmt(downSpeed)}/s   ↑ ${fmt(upSpeed)}/s"
+        val usageLine = "${fmt(totalDown)} دانلود  •  ${fmt(totalUp)} آپلود"
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(configName)
             .setContentText(speedLine)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setStyle(Notification.BigTextStyle().bigText("$speedLine\n$usageLine"))
+            .setSmallIcon(R.drawable.ic_stat_ghajar)
             .setContentIntent(pi)
             .addAction(
                 Notification.Action.Builder(
@@ -366,7 +397,7 @@ class GozarVpnService : VpnService() {
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle("Kill switch active")
             .setContentText("Connection lost — internet is blocked to prevent leaks")
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(R.drawable.ic_stat_ghajar)
             .setContentIntent(pi)
             .addAction(
                 Notification.Action.Builder(

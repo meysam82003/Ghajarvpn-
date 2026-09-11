@@ -522,6 +522,7 @@ object ConfigBuilder {
     private fun buildOutbound(config: ProxyConfig): JSONObject {
         if (config.protocol == "wireguard") return buildWireguard(config)
         if (config.protocol == "aether") return buildAether()
+        if (config.protocol == "psiphon") return buildPsiphon()
         if (config.protocol == "hysteria2") return buildHysteria2(config)
         if (config.protocol == "tor") return buildTor()
         val settings = when (config.protocol) {
@@ -618,6 +619,14 @@ object ConfigBuilder {
         val server = JSONObject()
             .put("address", "127.0.0.1")
             .put("port", AetherController.SOCKS_PORT)
+        val settings = JSONObject().put("servers", JSONArray().put(server))
+        return JSONObject().put("tag", "proxy").put("protocol", "socks").put("settings", settings)
+    }
+
+    private fun buildPsiphon(): JSONObject {
+        val server = JSONObject()
+            .put("address", "127.0.0.1")
+            .put("port", PsiphonController.SOCKS_PORT)
         val settings = JSONObject().put("servers", JSONArray().put(server))
         return JSONObject().put("tag", "proxy").put("protocol", "socks").put("settings", settings)
     }

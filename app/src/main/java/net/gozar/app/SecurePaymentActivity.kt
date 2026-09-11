@@ -219,9 +219,11 @@ class SecurePaymentActivity : Activity() {
         if (!userInitiated) {
             // Auto-redirects into a bank app must not fling the user out of the
             // checkout task; the invoice stays resumable from the shop instead.
+            GhajarLog.w("Payment", "blocked auto-redirect to non-https uri host=${uri.host} scheme=${uri.scheme}")
             Toast.makeText(this, "درگاه می‌خواهد برنامهٔ بانکی باز کند؛ برای ادامه، لینک پرداخت را از داخل صفحه لمس کن.", Toast.LENGTH_LONG).show()
             return true
         }
+        GhajarLog.d("Payment", "user tapped external link host=${uri.host} scheme=${uri.scheme}")
         val clean = uri.toString()
             .replace(Regex("(?i);S\\.browser_fallback_url=[^;]*"), "")
             .toUri()
@@ -295,7 +297,16 @@ class SecurePaymentActivity : Activity() {
 
         override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
             if (request?.isForMainFrame != true) return false
-            return request.url?.let(::route) ?: true
+            val uri = request.url ?: return true
+            // hasGesture() is the actual signal for "the user tapped this link".
+            // This used to always pass the userInitiated=true default, so a page
+            // redirect the gateway fires on its own load (no tap at all) was
+            // treated identically to a real tap and silently handed off via
+            // ACTION_VIEW + FLAG_ACTIVITY_NEW_TASK in openInstalledBankApp() -
+            // which is exactly the "app jumps out to another app" bug: the very
+            // first navigation after the checkout page starts loading can be an
+            // automatic redirect, well before the user has touched anything.
+            return route(uri, userInitiated = request.hasGesture())
         }
 
         override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: android.net.http.SslError?) {

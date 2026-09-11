@@ -130,6 +130,7 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     implementation(files("libs/gozarcore.aar"))
+    implementation(files("libs/ca.psiphon.aar"))
     implementation("androidx.compose.material:material-icons-extended")
     implementation("dev.chrisbanes.haze:haze:1.6.0")
     implementation("com.google.zxing:core:3.5.3")

@@ -1113,9 +1113,17 @@ class MainActivity : ComponentActivity() {
     private fun guardedConnect(block: () -> Unit) {
         try { block() }
         catch (error: LinkageError) {
+            GhajarLog.e("GhajarConnect", "LinkageError: ${error.message}")
             VpnState.setError("هستهٔ اتصال بارگذاری نشد؛ نسخهٔ سازگار با گوشی را نصب کن.")
         } catch (error: Exception) {
-            android.util.Log.e("GhajarConnect", error.javaClass.simpleName)
+            // Previously only the exception's class name went to plain Logcat
+            // (android.util.Log), which never reaches the exported "لاگ و
+            // اشکال‌زدایی" screen - so every failure here looked identical in
+            // the log with no way to tell what actually broke. Route the real
+            // class + message through GhajarLog so it's actually diagnosable
+            // from an exported log next time this fires.
+            GhajarLog.e("GhajarConnect", "${error.javaClass.name}: ${error.message}")
+            android.util.Log.e("GhajarConnect", "connect failed", error)
             VpnState.setError("شروع اتصال ناموفق بود؛ مجوز VPN و تنظیمات سرویس را بررسی کن.")
         }
     }
@@ -1274,6 +1282,8 @@ private fun GozarApp(
     var showTorNodes by remember { mutableStateOf(false) }
     var showWindscribe by remember { mutableStateOf(false) }
     var showScanner by remember { mutableStateOf(false) }
+    var showOpenVpnHub by remember { mutableStateOf(false) }
+    var showPsiphonHub by remember { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
     val updateCtx = LocalContext.current
     val updateUri = LocalUriHandler.current
@@ -1431,7 +1441,7 @@ private fun GozarApp(
     var sshSubScreen by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_SSH && sshSubScreen) || (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail))
+    val subScreenOpen = (page == PAGE_SSH && sshSubScreen) || (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
@@ -1442,6 +1452,8 @@ private fun GozarApp(
         page == PAGE_HOME && showScanner -> "scanqr"
         page == PAGE_HOME && showWindscribe -> "windscribe"
         page == PAGE_HOME && showProjects -> "projects"
+        page == PAGE_HOME && showOpenVpnHub -> "openvpnhub"
+        page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
         page == PAGE_HOME -> "connection"
         page == PAGE_DEBUG -> "debugger"
@@ -1470,6 +1482,8 @@ private fun GozarApp(
             showScanner -> showScanner = false
             showTorNodes -> showTorNodes = false
             showProjects -> showProjects = false
+            showOpenVpnHub -> showOpenVpnHub = false
+            showPsiphonHub -> showPsiphonHub = false
             showPicker -> showPicker = false
             usageDetail -> usageDetail = false
             perAppDetail -> perAppDetail = false
@@ -1535,6 +1549,8 @@ private fun GozarApp(
                                 "projects" -> t("free_projects")
                                 "tornodes" -> t("tor_nodes")
                                 "windscribe" -> t("ws_title")
+                                "openvpnhub" -> "OpenVPN"
+                                "psiphonhub" -> "Psiphon"
                                 "scanqr" -> t("scan_qr")
                                 "usage" -> t("data_usage")
                                 "perapp" -> t("per_app")
@@ -1567,6 +1583,8 @@ private fun GozarApp(
                         "projects" -> BounceIconButton(onClick = { showProjects = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "tornodes" -> BounceIconButton(onClick = { showTorNodes = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "windscribe" -> BounceIconButton(onClick = { showWindscribe = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "openvpnhub" -> BounceIconButton(onClick = { showOpenVpnHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "psiphonhub" -> BounceIconButton(onClick = { showPsiphonHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "scanqr" -> BounceIconButton(onClick = { showScanner = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "usage" -> BounceIconButton(onClick = { usageDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "perapp" -> BounceIconButton(onClick = { perAppDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1700,6 +1718,8 @@ private fun GozarApp(
                     showWindscribe -> "windscribe"
                     showTorNodes -> "tornodes"
                     showProjects -> "projects"
+                    showOpenVpnHub -> "openvpnhub"
+                    showPsiphonHub -> "psiphonhub"
                     showPicker -> "picker"
                     else -> "connection"
                 }
@@ -1743,9 +1763,21 @@ private fun GozarApp(
                             onWindscribe = { showWindscribe = true },
                             onScanQr = { showScanner = true },
                             onShareFile = { exportConfigs = it },
+                            onOpenVpnHub = { showOpenVpnHub = true },
+                            onPsiphonHub = { showPsiphonHub = true },
                             onConnectOpenVpn = onConnectOpenVpn,
                             onDisconnectOpenVpn = onDisconnectOpenVpn,
                             onTestOpenVpn = onTestOpenVpn
+                        )
+                        "openvpnhub" -> OpenVpnHubScreen(
+                            onConnect = onConnectOpenVpn,
+                            onDisconnect = onDisconnectOpenVpn,
+                            onTest = onTestOpenVpn
+                        )
+                        "psiphonhub" -> PsiphonHubScreen(
+                            store = store,
+                            onConnect = onConnect,
+                            onDisconnect = onDisconnect
                         )
                         "projects" -> FreeProjectsScreen(
                             store = store,
@@ -2134,6 +2166,8 @@ private fun ConfigPickerScreen(
     onWindscribe: () -> Unit,
     onScanQr: () -> Unit,
     onShareFile: (List<ProxyConfig>) -> Unit,
+    onOpenVpnHub: () -> Unit = {},
+    onPsiphonHub: () -> Unit = {},
     onConnectOpenVpn: (String) -> Unit = {},
     onDisconnectOpenVpn: () -> Unit = {},
     onTestOpenVpn: (String) -> Unit = {},
@@ -2391,7 +2425,9 @@ private fun ConfigPickerScreen(
             onImport = { addMenu = false; filePicker.launch(arrayOf("*/*")) },
             onProjects = { addMenu = false; onFreeProjects() },
             onWindscribe = { addMenu = false; onWindscribe() },
-            onScanQr = { addMenu = false; onScanQr() }
+            onScanQr = { addMenu = false; onScanQr() },
+            onOpenVpn = { addMenu = false; onOpenVpnHub() },
+            onPsiphon = { addMenu = false; onPsiphonHub() }
         )
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2740,7 +2776,7 @@ private fun ConfigPickerScreen(
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             item(key = "openvpn-section") {
-                GhajarOpenVpnSection(onConnect = onConnectOpenVpn, onDisconnect = onDisconnectOpenVpn, onTest = onTestOpenVpn)
+                GhajarOpenVpnSummaryTile(onOpen = onOpenVpnHub)
             }
             grouped.forEach { (sub, subConfigs) ->
                 val wsRow = if (WindscribeBrand.isWindscribe(sub)) wsRowColor else null
@@ -3471,6 +3507,8 @@ private fun AddServerPanel(
     onProjects: () -> Unit,
     onWindscribe: () -> Unit,
     onScanQr: () -> Unit,
+    onOpenVpn: () -> Unit = {},
+    onPsiphon: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -3537,6 +3575,12 @@ private fun AddServerPanel(
                     }
                     AddTile(
                         Icons.Filled.Shield, t("ws_title"), onWindscribe, Modifier.fillMaxWidth()
+                    )
+                    AddTile(
+                        Icons.Filled.Security, "OpenVPN", onOpenVpn, Modifier.fillMaxWidth()
+                    )
+                    AddTile(
+                        Icons.Filled.Public, "Psiphon", onPsiphon, Modifier.fillMaxWidth()
                     )
                     AddTile(
                         Icons.Filled.CardGiftcard, t("free_projects"), onProjects, Modifier.fillMaxWidth(),
@@ -9086,6 +9130,188 @@ private fun formatBytesParts(bytes: Long, lang: Lang): Pair<String, String> {
 }
 
 /** Visible OpenVPN card: saved profiles, state, pre-connect ping, connect/disconnect, edit/delete. */
+@Composable
+@Composable
+private fun GhajarOpenVpnSummaryTile(onOpen: () -> Unit) {
+    // A slim status row instead of the full OpenVPN card: the full profile
+    // list/connect/import controls now live in their own full-size screen
+    // (OpenVpnHubScreen, reachable from "افزودن سرور") so they always have
+    // the whole screen to render in, rather than being squeezed into this
+    // shared list alongside every other config group.
+    val status by GhajarOpenVpnBridge.status.collectAsState()
+    val stateLabel = when (status) {
+        GhajarOvpnState.CONNECTED -> "متصل"
+        GhajarOvpnState.CONNECTING -> "در حال اتصال…"
+        GhajarOvpnState.ERROR -> "اتصال برقرار نشد"
+        GhajarOvpnState.DISCONNECTED -> "متصل نیست"
+    }
+    Surface(
+        onClick = onOpen,
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Icon(Icons.Filled.Security, contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
+            Column(Modifier.weight(1f)) {
+                Text("OpenVPN", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(stateLabel, style = MaterialTheme.typography.labelMedium,
+                    color = when (status) {
+                        GhajarOvpnState.CONNECTED -> MaterialTheme.colorScheme.primary
+                        GhajarOvpnState.ERROR -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    })
+            }
+            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "باز کردن",
+                modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = 180f },
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun PsiphonHubScreen(
+    store: ConfigStore,
+    onConnect: (ProxyConfig) -> Unit,
+    onDisconnect: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Psiphon is a first-class "core" protocol (like Aether/Tor): it rides
+    // through Gozarcore/Xray for the actual TUN<->socks forwarding, so unlike
+    // OpenVPN, home-screen traffic stats/IP and the normal connect pipeline
+    // all work for it out of the box. This screen is just a settings+connect
+    // surface for the one singleton Psiphon config, in its own full screen
+    // per the same reasoning as OpenVpnHubScreen.
+    val configs by store.configs.collectAsState()
+    var configId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { configId = store.ensurePsiphonConfig().id }
+    val config = configs.firstOrNull { it.id == configId } ?: return
+
+    val conn by VpnState.state.collectAsState()
+    val activeId by VpnState.activeId.collectAsState()
+    val isActive = activeId == config.id
+    val statusLabel = when {
+        isActive && conn == Connection.CONNECTED -> "متصل"
+        isActive && conn == Connection.CONNECTING -> "در حال اتصال…"
+        isActive && conn == Connection.ERROR -> "اتصال برقرار نشد"
+        else -> "متصل نیست"
+    }
+
+    var mode by remember(config.id) { mutableStateOf(config.psiphonMode) }
+    var country by remember(config.id) { mutableStateOf(config.psiphonCountry) }
+
+    Column(
+        modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Surface(
+            shape = RoundedCornerShape(18.dp),
+            color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("Psiphon", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "شبکه‌ی متن‌باز Psiphon برای عبور از سانسور - بدون نیاز به آدرس یا پورت سرور.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Text(statusLabel, style = MaterialTheme.typography.labelMedium,
+                    color = when {
+                        isActive && conn == Connection.CONNECTED -> MaterialTheme.colorScheme.primary
+                        isActive && conn == Connection.ERROR -> MaterialTheme.colorScheme.error
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    })
+            }
+        }
+
+        Text("حالت اتصال", style = MaterialTheme.typography.labelLarge)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            listOf(
+                PsiphonConfig.MODE_AUTO to "خودکار",
+                PsiphonConfig.MODE_CDN to "CDN",
+                PsiphonConfig.MODE_DIRECT to "مستقیم"
+            ).forEach { (value, label) ->
+                val selected = mode == value
+                BounceOutlinedButton(
+                    onClick = {
+                        mode = value
+                        store.updatePsiphonSettings(config.id, mode, country)
+                    },
+                    modifier = Modifier.weight(1f),
+                    accent = if (selected) MaterialTheme.colorScheme.primary
+                             else MaterialTheme.colorScheme.outline
+                ) { Text(label, style = MaterialTheme.typography.labelMedium) }
+            }
+        }
+
+        OutlinedTextField(
+            value = country,
+            onValueChange = {
+                country = it.take(2).uppercase(Locale.ROOT)
+                store.updatePsiphonSettings(config.id, mode, country)
+            },
+            label = { Text("کد کشور خروجی (اختیاری - مثال IR، DE)") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        val busy = isActive && conn == Connection.CONNECTING
+        BounceButton(
+            onClick = {
+                if (isActive && conn != Connection.DISCONNECTED && conn != Connection.ERROR) {
+                    onDisconnect()
+                } else {
+                    onConnect(config.copy(psiphonMode = mode, psiphonCountry = country))
+                }
+            },
+            enabled = !busy,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                if (isActive && conn != Connection.DISCONNECTED && conn != Connection.ERROR) "قطع اتصال" else "اتصال",
+                style = MaterialTheme.typography.titleSmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun OpenVpnHubScreen(
+    onConnect: (String) -> Unit,
+    onDisconnect: () -> Unit,
+    onTest: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    // Dedicated, full-size destination for OpenVPN - previously this section
+    // was squeezed inside the shared server-picker list alongside every other
+    // config, which is why it could render half cut off. Here it gets the
+    // same full Column(fillMaxSize) + scroll treatment as WindscribeScreen /
+    // FreeProjectsScreen, so it always has the whole screen to itself.
+    Column(modifier.fillMaxSize()) {
+        Column(
+            Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            GhajarOpenVpnSection(onConnect = onConnect, onDisconnect = onDisconnect, onTest = onTest)
+        }
+    }
+}
+
 @Composable
 private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -> Unit, onTest: (String) -> Unit) {
     val context = LocalContext.current
