@@ -390,10 +390,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release view 1.0.0 --json targetCommitish,assets > "$RUNNER_TEMP/final-release.json"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/1.0.0" --jq .object.sha)" = "$GITHUB_SHA"
           python3 - <<'PYCODE'
           import json,os
           state=json.load(open(os.environ['RUNNER_TEMP']+'/final-release.json'))
-          assert state['targetCommitish']==os.environ['GITHUB_SHA']
           names={a['name'] for a in state['assets']}
           assert {'Ghajarvpn-1.0.0-arm64-v8a-release.apk','Ghajarvpn-1.0.0-armeabi-v7a-release.apk',
             'Ghajarvpn-1.0.0-complete-source.tar.gz','Faoxima-1.0.0-complete-source.zip','SHA256SUMS.txt'} <= names

@@ -35,7 +35,8 @@ object FreeConfigs {
     private val refreshLock = Mutex()
     fun subscriptionOf(store: ConfigStore): Subscription? = store.subscriptions.value.firstOrNull { it.url == SOURCE_URL }
     fun isAdded(store: ConfigStore): Boolean = subscriptionOf(store) != null
-    private fun route(): Proxy = if (VpnState.state.value == Connection.CONNECTED && !IkeController.active)
+    private fun route(): Proxy = if (VpnState.state.value == Connection.CONNECTED && !IkeController.active &&
+        !VpnState.activeId.value.orEmpty().startsWith("ovpn:"))
         Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value)) else Proxy.NO_PROXY
     suspend fun refreshMultiSource(store: ConfigStore, label: String): Int = refresh(store, label)
 
