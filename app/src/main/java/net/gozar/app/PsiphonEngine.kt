@@ -94,6 +94,7 @@ private class PsiphonRuntime(
         override fun onDiagnosticMessage(message: String) = onLog("[psiphon] [*] $message")
 
         override fun onListeningSocksProxyPort(port: Int) {
+            if (!active.get()) return
             socksPort.set(port)
             onSocksPort(port)
             onLog("[psiphon] [+] socks proxy listening on $port")
@@ -103,6 +104,7 @@ private class PsiphonRuntime(
         override fun onHttpProxyPortInUse(port: Int) {}
         override fun onConnecting() = onLog("[psiphon] [*] establishing a tunnel")
         override fun onConnected() {
+            if (!active.get()) return
             onLog("[psiphon] [+] tunnel established")
             this@PsiphonRuntime.onConnected()
         }

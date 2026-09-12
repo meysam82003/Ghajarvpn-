@@ -19,6 +19,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CancellationException
 import java.io.File
 
@@ -29,6 +30,8 @@ class GozarVpnService : VpnService() {
     private var psiphonSpec: PsiphonSpec? = null
     private var oblivionOptions: OblivionOptions? = null
     @Volatile private var enginesReady = false
+    @Volatile private var pendingEnd = false
+    private var endError: String? = null
     private var torSpec: String? = null
     private var blockFd: ParcelFileDescriptor? = null
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -54,6 +57,11 @@ class GozarVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_AETHER_CODE -> {
+                val code = intent.getStringExtra(EXTRA_AETHER_CODE).orEmpty()
+                if (code.matches(Regex("[0-9]{6}"))) scope.launch { runCatching { AetherController.submitEmailCode(code) } }
+                return START_STICKY
+            }
             ACTION_STOP -> {
                 runCatching { blockFd?.close() }; blockFd = null
                 die(null)
@@ -124,6 +132,7 @@ class GozarVpnService : VpnService() {
                 return@launch
             }
             tunFd = pfd
+            if (pfd != null) { runCatching { blockFd?.close() }; blockFd = null }
 
                 setupGeoAssets()
                 val spec = aetherSpec
@@ -334,8 +343,8 @@ class GozarVpnService : VpnService() {
                     enterKillSwitch(error)
                     tearingDown = false
                 } else {
-                    if (error != null) VpnBridge.sendError(applicationContext, error)
-                    else VpnBridge.sendDisconnected(applicationContext)
+                    endError = error
+                    pendingEnd = true
                     stopForeground(STOP_FOREGROUND_REMOVE)
                     getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID)
                     stopSelf()
@@ -364,16 +373,27 @@ class GozarVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        tearingDown = true
+        enginesReady = false
         startJob?.cancel()
         pollJob?.cancel()
-        runCatching { Gozarcore.stop() }
-        runCatching { tunFd?.close() }; tunFd = null
         stopAutoSelect()
-        AetherController.stop()
-        PsiphonController.stop()
-        TorController.stop()
-        runCatching { blockFd?.close() }; blockFd = null
-        runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
+        // Report completion only after native teardown. A new UI retry cannot
+        // start a tunnel that this older service instance is still stopping.
+        scope.launch {
+            engineLock.withLock {
+                runCatching { Gozarcore.stop() }
+                AetherController.stop()
+                PsiphonController.stop()
+                TorController.stop()
+                runCatching { tunFd?.close() }; tunFd = null
+                runCatching { blockFd?.close() }; blockFd = null
+                runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
+            }
+            if (pendingEnd && endError != null) VpnBridge.sendError(applicationContext, endError!!)
+            else VpnBridge.sendDisconnected(applicationContext)
+            scope.cancel()
+        }
         super.onDestroy()
     }
 
@@ -457,6 +477,8 @@ class GozarVpnService : VpnService() {
         private const val TAG = "GozarVpnService"
         private const val CHANNEL_ID = "gozarnet_vpn"
         private const val NOTIF_ID = 1
+        const val ACTION_AETHER_CODE = "net.gozar.app.AETHER_CODE"
+        const val EXTRA_AETHER_CODE = "net.gozar.app.AETHER_EMAIL_CODE"
         const val ACTION_STOP = "net.gozar.app.STOP"
         const val ACTION_WARM = "net.gozar.app.WARM"
         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"

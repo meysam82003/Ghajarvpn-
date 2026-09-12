@@ -209,6 +209,12 @@ object AetherController {
         }
     }
 
+    fun submitEmailCode(code: String) {
+        require(code.matches(Regex("[0-9]{6}"))) { "کد ایمیل باید ۶ رقم باشد" }
+        val running = process ?: return
+        synchronized(running) { running.outputStream.write((code + "\n").toByteArray()); running.outputStream.flush() }
+    }
+
     fun stop() {
         stopping = true
         val p = process ?: return

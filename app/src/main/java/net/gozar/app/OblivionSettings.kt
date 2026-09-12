@@ -10,6 +10,9 @@ import androidx.compose.ui.unit.dp
 
 @Composable
 fun OblivionSettings(raw: String, onChange: (String)->Unit) {
+    val context=androidx.compose.ui.platform.LocalContext.current
+    val connection by VpnState.state.collectAsState()
+    var emailCode by remember { mutableStateOf("") }
     val options=remember(raw){OblivionOptions(raw)}
     @Composable fun choice(label:String,key:String,values:List<Pair<String,String>>) {
         var open by remember { mutableStateOf(false) }
@@ -68,7 +71,16 @@ fun OblivionSettings(raw: String, onChange: (String)->Unit) {
         section("Cloudflare Zero Trust") {
             field("نام تیم","team");field("توکن دسترسی","accessToken",true)
             field("شناسه Service Token","accessId",true);field("رمز Service Token","accessSecret",true)
-            field("ایمیل دسترسی","accessEmail");toggle("Gateway Proxy","gatewayProxy")
+            field("ایمیل دسترسی","accessEmail")
+            if(options.text("accessEmail").isNotBlank() && connection==Connection.CONNECTING) {
+                OutlinedTextField(emailCode,{emailCode=it.filter(Char::isDigit).take(6)},label={Text("کد ۶ رقمی دریافت‌شده در ایمیل")},modifier=Modifier.fillMaxWidth())
+                Button(enabled=emailCode.length==6,onClick={
+                    context.startService(android.content.Intent(context,GozarVpnService::class.java)
+                        .setAction(GozarVpnService.ACTION_AETHER_CODE).putExtra(GozarVpnService.EXTRA_AETHER_CODE,emailCode))
+                    emailCode=""
+                }){Text("تأیید کد ایمیل")}
+            }
+            toggle("Gateway Proxy","gatewayProxy")
         }
     }
 }
