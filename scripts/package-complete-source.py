@@ -20,7 +20,8 @@ aether = Path(sys.argv[4]).resolve()
 assert (android / 'gradlew').is_file()
 assert (android / 'app/libs/ca.psiphon.aar').is_file()
 assert (psiphon / 'MobileLibrary/psi').is_dir()
-assert (aether / 'Cargo.toml').is_file() or (aether / 'go.mod').is_file()
+assert (aether / 'aether/Cargo.toml').is_file()
+assert (aether / 'quiche/Cargo.toml').is_file()
 
 parts = repo / 'server/faoxima-1.0.0/full-source'
 backend = base64.b64decode(''.join(p.read_text() for p in sorted(parts.glob('*.part-*'))), validate=True)
