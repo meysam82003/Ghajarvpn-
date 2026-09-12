@@ -15,6 +15,7 @@
   "app/assets/v1.0.0/router.js": "5ef15f44cd1027f8d916445eb03aed7597d61a53d27632e4046e3bec97a4a0e8",
   "cronbot/cryptocheck.php": "b8136f71af640aef904a673571d4aba92dbf00ad752345afee570d92efe4ac45",
   "lib/DirectPurchase.php": null,
+  "lib/PurchaseRecovery.php": null,
   "lib/PurchaseSettlement.php": null,
   "re/rx/function/database_helpers_2.php": "a11b9846b4d49ee4320562915ea6b8d3abda49efa4d27eb4da04fa73a2635cfe",
   "re/rx/index/bootstrap.php": "7f85e2a5fa45324f25f628a21e0f44a45321cd1c7cc844f9dbae7b448880e1ad",

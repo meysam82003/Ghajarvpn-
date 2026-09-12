@@ -25,4 +25,9 @@ try{GhajarPurchaseSettlement::fund('gateway:missing','2','',0,12);throw new Exce
 check(GhajarPurchaseSettlement::lock('gateway:b'),'advisory lock');GhajarPurchaseSettlement::unlock('gateway:b');
 $manager=new class {function createUser(...$a){throw new RuntimeException('response lost');}function DataUser(...$a){return ['username'=>'same','links'=>['vless://test']];}};
 check(GhajarPurchaseSettlement::create($manager,'panel','product','same',[])['username']==='same','lost response recovers same service rather than refund');
+GhajarPurchaseSettlement::fund('wallet:rollback','6','rollback',40);
+$pdo->exec("CREATE TRIGGER prevent_refund BEFORE UPDATE ON user FOR EACH ROW BEGIN IF NEW.id=6 AND NEW.Balance>OLD.Balance THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='test rollback'; END IF; END");
+try {GhajarPurchaseSettlement::refund('wallet:rollback');throw new Exception('refund unexpectedly committed');}catch(PDOException $e){}
+check(balance(6)===60.0&&GhajarPurchaseSettlement::get('wallet:rollback')['state']==='charged','failed credit rolls back settlement receipt');
+$pdo->exec('DROP TRIGGER prevent_refund');check(GhajarPurchaseSettlement::refund('wallet:rollback')&&balance(6)===100.0,'refund can retry after transaction rollback');
 echo "PASS: wallet and gateway refunds, partial funding, missing invoice, delivered service, ownership and six concurrent callbacks\n";

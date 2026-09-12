@@ -26,18 +26,20 @@ data class PsiphonSpec(
     val mode: String = "auto",
     val country: String = "",
     val cdnIps: String = "",
-    val cdnSni: String = ""
+    val cdnSni: String = "",
+    val oblivionJson: String = ""
 ) {
-    fun toJson(): String = JSONObject().put("mode", mode).put("country", country).put("cdnIps", cdnIps).put("cdnSni", cdnSni).toString()
+    fun toJson(): String = JSONObject().put("mode", mode).put("country", country).put("cdnIps", cdnIps).put("cdnSni", cdnSni).put("oblivionJson", oblivionJson).toString()
 
     companion object {
         fun from(config: ProxyConfig): PsiphonSpec? =
-            if (config.protocol != "psiphon") null
+            if (config.protocol != "psiphon" || !OblivionOptions(config.oblivionJson).psiphon) null
             else PsiphonSpec(
                 mode = config.psiphonMode.ifBlank { "auto" },
                 country = config.psiphonCountry,
                 cdnIps = config.psiphonCdnIps,
-                cdnSni = config.psiphonCdnSni
+                cdnSni = config.psiphonCdnSni,
+                oblivionJson = config.oblivionJson
             )
 
         fun parse(raw: String?): PsiphonSpec? {
@@ -48,7 +50,8 @@ data class PsiphonSpec(
                     mode = o.optString("mode", "auto"),
                     country = o.optString("country", ""),
                     cdnIps = o.optString("cdnIps", ""),
-                    cdnSni = o.optString("cdnSni", "")
+                    cdnSni = o.optString("cdnSni", ""),
+                    oblivionJson = o.optString("oblivionJson", "")
                 )
             }.getOrNull()
         }
@@ -187,7 +190,7 @@ object PsiphonController {
         val dataDir = File(service.filesDir, "psiphon").apply { mkdirs() }
         // socksPort=0 in the request lets tunnel-core pick a free ephemeral
         // port; we read the real one back from onListeningSocksProxyPort.
-        val requestJson = PsiphonConfig.build(spec.mode, 0, spec.country, dataDir, spec.cdnIps, spec.cdnSni)
+        val requestJson = PsiphonConfig.build(spec.mode, 0, spec.country, dataDir, spec.cdnIps, spec.cdnSni, spec.oblivionJson)
 
         val portLatch = java.util.concurrent.CountDownLatch(2)
         val portReported = AtomicBoolean(false)

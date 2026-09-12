@@ -27,6 +27,8 @@ class GozarVpnService : VpnService() {
     private var tunFd: ParcelFileDescriptor? = null
     private var aetherSpec: AetherSpec? = null
     private var psiphonSpec: PsiphonSpec? = null
+    private var oblivionOptions: OblivionOptions? = null
+    @Volatile private var enginesReady = false
     private var torSpec: String? = null
     private var blockFd: ParcelFileDescriptor? = null
     private val scope = CoroutineScope(Dispatchers.IO)
@@ -58,7 +60,7 @@ class GozarVpnService : VpnService() {
                 return START_NOT_STICKY
             }
             ACTION_WARM -> {
-                if (tunFd != null && startJob?.isActive != true && !tearingDown) {
+                if (enginesReady && !tearingDown) {
                     VpnBridge.sendConnected(applicationContext)
                     return START_STICKY
                 }
@@ -66,7 +68,7 @@ class GozarVpnService : VpnService() {
             }
             else -> {
                 val configJson = intent?.getStringExtra(EXTRA_CONFIG)
-                if (startJob?.isActive == true || tunFd != null) return START_STICKY
+                if (startJob?.isActive == true || enginesReady || tunFd != null) return START_STICKY
                 aetherSpec = AetherSpec.parse(intent?.getStringExtra(EXTRA_AETHER))
                 psiphonSpec = PsiphonSpec.parse(intent?.getStringExtra(EXTRA_PSIPHON))
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
@@ -100,17 +102,24 @@ class GozarVpnService : VpnService() {
           engineLock.withLock {
             try {
             ensureActive()
+            val optionJson = psiphonSpec?.oblivionJson ?: aetherSpec?.oblivionJson.orEmpty()
+            val options = if (optionJson.isBlank()) null else OblivionOptions(optionJson).also { it.validate() }
+            oblivionOptions = options
             val builder = Builder()
                 .setSession("GozarNet")
-                .setMtu(1500)
+                .setMtu(options?.number("mtu") ?: 1500)
                 .addAddress("10.10.0.2", 32)
-                .addDnsServer("1.1.1.1")
                 .addRoute("0.0.0.0", 0)
 
+            val resolvers = if (options?.flag("overrideDns") == true)
+                listOf(options.text("dnsPrimary"),options.text("dnsSecondary")).filter { it.isNotBlank() }
+                else listOf("1.1.1.1")
+            resolvers.forEach { builder.addDnsServer(it) }
+            if (options != null && options.text("ipVersion") != "v4") builder.addAddress("fd00::2",128).addRoute("::",0)
             applyPerApp(builder)
 
-            val pfd = builder.establish()
-            if (pfd == null) {
+            val pfd = if (options?.proxyOnly == true) null else builder.establish()
+            if (pfd == null && options?.proxyOnly != true) {
                 die("VPN permission not granted")
                 return@launch
             }
@@ -123,7 +132,7 @@ class GozarVpnService : VpnService() {
                         die("Aether engine is not bundled in this build")
                         return@launch
                     }
-                    val up = withContext(Dispatchers.IO) {
+                    val up = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
                         AetherController.start(applicationContext, spec)
                     }
                     if (!up) {
@@ -153,7 +162,7 @@ class GozarVpnService : VpnService() {
                 runCatching { Gozarcore.stop() }
                 ensureActive()
                 val readyJson = if (psi != null) PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT) else configJson
-                Gozarcore.start(readyJson, pfd.detachFd().toLong())
+                if (pfd != null) Gozarcore.start(readyJson, pfd.detachFd().toLong())
                 Log.i(TAG, "Xray core started, tunnel up")
                 val tor = torSpec
                 if (tor != null) {
@@ -176,6 +185,7 @@ class GozarVpnService : VpnService() {
                     }
                 }
                 ensureActive()
+                enginesReady = true
                 VpnBridge.sendConnected(applicationContext)
                 startPolling()
             } catch (e: CancellationException) {
@@ -250,6 +260,12 @@ class GozarVpnService : VpnService() {
     }
 
     private fun applyPerApp(builder: Builder) {
+        val options = oblivionOptions
+        if (options?.flag("bypassSelected") == true) {
+            val packages = options.text("bypassedApps").split(Regex("[\\s,;]+")) + packageName
+            packages.filter { it.isNotBlank() }.distinct().forEach { runCatching { builder.addDisallowedApplication(it) } }
+            return
+        }
         val store = ConfigStore.get(applicationContext)
         val mode = store.perAppMode.value
         val list = store.perAppList.value
@@ -281,8 +297,8 @@ class GozarVpnService : VpnService() {
             var lastUp = 0L
             var lastDown = 0L
             while (isActive && !tearingDown) {
-                val up = Gozarcore.queryUplink()
-                val down = Gozarcore.queryDownlink()
+                val up = if (oblivionOptions?.proxyOnly == true) 0L else Gozarcore.queryUplink()
+                val down = if (oblivionOptions?.proxyOnly == true) 0L else Gozarcore.queryDownlink()
                 val upSpeed = (up - lastUp).coerceAtLeast(0L)
                 val downSpeed = (down - lastDown).coerceAtLeast(0L)
                 lastUp = up; lastDown = down
@@ -302,6 +318,7 @@ class GozarVpnService : VpnService() {
     private fun die(error: String?) {
         if (tearingDown) return
         tearingDown = true
+        enginesReady = false
         startJob?.cancel()
         scope.launch {
             engineLock.withLock {
@@ -313,7 +330,7 @@ class GozarVpnService : VpnService() {
                 TorController.stop()
                 runCatching { tunFd?.close() }; tunFd = null
                 val killOn = ConfigStore.get(applicationContext).killSwitch.value
-                if (error != null && killOn) {
+                if (error != null && killOn && oblivionOptions?.proxyOnly != true) {
                     enterKillSwitch(error)
                     tearingDown = false
                 } else {

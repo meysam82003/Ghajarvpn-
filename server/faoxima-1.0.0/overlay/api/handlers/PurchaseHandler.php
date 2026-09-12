@@ -260,7 +260,7 @@ final class PurchaseHandler extends BaseHandler
                     ':price'        => $product['price_product'],
                     ':volume'       => $product['Volume_constraint'],
                     ':service_time' => $serviceTime,
-                    ':status'       => 'active',
+                    ':status'       => 'pending',
                     ':note'         => $customNote,
                     ':refral'       => $this->user['affiliates'],
                     ':notifs'       => $notifications,
@@ -287,6 +287,9 @@ final class PurchaseHandler extends BaseHandler
 
         $priceToCharge = (float) $product['price_product'];
         $balanceChargedAtomically = false;
+        $lockKey='wallet:'.$orderId;
+        if(!GhajarPurchaseSettlement::lock($lockKey))FaoximaResponse::fail(409,'این سفارش در حال پردازش است.');
+        register_shutdown_function(static function()use($lockKey){try{GhajarPurchaseSettlement::unlock($lockKey);}catch(Throwable $e){}});
         if ($priceToCharge > 0.0) {
             $agent = $this->user['agent'] ?? 'f';
             $allowNeg = ($agent === 'n2') ? (int)($this->user['maxbuyagent'] ?? 0) : 0;

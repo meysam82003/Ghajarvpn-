@@ -134,6 +134,8 @@ jobs:
       - name: Verify reviewed app sources are compiled byte-for-byte
         run: |
           python3 scripts/verify-app-overlay.py .ghajarvpn-src
+      - name: Install pinned Aether engine for Oblivion settings
+        run: python3 scripts/fetch-aether-release.py .ghajarvpn-src
       - name: Check Faoxima compatibility PHP syntax
         run: |
           find server/faoxima-1.0.0/overlay -name '*.php' -print0 | xargs -0 -n1 php -l

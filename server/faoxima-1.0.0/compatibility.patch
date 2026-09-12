@@ -54,7 +54,22 @@
  
  final class PurchaseHandler extends BaseHandler
  {
-@@ -289,7 +290,8 @@
+@@ -259,7 +260,7 @@
+                     ':price'        => $product['price_product'],
+                     ':volume'       => $product['Volume_constraint'],
+                     ':service_time' => $serviceTime,
+-                    ':status'       => 'active',
++                    ':status'       => 'pending',
+                     ':note'         => $customNote,
+                     ':refral'       => $this->user['affiliates'],
+                     ':notifs'       => $notifications,
+@@ -286,10 +287,14 @@
+ 
+         $priceToCharge = (float) $product['price_product'];
+         $balanceChargedAtomically = false;
++        $lockKey='wallet:'.$orderId;
++        if(!GhajarPurchaseSettlement::lock($lockKey))FaoximaResponse::fail(409,'این سفارش در حال پردازش است.');
++        register_shutdown_function(static function()use($lockKey){try{GhajarPurchaseSettlement::unlock($lockKey);}catch(Throwable $e){}});
          if ($priceToCharge > 0.0) {
              $agent = $this->user['agent'] ?? 'f';
              $allowNeg = ($agent === 'n2') ? (int)($this->user['maxbuyagent'] ?? 0) : 0;
@@ -64,7 +79,7 @@
              if (empty($charge['ok'])) {
                  FaoximaLogger::warn('Atomic balance charge failed at purchase', [
                      'user_id'  => $this->user['id'],
-@@ -297,7 +299,7 @@
+@@ -297,7 +302,7 @@
                      'price'    => $priceToCharge,
                      'reason'   => $charge['reason'] ?? 'unknown',
                  ]);
@@ -73,7 +88,7 @@
                  FaoximaResponse::fail(402, faoxima_textbot_get('dyn_purchase_concurrent_balance_conflict', 'موجودی کافی نیست (تلاش هم‌زمان شناسایی شد). یک بار دیگر تلاش کنید.'));
              }
              $balanceChargedAtomically = true;
-@@ -316,7 +318,7 @@
+@@ -316,7 +321,7 @@
              if (!is_array($stock) || (string)($stock['content'] ?? '') === '') {
                  if (is_array($stock) && function_exists('nmStockReleaseReservation')) nmStockReleaseReservation($stock);
                  if ($balanceChargedAtomically) {
@@ -82,7 +97,7 @@
                          FaoximaLogger::critical('Refund after stock reservation failure did not apply; user balance may be short', [
                              'user_id'  => $this->user['id'],
                              'order_id' => $orderId,
-@@ -326,7 +328,7 @@
+@@ -326,7 +331,7 @@
                          wallet_ledger_record($this->user['id'], 'credit', $priceToCharge, 'refund', 'بازگشت وجه به دلیل خطای انبار', $orderId, 'invoice', $orderId);
                      }
                  }
@@ -91,7 +106,7 @@
                  FaoximaResponse::fail(409, faoxima_textbot_get('dyn_purchase_stock_depleted', '❌ موجودی انبار برای این محصول تمام شده است؛ مبلغی کسر نشد.'));
              }
  
-@@ -341,6 +343,7 @@
+@@ -341,6 +346,7 @@
                  nmStockMarkDelivered($stock['id'], $this->user['id'], $orderId, ['mode' => 'miniapp_national_buy']);
              }
  
@@ -99,7 +114,7 @@
              if ($discountCode !== '') {
                  MiniDiscount::markSellUsed($discountCode, $this->user);
              }
-@@ -421,7 +424,7 @@
+@@ -421,7 +427,7 @@
              'type'       => 'buy',
          ];
  
@@ -108,7 +123,7 @@
              $panel['name_panel'],
              $product['code_product'],
              $usernameAc,
-@@ -439,7 +442,7 @@
+@@ -439,7 +445,7 @@
  
  
              if ($balanceChargedAtomically) {
@@ -117,7 +132,7 @@
                      FaoximaLogger::critical('Refund after createUser failure did not apply; user balance may be short', [
                          'user_id'  => $this->user['id'],
                          'order_id' => $orderId,
-@@ -449,7 +452,7 @@
+@@ -449,7 +455,7 @@
                      wallet_ledger_record($this->user['id'], 'credit', $priceToCharge, 'refund', 'بازگشت وجه به دلیل خطای ساخت سرویس', $orderId, 'invoice', $orderId);
                  }
              }
@@ -126,7 +141,7 @@
  
              $errorText = faoxima_render_text(faoxima_textbot_get('dyn_purchase_create_user_failed_report_tpl', "⭕️ خطای ساخت اشتراک \n<blockquote>✍️ دلیل خطا : </blockquote>\n<blockquote>{reason}</blockquote>\n<blockquote>آیدی کابر : {user_id}</blockquote>\n<blockquote>نام کاربری کاربر : @{username}</blockquote>\n<blockquote>نام پنل : {panel_name}</blockquote>"), [
                  'reason' => $reason,
-@@ -459,9 +462,10 @@
+@@ -459,9 +465,10 @@
              ]);
              $this->reportToChannel($errorText, $errorReport);
  
@@ -1000,7 +1015,16 @@
                          <a href="#/account" class="btn btn-primary btn-block" style="flex:1">حساب من</a>
 --- a/cronbot/cryptocheck.php
 +++ b/cronbot/cryptocheck.php
-@@ -202,7 +202,7 @@
+@@ -29,6 +29,8 @@
+ }
+ 
+ $ManagePanel = class_exists('ManagePanel') ? new ManagePanel() : null;
++require_once __DIR__.'/../lib/PurchaseRecovery.php';
++try { ghajar_recover_purchases($ManagePanel); } catch (Throwable $e) { error_log('[Ghajar recovery] '.$e->getMessage()); }
+ $setting = function_exists('select') ? select('setting', '*') : [];
+ $paymentreports = function_exists('select')
+     ? (select('topicid', 'idreport', 'report', 'paymentreport', 'select')['idreport'] ?? null)
+@@ -202,7 +204,7 @@
          WHERE p.payment_Status = 'paid'
            AND p.Payment_Method = 'arze digital offline'
            AND p.id_invoice LIKE 'getconfigafterpay|%'
@@ -1009,7 +1033,7 @@
            AND (i.id_invoice IS NULL OR LOWER(i.Status) = 'unpaid' OR i.uuid IS NULL OR i.uuid = '')
            AND p.at_updated < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
          LIMIT 25
-@@ -234,7 +234,7 @@
+@@ -234,7 +236,7 @@
                          END
                      WHERE id_order = :o
                        AND payment_Status = 'paid'
@@ -1018,7 +1042,7 @@
                  ");
                  $mark->execute([':note' => $markNote, ':note2' => $markNote, ':o' => $stuckOrderId]);
                  if ($mark->rowCount() < 1) {
-@@ -316,7 +316,7 @@
+@@ -316,7 +318,7 @@
          WHERE p.payment_Status = 'paid'
            AND p.Payment_Method = 'arze digital offline'
            AND p.id_invoice LIKE 'getconfigafterpay|%'
@@ -1029,7 +1053,7 @@
            AND COALESCE(p.crypto_check_count, 0) < 5
 --- /dev/null
 +++ b/lib/DirectPurchase.php
-@@ -0,0 +1,27 @@
+@@ -0,0 +1,33 @@
 +<?php
 +require_once __DIR__.'/PurchaseSettlement.php';
 +
@@ -1049,7 +1073,13 @@
 +        if($state && in_array($state['state'],['delivered','refunded'],true))return;
 +        $username=explode('|',(string)$report['id_invoice'],2)[1];
 +        $q=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND username=? LIMIT 1');$q->execute([$report['id_user'],$username]);$invoice=$q->fetch(PDO::FETCH_ASSOC);
-+        if(!$state && $invoice && strtolower((string)$invoice['Status'])==='active')return;
++        if(!$invoice && $state && $state['invoice_id']!=='') {
++            $q=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND id_invoice=?');$q->execute([$report['id_user'],$state['invoice_id']]);$invoice=$q->fetch(PDO::FETCH_ASSOC);
++        }
++        if($invoice && strtolower((string)$invoice['Status'])==='active') {
++            if(!$state)return;
++            if(!empty($invoice['user_info'])){GhajarPurchaseSettlement::delivered($key);return;}
++        }
 +        $state=GhajarPurchaseSettlement::fund($key,(string)$report['id_user'],(string)($invoice['id_invoice']??''),(float)($invoice['price_product']??0),(float)$report['price']);
 +        if($state['state']==='refunded'){
 +            if(function_exists('sendmessage'))sendmessage($report['id_user'],'سرویس تحویل نشد؛ مبلغ پرداختی در کیف پول شما قرار گرفت.',null,'HTML');return;
@@ -1058,8 +1088,37 @@
 +    } finally { GhajarPurchaseSettlement::unlock($key); }
 +}
 --- /dev/null
++++ b/lib/PurchaseRecovery.php
+@@ -0,0 +1,26 @@
++<?php
++require_once __DIR__.'/PurchaseSettlement.php';
++/** Reconcile uncertain requests without creating another remote account. */
++function ghajar_recover_purchases($manager): void {
++    global $pdo;
++    if(!$manager)return;
++    GhajarPurchaseSettlement::schema();
++    $q=$pdo->prepare("SELECT * FROM ghajar_purchase_settlement WHERE state='charged' AND updated_at<? ORDER BY updated_at LIMIT 3");$q->execute([time()-300]);
++    foreach($q->fetchAll(PDO::FETCH_ASSOC) as $row) {
++        $key=$row['purchase_key'];
++        if(!GhajarPurchaseSettlement::lock($key))continue;
++        try {
++            $fresh=GhajarPurchaseSettlement::get($key);if(($fresh['state']??'')!=='charged')continue;
++            $s=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND id_invoice=?');$s->execute([$row['user_id'],$row['invoice_id']]);$invoice=$s->fetch(PDO::FETCH_ASSOC);
++            $refund=!$invoice;
++            if($invoice) {
++                if(!empty($invoice['user_info']) && strtolower((string)$invoice['Status'])==='active'){GhajarPurchaseSettlement::delivered($key);continue;}
++                $remote=$manager->DataUser($invoice['Service_location'],$invoice['username']);
++                if(is_array($remote)&&($remote['username']??'')===$invoice['username']){GhajarPurchaseSettlement::delivered($key);continue;}
++                $refund=GhajarPurchaseSettlement::missing($remote);
++            }
++            if($refund && GhajarPurchaseSettlement::refund($key) && function_exists('sendmessage'))sendmessage($row['user_id'],'سرویس ساخته نشد؛ مبلغ پرداختی به کیف پول شما برگشت داده شد.',null,'HTML');
++        }catch(Throwable $e){error_log('[Ghajar purchase reconciliation] '.$e->getMessage());}
++        finally{GhajarPurchaseSettlement::unlock($key);}
++    }
++}
+--- /dev/null
 +++ b/lib/PurchaseSettlement.php
-@@ -0,0 +1,101 @@
+@@ -0,0 +1,108 @@
 +<?php
 +declare(strict_types=1);
 +
@@ -1146,6 +1205,11 @@
 +            $q=$db->prepare("UPDATE ghajar_purchase_settlement SET state='delivered',updated_at=? WHERE purchase_key=?");$q->execute([time(),$key]);$db->commit();return true;
 +        }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
 +    }
++    public static function missing($result): bool {
++        if(!is_array($result))return false;
++        $msg=is_string($result['msg']??null)?$result['msg']:json_encode($result['msg']??'');
++        return (bool)preg_match('/\b404\b|(?:user|panel|customer|account).{0,15}not found|does not exist|not_found/i',$msg);
++    }
 +    /** A transport exception is not proof of failure: recover the same username before retrying/refunding. */
 +    public static function create($manager, string $panel, string $product, string $username, array $payload): array {
 +        try { $result=$manager->createUser($panel,$product,$username,$payload); }
@@ -1155,6 +1219,8 @@
 +            if(empty($existing['configs'])&&!empty($existing['links']))$existing['configs']=is_array($existing['links'])?$existing['links']:explode("\n",$existing['links']);
 +            return $existing;
 +        }}catch(Throwable $e){throw new RuntimeException('Service outcome pending reconciliation',0,$e);}
++        $failureText=is_string($result['msg']??null)?$result['msg']:json_encode($result['msg']??'');
++        if(preg_match('/timeout|timed out|connection|network|curl|\b50[0-9]\b|unavailable|response unavailable/i',$failureText))throw new RuntimeException('Service outcome pending reconciliation');
 +        // Unknown outcomes remain charged for retry; a structured panel rejection is definitive.
 +        if(!is_array($result) || !array_key_exists('msg',$result) || ($result['msg']??'')==='Provisioning response unavailable')
 +            throw new RuntimeException('Service outcome pending reconciliation');
@@ -1173,7 +1239,7 @@
  {
      global $pdo, $ManagePanel, $textbotlang, $keyboardextendfnished, $keyboard, $Confirm_pay, $from_id, $message_id, $datatextbot, $update;
      $buyreport = select("topicid", "idreport", "report", "buyreport", "select")['idreport'];
-@@ -1733,75 +1734,10 @@
+@@ -1733,75 +1734,14 @@
      update("user", "Processing_value_tow", "0", "id", $Balance_id['id']);
      update("user", "Processing_value_four", "0", "id", $Balance_id['id']);
      if ($steppay[0] == "getconfigafterpay") {
@@ -1249,11 +1315,15 @@
 +        $stmt = $pdo->prepare("SELECT * FROM invoice WHERE id_user=:u AND username=:n LIMIT 1");
 +        $stmt->execute([':u'=>(string)$Balance_id['id'],':n'=>(string)($steppay[1]??'')]);
 +        $get_invoice=$stmt->fetch(PDO::FETCH_ASSOC);
++        if(!$get_invoice){
++            $owned=GhajarPurchaseSettlement::get('gateway:'.$order_id);
++            $stmt=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND id_invoice=?');$stmt->execute([$Balance_id['id'],$owned['invoice_id']??'']);$get_invoice=$stmt->fetch(PDO::FETCH_ASSOC);
++        }
 +        if(!$get_invoice){GhajarPurchaseSettlement::refund('gateway:'.$order_id);return;}
          $userAgent = $Balance_id['agent'] ?? 'f';
          $stmt = $pdo->prepare("SELECT * FROM product WHERE name_product = :name AND (FIND_IN_SET(:loc, Location) > 0 OR Location = '/all') AND (agent = :agent OR agent = 'all')");
          $stmt->execute([':name' => $get_invoice['name_product'], ':loc' => $get_invoice['Service_location'], ':agent' => $userAgent]);
-@@ -1822,46 +1758,10 @@
+@@ -1822,46 +1762,10 @@
          $randomString = bin2hex(random_bytes(2));
          $marzban_list_get = select("marzban_panel", "*", "name_panel", $get_invoice['Service_location'], "select");
  
@@ -1304,7 +1374,7 @@
          // [username normalize] اگر یوزرنیم فاکتور خالی/کوتاه‌تر از 3 کاراکتر بود، یکی معتبر بساز.
          // این از خطای پنل "Username must be at least 3 characters long" جلوگیری می‌کنه.
          if (!is_string($username_ac) || trim($username_ac) === '' || strlen(trim($username_ac)) < 3) {
-@@ -1895,11 +1795,12 @@
+@@ -1895,11 +1799,12 @@
          );
          if (function_exists('nmPanelNationalEnabled') && nmPanelNationalEnabled($marzban_list_get)) {
              if (is_array($info_product) && nmStockCompleteBuyFromInventory($Balance_id['id'], $Balance_id, $marzban_list_get, $info_product, $get_invoice['id_invoice'], $username_ac, false, 'paid_national_buy')) {
@@ -1318,7 +1388,7 @@
              try {
                  $__nationalNote = '[auto-refund: national stock empty at ' . date('Y-m-d H:i:s') . ']';
                  $__mk = $pdo->prepare("UPDATE Payment_report SET dec_not_confirmed = CASE WHEN dec_not_confirmed IS NULL OR dec_not_confirmed = '' THEN :n1 ELSE CONCAT(dec_not_confirmed, ' | ', :n2) END WHERE id_order = :o");
-@@ -1911,7 +1812,7 @@
+@@ -1911,7 +1816,7 @@
          // [zombie-rescue] قبل از تلاش جدید، اگه قبلاً تو panel یوزری برای این کاربر ساخته شده (zombie)،
          // اول بررسی کن: شاید createUser تو call قبلی موفق بوده فقط response نرسیده. اگه پیدا کردیم،
          // از همون استفاده کن (بدون ساختن یوزر جدید) — این جلوی تولید بیشتر zombie رو می‌گیره.
@@ -1327,7 +1397,7 @@
          try {
              $__pr2 = select("Payment_report", "crypto_check_count", "id_order", $order_id, "select");
              $__cnt = is_array($__pr2) ? (int)($__pr2['crypto_check_count'] ?? 0) : 0;
-@@ -1936,44 +1837,13 @@
+@@ -1936,44 +1841,13 @@
          }
  
          if (empty($dataoutput) || empty($dataoutput['username'])) {
@@ -1365,10 +1435,11 @@
 -                $__mk->execute([':n1' => $__doneNote, ':n2' => $__doneNote, ':o' => $order_id]);
 -            } catch (Throwable $__e) { /* fail-open */ }
 -        }
+-        if ($dataoutput['username'] == null) {
 +            $dataoutput = GhajarPurchaseSettlement::create($ManagePanel, $marzban_list_get['name_panel'], $info_product['code_product'], $username_ac, $datac);
 +        }
 +
-         if ($dataoutput['username'] == null) {
++        if (empty($dataoutput['username'])) {
              $dataoutput['msg'] = json_encode($dataoutput['msg']);
              $balance = $Balance_id['Balance'] + $Payment_report['price'];
 -            balance_atomic_credit($Balance_id['id'], $Payment_report['price']);
@@ -1376,7 +1447,16 @@
              // [refund-marker] برای جلوگیری از double-refund توسط retry — حتماً قبل از sendmessageها مارک کن
              try {
                  $__failNote = '[auto-refund: service creation failed at ' . date('Y-m-d H:i:s') . ']';
-@@ -2002,6 +1872,7 @@
+@@ -1985,7 +1859,7 @@
+                 ? $textbotlang['users']['sell']['ErrorConfig']
+                 : "❌ متاسفانه ساخت سرویس با خطا مواجه شد. مبلغ پرداختی به کیف پول شما برگشت داده شد.";
+             sendmessage($Balance_id['id'], $__uiErr, $keyboard, 'HTML');
+-            sendmessage($Balance_id['id'], "💎  کاربر عزیز بدلیل ساخته نشدن سرویس مبلغ $balance تومان به کیف پول شما اضافه گردید.", $keyboard, 'HTML');
++            sendmessage($Balance_id['id'], "💎  کاربر عزیز بدلیل ساخته نشدن سرویس مبلغ پرداختی به کیف پول شما برگشت داده شد.", $keyboard, 'HTML');
+             $texterros = "
+ ⭕️ خطا در ساخت کانفیگ
+ <blockquote>✍️ دلیل خطا : {$dataoutput['msg']}</blockquote>
+@@ -2002,6 +1876,7 @@
              }
              return;
          }
@@ -1384,7 +1464,7 @@
          $Shoppinginfo = json_encode([
              'inline_keyboard' => [
                  [
-@@ -2081,16 +1952,6 @@
+@@ -2081,16 +1956,6 @@
                  update("setting", "numbercount", $value);
              }
          }

@@ -17,7 +17,13 @@ function DirectPayment($order_id, $image='images.jpg') {
         if($state && in_array($state['state'],['delivered','refunded'],true))return;
         $username=explode('|',(string)$report['id_invoice'],2)[1];
         $q=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND username=? LIMIT 1');$q->execute([$report['id_user'],$username]);$invoice=$q->fetch(PDO::FETCH_ASSOC);
-        if(!$state && $invoice && strtolower((string)$invoice['Status'])==='active')return;
+        if(!$invoice && $state && $state['invoice_id']!=='') {
+            $q=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND id_invoice=?');$q->execute([$report['id_user'],$state['invoice_id']]);$invoice=$q->fetch(PDO::FETCH_ASSOC);
+        }
+        if($invoice && strtolower((string)$invoice['Status'])==='active') {
+            if(!$state)return;
+            if(!empty($invoice['user_info'])){GhajarPurchaseSettlement::delivered($key);return;}
+        }
         $state=GhajarPurchaseSettlement::fund($key,(string)$report['id_user'],(string)($invoice['id_invoice']??''),(float)($invoice['price_product']??0),(float)$report['price']);
         if($state['state']==='refunded'){
             if(function_exists('sendmessage'))sendmessage($report['id_user'],'سرویس تحویل نشد؛ مبلغ پرداختی در کیف پول شما قرار گرفت.',null,'HTML');return;

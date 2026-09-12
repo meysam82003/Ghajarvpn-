@@ -1737,6 +1737,10 @@ function GhajarDirectPaymentLegacy($order_id, $image = 'images.jpg')
         $stmt = $pdo->prepare("SELECT * FROM invoice WHERE id_user=:u AND username=:n LIMIT 1");
         $stmt->execute([':u'=>(string)$Balance_id['id'],':n'=>(string)($steppay[1]??'')]);
         $get_invoice=$stmt->fetch(PDO::FETCH_ASSOC);
+        if(!$get_invoice){
+            $owned=GhajarPurchaseSettlement::get('gateway:'.$order_id);
+            $stmt=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND id_invoice=?');$stmt->execute([$Balance_id['id'],$owned['invoice_id']??'']);$get_invoice=$stmt->fetch(PDO::FETCH_ASSOC);
+        }
         if(!$get_invoice){GhajarPurchaseSettlement::refund('gateway:'.$order_id);return;}
         $userAgent = $Balance_id['agent'] ?? 'f';
         $stmt = $pdo->prepare("SELECT * FROM product WHERE name_product = :name AND (FIND_IN_SET(:loc, Location) > 0 OR Location = '/all') AND (agent = :agent OR agent = 'all')");
@@ -1840,7 +1844,7 @@ function GhajarDirectPaymentLegacy($order_id, $image = 'images.jpg')
             $dataoutput = GhajarPurchaseSettlement::create($ManagePanel, $marzban_list_get['name_panel'], $info_product['code_product'], $username_ac, $datac);
         }
 
-        if ($dataoutput['username'] == null) {
+        if (empty($dataoutput['username'])) {
             $dataoutput['msg'] = json_encode($dataoutput['msg']);
             $balance = $Balance_id['Balance'] + $Payment_report['price'];
             GhajarPurchaseSettlement::refund('gateway:'.$order_id);
@@ -1855,7 +1859,7 @@ function GhajarDirectPaymentLegacy($order_id, $image = 'images.jpg')
                 ? $textbotlang['users']['sell']['ErrorConfig']
                 : "❌ متاسفانه ساخت سرویس با خطا مواجه شد. مبلغ پرداختی به کیف پول شما برگشت داده شد.";
             sendmessage($Balance_id['id'], $__uiErr, $keyboard, 'HTML');
-            sendmessage($Balance_id['id'], "💎  کاربر عزیز بدلیل ساخته نشدن سرویس مبلغ $balance تومان به کیف پول شما اضافه گردید.", $keyboard, 'HTML');
+            sendmessage($Balance_id['id'], "💎  کاربر عزیز بدلیل ساخته نشدن سرویس مبلغ پرداختی به کیف پول شما برگشت داده شد.", $keyboard, 'HTML');
             $texterros = "
 ⭕️ خطا در ساخت کانفیگ
 <blockquote>✍️ دلیل خطا : {$dataoutput['msg']}</blockquote>

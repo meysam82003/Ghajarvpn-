@@ -957,7 +957,7 @@ class MainActivity : ComponentActivity() {
             }
             return
         }
-        VpnCommandCoordinator.onConnectRequested(config.id, if (config.protocol == "psiphon") 100_000L else 45_000L) {
+        VpnCommandCoordinator.onConnectRequested(config.id, if (config.protocol == "psiphon") { when (OblivionOptions(config.oblivionJson).core) { "chain" -> 290_000L; "aether" -> 200_000L; else -> 100_000L } } else if (config.protocol == "aether") 200_000L else 45_000L) {
             if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
                 config.security.trim().lowercase() == "tls"
             ) {
@@ -1176,7 +1176,7 @@ class MainActivity : ComponentActivity() {
             onionRouting = store.onionRouting.value,
             coreLogLevel = store.coreLogLevel.value)
         VpnState.setConnecting(config.id)
-        val aether = if (config.protocol == "aether") AetherController.spec(config) else ""
+        val aether = AetherController.spec(config)
         val psiphon = PsiphonSpec.from(config)?.toJson()
         val intent = VpnService.prepare(this)
         val tor = when {
@@ -9216,6 +9216,8 @@ private fun PsiphonHubScreen(
     var country by remember(config.id) { mutableStateOf(config.psiphonCountry) }
     var cdnIps by remember(config.id) { mutableStateOf(config.psiphonCdnIps) }
     var cdnSni by remember(config.id) { mutableStateOf(config.psiphonCdnSni) }
+    var oblivion by remember(config.id) { mutableStateOf(config.oblivionJson) }
+    var settingsError by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier
@@ -9246,7 +9248,12 @@ private fun PsiphonHubScreen(
             }
         }
 
-        Text("حالت اتصال", style = MaterialTheme.typography.labelLarge)
+        OblivionSettings(oblivion) {
+            oblivion = it
+            store.update(config.copy(oblivionJson = it))
+        }
+        settingsError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Text("حالت اتصال سایفون", style = MaterialTheme.typography.labelLarge)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf(
                 PsiphonConfig.MODE_AUTO to "خودکار",
@@ -9291,7 +9298,9 @@ private fun PsiphonHubScreen(
                 if (isActive && conn != Connection.DISCONNECTED && conn != Connection.ERROR) {
                     onDisconnect()
                 } else {
-                    onConnect(config.copy(psiphonMode = mode, psiphonCountry = country, psiphonCdnIps = cdnIps, psiphonCdnSni = cdnSni))
+                    val error = runCatching { OblivionOptions(oblivion).validate() }.exceptionOrNull()
+                    settingsError = error?.message
+                    if (error == null) onConnect(config.copy(psiphonMode = mode, psiphonCountry = country, psiphonCdnIps = cdnIps, psiphonCdnSni = cdnSni, oblivionJson = oblivion))
                 }
             },
             enabled = conn != Connection.DISCONNECTING,

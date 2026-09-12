@@ -84,6 +84,11 @@ final class GhajarPurchaseSettlement
             $q=$db->prepare("UPDATE ghajar_purchase_settlement SET state='delivered',updated_at=? WHERE purchase_key=?");$q->execute([time(),$key]);$db->commit();return true;
         }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
     }
+    public static function missing($result): bool {
+        if(!is_array($result))return false;
+        $msg=is_string($result['msg']??null)?$result['msg']:json_encode($result['msg']??'');
+        return (bool)preg_match('/\b404\b|(?:user|panel|customer|account).{0,15}not found|does not exist|not_found/i',$msg);
+    }
     /** A transport exception is not proof of failure: recover the same username before retrying/refunding. */
     public static function create($manager, string $panel, string $product, string $username, array $payload): array {
         try { $result=$manager->createUser($panel,$product,$username,$payload); }
@@ -93,6 +98,8 @@ final class GhajarPurchaseSettlement
             if(empty($existing['configs'])&&!empty($existing['links']))$existing['configs']=is_array($existing['links'])?$existing['links']:explode("\n",$existing['links']);
             return $existing;
         }}catch(Throwable $e){throw new RuntimeException('Service outcome pending reconciliation',0,$e);}
+        $failureText=is_string($result['msg']??null)?$result['msg']:json_encode($result['msg']??'');
+        if(preg_match('/timeout|timed out|connection|network|curl|\b50[0-9]\b|unavailable|response unavailable/i',$failureText))throw new RuntimeException('Service outcome pending reconciliation');
         // Unknown outcomes remain charged for retry; a structured panel rejection is definitive.
         if(!is_array($result) || !array_key_exists('msg',$result) || ($result['msg']??'')==='Provisioning response unavailable')
             throw new RuntimeException('Service outcome pending reconciliation');

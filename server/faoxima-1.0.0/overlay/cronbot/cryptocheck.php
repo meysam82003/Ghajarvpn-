@@ -29,6 +29,8 @@ if (!function_exists('crypto_check_payment')) {
 }
 
 $ManagePanel = class_exists('ManagePanel') ? new ManagePanel() : null;
+require_once __DIR__.'/../lib/PurchaseRecovery.php';
+try { ghajar_recover_purchases($ManagePanel); } catch (Throwable $e) { error_log('[Ghajar recovery] '.$e->getMessage()); }
 $setting = function_exists('select') ? select('setting', '*') : [];
 $paymentreports = function_exists('select')
     ? (select('topicid', 'idreport', 'report', 'paymentreport', 'select')['idreport'] ?? null)

@@ -52,6 +52,7 @@ data class ProxyConfig(
     val psiphonCountry: String = "",
     val psiphonCdnIps: String = "",
     val psiphonCdnSni: String = "",
+    val oblivionJson: String = "",
     val source: ConfigSource = ConfigSource.PERSONAL,
     val locked: Boolean = false,
     val id: String = UUID.randomUUID().toString()
@@ -71,7 +72,7 @@ data class ProxyConfig(
         .put("mtu", mtu).put("reserved", reserved).put("locked", locked)
         .put("aetherMode", aetherMode).put("aetherScan", aetherScan)
         .put("aetherNoise", aetherNoise).put("aetherHttp2", aetherHttp2)
-        .put("aetherIpv6", aetherIpv6)
+        .put("aetherIpv6", aetherIpv6).put("oblivionJson", oblivionJson)
         .put("hyObfs", hyObfs).put("hyObfsPassword", hyObfsPassword)
         .put("hyUpMbps", hyUpMbps).put("hyDownMbps", hyDownMbps)
         .put("allowInsecure", allowInsecure)
@@ -115,6 +116,7 @@ data class ProxyConfig(
             aetherNoise = o.optString("aetherNoise", ""),
             aetherHttp2 = o.optBoolean("aetherHttp2", false),
             aetherIpv6 = o.optBoolean("aetherIpv6", false),
+            oblivionJson = o.optString("oblivionJson", ""),
             hyObfs = o.optString("hyObfs", ""),
             hyObfsPassword = o.optString("hyObfsPassword", ""),
             hyUpMbps = o.optInt("hyUpMbps", 0),
