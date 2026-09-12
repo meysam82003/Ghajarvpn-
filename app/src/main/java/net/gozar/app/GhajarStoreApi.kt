@@ -116,7 +116,10 @@ data class GhajarPaymentInit(
     val cardHolder: String?,
     val amount: Long,
     val amountRial: Long,
-    val message: String
+    val message: String,
+    val method: String = "",
+    val methodLabel: String = "",
+    val expiresAt: Long = 0
 )
 
 data class GhajarPurchaseRequest(
@@ -389,9 +392,22 @@ class GhajarStoreApi(context: Context) {
             cardHolder = payload.optString("name_card").takeIf { it.isNotBlank() },
             amount = payload.optDouble("amount", amount.toDouble()).toLong(),
             amountRial = payload.optDouble("amount_rial", amount * 10.0).toLong(),
-            message = visible(payload.optString("message"))
+            message = visible(payload.optString("message")),
+            method = method,
+            expiresAt = payload.optLong("expires_at")
         )
     }
+
+    suspend fun pendingPayments(): List<GhajarPendingPayment> {
+        val items = action("pending_payments").payloadObject().optJSONArray("pending") ?: JSONArray()
+        return (0 until items.length()).mapNotNull { i -> items.optJSONObject(i)?.let(GhajarPendingPayment::from) }
+    }
+
+    suspend fun cancelPayment(orderId: String): JSONObject =
+        action("crypto_cancel_invoice", method = "POST", body = JSONObject().put("order_id", orderId)).payloadObject()
+
+    suspend fun transactions(page: Int): JSONObject =
+        action("transactions", params = mapOf("page" to page.toString(), "limit" to "20")).payloadObject()
 
     suspend fun paymentStatus(orderId: String): JSONObject =
         action("payment_status", params = mapOf("order_id" to orderId)).payloadObject()

@@ -149,7 +149,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var customNote by remember { mutableStateOf("") }
     var discountCode by remember { mutableStateOf("") }
 
-    val pendingPurchase by checkoutModel.purchase
+    val checkoutVisible by checkoutModel.checkoutVisible
+    val pendingPurchase = checkoutModel.purchase.value.takeIf { checkoutVisible }
+    val serverPending by checkoutModel.pendingPayments
     val paymentOptions by checkoutModel.methods
     val paymentInit by checkoutModel.payment
     var receiptUri by checkoutModel.receipt
@@ -217,8 +219,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     }
     LaunchedEffect(requestedUrl, active) {
         if (active && requestedUrl != null) {
+            // Capture before clearing the observable event: delegated reads see
+            // the new null immediately and previously crashed the Activity.
+            val url = requestedUrl ?: return@LaunchedEffect
             checkoutModel.openUrl.value = null
-            openCheckout(requestedUrl!!)
+            openCheckout(url)
         }
     }
     LaunchedEffect(active, paymentInit?.orderId, lifecycle) {
@@ -228,6 +233,12 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 checkoutModel.checkPayment()
                 delay(15_000)
             }
+        }
+    }
+
+    LaunchedEffect(linked, active, lifecycle) {
+        if (linked && active) lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) { checkoutModel.refreshPending(); delay(30_000) }
         }
     }
 
@@ -396,6 +407,20 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
             if (section == 4) {
                 item { GhajarTickets(api) }
+            }
+            if (section == 5) item { GhajarTransactionHistory(api, refreshKey + deliveryRevision) }
+            if (section in setOf(0, 3)) {
+                val entries = serverPending.toMutableList()
+                paymentInit?.let { local ->
+                    if (entries.none { it.orderId == local.orderId }) entries.add(0,
+                        GhajarPendingPayment(local.orderId, local.method, local.methodLabel.ifBlank { "پرداخت" },
+                            local.amount, local.expiresAt, "pending"))
+                }
+                items(entries, key = { "pending:${it.orderId}" }) { item ->
+                    GhajarPendingPaymentCard(item, checkoutBusy,
+                        onResume = { checkoutModel.resumePayment(item); section = 0 },
+                        onCancel = { checkoutModel.cancelPayment(item.orderId) })
+                }
             }
             item {
                 OutlinedButton(onClick = {
@@ -586,7 +611,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     }
                 }
             }
-            paymentInit?.let { payment ->
+            paymentInit?.takeIf { checkoutVisible }?.let { payment ->
                 if (GhajarCommerceRules.cardPayment(payment.kind, payment.cardNumber)) item {
                     CardToCardCard(payment, receiptUri, checkoutBusy, receiptSent,
                         onPickReceipt = { receiptPicker.launch(arrayOf("image/jpeg", "image/png", "image/webp")) },
@@ -763,14 +788,14 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) 
 /** Store tabs: exact labels, horizontally and vertically centered, uniform metrics. */
 @Composable
 private fun StoreSectionTabs(section: Int, onSelect: (Int) -> Unit) {
-    val labels = listOf("خریدها", "سرویس‌ها", "پیام‌ها", "کیف پول", "پشتیبانی")
+    val labels = listOf("خریدها", "سرویس‌ها", "پیام‌ها", "کیف پول", "پشتیبانی", "تراکنش‌ها")
     Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
-        Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             labels.forEachIndexed { index, label ->
                 val selected = section == index
                 val shape = RoundedCornerShape(14.dp)
                 Box(
-                    Modifier.weight(1f)
+                    Modifier.widthIn(min = 76.dp)
                         .clip(shape)
                         .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
                         .clickable { onSelect(index) }

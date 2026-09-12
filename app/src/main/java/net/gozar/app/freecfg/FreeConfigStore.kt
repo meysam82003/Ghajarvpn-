@@ -46,7 +46,7 @@ class FreeConfigStore(context: Context) {
                     )
                 }
             }
-        }.getOrDefault(mutableListOf()).filter { it.sourceId == "tg_ghajarvpn" }.toMutableList()
+        }.getOrDefault(mutableListOf()).filter { it.sourceId in FreeSourceRegistry.DEFAULT_SOURCES.map { source -> source.id } }.toMutableList()
     }
 
     fun save(sources: List<FreeSource>, items: List<ItemRecord>) = synchronized(lock) {

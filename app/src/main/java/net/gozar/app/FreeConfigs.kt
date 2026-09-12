@@ -1,6 +1,12 @@
 package net.gozar.app
 
 import gozarcore.Gozarcore
+import net.gozar.app.freecfg.FreeFeedRules
+import net.gozar.app.freecfg.FreeSourceRegistry
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.coroutineScope
@@ -25,9 +31,9 @@ object FreeConfigs {
     private const val TAG = "GhajarFree"
     private const val CONCURRENCY = 16
     private const val MESSAGES = 50
-    private const val MAX_TEST = 200
+    private const val MAX_TEST = FreeFeedRules.LIMIT
     private const val MAX_SUBSCRIPTIONS = 12
-    private const val MAX_PAGES = 8
+    private const val MAX_PAGES = 4
     private const val HTTP_TIMEOUT = 12_000
     private const val MEASURE_TIMEOUT_MS = 20_000L
 
@@ -45,6 +51,7 @@ object FreeConfigs {
     private val _progress = MutableStateFlow<Progress?>(null)
     val progress: StateFlow<Progress?> = _progress.asStateFlow()
 
+    private val refreshLock = Mutex()
     private val _busy = MutableStateFlow(false)
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
 
@@ -73,14 +80,22 @@ object FreeConfigs {
         }
         val code = conn.responseCode
         val body = if (code in 200..299)
-            conn.inputStream.bufferedReader().use { it.readText() } else ""
+            conn.inputStream.use { input ->
+                val out = java.io.ByteArrayOutputStream()
+                val buffer = ByteArray(8192)
+                while (true) { val n = input.read(buffer); if (n < 0) break
+                    require(out.size() + n <= 4 * 1024 * 1024); out.write(buffer, 0, n) }
+                val bytes = out.toByteArray()
+                require(bytes.size <= 4 * 1024 * 1024)
+                bytes.toString(Charsets.UTF_8)
+            } else ""
         runCatching { conn.disconnect() }
         body
     }.getOrDefault("")
 
     data class Scrape(val reachable: Boolean, val messages: Int, val configs: List<ProxyConfig>)
 
-    /** Compatibility entry point; all automatic free imports use @Ghajarvpn. */
+    /** All configured feeds share one branded, deduplicated subscription. */
     suspend fun refreshMultiSource(store: ConfigStore, label: String): Int = refresh(store, label)
 
     private suspend fun scrapeSource(sourceUrl: String): Scrape = withContext(Dispatchers.IO) {
@@ -93,6 +108,7 @@ object FreeConfigs {
         val subscriptions = linkedSetOf<String>()
 
         while (pages < MAX_PAGES && messages < MESSAGES) {
+            currentCoroutineContext().ensureActive()
             val html = page(before, sourceUrl)
             if (html.isBlank()) break
             reachable = true
@@ -103,24 +119,10 @@ object FreeConfigs {
             val take = ids.sortedDescending().take(room).toSet()
             messages += take.size
 
-            // Only message bodies belong to the channel: skip Telegram navigation,
-            // avatars, ad links and page metadata.
-            val bodies = Regex("""(?s)<div class="tgme_widget_message_text[^\"]*"[^>]*>(.*?)</div>""")
-                .findAll(html).map { unescape(it.groupValues[1]) }.toList()
-            bodies.forEach { body ->
-                Regex("""https?://[^\s"'<>\\]+""").findAll(body).forEach { match ->
-                    val candidate = match.value.trimEnd('.', ',', ')', '،')
-                    val uri = runCatching { java.net.URI(candidate) }.getOrNull()
-                    val host = uri?.host?.lowercase().orEmpty()
-                    if (host.isNotEmpty() && uri?.userInfo == null &&
-                        host !in setOf("t.me", "telegram.me", "telegram.org") &&
-                        !candidate.substringBefore('?').matches(Regex(".*\\.(jpg|png|gif|webp|mp4|svg)$", RegexOption.IGNORE_CASE)) &&
-                        subscriptions.size < MAX_SUBSCRIPTIONS) subscriptions += candidate
-                }
-            }
-            LINK.findAll(bodies.joinToString("\n")).forEach { m ->
+            val extracted = FreeFeedRules.extract(html)
+            extracted.subscriptions.forEach { subscriptions += it }
+            extracted.configs.forEach { uri ->
                 links++
-                val uri = unescape(m.value)
                 val cfg = runCatching { ConfigParser.parse(uri, ConfigSource.COMMUNITY) }.getOrNull()
                 if (cfg != null && cfg.address.isNotBlank() && cfg.port in 1..65535) {
                     seen.putIfAbsent(sig(cfg), rename(cfg))
@@ -133,7 +135,7 @@ object FreeConfigs {
             pages++
         }
 
-        for (url in subscriptions) {
+        for (url in subscriptions.sortedByDescending { Regex("(?i)/(sub|subscription|api|s)/|[?&](token|sub)=").containsMatchIn(it) }.take(MAX_SUBSCRIPTIONS)) {
             kotlinx.coroutines.currentCoroutineContext().ensureActive()
             try {
                 SubscriptionFetcher.fetchFull(url, ConfigSource.COMMUNITY, route(), strictTls = true)
@@ -150,18 +152,24 @@ object FreeConfigs {
 
     private fun rename(cfg: ProxyConfig): ProxyConfig = cfg.copy(name = CONFIG_NAME)
 
-    private fun sig(c: ProxyConfig): String =
-        "${c.protocol}|${c.address}|${c.port}|${c.uuid}|${c.password}"
+    private fun sig(c: ProxyConfig): String = FreeFeedRules.signature(c)
 
     const val BUSY = -1
     const val UNREACHABLE = -2
     const val NO_CONFIGS = -3
 
     suspend fun refresh(store: ConfigStore, label: String): Int {
-        if (_busy.value) return BUSY
+        if (!refreshLock.tryLock()) return BUSY
         _busy.value = true
         try {
-            val found = scrapeSource(SOURCE_URL)
+            val feeds = coroutineScope {
+                val sem = Semaphore(3)
+                FreeSourceRegistry.DEFAULT_SOURCES.filter { it.enabled }.map { source ->
+                    async { sem.withPermit { scrapeSource(source.endpoint) } }
+                }.awaitAll()
+            }
+            val found = Scrape(feeds.any { it.reachable }, feeds.sumOf { it.messages },
+                FreeFeedRules.select(feeds.map { it.configs }, MAX_TEST))
             if (!found.reachable) {
                 android.util.Log.w(TAG, "channel unreachable")
                 return UNREACHABLE
@@ -183,12 +191,13 @@ object FreeConfigs {
             val alive = measureAll(merged)
             val sub = (existing ?: Subscription(name = label, url = SOURCE_URL))
                 .copy(lastUpdated = System.currentTimeMillis())
-            if (alive.isNotEmpty() || existing != null) store.upsertSubscription(sub.copy(name = CONFIG_NAME), alive.mapIndexed { index, cfg -> cfg.copy(name = "$CONFIG_NAME ${index + 1}") })
+            if (alive.isNotEmpty() || existing != null) store.upsertSubscription(sub.copy(name = "@Ghajarvpn"), alive.mapIndexed { index, cfg -> cfg.copy(name = "$CONFIG_NAME ${index + 1}") })
             android.util.Log.i(TAG, "kept ${alive.size} of ${found.configs.size}")
             return alive.size
         } finally {
             _busy.value = false
             _progress.value = null
+            refreshLock.unlock()
         }
     }
 

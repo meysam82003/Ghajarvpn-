@@ -309,6 +309,18 @@ jobs:
           git -C "$GITHUB_WORKSPACE" add -f Ghajarvpn-arm64-v8a-release.apk
           git -C "$GITHUB_WORKSPACE" commit --quiet -m "arm64 release APK from run ${GITHUB_RUN_ID}"
           git -C "$GITHUB_WORKSPACE" push --force origin apk-delivery
+      - name: Package complete application and backend sources
+        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/release-1.0.0'
+        run: |
+          git clone --depth 1 --branch v1.9.0 https://github.com/CluvexStudio/Aether.git "$RUNNER_TEMP/aether-source"
+          test "$(git -C "$RUNNER_TEMP/aether-source" rev-parse HEAD)" = '311b573352bb67e494895ff67d20b002d075116a'
+          python3 scripts/package-complete-source.py .ghajarvpn-src complete-sources "$RUNNER_TEMP/psiphon-tunnel-core" "$RUNNER_TEMP/aether-source"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/release-1.0.0'
+        with:
+          name: Ghajarvpn-1.0.0-complete-sources
+          path: complete-sources/*
+          if-no-files-found: error
       - name: Upload server compatibility patch
         uses: actions/upload-artifact@v4
         with:
@@ -334,6 +346,10 @@ jobs:
         with:
           name: Ghajarvpn-1.0.0-CI-ephemeral-key-Android8plus
           path: release-apks
+      - uses: actions/download-artifact@v4
+        with:
+          name: Ghajarvpn-1.0.0-complete-sources
+          path: complete-sources
       - name: Package reviewed outputs
         run: |
           python3 - <<'PY'
@@ -343,11 +359,16 @@ jobs:
           for apk in Path('release-apks').rglob('*release.apk'):
               shutil.copy2(apk, out / apk.name.replace('app-', 'Ghajarvpn-1.0.0-'))
           assert list(out.glob('*.apk')), 'No release APKs found'
+          for source in Path('complete-sources').iterdir():
+              shutil.copy2(source, out / source.name)
+          assert (out / 'Ghajarvpn-1.0.0-complete-source.tar.gz').is_file()
+          assert (out / 'Faoxima-1.0.0-complete-source.zip').is_file()
           root = Path('server/faoxima-1.0.0')
           with zipfile.ZipFile(out / 'Ghajarvpn-1.0.0-server-patch.zip', 'w', zipfile.ZIP_DEFLATED) as z:
               for f in root.rglob('*'):
                   if f.is_file() and '__pycache__' not in f.parts:
-                      z.write(f, 'Ghajarvpn-1.0.0-server-patch/' + str(f.relative_to(root)))
+                      if 'full-source' not in f.parts:
+                          z.write(f, 'Ghajarvpn-1.0.0-server-patch/' + str(f.relative_to(root)))
           (out / 'SHA256SUMS.txt').write_text(''.join(
               hashlib.sha256(f.read_bytes()).hexdigest() + '  ' + f.name + '\n'
               for f in sorted(out.iterdir())))
@@ -363,3 +384,17 @@ jobs:
           else
             gh release create 1.0.0 release-files/* --draft --target "$GITHUB_SHA" --title '1.0.0' --notes-file docs/RELEASE-NOTES-1.0.0.md
           fi
+      - name: Publish requested release 1.0.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view 1.0.0 --json targetCommitish,assets > "$RUNNER_TEMP/final-release.json"
+          python3 - <<'PYCODE'
+          import json,os
+          state=json.load(open(os.environ['RUNNER_TEMP']+'/final-release.json'))
+          assert state['targetCommitish']==os.environ['GITHUB_SHA']
+          names={a['name'] for a in state['assets']}
+          assert {'Ghajarvpn-1.0.0-arm64-v8a-release.apk','Ghajarvpn-1.0.0-armeabi-v7a-release.apk',
+            'Ghajarvpn-1.0.0-complete-source.tar.gz','Faoxima-1.0.0-complete-source.zip','SHA256SUMS.txt'} <= names
+          PYCODE
+          gh release edit 1.0.0 --draft=false --latest

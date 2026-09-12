@@ -13,6 +13,8 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
 
@@ -30,8 +32,9 @@ class QsTileService : TileService() {
 
     override fun onStartListening() {
         super.onStartListening()
-        val s = CoroutineScope(Dispatchers.Main)
-        scope = s
+        val s = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main).also { scope = it }
+        collectJob?.cancel()
+        pingJob?.cancel()
         collectJob = s.launch {
             VpnState.state.collect { render() }
         }
@@ -39,26 +42,18 @@ class QsTileService : TileService() {
             ConfigStore.get(applicationContext).awaitReady()
             render()
         }
-        s.launch { pingLoop() }.also { pingJob = it }
+        pingJob = s.launch { pingLoop() }
         render()
     }
 
     override fun onStopListening() {
         collectJob?.cancel()
         collectJob = null
-        pingJob?.cancel()
-        pingJob = null
-        scope = null
-        livePingMs = null
+        pingJob?.cancel(); pingJob = null; livePingMs = null
+        // Keep an already requested connection alive when the shade closes.
         super.onStopListening()
     }
 
-    /**
-     * Restores the "tap it and see the ping right away" behaviour: as soon as
-     * the tunnel is CONNECTED, this measures a real round trip to the active
-     * server and puts it in the tile's subtitle (e.g. "42ms") instead of the
-     * generic "متصل" text, refreshing every few seconds while connected.
-     */
     private suspend fun pingLoop() {
         while (true) {
             if (VpnState.state.value == Connection.CONNECTED) {
@@ -87,36 +82,26 @@ class QsTileService : TileService() {
     }
 
     private fun toggle() {
-        GhajarLog.i("QsTile", "toggle tapped, current state=${VpnState.state.value}")
         when (VpnState.state.value) {
-            Connection.CONNECTED, Connection.CONNECTING, Connection.DISCONNECTING -> {
+            Connection.DISCONNECTING -> return
+            Connection.CONNECTED, Connection.CONNECTING -> {
                 stopTunnel()
-                // VpnCommandCoordinator dispatches the actual disconnect asynchronously
-                // (it hops through a coroutine + mutex before VpnState changes), so at
-                // this exact point in the call stack VpnState.state.value is still the
-                // OLD value. Calling render() here used to read that stale "connected"
-                // state and redraw the tile as active — the icon looked stuck on until
-                // the notification shade was closed and reopened. Reflect the user's
-                // intent immediately instead of reading state that hasn't caught up yet;
-                // the collectJob below will correct/confirm it the moment it does.
-                renderOptimistic(active = false)
+                renderOptimistic(false)
                 return
             }
             else -> Unit
         }
-        // Same reasoning in the other direction: onConnectRequested() is also async,
-        // so show "off" immediately (render() below will already know to say
-        // "در حال اتصال…" once the real CONNECTING state lands).
-        renderOptimistic(active = false)
-        val s = scope ?: CoroutineScope(Dispatchers.Main).also { scope = it }
+        val s = scope ?: CoroutineScope(SupervisorJob() + Dispatchers.Main).also { scope = it }
         s.launch {
             withTimeoutOrNull(3000) { ConfigStore.get(applicationContext).awaitReady() }
-            startTunnel()
+            runCatching { startTunnel() }.onFailure {
+                VpnState.setError("اتصال انجام نشد؛ تنظیمات کانفیگ را بررسی کن.")
+                android.widget.Toast.makeText(this@QsTileService, "اتصال انجام نشد؛ آیکون را نگه دار تا تنظیمات باز شود.", android.widget.Toast.LENGTH_LONG).show()
+            }
             render()
         }
     }
 
-    /** Draws the tile from a known intent instead of (possibly stale) VpnState. */
     private fun renderOptimistic(active: Boolean) {
         val tile = qsTile ?: return
         tile.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
@@ -127,41 +112,65 @@ class QsTileService : TileService() {
     private fun startTunnel() {
         val store = ConfigStore.get(applicationContext)
         val selectedId = store.selectedId.value
-        val config = store.configs.value.firstOrNull { it.id == selectedId }
-        if (config == null) { openApp(); return }
+        val config = store.configs.value.firstOrNull { it.id == selectedId } ?: store.configs.value.firstOrNull()
+        if (config == null) {
+            android.widget.Toast.makeText(this, "ابتدا یک کانفیگ اضافه کن؛ برای بازکردن اپ آیکون را نگه دار.", android.widget.Toast.LENGTH_LONG).show()
+            return
+        }
+        if (config.id != selectedId) store.setSelectedId(config.id)
         if (VpnService.prepare(this) != null) { openApp(); return }
+        if (config.protocol == "ikev2") {
+            IkeController.claim(config)
+            if (!IkeController.connect(this, config)) VpnState.setError("اتصال IKEv2 انجام نشد")
+            return
+        }
         val json = ConfigBuilder.build(
             config, store.fragment.value, store.splitRouting.value,
             store.sniffing.value, store.sniffTypes.value,
+            mux = store.mux.value, muxConcurrency = store.muxConcurrency.value,
+            torBase = store.configs.value.firstOrNull { it.id == config.torBaseId },
+            chainBase = store.configs.value.firstOrNull { it.id == config.chainId },
             adBlock = store.adBlock.value,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             onionRouting = store.onionRouting.value,
             coreLogLevel = store.coreLogLevel.value
         )
-        VpnCommandCoordinator.onConnectRequested(config.id) { VpnState.setConnecting(config.id) }
+        VpnCommandCoordinator.onConnectRequested(config.id, if (config.protocol == "psiphon") 290_000L else if (config.protocol == "aether") 200_000L else 45_000L) { VpnState.setConnecting(config.id) }
         val intent = Intent(this, GozarVpnService::class.java)
             .putExtra(GozarVpnService.EXTRA_CONFIG, json)
-            .putExtra(GozarVpnService.EXTRA_AETHER, AetherSpec.from(config)?.toJson())
+            .putExtra(GozarVpnService.EXTRA_AETHER, AetherController.spec(config))
+            .putExtra(GozarVpnService.EXTRA_PSIPHON, PsiphonSpec.from(config)?.toJson())
             .putExtra(
                 GozarVpnService.EXTRA_TOR,
                 if (config.protocol == "tor")
-                    config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
+                    config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else if (store.onionRouting.value) "|1" else null
             )
             .putExtra(GozarVpnService.EXTRA_NAME, config.name)
             .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
         runCatching { ContextCompat.startForegroundService(this, intent) }
-            .onFailure { VpnState.setDisconnected(); openApp() }
+            .onFailure { VpnState.setError("شروع سرویس VPN ناموفق بود") }
     }
 
     private fun stopTunnel() {
         VpnCommandCoordinator.onDisconnectRequested {
+            if (IkeController.active) { IkeController.disconnect(this); return@onDisconnectRequested }
+            if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") || GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED) {
+                scope?.launch { GhajarOpenVpnBridge.disconnect(this@QsTileService) }
+                return@onDisconnectRequested
+            }
             runCatching {
                 startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
             }
         }
     }
 
+    override fun onDestroy() {
+        scope?.cancel()
+        super.onDestroy()
+    }
+
+    // Only first-time Android VPN consent requires an Activity.
     private fun openApp() {
         val intent = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -212,19 +221,11 @@ class QsTileService : TileService() {
             }
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) tile.stateDescription = status
-        // Without this, Android's default long-press behaviour on a QS tile opens
-        // the system "App Info" settings page instead of the app itself. Setting
-        // the tile's own launch intent replaces that default with our app.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            val openAppIntent = PendingIntent.getActivity(
-                this, 0,
-                Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-            runCatching { tile.setActivityLaunchForClick(openAppIntent) }
-        }
         // Update both the declared icon and runtime icon so cached tiles refresh.
         runCatching { tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_ghajar) }
+        // Clear the old click override cached by SystemUI. Long press is
+        // resolved through ACTION_QS_TILE_PREFERENCES in the manifest instead.
+        if (Build.VERSION.SDK_INT >= 34) tile.setActivityLaunchForClick(null)
         tile.updateTile()
     }
 }
