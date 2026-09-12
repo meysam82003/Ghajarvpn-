@@ -88,6 +88,9 @@ object GhajarNotificationMonitor {
         acknowledged += id
         prefs.edit().putStringSet("acknowledged", acknowledged.toList().takeLast(500).toSet()).apply()
         GhajarNoticeBus.dismiss(id)
+        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch {
+            runCatching { GhajarStoreApi(context.applicationContext).dismissNotice(id) }
+        }
     }
 
     fun initialize(context: Context) {

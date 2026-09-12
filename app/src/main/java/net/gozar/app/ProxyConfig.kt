@@ -50,6 +50,8 @@ data class ProxyConfig(
     val chainId: String = "",
     val psiphonMode: String = "auto",
     val psiphonCountry: String = "",
+    val psiphonCdnIps: String = "",
+    val psiphonCdnSni: String = "",
     val source: ConfigSource = ConfigSource.PERSONAL,
     val locked: Boolean = false,
     val id: String = UUID.randomUUID().toString()
@@ -77,6 +79,7 @@ data class ProxyConfig(
         .put("torCountry", torCountry).put("torThroughVpn", torThroughVpn)
         .put("torBaseId", torBaseId).put("chainId", chainId)
         .put("psiphonMode", psiphonMode).put("psiphonCountry", psiphonCountry)
+        .put("psiphonCdnIps", psiphonCdnIps).put("psiphonCdnSni", psiphonCdnSni)
 
     companion object {
         fun fromJson(o: JSONObject) = ProxyConfig(
@@ -124,6 +127,8 @@ data class ProxyConfig(
             chainId = o.optString("chainId", ""),
             psiphonMode = o.optString("psiphonMode", "auto"),
             psiphonCountry = o.optString("psiphonCountry", ""),
+            psiphonCdnIps = o.optString("psiphonCdnIps", ""),
+            psiphonCdnSni = o.optString("psiphonCdnSni", ""),
             source = runCatching { ConfigSource.valueOf(o.optString("source", "PERSONAL")) }.getOrDefault(ConfigSource.PERSONAL),
             locked = o.optBoolean("locked", false),
             id = o.optString("id", UUID.randomUUID().toString())

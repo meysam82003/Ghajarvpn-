@@ -932,6 +932,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun launchConnect(config: ProxyConfig, attempt: Int = 0) {
+        if (VpnState.state.value == Connection.DISCONNECTING) return
         // OpenVPN owns the tun while it is actively connecting/connected; tear it
         // down first so the core tunnel does not fight the engine for the VPN
         // interface. NOTE: the guard used to be `!= DISCONNECTED`, which also
@@ -956,7 +957,7 @@ class MainActivity : ComponentActivity() {
             }
             return
         }
-        VpnCommandCoordinator.onConnectRequested(config.id) {
+        VpnCommandCoordinator.onConnectRequested(config.id, if (config.protocol == "psiphon") 100_000L else 45_000L) {
             if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
                 config.security.trim().lowercase() == "tls"
             ) {
@@ -986,7 +987,7 @@ class MainActivity : ComponentActivity() {
 
     private fun connectTo(config: ProxyConfig) {
         val s = VpnState.state.value
-        if (s == Connection.CONNECTING || s == Connection.CONNECTED) return
+        if (s == Connection.CONNECTING || s == Connection.CONNECTED || s == Connection.DISCONNECTING) return
 
         if (!store.autoSelect.value) {
             launchConnect(config)
@@ -1120,6 +1121,7 @@ class MainActivity : ComponentActivity() {
         catch (error: LinkageError) {
             GhajarLog.e("GhajarConnect", "LinkageError: ${error.message}")
             VpnState.setError("هستهٔ اتصال بارگذاری نشد؛ نسخهٔ سازگار با گوشی را نصب کن.")
+            VpnCommandCoordinator.onTunnelFailed()
         } catch (error: Exception) {
             // Previously only the exception's class name went to plain Logcat
             // (android.util.Log), which never reaches the exported "لاگ و
@@ -1130,6 +1132,7 @@ class MainActivity : ComponentActivity() {
             GhajarLog.e("GhajarConnect", "${error.javaClass.name}: ${error.message}")
             android.util.Log.e("GhajarConnect", "connect failed", error)
             VpnState.setError("شروع اتصال ناموفق بود؛ مجوز VPN و تنظیمات سرویس را بررسی کن.")
+            VpnCommandCoordinator.onTunnelFailed()
         }
     }
 
@@ -1139,7 +1142,7 @@ class MainActivity : ComponentActivity() {
 
     /** Entry for ConfigQuickConnectActivity: launches through the guarded path. */
     fun quickConnect(config: ProxyConfig) {
-        proceedConnect(config)
+        connectTo(config)
     }
 
     private fun proceedConnectChecked(config: ProxyConfig) {
@@ -1174,6 +1177,7 @@ class MainActivity : ComponentActivity() {
             coreLogLevel = store.coreLogLevel.value)
         VpnState.setConnecting(config.id)
         val aether = if (config.protocol == "aether") AetherController.spec(config) else ""
+        val psiphon = PsiphonSpec.from(config)?.toJson()
         val intent = VpnService.prepare(this)
         val tor = when {
             config.protocol == "tor" ->
@@ -1181,17 +1185,18 @@ class MainActivity : ComponentActivity() {
             store.onionRouting.value -> "|1"
             else -> null
         }
-        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor) }; vpnPermission.launch(intent) }
-        else startTunnel(json, config.name, aether, tor)
+        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon) }; vpnPermission.launch(intent) }
+        else startTunnel(json, config.name, aether, tor, psiphon)
     }
 
-    private fun startTunnel(configJson: String, name: String, aether: String, tor: String?) {
+    private fun startTunnel(configJson: String, name: String, aether: String, tor: String?, psiphon: String? = null) {
         guardedConnect { androidx.core.content.ContextCompat.startForegroundService(this,
             Intent(this, GozarVpnService::class.java)
                 .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
                 .putExtra(GozarVpnService.EXTRA_NAME, name)
                 .putExtra(GozarVpnService.EXTRA_AETHER, aether)
                 .putExtra(GozarVpnService.EXTRA_TOR, tor)
+                .putExtra(GozarVpnService.EXTRA_PSIPHON, psiphon)
                 .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
         ) }
     }
@@ -1251,7 +1256,7 @@ class MainActivity : ComponentActivity() {
     private fun warm() {
         if (IkeController.active) return
         val s = VpnState.state.value
-        if (s == Connection.CONNECTING || s == Connection.CONNECTED) return
+        if (s == Connection.CONNECTING || s == Connection.CONNECTED || s == Connection.DISCONNECTING) return
         runCatching {
             startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_WARM))
         }
@@ -2006,7 +2011,7 @@ private fun ConnectionScreen(
                         tween(450),
                         label = "connTint"
                     )
-                    val enabled = connected || selectedConfig != null
+                    val enabled = conn != Connection.DISCONNECTING && (connected || selectedConfig != null)
                     val press by animateFloatAsState(
                         if (btnPressed && enabled) 0.97f else 1f,
                         tween(140, easing = FastOutSlowInEasing),
@@ -9209,6 +9214,8 @@ private fun PsiphonHubScreen(
 
     var mode by remember(config.id) { mutableStateOf(config.psiphonMode) }
     var country by remember(config.id) { mutableStateOf(config.psiphonCountry) }
+    var cdnIps by remember(config.id) { mutableStateOf(config.psiphonCdnIps) }
+    var cdnSni by remember(config.id) { mutableStateOf(config.psiphonCdnSni) }
 
     Column(
         modifier
@@ -9265,21 +9272,29 @@ private fun PsiphonHubScreen(
                 country = it.take(2).uppercase(Locale.ROOT)
                 store.updatePsiphonSettings(config.id, mode, country)
             },
-            label = { Text("کد کشور خروجی (اختیاری - مثال IR، DE)") },
+            label = { Text("کد کشور خروجی (اختیاری؛ مانند DE یا US)") },
             singleLine = true,
             modifier = Modifier.fillMaxWidth()
         )
 
-        val busy = isActive && conn == Connection.CONNECTING
+        OutlinedTextField(cdnIps, {
+            cdnIps = it
+            store.update(config.copy(psiphonMode = mode, psiphonCountry = country, psiphonCdnIps = it, psiphonCdnSni = cdnSni))
+        }, label = { Text("IP یا CIDR دلخواه CDN (اختیاری)") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(cdnSni, {
+            cdnSni = it
+            store.update(config.copy(psiphonMode = mode, psiphonCountry = country, psiphonCdnIps = cdnIps, psiphonCdnSni = it))
+        }, label = { Text("SNI دلخواه CDN (اختیاری)") }, modifier = Modifier.fillMaxWidth())
+        Text("حالت Conduit در سورس ارسالی کلید امضای سرور ندارد و قابل اتصال نیست.", style = MaterialTheme.typography.bodySmall)
         BounceButton(
             onClick = {
                 if (isActive && conn != Connection.DISCONNECTED && conn != Connection.ERROR) {
                     onDisconnect()
                 } else {
-                    onConnect(config.copy(psiphonMode = mode, psiphonCountry = country))
+                    onConnect(config.copy(psiphonMode = mode, psiphonCountry = country, psiphonCdnIps = cdnIps, psiphonCdnSni = cdnSni))
                 }
             },
-            enabled = !busy,
+            enabled = conn != Connection.DISCONNECTING,
             modifier = Modifier.fillMaxWidth()
         ) {
             Text(

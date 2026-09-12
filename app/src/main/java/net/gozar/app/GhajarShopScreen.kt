@@ -372,8 +372,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                                 throw cancelled
                             } catch (_: IOException) {
                                 error = "کد اتصال دریافت نشد؛ اینترنت را بررسی کن و دوباره تلاش کن."
-                            } catch (_: Exception) {
-                                error = "ساخت کد اتصال انجام نشد؛ چند لحظه بعد دوباره تلاش کن."
+                            } catch (failure: Exception) {
+                                error = failure.message ?: "ساخت کد اتصال انجام نشد؛ دوباره تلاش کن."
                             } finally { busy = false }
                         }
                     },
@@ -393,6 +393,15 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         } else {
             item {
                 StoreSectionTabs(section = section, onSelect = { section = it })
+            }
+            if (section == 4) {
+                item { GhajarTickets(api) }
+            }
+            item {
+                OutlinedButton(onClick = {
+                    StoreLinkRouter.browserIntent(context, BrandConfig.STORE_URL + if (section == 4) "#/tickets" else "#/account")
+                        ?.let { context.startActivity(it) }
+                }, modifier = Modifier.fillMaxWidth()) { Text(if (section == 4) "پنل کامل پشتیبانی و پیوست‌ها" else "پنل کامل خدمات حساب") }
             }
             if (section == 3) {
                 item {
@@ -458,9 +467,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                             checkoutModel.trial(panel.code, customUsername)
                             trialOptions = null
                         },
-                        enabled = options.canRequest && !checkoutBusy,
+                        enabled = options.canRequest && (panel.remaining == null || panel.remaining > 0) && !checkoutBusy,
                         modifier = Modifier.fillMaxWidth()
-                    ) { Text("تست ${panel.name}") }
+                    ) { Text("تست ${panel.name}" + (panel.remaining?.let { " — باقی‌مانده: $it" } ?: "")) }
                 }
             }
             item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
@@ -754,7 +763,7 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) 
 /** Store tabs: exact labels, horizontally and vertically centered, uniform metrics. */
 @Composable
 private fun StoreSectionTabs(section: Int, onSelect: (Int) -> Unit) {
-    val labels = listOf("خریدها", "سرویس‌ها", "پیام‌ها", "کیف پول")
+    val labels = listOf("خریدها", "سرویس‌ها", "پیام‌ها", "کیف پول", "پشتیبانی")
     Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
         Row(Modifier.fillMaxWidth().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
             labels.forEachIndexed { index, label ->

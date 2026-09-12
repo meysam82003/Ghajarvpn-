@@ -42,7 +42,7 @@ object VpnCommandCoordinator {
      * bumps the generation and runs [launch] under the command mutex so two
      * rapid connects cannot interleave their start sequences.
      */
-    fun onConnectRequested(configId: String, launch: () -> Unit) {
+    fun onConnectRequested(configId: String, timeoutMs: Long = CONNECT_TIMEOUT_MS, launch: () -> Unit) {
         scope.launch {
             mutex.withLock {
                 generation++
@@ -53,7 +53,7 @@ object VpnCommandCoordinator {
                 VpnState.setConnecting(configId)
                 logger("connect#$gen")
                 launch()
-                armConnectWatchdog(gen)
+                armConnectWatchdog(gen, timeoutMs)
             }
         }
     }
@@ -138,10 +138,10 @@ object VpnCommandCoordinator {
      * Watchdogs: if the engine neither confirms connect nor teardown in time,
      * force a stop and reconcile the state so the UI can never hang forever.
      */
-    private fun armConnectWatchdog(gen: Long) {
+    private fun armConnectWatchdog(gen: Long, timeoutMs: Long) {
         connectWatchdog?.cancel()
         connectWatchdog = scope.launch {
-            delay(CONNECT_TIMEOUT_MS)
+            delay(timeoutMs)
             if (generation != gen) return@launch
             logger("W connect watchdog fired")
             if (VpnState.state.value == Connection.CONNECTING) {

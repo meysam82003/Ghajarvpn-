@@ -3,6 +3,7 @@ package net.gozar.app
 import gozarcore.Gozarcore
 import net.gozar.app.freecfg.FreeSourceRegistry
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -26,11 +27,12 @@ object FreeConfigs {
     private const val CONCURRENCY = 16
     private const val MESSAGES = 50
     private const val MAX_TEST = 200
+    private const val MAX_SUBSCRIPTIONS = 12
     private const val MAX_PAGES = 8
     private const val HTTP_TIMEOUT = 12_000
     private const val MEASURE_TIMEOUT_MS = 20_000L
 
-    const val CONFIG_NAME = "Ghajarvpn-Free"
+    const val CONFIG_NAME = "Ghajarvpn"
 
 
     private val LINK = Regex(
@@ -84,39 +86,7 @@ object FreeConfigs {
      * failure isolation: one dead channel never blocks the rest. Results are
      * merged and deduped through the same signature as the primary channel.
      */
-    suspend fun refreshMultiSource(store: ConfigStore, label: String): Int {
-        if (_busy.value) return BUSY
-        _busy.value = true
-        try {
-            val sources = FreeSourceRegistry.DEFAULT_SOURCES.filter { it.enabled && it.healthy }
-            val merged = LinkedHashMap<String, ProxyConfig>()
-            var anyReachable = false
-            val skipped = mutableListOf<String>()
-            for (source in sources) {
-                val scrape = withContext(Dispatchers.IO) { scrapeSource(source.endpoint) }
-                if (!scrape.reachable) {
-                    skipped += source.id
-                    continue
-                }
-                anyReachable = true
-                scrape.configs.forEach { cfg -> merged.putIfAbsent(sig(cfg), cfg) }
-            }
-            if (!anyReachable) return UNREACHABLE
-            if (merged.isEmpty()) return NO_CONFIGS
-            val existing = subscriptionOf(store)
-            val current = if (existing == null) emptyList()
-            else store.configs.value.filter { it.subId == existing.id }
-            val combined = (current + merged.values.toList()).distinctBy { sig(it) }.take(MAX_TEST)
-            val alive = measureAll(combined)
-            val sub = (existing ?: Subscription(name = label, url = SOURCE_URL))
-                .copy(lastUpdated = System.currentTimeMillis())
-            if (alive.isNotEmpty() || existing != null) store.upsertSubscription(sub, alive)
-            return alive.size
-        } finally {
-            _busy.value = false
-            _progress.value = null
-        }
-    }
+    suspend fun refreshMultiSource(store: ConfigStore, label: String): Int = refresh(store, label)
 
     private suspend fun scrapeSource(sourceUrl: String): Scrape = withContext(Dispatchers.IO) {
         val seen = LinkedHashMap<String, ProxyConfig>()
@@ -125,6 +95,7 @@ object FreeConfigs {
         var messages = 0
         var reachable = false
         var links = 0
+        val subscriptions = linkedSetOf<String>()
 
         while (pages < MAX_PAGES && messages < MESSAGES) {
             val html = page(before, sourceUrl)
@@ -137,7 +108,22 @@ object FreeConfigs {
             val take = ids.sortedDescending().take(room).toSet()
             messages += take.size
 
-            LINK.findAll(html).forEach { m ->
+            // Only message bodies belong to the channel: skip Telegram navigation,
+            // avatars, ad links and page metadata.
+            val bodies = Regex("""(?s)<div class="tgme_widget_message_text[^\"]*"[^>]*>(.*?)</div>""")
+                .findAll(html).map { unescape(it.groupValues[1]) }.toList()
+            bodies.forEach { body ->
+                Regex("""https?://[^\s"'<>\\]+""").findAll(body).forEach { match ->
+                    val candidate = match.value.trimEnd('.', ',', ')', '،')
+                    val uri = runCatching { java.net.URI(candidate) }.getOrNull()
+                    val host = uri?.host?.lowercase().orEmpty()
+                    if (host.isNotEmpty() && uri?.userInfo == null &&
+                        host !in setOf("t.me", "telegram.me", "telegram.org") &&
+                        !candidate.substringBefore('?').matches(Regex(".*\\.(jpg|png|gif|webp|mp4|svg)$", RegexOption.IGNORE_CASE)) &&
+                        subscriptions.size < MAX_SUBSCRIPTIONS) subscriptions += candidate
+                }
+            }
+            LINK.findAll(bodies.joinToString("\n")).forEach { m ->
                 links++
                 val uri = unescape(m.value)
                 val cfg = runCatching { ConfigParser.parse(uri, ConfigSource.COMMUNITY) }.getOrNull()
@@ -152,6 +138,14 @@ object FreeConfigs {
             pages++
         }
 
+        for (url in subscriptions) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            try {
+                SubscriptionFetcher.fetchFull(url, ConfigSource.COMMUNITY, route(), strictTls = true)
+                    .configs.forEach { cfg -> seen.putIfAbsent(sig(cfg), rename(cfg)) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+              catch (_: Exception) { /* A bad subscription must not discard other posts. */ }
+        }
         android.util.Log.i(
             TAG,
             "pages=$pages messages=$messages links=$links parsed=${seen.size} reachable=$reachable"
@@ -194,7 +188,7 @@ object FreeConfigs {
             val alive = measureAll(merged)
             val sub = (existing ?: Subscription(name = label, url = SOURCE_URL))
                 .copy(lastUpdated = System.currentTimeMillis())
-            if (alive.isNotEmpty() || existing != null) store.upsertSubscription(sub, alive)
+            if (alive.isNotEmpty() || existing != null) store.upsertSubscription(sub.copy(name = CONFIG_NAME), alive.mapIndexed { index, cfg -> cfg.copy(name = "$CONFIG_NAME ${index + 1}") })
             android.util.Log.i(TAG, "kept ${alive.size} of ${found.configs.size}")
             return alive.size
         } finally {

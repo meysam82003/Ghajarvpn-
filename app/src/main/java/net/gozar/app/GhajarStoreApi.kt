@@ -139,7 +139,7 @@ data class GhajarPurchaseResult(
     val service: GhajarServiceDetails?
 )
 
-data class GhajarTrialPanel(val code: String, val name: String)
+data class GhajarTrialPanel(val code: String, val name: String, val remaining: Int? = null)
 data class GhajarTrialOptions(val panels: List<GhajarTrialPanel>, val remaining: Int?, val canRequest: Boolean)
 
 class GhajarApiException(message: String, val httpCode: Int = 0) : IllegalStateException(message)
@@ -294,16 +294,19 @@ class GhajarStoreApi(context: Context) {
     }
 
     suspend fun notices(): List<GhajarNotice> {
-        val general = runCatching { action("announcements_list").payloadArray().objects() }.getOrDefault(emptyList())
-        val personalPayload = runCatching { action("user_notifications_list").payloadObject() }.getOrNull()
-        val personal = personalPayload?.optJSONArray("items").orEmpty().objects()
-        val floatingPayload = runCatching { action("floating_broadcast_active").payloadObject() }.getOrNull()
-        val floating = floatingPayload?.optJSONObject("item")?.let(::listOf).orEmpty()
+        val recent = action("notification_recent").payloadObject()
+            .optJSONArray("notifications").orEmpty().objects()
+        val active = action("notification_info").payloadObject().optJSONObject("notification")
         return buildList {
-            floating.mapNotNullTo(this) { noticeFrom(it, source = "floating", personal = false) }
-            personal.mapNotNullTo(this) { noticeFrom(it, source = "personal", personal = true) }
-            general.mapNotNullTo(this) { noticeFrom(it, source = "general", personal = false) }
+            active?.takeUnless { it.optBoolean("seen") }?.let { noticeFrom(it, "notification", false) }
+                ?.let { add(it.copy(important = true)) }
+            recent.mapNotNullTo(this) { noticeFrom(it, "notification", false) }
         }.distinctBy { it.id }
+    }
+
+    suspend fun dismissNotice(id: String) {
+        val serverId = id.removePrefix("notification:").toLongOrNull() ?: return
+        action("notification_dismiss", "POST", body = JSONObject().put("id", serverId))
     }
 
     suspend fun purchase(request: GhajarPurchaseRequest): GhajarPurchaseResult {
@@ -462,23 +465,24 @@ class GhajarStoreApi(context: Context) {
     }
 
     suspend fun trialOptions(): GhajarTrialOptions {
-        val payload = action("trial_panels").payloadObject()
+        val payload = action("test_account_info").payloadObject()
         return GhajarTrialOptions(
             panels = payload.optJSONArray("panels").orEmpty().objects().mapNotNull { row ->
-                val code = row.optString("code")
-                if (code.isBlank()) null else GhajarTrialPanel(code, visible(row.optString("name")))
+                val code = row.optString("id")
+                if (code.isBlank()) null else GhajarTrialPanel(code, visible(row.optString("name")), row.opt("limit_left").takeUnless { it == null || it == JSONObject.NULL }?.toString()?.toIntOrNull())
             },
-            remaining = payload.opt("remaining").takeUnless { it == null || it == JSONObject.NULL }?.toString()?.toIntOrNull(),
-            canRequest = payload.optBoolean("can_request")
+            remaining = payload.opt("limit_left").takeUnless { it == null || it == JSONObject.NULL }?.toString()?.toIntOrNull(),
+            canRequest = payload.optBoolean("available")
         )
     }
 
     suspend fun createTrial(panelCode: String, username: String?): GhajarServiceDetails {
-        val body = JSONObject().put("code_panel", panelCode)
+        val body = JSONObject().put("country_id", panelCode)
         username?.takeIf { it.isNotBlank() }?.let { body.put("custom_username", it) }
-        val payload = action("trial_create", method = "POST", body = body).payloadObject()
-        val issuedUsername = payload.optString("username")
-        return serviceFrom(payload, issuedUsername)
+        val payload = action("test_account_create", method = "POST", body = body).payloadObject()
+        val issued = payload.optJSONObject("service") ?: payload
+        val issuedUsername = issued.optString("username")
+        return serviceFrom(issued, issuedUsername)
     }
 
     suspend fun importServiceOnce(store: ConfigStore, service: GhajarServiceDetails): Int = deliveryMutex.withLock {
@@ -528,6 +532,11 @@ class GhajarStoreApi(context: Context) {
             prefs.edit().putStringSet("installed", installed.toList().takeLast(200).toSet()).apply()
         }
         return imported
+    }
+
+    internal suspend fun support(name: String, body: JSONObject? = null, params: Map<String, String> = emptyMap()): JSONObject {
+        require(name in setOf("tickets", "ticket_thread", "ticket_departments", "ticket_create", "ticket_reply", "ticket_close"))
+        return action(name, if (body == null) "GET" else "POST", params, body).payloadObject()
     }
 
     private suspend fun action(
@@ -585,6 +594,7 @@ class GhajarStoreApi(context: Context) {
         val code = connection.responseCode
         val raw = (if (code in 200..299) connection.inputStream else connection.errorStream)
             ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
+        if (code == 404) throw GhajarApiException("مسیر ورود یا فروشگاه روی سرور موجود نیست (404)؛ نصب ربات باید بروزرسانی شود.", code)
         val envelope = runCatching { JSONObject(raw) }.getOrElse {
             throw GhajarApiException("پاسخ فروشگاه قابل خواندن نیست", code)
         }
