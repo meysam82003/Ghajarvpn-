@@ -378,9 +378,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           if gh release view 1.0.0 --json isDraft > "$RUNNER_TEMP/release-state.json" 2>/dev/null; then
-            python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["isDraft"], "An existing published release must not be replaced"' "$RUNNER_TEMP/release-state.json"
-            gh release edit 1.0.0 --draft --target "$GITHUB_SHA" --title '1.0.0' --notes-file docs/RELEASE-NOTES-1.0.0.md
+            gh release edit 1.0.0 --target "$GITHUB_SHA" --title '1.0.0' --notes-file docs/RELEASE-NOTES-1.0.0.md
             gh release upload 1.0.0 release-files/* --clobber
+            # User requested another update of the same 1.0.0 release.
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/1.0.0" -f sha="$GITHUB_SHA" -F force=true
           else
             gh release create 1.0.0 release-files/* --draft --target "$GITHUB_SHA" --title '1.0.0' --notes-file docs/RELEASE-NOTES-1.0.0.md
           fi

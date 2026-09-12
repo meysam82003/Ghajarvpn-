@@ -30,11 +30,35 @@ class FreeFeedRulesTest {
         assertEquals(3, selected.size)
     }
 
-    @Test fun atMost350UniqueCandidatesAreTestedAcrossFeeds() {
+    @Test fun allUniqueCandidatesAreIncludedWithout350Cap() {
         val all = (1..500).map { ProxyConfig("old $it", "vless", "example.com", it, uuid = "id") }
         val result = FreeFeedRules.select(listOf(all, all.map { it.copy(name = "duplicate") }))
-        assertEquals(350, result.size)
-        assertEquals(350, result.map(FreeFeedRules::signature).distinct().size)
+        assertEquals(500, result.size)
+        assertEquals(500, result.map(FreeFeedRules::signature).distinct().size)
+    }
+
+    @Test fun onlyTheLast72HoursAreIncludedAcrossPageBoundaries() {
+        val now = java.time.Instant.parse("2026-09-12T12:00:00Z").toEpochMilli()
+        fun post(id: Int, stamp: String) = """<div data-post="channel/$id">
+            <div class="tgme_widget_message_text">vless://id@server$id.example:443</div>
+            <time datetime="$stamp"></time></div>"""
+        val html = post(4, "2026-09-12T15:30:00+03:30") + post(3, "2026-09-09T12:00:00Z") +
+            post(2, "2026-09-09T11:59:59Z") + post(1, "invalid")
+        val selected = FreeFeedRules.recentPosts(FreeFeedRules.posts(html), now)
+        assertEquals(listOf(4L, 3L), selected.map { it.id })
+        assertEquals(2, selected.flatMap { FreeFeedRules.extract(it.html).configs }.size)
+    }
+
+    @Test fun completeRefreshDeletesMissingConfigsButPartialRefreshPreservesUntestedOnes() {
+        val old = (1..3).map { ProxyConfig("old channel $it", "vless", "server$it.example", 443, uuid = "id") }
+        val fresh = ProxyConfig("new channel", "vless", "new.example", 443, uuid = "id")
+        val tested = setOf(FreeFeedRules.signature(old[0]), FreeFeedRules.signature(old[1]))
+        val healthy = listOf(old[0].copy(name = "renamed"), fresh)
+        val partial = FreeFeedRules.reconcile(old, healthy, tested, false)
+        assertEquals(listOf("server1.example", "new.example", "server3.example"), partial.map { it.address })
+        assertEquals(listOf("Ghajarvpn 1", "Ghajarvpn 2", "Ghajarvpn 3"), partial.map { it.name })
+        assertEquals(2, FreeFeedRules.reconcile(old, healthy, tested, true).size)
+        assertTrue(FreeFeedRules.reconcile(old, emptyList(), tested, true).isEmpty())
     }
 
     @Test fun jsonSubscriptionArrayReadsAllNineProfilesAndSkipsDirectOutbounds() {

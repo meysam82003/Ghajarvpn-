@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.security.MessageDigest
 
@@ -60,11 +62,13 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { byte -> "%02x".format(byte) }
     }.orEmpty()
 
-    private fun runOperation(block: suspend () -> Unit) {
-        if (busy.value) return
-        busy.value = true
-        error.value = null
+    private val operationMutex = Mutex()
+
+    private fun runOperation(silent: Boolean = false, block: suspend () -> Unit) {
+        if (busy.value || (silent && operationMutex.isLocked)) return
+        if (!silent) { busy.value = true; error.value = null }
         viewModelScope.launch {
+            operationMutex.withLock {
             try {
                 val current = accountId()
                 if (current.isBlank()) throw GhajarApiException("ابتدا حساب را به ربات متصل کن.")
@@ -87,9 +91,10 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 // beginPayment/purchase call left the user looking at a generic
                 // error with zero trace in Debugger/log export to diagnose from.
                 GhajarLog.e("Payment", "operation failed: ${failure.javaClass.simpleName}: ${failure.message}")
-                error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
+                if (!silent) error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
             } finally {
-                busy.value = false
+                if (!silent) busy.value = false
+            }
             }
         }
     }
@@ -203,7 +208,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     }
 
     /** Only authenticated server state can confirm payment, never a redirect URL. */
-    fun checkPayment() = runOperation {
+    fun checkPayment() = runOperation(silent = true) {
         val invoice = payment.value ?: return@runOperation
         val status = api.paymentStatus(invoice.orderId)
         val value = status.optString("payment_status")
@@ -267,7 +272,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun refreshPending() = runOperation {
+    fun refreshPending() = runOperation(silent = true) {
         pendingPayments.value = api.pendingPayments()
     }
 

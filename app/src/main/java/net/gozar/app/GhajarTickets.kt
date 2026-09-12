@@ -5,6 +5,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CancellationException
@@ -16,15 +18,17 @@ import org.json.JSONObject
 fun GhajarTickets(api: GhajarStoreApi) {
     val scope = rememberCoroutineScope()
     var tickets by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var departments by remember { mutableStateOf(emptyList<JSONObject>()) }
-    var selectedDepartment by remember { mutableIntStateOf(0) }
-    var thread by remember { mutableStateOf<JSONObject?>(null) }
-    var creating by remember { mutableStateOf(false) }
-    var subject by remember { mutableStateOf("") }
-    var message by remember { mutableStateOf("") }
+    val rowsSaver = Saver<List<JSONObject>, String>(save = { org.json.JSONArray(it).toString() }, restore = { raw -> val a = org.json.JSONArray(raw); (0 until a.length()).map { a.getJSONObject(it) } })
+    var departments by rememberSaveable(stateSaver = rowsSaver) { mutableStateOf(emptyList<JSONObject>()) }
+    var selectedDepartment by rememberSaveable { mutableIntStateOf(0) }
+    val jsonSaver = Saver<JSONObject?, String>(save = { it?.toString().orEmpty() }, restore = { it.takeIf(String::isNotBlank)?.let(::JSONObject) })
+    var thread by rememberSaveable(stateSaver = jsonSaver) { mutableStateOf<JSONObject?>(null) }
+    var creating by rememberSaveable { mutableStateOf(false) }
+    var subject by rememberSaveable { mutableStateOf("") }
+    var message by rememberSaveable { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
-    var page by remember { mutableIntStateOf(1) }
+    var page by rememberSaveable { mutableIntStateOf(1) }
     var totalPages by remember { mutableIntStateOf(1) }
     fun rows(o: JSONObject, key: String): List<JSONObject> {
         val a = o.optJSONArray(key) ?: return emptyList()

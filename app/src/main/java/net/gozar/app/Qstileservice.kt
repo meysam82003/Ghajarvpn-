@@ -105,6 +105,8 @@ class QsTileService : TileService() {
     private fun renderOptimistic(active: Boolean) {
         val tile = qsTile ?: return
         tile.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
+        tile.label = BrandConfig.APP_NAME_FA
+        tile.contentDescription = "${BrandConfig.APP_NAME_FA}، ${if (active) "روشن" else "خاموش"}"
         runCatching { tile.icon = Icon.createWithResource(this, R.drawable.ic_stat_ghajar) }
         tile.updateTile()
     }
@@ -203,7 +205,7 @@ class QsTileService : TileService() {
             st.configs.value.firstOrNull { it.id == id }?.name
         }
         tile.state = if (active) Tile.STATE_ACTIVE else Tile.STATE_INACTIVE
-        tile.label = Strings.get(lang, "app_title")
+        tile.label = if (lang == Lang.FA) BrandConfig.APP_NAME_FA else BrandConfig.APP_NAME_EN
         val status = when (VpnState.state.value) {
             Connection.CONNECTING -> Strings.get(lang, "status_connecting")
             Connection.DISCONNECTING -> Strings.get(lang, "status_disconnected")

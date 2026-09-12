@@ -675,18 +675,6 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    var lastEntryRefresh by remember { mutableStateOf(0L) }
-                    LaunchedEffect(Unit) {
-                        // Every time the app becomes active, subscriptions refresh in the
-                        // background; a failure never blocks the UI and old data stays.
-                        lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.RESUMED) {
-                            val now = System.currentTimeMillis()
-                            if (now - lastEntryRefresh >= 15_000) {
-                                lastEntryRefresh = now
-                                storeResult { SubscriptionRefresher.refreshStale(store, force = true) }
-                            }
-                        }
-                    }
                     LaunchedEffect(Unit) {
                         delay(1100)
                         startMain = true
@@ -2801,7 +2789,7 @@ private fun ConfigPickerScreen(
                                 if (sub.url == FreeConfigs.SOURCE_URL) {
                                     val kept = FreeConfigs.refresh(store, sub.name)
                                     subStatus = when {
-                                        kept > 0 -> t("proj_free_added").format(kept)
+                                        kept > 0 -> t("proj_free_added").format(kept) + if (FreeConfigs.incomplete.value) "؛ بعضی منابع در دسترس نبودند، موارد قبلی حفظ شدند." else ""
                                         kept == FreeConfigs.UNREACHABLE -> t("proj_free_unreachable")
                                         kept == FreeConfigs.NO_CONFIGS -> t("proj_free_nocfg")
                                         kept == FreeConfigs.BUSY -> t("proj_free_working")
@@ -3822,7 +3810,8 @@ private fun FreeProjectsScreen(
                 val p = freeProgress
                 if (p != null) {
                     Text(
-                        t("proj_free_testing").format(p.tested, p.total, p.alive),
+                        (if (p.collecting) "دریافت پیام‌های سه روز اخیر (${p.pages} صفحه) • " else "") +
+                            t("proj_free_testing").format(p.tested, p.total, p.alive),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.primary
                     )
@@ -3833,7 +3822,7 @@ private fun FreeProjectsScreen(
                             val kept = FreeConfigs.refreshMultiSource(store, t("proj_free"))
                             statusOwner = "free"
                             status = when {
-                                kept > 0 -> t("proj_free_added").format(kept)
+                                kept > 0 -> t("proj_free_added").format(kept) + if (FreeConfigs.incomplete.value) "؛ بعضی منابع در دسترس نبودند، موارد قبلی حفظ شدند." else ""
                                 kept == FreeConfigs.UNREACHABLE -> t("proj_free_unreachable")
                                 kept == FreeConfigs.NO_CONFIGS -> t("proj_free_nocfg")
                                 kept == FreeConfigs.BUSY -> t("proj_free_working")

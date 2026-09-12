@@ -65,6 +65,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -114,6 +115,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val requestedUrl by checkoutModel.openUrl
 
     var linked by remember { mutableStateOf(api.isLinked) }
+    GhajarNotificationPermissionEffect(linked && active)
     var linkSession by remember { mutableStateOf(api.pendingLink()) }
     var linkGate by remember(linkSession?.sessionToken) { mutableStateOf<GhajarLinkState?>(null) }
     var linkState by remember { mutableStateOf(GhajarLinkState.PENDING) }
@@ -124,8 +126,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var error by checkoutModel.error
     var message by checkoutModel.message
     var refreshKey by remember { mutableIntStateOf(0) }
-    var section by remember { mutableIntStateOf(0) }
+    var section by rememberSaveable { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
+    val sectionState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var confirmation by remember { mutableStateOf<GhajarPurchaseRequest?>(null) }
     var confirmationTitle by remember { mutableStateOf("") }
     var confirmationPrice by remember { mutableStateOf<Long?>(null) }
@@ -242,7 +245,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         }
     }
 
-    LaunchedEffect(section, pendingPurchase) {
+    LaunchedEffect(section, checkoutVisible) {
         listState.scrollToItem(0)
         if (section == 3 && linked) checkoutModel.refreshMethods()
     }
@@ -353,15 +356,15 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         state = listState,
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
-        item {
+        item(key = "shop-block-0") {
             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
         }
-        if (busy || checkoutBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
-        message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
-        error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
+        if (busy || checkoutBusy) item(key = "shop-block-1") { LinearProgressIndicator(Modifier.fillMaxWidth()) }
+        message?.let { text -> item(key = "shop-block-2") { StatusCard(text, error = false, onDismiss = { message = null }) } }
+        error?.let { text -> item(key = "shop-block-3") { StatusCard(text, error = true, onDismiss = { error = null }) } }
 
         if (!linked) {
-            item {
+            item(key = "shop-block-4") {
                 LinkAccountCard(
                     session = linkSession,
                     busy = busy,
@@ -402,13 +405,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 )
             }
         } else {
-            item {
+            item(key = "shop-block-5") {
                 StoreSectionTabs(section = section, onSelect = { section = it })
             }
             if (section == 4) {
-                item { GhajarTickets(api) }
+                item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
-            if (section == 5) item { GhajarTransactionHistory(api, refreshKey + deliveryRevision) }
+            if (section == 2) item(key = "notification-settings") { GhajarNotificationSettings() }
+            if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision) }
             if (section in setOf(0, 3)) {
                 val entries = serverPending.toMutableList()
                 paymentInit?.let { local ->
@@ -422,14 +426,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         onCancel = { checkoutModel.cancelPayment(item.orderId) })
                 }
             }
-            item {
+            item(key = "shop-block-8") {
                 OutlinedButton(onClick = {
                     StoreLinkRouter.browserIntent(context, BrandConfig.STORE_URL + if (section == 4) "#/tickets" else "#/account")
                         ?.let { context.startActivity(it) }
                 }, modifier = Modifier.fillMaxWidth()) { Text(if (section == 4) "پنل کامل پشتیبانی و پیوست‌ها" else "پنل کامل خدمات حساب") }
             }
             if (section == 3) {
-                item {
+                item(key = "shop-block-9") {
                     Card(shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
                         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text("کیف پول قاجار", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
@@ -451,13 +455,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
             }
             if (section == 2) {
-                if (notices.isEmpty() && !busy) item { Text("پیام تازه‌ای ندارید", modifier = Modifier.padding(16.dp)) }
+                if (notices.isEmpty() && !busy) item(key = "shop-block-10") { Text("پیام تازه‌ای ندارید", modifier = Modifier.padding(16.dp)) }
                 items(notices, key = { "notice:${it.id}" }) { NoticeCard(it) }
             }
 
             if (section == 1) {
-                item { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
-                if (owned.isEmpty() && !busy) item { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
+                item(key = "shop-block-11") { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
+                if (owned.isEmpty() && !busy) item(key = "shop-block-12") { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
                 items(owned, key = { "owned:${it.username}" }) { service ->
                     OwnedServiceCard(service) { checkoutModel.importOwned(service.username) }
                 }
@@ -465,7 +469,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
             if (section == 0) {
             if (pendingPurchase == null) {
-            item {
+            item(key = "shop-block-13") {
                 OutlinedButton(
                     onClick = {
                         scope.launch {
@@ -485,7 +489,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
             }
             trialOptions?.let { options ->
-                if (!options.canRequest) item { Text("سهمیهٔ سرویس تست در دسترس نیست", color = MaterialTheme.colorScheme.error) }
+                if (!options.canRequest) item(key = "shop-block-14") { Text("سهمیهٔ سرویس تست در دسترس نیست", color = MaterialTheme.colorScheme.error) }
                 items(options.panels, key = { "trial:${it.code}" }) { panel ->
                     OutlinedButton(
                         onClick = {
@@ -497,13 +501,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     ) { Text("تست ${panel.name}" + (panel.remaining?.let { " — باقی‌مانده: $it" } ?: "")) }
                 }
             }
-            item { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
+            item(key = "shop-block-15") { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
             if (panels.isEmpty() && !busy) {
-                item { Text("دستهٔ سرویسی از پنل دریافت نشده است؛ چند لحظه بعد دوباره بررسی کن.",
+                item(key = "shop-block-16") { Text("دستهٔ سرویسی از پنل دریافت نشده است؛ چند لحظه بعد دوباره بررسی کن.",
                     color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
             }
             if (panels.isNotEmpty()) {
-                item {
+                item(key = "shop-block-17") {
                     ServiceTypeGrid(
                         items = panels,
                         selected = selectedPanel,
@@ -514,7 +518,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
             }
             if (categories.isNotEmpty()) {
-                item {
+                item(key = "shop-block-18") {
                     ChipFlowRow(
                         allLabel = "همه دسته‌ها",
                         items = categories,
@@ -525,7 +529,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
             }
             if (timeRanges.isNotEmpty()) {
-                item {
+                item(key = "shop-block-19") {
                     ChipFlowRow(
                         allLabel = "همه مدت‌ها",
                         items = timeRanges,
@@ -537,7 +541,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
 
             selectedPanel?.takeIf { it.custom }?.let {
-                item {
+                item(key = "shop-block-20") {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         FilterChip(selected = !customMode, onClick = { customMode = false }, label = { Text("پلن‌های آماده") })
                         FilterChip(selected = customMode, onClick = { customMode = true }, label = { Text("سرویس سفارشی") })
@@ -546,7 +550,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
 
             if (customMode) {
-                item {
+                item(key = "shop-block-21") {
                     CustomServiceCard(
                         traffic = customTraffic,
                         days = customDays,
@@ -582,7 +586,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
             selectedPanel?.let { panel ->
                 if (customMode) {
-                    item {
+                    item(key = "shop-block-22") {
                         Button(
                             onClick = {
                                 confirmationTitle = "سرویس سفارشی · $customTraffic گیگ · $customDays روز"
@@ -599,10 +603,10 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
 
             pendingPurchase?.takeIf { it.requiresPayment }?.let { purchase ->
-                item { SectionTitle("۳. پرداخت", "فاکتور روی گوشی حفظ می‌شود؛ وضعیت را از سرور بررسی کن") }
-                item { PaymentSummary(purchase, walletTopUp, paymentInit?.takeIf { GhajarCommerceRules.cardPayment(it.kind, it.cardNumber) }?.amount) }
+                item(key = "shop-block-23") { SectionTitle("۳. پرداخت", "فاکتور روی گوشی حفظ می‌شود؛ وضعیت را از سرور بررسی کن") }
+                item(key = "shop-block-24") { PaymentSummary(purchase, walletTopUp, paymentInit?.takeIf { GhajarCommerceRules.cardPayment(it.kind, it.cardNumber) }?.amount) }
                 if (paymentInit == null) {
-                    if (paymentOptions == null) item {
+                    if (paymentOptions == null) item(key = "shop-block-25") {
                         OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
                             modifier = Modifier.fillMaxWidth()) { Text("دریافت روش‌های پرداخت") }
                     }
@@ -612,12 +616,12 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
             }
             paymentInit?.takeIf { checkoutVisible }?.let { payment ->
-                if (GhajarCommerceRules.cardPayment(payment.kind, payment.cardNumber)) item {
+                if (GhajarCommerceRules.cardPayment(payment.kind, payment.cardNumber)) item(key = "shop-block-26") {
                     CardToCardCard(payment, receiptUri, checkoutBusy, receiptSent,
                         onPickReceipt = { receiptPicker.launch(arrayOf("image/jpeg", "image/png", "image/webp")) },
                         onUpload = checkoutModel::uploadReceipt)
                 }
-                item {
+                item(key = "shop-block-27") {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text("کد پیگیری: ${payment.orderId}", style = MaterialTheme.typography.labelMedium)
                         payment.url?.let { url ->
@@ -631,14 +635,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     }
                 }
             }
-            if (pendingPurchase != null) item {
+            if (pendingPurchase != null) item(key = "shop-block-28") {
                 TextButton(onClick = checkoutModel::leaveInvoice, enabled = !checkoutBusy) { Text("بازگشت به محصولات") }
             }
 
             }
         }
 
-        item { Spacer(Modifier.height(28.dp)) }
+        item(key = "shop-block-29") { Spacer(Modifier.height(28.dp)) }
     }
     delivery?.let { result ->
         GhajarDeliveryDialog(result, onDismiss = { checkoutModel.delivery.value = null },

@@ -62,14 +62,19 @@ object SubscriptionFetcher {
                     bytes.toString(Charsets.UTF_8)
                 }
                 val userInfo = parseUserInfo(conn.getHeaderField("subscription-userinfo"))
-                val text = decodeMaybeBase64(body)
-                val configs = ConfigParser.parseBundle(text, source)
-                if (configs.isEmpty()) throw classify(text)
+                val configs = parseBody(body, source)
                 FetchResult(configs, userInfo)
             } finally {
                 conn.disconnect()
             }
         }
+
+    fun parseBody(body: String, source: ConfigSource = ConfigSource.PERSONAL): List<ProxyConfig> {
+        val text = decodeMaybeBase64(body)
+        return ConfigParser.parseBundle(text, source).also {
+            if (it.isEmpty()) throw classify(text)
+        }
+    }
 
     private fun openFollowingRedirects(startUrl: String, proxy: java.net.Proxy, strictTls: Boolean): HttpURLConnection {
         var current = startUrl

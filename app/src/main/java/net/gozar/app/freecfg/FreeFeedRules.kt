@@ -5,7 +5,6 @@ import java.net.URI
 
 /** Message extraction and identity are independent of transport and display names. */
 object FreeFeedRules {
-    const val LIMIT = 350
     private val direct = Regex("(?:vless|vmess|trojan|ss|hysteria2|hy2|tuic|wireguard|wg|socks5)://[^\\s\"'<>\\\\]+", RegexOption.IGNORE_CASE)
     private val http = Regex("https?://[^\\s\"'<>\\\\]+", RegexOption.IGNORE_CASE)
     data class Links(val configs: List<String>, val subscriptions: List<String>)
@@ -30,6 +29,24 @@ object FreeFeedRules {
         return Links(direct.findAll(text).map { it.value }.distinct().toList(), urls)
     }
 
+    data class Post(val id: Long, val publishedAt: Long?, val html: String)
+
+    /** Telegram's data-post blocks contain their own ISO-8601 time element. */
+    fun posts(html: String): List<Post> {
+        val markers = Regex("""data-post=["'][^/"']+/(\d+)["']""").findAll(html).toList()
+        return markers.mapIndexed { index, marker ->
+            val block = html.substring(marker.range.first, markers.getOrNull(index + 1)?.range?.first ?: html.length)
+            val stamp = Regex("""<time\b[^>]*datetime=["']([^"']+)["']""").find(block)?.groupValues?.get(1)
+            Post(marker.groupValues[1].toLong(), stamp?.let {
+                runCatching { java.time.Instant.parse(it).toEpochMilli() }.getOrNull()
+            }, block)
+        }
+    }
+
+    fun recentPosts(posts: List<Post>, now: Long): List<Post> = posts.filter {
+        it.publishedAt?.let { stamp -> stamp >= now - 72 * 60 * 60 * 1000L && stamp <= now + 300_000L } == true
+    }
+
     private fun decode(value: String): String {
         var result = value.replace("&amp;", "&").replace("&quot;", "\"")
             .replace("&apos;", "'").replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ")
@@ -47,7 +64,13 @@ object FreeFeedRules {
             .sorted().joinToString("|") { key -> "$key=${json.get(key)}" }
     }
 
-    fun select(groups: List<List<ProxyConfig>>, limit: Int = LIMIT): List<ProxyConfig> {
+    fun reconcile(previous: List<ProxyConfig>, healthy: List<ProxyConfig>, tested: Set<String>, complete: Boolean): List<ProxyConfig> {
+        val retained = if (complete) emptyList() else previous.filterNot { signature(it) in tested }
+        return (healthy + retained).distinctBy(::signature)
+            .mapIndexed { i, cfg -> cfg.copy(name = "Ghajarvpn ${i + 1}") }
+    }
+
+    fun select(groups: List<List<ProxyConfig>>, limit: Int = Int.MAX_VALUE): List<ProxyConfig> {
         val unique = linkedMapOf<String, ProxyConfig>()
         // Round-robin keeps one large subscription from crowding out all channels.
         for (i in 0 until (groups.maxOfOrNull { it.size } ?: 0)) {

@@ -296,14 +296,23 @@ class GhajarStoreApi(context: Context) {
         return serviceFrom(payload, username)
     }
 
-    suspend fun notices(): List<GhajarNotice> {
-        val recent = action("notification_recent").payloadObject()
-            .optJSONArray("notifications").orEmpty().objects()
-        val active = action("notification_info").payloadObject().optJSONObject("notification")
+    suspend fun notices(forDelivery: Boolean = false): List<GhajarNotice> {
+        var failure: Exception? = null
+        var fetched = 0
+        suspend fun fetchNotice(actionName: String): JSONObject? = try {
+            action(actionName).payloadObject().also { fetched++ }
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+          catch (e: Exception) { failure = e; null }
+        val recent = fetchNotice("notification_recent")?.optJSONArray("notifications").orEmpty().objects()
+        val active = fetchNotice("notification_info")?.optJSONObject("notification")
+        if (fetched == 0) throw (failure ?: GhajarApiException("دریافت اعلان ناموفق بود"))
+        val now = System.currentTimeMillis() / 1000
+        fun deliverable(row: JSONObject) = !forDelivery ||
+            (!row.optBoolean("seen") && (row.optLong("expires_at") <= 0 || row.optLong("expires_at") > now))
         return buildList {
-            active?.takeUnless { it.optBoolean("seen") }?.let { noticeFrom(it, "notification", false) }
+            active?.takeIf(::deliverable)?.let { noticeFrom(it, "notification", false) }
                 ?.let { add(it.copy(important = true)) }
-            recent.mapNotNullTo(this) { noticeFrom(it, "notification", false) }
+            recent.filter(::deliverable).mapNotNullTo(this) { noticeFrom(it, "notification", false) }
         }.distinctBy { it.id }
     }
 
