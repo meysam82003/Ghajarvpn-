@@ -101,7 +101,7 @@ private class PsiphonRuntime(
         override fun onConnecting() = onLog("[psiphon] [*] establishing a tunnel")
         override fun onConnected() {
             onLog("[psiphon] [+] tunnel established")
-            onConnected()
+            this@PsiphonRuntime.onConnected()
         }
         override fun onConnectedServerRegion(region: String) = onLog("[psiphon] [+] connected through $region")
         override fun onClientRegion(region: String) = onLog("[psiphon] [*] client region reported as $region")
@@ -129,6 +129,7 @@ private class PsiphonRuntime(
             instance.startTunneling("")
         }
         started.onFailure { error ->
+            runCatching { tunnel?.stop() }
             active.set(false); tunnel = null
             onLog("[psiphon] [-] failed to start: ${error.message}")
             onStopped(error.message ?: "psiphon core failed to start")
@@ -224,6 +225,7 @@ object PsiphonController {
         }
         if (SOCKS_PORT == 0 || !instance.isRunning || !connectedReported.get()) {
             Log.e(TAG, "psiphon did not come up: ${failure ?: "unknown error"}")
+            stop()
             return false
         }
         Log.i(TAG, "socks ready on 127.0.0.1:$SOCKS_PORT")

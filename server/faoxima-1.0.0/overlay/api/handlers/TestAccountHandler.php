@@ -106,7 +106,7 @@ final class TestAccountHandler extends BaseHandler
         $notifications = json_encode(['volume' => false, 'time' => false]);
 
         try {
-            FaoximaDb::execute(
+            $saved = FaoximaDb::execute(
                 "INSERT IGNORE INTO invoice
                     (id_user, id_invoice, username, time_sell, Service_location, name_product,
                      price_product, Volume, Service_time, Status, notifctions)
@@ -126,6 +126,7 @@ final class TestAccountHandler extends BaseHandler
                     ':notifs'       => $notifications,
                 ]
             );
+            if ($saved !== 1) throw new RuntimeException("Trial invoice was not saved");
         } catch (Throwable $e) {
             GhajarPanelTrial::release($claim);
             FaoximaLogger::exception($e, 'TestAccount invoice insert failed', ['user_id' => $this->user['id']]);

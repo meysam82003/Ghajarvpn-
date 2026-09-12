@@ -10,8 +10,7 @@ import org.json.JSONObject
  * Builds the same field names/shape that ca.psiphon.PsiphonTunnel expects.
  * These are Psiphon Inc's own public
  * server-list URL/signature - those are Psiphon Inc's public values, not
- * secrets). Custom CDN IP/SNI override support was left out for simplicity;
- * add it back the same way if you need fronting overrides.
+ * secrets). CDN IP/SNI overrides follow the supplied Oblivion config format.
  */
 object PsiphonConfig {
 

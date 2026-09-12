@@ -9285,7 +9285,7 @@ private fun PsiphonHubScreen(
             cdnSni = it
             store.update(config.copy(psiphonMode = mode, psiphonCountry = country, psiphonCdnIps = cdnIps, psiphonCdnSni = it))
         }, label = { Text("SNI دلخواه CDN (اختیاری)") }, modifier = Modifier.fillMaxWidth())
-        Text("حالت Conduit در سورس ارسالی کلید امضای سرور ندارد و قابل اتصال نیست.", style = MaterialTheme.typography.bodySmall)
+        Text("حالت Conduit در این نسخه در دسترس نیست.", style = MaterialTheme.typography.bodySmall)
         BounceButton(
             onClick = {
                 if (isActive && conn != Connection.DISCONNECTED && conn != Connection.ERROR) {

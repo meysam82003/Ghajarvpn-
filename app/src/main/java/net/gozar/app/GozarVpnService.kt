@@ -58,7 +58,7 @@ class GozarVpnService : VpnService() {
                 return START_NOT_STICKY
             }
             ACTION_WARM -> {
-                if (tunFd != null) {
+                if (tunFd != null && startJob?.isActive != true && !tearingDown) {
                     VpnBridge.sendConnected(applicationContext)
                     return START_STICKY
                 }
@@ -175,6 +175,7 @@ class GozarVpnService : VpnService() {
                         return@launch
                     }
                 }
+                ensureActive()
                 VpnBridge.sendConnected(applicationContext)
                 startPolling()
             } catch (e: CancellationException) {
@@ -314,6 +315,7 @@ class GozarVpnService : VpnService() {
                 val killOn = ConfigStore.get(applicationContext).killSwitch.value
                 if (error != null && killOn) {
                     enterKillSwitch(error)
+                    tearingDown = false
                 } else {
                     if (error != null) VpnBridge.sendError(applicationContext, error)
                     else VpnBridge.sendDisconnected(applicationContext)

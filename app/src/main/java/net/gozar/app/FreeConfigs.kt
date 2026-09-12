@@ -1,7 +1,6 @@
 package net.gozar.app
 
 import gozarcore.Gozarcore
-import net.gozar.app.freecfg.FreeSourceRegistry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.coroutineScope
@@ -81,11 +80,7 @@ object FreeConfigs {
 
     data class Scrape(val reachable: Boolean, val messages: Int, val configs: List<ProxyConfig>)
 
-    /**
-     * Multi-source scrape across FreeSourceRegistry channels with per-source
-     * failure isolation: one dead channel never blocks the rest. Results are
-     * merged and deduped through the same signature as the primary channel.
-     */
+    /** Compatibility entry point; all automatic free imports use @Ghajarvpn. */
     suspend fun refreshMultiSource(store: ConfigStore, label: String): Int = refresh(store, label)
 
     private suspend fun scrapeSource(sourceUrl: String): Scrape = withContext(Dispatchers.IO) {
@@ -179,7 +174,7 @@ object FreeConfigs {
             val current = if (existing == null) emptyList()
             else store.configs.value.filter { it.subId == existing.id }
 
-            val merged = (current + found.configs).distinctBy { sig(it) }.take(MAX_TEST)
+            val merged = found.configs.distinctBy { sig(it) }.take(MAX_TEST)
             android.util.Log.i(
                 TAG,
                 "kept=${current.size} scraped=${found.configs.size} merged=${merged.size}"

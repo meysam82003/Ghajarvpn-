@@ -142,14 +142,19 @@ if ($user['step'] == "createusertest" || preg_match('/locationtest_(.*)/', $data
         sendmessage($from_id, 'سهمیه تست این پنل تمام شده یا پنل غیرفعال شده است.', $keyboard_buy, 'html');
         return;
     }
+    try {
     $stmt = $connect->prepare("INSERT IGNORE INTO invoice (id_user, id_invoice, username,time_sell, Service_location, name_product, price_product, Volume, Service_time,Status,notifctions) VALUES (?, ?,  ?, ?, ?, ?, ?,?,?,?,?)");
     $Status = "active";
     $info_product['name_product'] = "سرویس تست";
     $info_product['price_product'] = "0";
     $Status = "active";
     $stmt->bind_param("sssssssssss", $from_id, $randomString, $username_ac, $date, $marzban_list_get['name_panel'], $info_product['name_product'], $info_product['price_product'], $marzban_list_get['val_usertest'], $marzban_list_get['time_usertest'], $Status, $notifctions);
-    $stmt->execute();
+    if (!$stmt->execute() || $stmt->affected_rows !== 1) throw new RuntimeException("Trial invoice was not saved");
     $stmt->close();
+    } catch (Throwable $e) {
+        GhajarPanelTrial::release($ghajarClaim);
+        throw $e;
+    }
     $dataoutput = $ManagePanel->createUser($marzban_list_get['name_panel'], "usertest", $username_ac, $datac);
     if (empty($dataoutput['username'])) {
         GhajarPanelTrial::release($ghajarClaim);

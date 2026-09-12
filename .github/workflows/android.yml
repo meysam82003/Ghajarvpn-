@@ -38,7 +38,9 @@ jobs:
           TRIAL_TEST_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=trial_test;charset=utf8mb4'
           TRIAL_TEST_USER: root
           TRIAL_TEST_PASSWORD: trial_test_only
-        run: php server/faoxima-1.0.0/tests/panel-trial.php
+        run: |
+          php server/faoxima-1.0.0/tests/panel-trial.php
+          php server/faoxima-1.0.0/tests/purchase-settlement.php
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 75
@@ -320,3 +322,42 @@ jobs:
             ${{ env.GHAJAR_SOURCE_ROOT }}/browser/build/test-results/testDebugUnitTest/*.xml
             ${{ runner.temp }}/ghajar-native-arch-tests/Testing/Temporary/LastTest.log
           if-no-files-found: warn
+  draft-release:
+    needs: [server-tests, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/release-1.0.0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Ghajarvpn-1.0.0-CI-ephemeral-key-Android8plus
+          path: release-apks
+      - name: Package reviewed outputs
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          out = Path('release-files'); out.mkdir()
+          for apk in Path('release-apks').rglob('*release.apk'):
+              shutil.copy2(apk, out / apk.name.replace('app-', 'Ghajarvpn-1.0.0-'))
+          assert list(out.glob('*.apk')), 'No release APKs found'
+          root = Path('server/faoxima-1.0.0')
+          with zipfile.ZipFile(out / 'Ghajarvpn-1.0.0-server-patch.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+              for f in root.rglob('*'):
+                  if f.is_file() and '__pycache__' not in f.parts:
+                      z.write(f, 'Ghajarvpn-1.0.0-server-patch/' + str(f.relative_to(root)))
+          (out / 'SHA256SUMS.txt').write_text(''.join(
+              hashlib.sha256(f.read_bytes()).hexdigest() + '  ' + f.name + '\n'
+              for f in sorted(out.iterdir())))
+          PY
+      - name: Prepare draft 1.0.0 with APKs and server patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view 1.0.0 --json isDraft > "$RUNNER_TEMP/release-state.json" 2>/dev/null; then
+            python3 -c 'import json,sys; assert json.load(open(sys.argv[1]))["isDraft"], "An existing published release must not be replaced"' "$RUNNER_TEMP/release-state.json"
+            gh release edit 1.0.0 --draft --target "$GITHUB_SHA" --title '1.0.0' --notes-file docs/RELEASE-NOTES-1.0.0.md
+            gh release upload 1.0.0 release-files/* --clobber
+          else
+            gh release create 1.0.0 release-files/* --draft --target "$GITHUB_SHA" --title '1.0.0' --notes-file docs/RELEASE-NOTES-1.0.0.md
+          fi
