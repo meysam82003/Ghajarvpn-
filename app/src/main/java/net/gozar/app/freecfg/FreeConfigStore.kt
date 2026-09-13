@@ -28,13 +28,7 @@ class FreeConfigStore(context: Context) {
         val favorite: Boolean = false
     )
 
-    fun loadSources(): MutableList<FreeSource> = synchronized(lock) {
-        runCatching {
-            val root = JSONObject(read())
-            val array = root.optJSONArray("sources") ?: JSONArray()
-            (0 until array.length()).mapNotNull { i -> array.optJSONObject(i)?.let { FreeSource.fromJson(it) } }
-        }.getOrDefault(FreeSourceRegistry.DEFAULT_SOURCES).toMutableList()
-    }
+    fun loadSources(): MutableList<FreeSource> = FreeSourceRegistry.DEFAULT_SOURCES.map { it.copy() }.toMutableList()
 
     fun loadItems(): MutableList<ItemRecord> = synchronized(lock) {
         runCatching {
@@ -52,7 +46,7 @@ class FreeConfigStore(context: Context) {
                     )
                 }
             }
-        }.getOrDefault(mutableListOf()).toMutableList()
+        }.getOrDefault(mutableListOf()).filter { it.sourceId in FreeSourceRegistry.DEFAULT_SOURCES.map { source -> source.id } }.toMutableList()
     }
 
     fun save(sources: List<FreeSource>, items: List<ItemRecord>) = synchronized(lock) {

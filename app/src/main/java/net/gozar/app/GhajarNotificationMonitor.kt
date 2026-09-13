@@ -54,8 +54,8 @@ class GhajarNotificationJob : JobService() {
 
     override fun onStartJob(params: JobParameters): Boolean {
         job = scope.launch {
-            GhajarNotificationMonitor.refresh(applicationContext)
-            jobFinished(params, false)
+            val success = GhajarNotificationMonitor.refresh(applicationContext)
+            jobFinished(params, !success)
         }
         return true
     }
@@ -71,9 +71,16 @@ class GhajarNotificationJob : JobService() {
     }
 }
 
+class GhajarNotificationBootReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        GhajarNotificationMonitor.initialize(context.applicationContext)
+    }
+}
+
 object GhajarNotificationMonitor {
     private const val JOB_ID = 0x514A52
     private val deliveryLock = Mutex()
+    private val monitorScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private fun accountKey(context: Context): String? = GhajarAccountStore(context).token()
         .takeIf { it.isNotBlank() }?.let { token ->
@@ -88,6 +95,9 @@ object GhajarNotificationMonitor {
         acknowledged += id
         prefs.edit().putStringSet("acknowledged", acknowledged.toList().takeLast(500).toSet()).apply()
         GhajarNoticeBus.dismiss(id)
+        monitorScope.launch {
+            runCatching { GhajarStoreApi(context.applicationContext).dismissNotice(id) }
+        }
     }
 
     fun initialize(context: Context) {
@@ -101,28 +111,32 @@ object GhajarNotificationMonitor {
                 .build()
             scheduler.schedule(info)
         }
-        CoroutineScope(SupervisorJob() + Dispatchers.IO).launch { refresh(context.applicationContext) }
+        monitorScope.launch { refresh(context.applicationContext) }
     }
 
-    suspend fun refresh(context: Context) {
-        val api = GhajarStoreApi(context)
-        val key = accountKey(context) ?: run { GhajarNoticeBus.reset(); return }
-        val notices = try { api.notices() } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (_: Exception) { return }
-        deliveryLock.withLock {
-            if (accountKey(context) != key) return@withLock
+    suspend fun refresh(context: Context): Boolean {
+        if (!deliveryLock.tryLock()) return true
+        try {
+            val key = accountKey(context) ?: run { GhajarNoticeBus.reset(); return true }
+            val notices = try { GhajarStoreApi(context).notices(forDelivery = true) }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) { return false }
+            if (accountKey(context) != key) return true
+            createChannels(context)
             val prefs = context.getSharedPreferences("ghajarvpn_notices_$key", Context.MODE_PRIVATE)
             val notified = prefs.getStringSet("notified", emptySet()).orEmpty().toMutableSet()
             val acknowledged = prefs.getStringSet("acknowledged", emptySet()).orEmpty()
             val enriched = notices.map { it.withUsageSummary() }
-            // In-app acknowledgement and OS delivery are independent. Fetching a
-            // notice in the shop or denying OS permission cannot hide the banner.
             GhajarNoticeBus.publish(key, enriched, acknowledged)
-            enriched.filterNot { it.id in notified }.forEach { notice ->
-                if (post(context, notice)) notified += notice.id
+            enriched.forEach { notice ->
+                val fingerprint = notice.id + ":" + MessageDigest.getInstance("SHA-256")
+                    .digest((notice.title + "\n" + notice.message).toByteArray())
+                    .take(12).joinToString("") { "%02x".format(it) }
+                if (fingerprint !in notified && post(context, notice)) notified += fingerprint
             }
             prefs.edit().putStringSet("notified", notified.toList().takeLast(500).toSet()).apply()
-        }
+            return true
+        } finally { deliveryLock.unlock() }
     }
 
     /** Uses the panel-provided meta values; no guessed quota or expiry is emitted. */

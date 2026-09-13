@@ -19,7 +19,12 @@ object SubscriptionRefresher {
         }
 
         targets.forEach { sub ->
-                runCatching {
+                try {
+                    if (sub.url == FreeConfigs.SOURCE_URL) {
+                        FreeConfigs.refresh(store, FreeConfigs.CONFIG_NAME)
+                        return@forEach
+                    }
+                    if (sub.url.isBlank()) return@forEach
                     val result = SubscriptionFetcher.fetchFull(sub.url)
                     if (result.configs.isNotEmpty()) {
                         val info = result.userInfo
@@ -33,7 +38,8 @@ object SubscriptionRefresher {
                             result.configs
                         )
                     }
-                }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                  catch (_: Exception) { /* Preserve an unavailable subscription. */ }
             }
     }
 }

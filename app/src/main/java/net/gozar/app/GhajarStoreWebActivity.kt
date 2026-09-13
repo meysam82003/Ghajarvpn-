@@ -28,6 +28,7 @@ import androidx.core.net.toUri
 class GhajarStoreWebActivity : Activity() {
     private lateinit var webView: WebView
     private var originHost: String? = null
+    private var chooser: android.webkit.ValueCallback<Array<Uri>>? = null
 
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,7 +59,40 @@ class GhajarStoreWebActivity : Activity() {
             settings.allowContentAccess = false
             settings.mixedContentMode = android.webkit.WebSettings.MIXED_CONTENT_NEVER_ALLOW
             settings.userAgentString = settings.userAgentString + " Ghajarvpn/${BuildConfig.VERSION_NAME}"
+            webChromeClient = object : android.webkit.WebChromeClient() {
+                override fun onShowFileChooser(view: WebView?, callback: android.webkit.ValueCallback<Array<Uri>>?, params: FileChooserParams?): Boolean {
+                    chooser?.onReceiveValue(null)
+                    chooser = callback
+                    return try {
+                        startActivityForResult(params?.createIntent() ?: android.content.Intent(android.content.Intent.ACTION_GET_CONTENT).setType("image/*"), 410)
+                        true
+                    } catch (_: Exception) { chooser?.onReceiveValue(null); chooser = null; false }
+                }
+            }
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(view: WebView?, request: WebResourceRequest?): android.webkit.WebResourceResponse? {
+                    val target = request?.url ?: return null
+                    // Seed the token before Faoxima's module bootstrap, never in a URL
+                    // or on a different page/origin. The API validates it normally.
+                    if (!request.isForMainFrame || request.method != "GET" ||
+                        !BrandConfig.isTrustedStoreUri(target) || target.path != BrandConfig.STORE_PATH) return null
+                    val token = GhajarAccountStore(this@GhajarStoreWebActivity).token()
+                    if (token.isBlank()) return null
+                    return try {
+                        val connection = java.net.URL(target.toString().substringBefore('#')).openConnection() as java.net.HttpURLConnection
+                        connection.connectTimeout = 15_000; connection.readTimeout = 20_000
+                        connection.instanceFollowRedirects = false
+                        try {
+                            if (connection.responseCode != 200) return null
+                            val html = connection.inputStream.bufferedReader().use { it.readText() }
+                            val script = "<script>sessionStorage.setItem('faoxima.token'," + org.json.JSONObject.quote(token) + ");</script>"
+                            val head = Regex("<head[^>]*>", RegexOption.IGNORE_CASE).find(html) ?: return null
+                            val document = html.substring(0, head.range.last + 1) + script + html.substring(head.range.last + 1)
+                            android.webkit.WebResourceResponse("text/html", "UTF-8", document.byteInputStream())
+                        } finally { connection.disconnect() }
+                    } catch (_: Exception) { null }
+                }
+
                 override fun onPageStarted(view: WebView?, u: String?, favicon: android.graphics.Bitmap?) {
                     progress.visibility = View.VISIBLE
                 }
@@ -72,7 +106,8 @@ class GhajarStoreWebActivity : Activity() {
                     val next = request.url ?: return true
                     val host = next.host?.lowercase()?.trimEnd('.') ?: return true
                     val allowed = next.scheme.equals("https", true) &&
-                        (host == originHost || host.endsWith(".$originHost") || BrandConfig.isTrustedStoreUri(next))
+                        host == originHost
+                    if (!allowed) StoreLinkRouter.securePaymentIntent(this@GhajarStoreWebActivity, next.toString())?.let { startActivity(it) }
                     return !allowed
                 }
             }
@@ -122,7 +157,17 @@ class GhajarStoreWebActivity : Activity() {
         if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed()
     }
 
+    @Deprecated("Deprecated in Android")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 410) {
+            chooser?.onReceiveValue(android.webkit.WebChromeClient.FileChooserParams.parseResult(resultCode, data))
+            chooser = null
+        }
+    }
+
     override fun onDestroy() {
+        chooser?.onReceiveValue(null); chooser = null
         if (::webView.isInitialized) {
             webView.stopLoading()
             webView.loadUrl("about:blank")

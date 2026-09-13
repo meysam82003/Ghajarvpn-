@@ -28,7 +28,10 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         GhajarLog.init(this)
         GhajarLog.installCrashHandler(this)
         GhajarLog.i("Startup", "phase: logger ready")
-        GhajarNotificationMonitor.initialize(this)
+        val processName = if (android.os.Build.VERSION.SDK_INT >= 28) android.app.Application.getProcessName()
+            else (getSystemService(android.app.ActivityManager::class.java).runningAppProcesses.orEmpty()
+                .firstOrNull { it.pid == android.os.Process.myPid() }?.processName)
+        if (processName == packageName) GhajarNotificationMonitor.initialize(this)
         GhajarLog.i("Startup", "phase: notification monitor ready")
         GhajarOpenVpnBridge.initialize(this)
         GhajarLog.i("Startup", "phase: openvpn bridge ready")
@@ -39,7 +42,9 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
                 startedActivities++
                 foreground.value = startedActivities > 0
                 if (enteringApp) scope.launch {
-                    SubscriptionRefresher.refreshStale(ConfigStore.get(this@GozarApplication), force = true)
+                    val configStore = ConfigStore.get(this@GozarApplication)
+                    configStore.awaitReady()
+                    SubscriptionRefresher.refreshStale(configStore, force = false)
                 }
             }
 

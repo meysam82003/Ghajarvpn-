@@ -83,6 +83,7 @@ gomobile init
 manifests="$(mktemp -d)"
 cp "$source_root/go.mod" "$source_root/go.sum" "$manifests/"
 bridge_file="$source_root/psiphonbind.go"
+cp "$repo/scripts/freeprobe.go" "$source_root/freeprobe.go"
 cleanup() {
   cp "$manifests/go.mod" "$source_root/go.mod"
   cp "$manifests/go.sum" "$source_root/go.sum"

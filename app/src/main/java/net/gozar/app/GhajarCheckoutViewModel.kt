@@ -10,6 +10,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.security.MessageDigest
 
@@ -33,6 +35,8 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     val walletTopUp = mutableStateOf(false)
     internal val delivery = mutableStateOf<GhajarDelivery?>(null)
     val openUrl = mutableStateOf<String?>(null)
+    val checkoutVisible = mutableStateOf(false)
+    val pendingPayments = mutableStateOf<List<GhajarPendingPayment>>(emptyList())
     /** Delivery/refund lifecycle of the current paid order; null for unpaid browsing. */
     private val stage = mutableStateOf<GhajarOrderStage?>(null)
     private var owner = ""
@@ -58,11 +62,13 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { byte -> "%02x".format(byte) }
     }.orEmpty()
 
-    private fun runOperation(block: suspend () -> Unit) {
-        if (busy.value) return
-        busy.value = true
-        error.value = null
+    private val operationMutex = Mutex()
+
+    private fun runOperation(silent: Boolean = false, block: suspend () -> Unit) {
+        if (busy.value || (silent && operationMutex.isLocked)) return
+        if (!silent) { busy.value = true; error.value = null }
         viewModelScope.launch {
+            operationMutex.withLock {
             try {
                 val current = accountId()
                 if (current.isBlank()) throw GhajarApiException("ابتدا حساب را به ربات متصل کن.")
@@ -71,6 +77,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                     receipt.value = null; delivery.value = null; openUrl.value = null
                     receiptSent.value = false; walletTopUp.value = false; stage.value = null
                     owner = current
+                    pendingPayments.value = emptyList(); checkoutVisible.value = false
                     prefs.edit().clear().apply()
                     throw GhajarApiException("حساب تغییر کرده است؛ سفارش مربوط به حساب قبلی بود.")
                 }
@@ -84,9 +91,10 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 // beginPayment/purchase call left the user looking at a generic
                 // error with zero trace in Debugger/log export to diagnose from.
                 GhajarLog.e("Payment", "operation failed: ${failure.javaClass.simpleName}: ${failure.message}")
-                error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
+                if (!silent) error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
             } finally {
-                busy.value = false
+                if (!silent) busy.value = false
+            }
             }
         }
     }
@@ -94,6 +102,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     fun buy(request: GhajarPurchaseRequest) = runOperation {
         if (payment.value != null) throw GhajarApiException("ابتدا وضعیت فاکتور فعلی را بررسی کن؛ پرداخت دوباره لازم نیست.")
         walletTopUp.value = false
+        checkoutVisible.value = true
         val result = api.purchase(request)
         if (result.requiresPayment) {
             purchase.value = result; payment.value = null; receiptSent.value = false
@@ -117,6 +126,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         val options = api.paymentOptions()
         methods.value = options
         walletTopUp.value = true
+        checkoutVisible.value = true
         purchase.value = GhajarPurchaseResult(false, true, null, amount, options.balance, amount, null)
         persist()
         message.value = "روش پرداخت شارژ کیف پول را انتخاب کن."
@@ -136,7 +146,8 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         }
         val result = api.beginPayment(method.id, target.amountDue, target.username)
         require(result.orderId.isNotBlank()) { "شناسهٔ فاکتور از سرور دریافت نشد." }
-        payment.value = result
+        payment.value = result.copy(methodLabel = method.label)
+        checkoutVisible.value = true
         receipt.value = null
         receiptSent.value = false
         paidWaitingChecks = 0
@@ -144,6 +155,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         persist() // Save the exact card and amount before leaving for payment.
         message.value = result.message.ifBlank { "فاکتور آماده است." }
         openUrl.value = result.url
+        runCatching { api.pendingPayments() }.onSuccess { pendingPayments.value = it }
     }
 
     fun uploadReceipt() = runOperation {
@@ -196,10 +208,11 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     }
 
     /** Only authenticated server state can confirm payment, never a redirect URL. */
-    fun checkPayment() = runOperation {
+    fun checkPayment() = runOperation(silent = true) {
         val invoice = payment.value ?: return@runOperation
         val status = api.paymentStatus(invoice.orderId)
         val value = status.optString("payment_status")
+        payment.value = invoice.copy(expiresAt = status.optLong("expires_at", invoice.expiresAt))
         val service = status.optJSONObject("service")
         val serviceReady = status.optBoolean("is_service_ready")
         val outcome = GhajarCommerceRules.paymentOutcome(value, walletTopUp.value, status.optBoolean("wallet_credited_only"),
@@ -259,14 +272,52 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
-    fun leaveInvoice() {
-        if (busy.value) return
-        // Local navigation only: this does not cancel a real payment on the server.
+    fun refreshPending() = runOperation(silent = true) {
+        pendingPayments.value = api.pendingPayments()
+    }
+
+    fun resumePayment(item: GhajarPendingPayment) = runOperation {
+        val status = api.paymentStatus(item.orderId)
+        val previous = payment.value?.takeIf { it.orderId == item.orderId }
+        walletTopUp.value = status.optString("flow") == "recharge"
+        purchase.value = if (previous != null) purchase.value else null
+        if (purchase.value == null) purchase.value = GhajarPurchaseResult(false, true, null,
+            item.amount, 0, item.amount, null)
+        payment.value = previous?.copy(expiresAt = status.optLong("expires_at", item.expiresAt))
+            ?: GhajarPaymentInit("url", item.orderId,
+                status.optString("gateway_url").takeIf { it.startsWith("https://") }, null, null,
+                item.amount, item.amount * 10, "", item.method, item.label, item.expiresAt)
+        checkoutVisible.value = true
+        persist()
+        message.value = "همان فاکتور برای پیگیری باز شد؛ پرداخت تازه‌ای ساخته نشد."
+    }
+
+    fun cancelPayment(orderId: String) = runOperation {
+        api.cancelPayment(orderId)
+        // A racing gateway callback may have paid the order. Never discard it
+        // solely because the cancellation endpoint returned HTTP 200.
+        val status = api.paymentStatus(orderId).optString("payment_status").lowercase()
+        if (status in setOf("cancelled", "canceled", "reject")) {
+            if (payment.value?.orderId == orderId) clearInvoice()
+            pendingPayments.value = api.pendingPayments()
+            message.value = "فاکتور لغو شد."
+        } else {
+            message.value = "لغو تأیید نشد؛ وضعیت پرداخت را دوباره بررسی کن."
+        }
+    }
+
+    private fun clearInvoice() {
         purchase.value = null; payment.value = null; methods.value = null
         receipt.value = null; receiptSent.value = false; walletTopUp.value = false; stage.value = null
-        paidWaitingChecks = 0; fallbackAttemptedOrderId = null
+        paidWaitingChecks = 0; fallbackAttemptedOrderId = null; checkoutVisible.value = false
         prefs.edit().clear().apply()
-        message.value = "به محصولات برگشتی. اگر پرداخت کرده‌ای، قبل از خرید دوباره «سرویس‌های من» را بررسی کن."
+    }
+
+    fun leaveInvoice() {
+        if (busy.value) return
+        if (payment.value == null) clearInvoice()
+        else checkoutVisible.value = false
+        message.value = "برای ادامهٔ فاکتور از «پرداخت در انتظار تأیید» استفاده کن."
     }
 
     private suspend fun persist() = withContext(Dispatchers.IO) {
@@ -278,7 +329,8 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         payment.value?.let { v ->
             root.put("payment", JSONObject().put("kind", v.kind).put("order", v.orderId)
                 .put("url", v.url).put("card", v.cardNumber).put("holder", v.cardHolder)
-                .put("amount", v.amount).put("rial", v.amountRial).put("message", v.message))
+                .put("amount", v.amount).put("rial", v.amountRial).put("message", v.message)
+                .put("method", v.method).put("label", v.methodLabel).put("expires", v.expiresAt))
         }
         val encrypted = Crypto.encrypt(root.toString()) ?: throw GhajarApiException("ذخیرهٔ امن فاکتور انجام نشد؛ از پرداخت خارج نشو.")
         if (!prefs.edit().putString("invoice", encrypted).commit()) throw GhajarApiException("ذخیرهٔ فاکتور روی گوشی ناموفق بود.")
@@ -297,7 +349,8 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         root.optJSONObject("payment")?.let { p ->
             fun optional(key: String) = p.optString(key).takeUnless { it.isBlank() || it == "null" }
             payment.value = GhajarPaymentInit(p.optString("kind"), p.optString("order"), optional("url"),
-                optional("card"), optional("holder"), p.optLong("amount"), p.optLong("rial"), p.optString("message"))
+                optional("card"), optional("holder"), p.optLong("amount"), p.optLong("rial"), p.optString("message"),
+                p.optString("method"), p.optString("label"), p.optLong("expires"))
         }
     }
 }

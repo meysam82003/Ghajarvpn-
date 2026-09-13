@@ -17,6 +17,10 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CancellationException
 import java.io.File
 
 class GozarVpnService : VpnService() {
@@ -24,10 +28,16 @@ class GozarVpnService : VpnService() {
     private var tunFd: ParcelFileDescriptor? = null
     private var aetherSpec: AetherSpec? = null
     private var psiphonSpec: PsiphonSpec? = null
+    private var oblivionOptions: OblivionOptions? = null
+    @Volatile private var enginesReady = false
+    @Volatile private var pendingEnd = false
+    private var endError: String? = null
     private var torSpec: String? = null
     private var blockFd: ParcelFileDescriptor? = null
     private val scope = CoroutineScope(Dispatchers.IO)
     private var pollJob: Job? = null
+    private var startJob: Job? = null
+    private val engineLock = kotlinx.coroutines.sync.Mutex()
     private var configName: String = "VPN"
     private var stopLabel: String = "Disconnect"
     @Volatile private var tearingDown = false
@@ -47,13 +57,18 @@ class GozarVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
+            ACTION_AETHER_CODE -> {
+                val code = intent.getStringExtra(EXTRA_AETHER_CODE).orEmpty()
+                if (code.matches(Regex("[0-9]{6}"))) scope.launch { runCatching { AetherController.submitEmailCode(code) } }
+                return START_STICKY
+            }
             ACTION_STOP -> {
                 runCatching { blockFd?.close() }; blockFd = null
                 die(null)
                 return START_NOT_STICKY
             }
             ACTION_WARM -> {
-                if (tunFd != null) {
+                if (enginesReady && !tearingDown) {
                     VpnBridge.sendConnected(applicationContext)
                     return START_STICKY
                 }
@@ -61,7 +76,9 @@ class GozarVpnService : VpnService() {
             }
             else -> {
                 val configJson = intent?.getStringExtra(EXTRA_CONFIG)
+                if (startJob?.isActive == true || enginesReady || tunFd != null) return START_STICKY
                 aetherSpec = AetherSpec.parse(intent?.getStringExtra(EXTRA_AETHER))
+                psiphonSpec = PsiphonSpec.parse(intent?.getStringExtra(EXTRA_PSIPHON))
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
                 configName = intent?.getStringExtra(EXTRA_NAME) ?: "VPN"
                 stopLabel = intent?.getStringExtra(EXTRA_STOP_LABEL) ?: "Disconnect"
@@ -89,24 +106,34 @@ class GozarVpnService : VpnService() {
         if (tunFd != null) return
         tearingDown = false
 
-        scope.launch {
+        startJob = scope.launch {
+          engineLock.withLock {
+            try {
+            ensureActive()
+            val optionJson = psiphonSpec?.oblivionJson ?: aetherSpec?.oblivionJson.orEmpty()
+            val options = if (optionJson.isBlank()) null else OblivionOptions(optionJson).also { it.validate() }
+            oblivionOptions = options
             val builder = Builder()
                 .setSession("GozarNet")
-                .setMtu(1500)
+                .setMtu(options?.number("mtu") ?: 1500)
                 .addAddress("10.10.0.2", 32)
-                .addDnsServer("1.1.1.1")
                 .addRoute("0.0.0.0", 0)
 
+            val resolvers = if (options?.flag("overrideDns") == true)
+                listOf(options.text("dnsPrimary"),options.text("dnsSecondary")).filter { it.isNotBlank() }
+                else listOf("1.1.1.1")
+            resolvers.forEach { builder.addDnsServer(it) }
+            if (options != null && options.text("ipVersion") != "v4") builder.addAddress("fd00::2",128).addRoute("::",0)
             applyPerApp(builder)
 
-            val pfd = builder.establish()
-            if (pfd == null) {
+            val pfd = if (options?.proxyOnly == true) null else builder.establish()
+            if (pfd == null && options?.proxyOnly != true) {
                 die("VPN permission not granted")
                 return@launch
             }
             tunFd = pfd
+            if (pfd != null) { runCatching { blockFd?.close() }; blockFd = null }
 
-            try {
                 setupGeoAssets()
                 val spec = aetherSpec
                 if (spec != null) {
@@ -114,7 +141,7 @@ class GozarVpnService : VpnService() {
                         die("Aether engine is not bundled in this build")
                         return@launch
                     }
-                    val up = withContext(Dispatchers.IO) {
+                    val up = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
                         AetherController.start(applicationContext, spec)
                     }
                     if (!up) {
@@ -132,7 +159,7 @@ class GozarVpnService : VpnService() {
                     }
                     // Runs in-process and needs VpnService.protect(), unlike
                     // Aether's subprocess - pass this service itself.
-                    val up = withContext(Dispatchers.IO) {
+                    val up = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
                         PsiphonController.start(this@GozarVpnService, psi)
                     }
                     if (!up) {
@@ -142,7 +169,9 @@ class GozarVpnService : VpnService() {
                     }
                 }
                 runCatching { Gozarcore.stop() }
-                Gozarcore.start(configJson, pfd.detachFd().toLong())
+                ensureActive()
+                val readyJson = if (psi != null) PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT) else configJson
+                if (pfd != null) Gozarcore.start(readyJson, pfd.detachFd().toLong())
                 Log.i(TAG, "Xray core started, tunnel up")
                 val tor = torSpec
                 if (tor != null) {
@@ -164,12 +193,17 @@ class GozarVpnService : VpnService() {
                         return@launch
                     }
                 }
+                ensureActive()
+                enginesReady = true
                 VpnBridge.sendConnected(applicationContext)
                 startPolling()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Xray core failed to start", e)
                 die(e.message ?: "Engine failed to start")
             }
+          }
         }
     }
 
@@ -235,6 +269,12 @@ class GozarVpnService : VpnService() {
     }
 
     private fun applyPerApp(builder: Builder) {
+        val options = oblivionOptions
+        if (options?.flag("bypassSelected") == true) {
+            val packages = options.text("bypassedApps").split(Regex("[\\s,;]+")) + packageName
+            packages.filter { it.isNotBlank() }.distinct().forEach { runCatching { builder.addDisallowedApplication(it) } }
+            return
+        }
         val store = ConfigStore.get(applicationContext)
         val mode = store.perAppMode.value
         val list = store.perAppList.value
@@ -266,8 +306,8 @@ class GozarVpnService : VpnService() {
             var lastUp = 0L
             var lastDown = 0L
             while (isActive && !tearingDown) {
-                val up = Gozarcore.queryUplink()
-                val down = Gozarcore.queryDownlink()
+                val up = if (oblivionOptions?.proxyOnly == true) 0L else Gozarcore.queryUplink()
+                val down = if (oblivionOptions?.proxyOnly == true) 0L else Gozarcore.queryDownlink()
                 val upSpeed = (up - lastUp).coerceAtLeast(0L)
                 val downSpeed = (down - lastDown).coerceAtLeast(0L)
                 lastUp = up; lastDown = down
@@ -286,30 +326,30 @@ class GozarVpnService : VpnService() {
 
     private fun die(error: String?) {
         if (tearingDown) return
-        val killOn = runCatching { ConfigStore.get(applicationContext).killSwitch.value }.getOrDefault(false)
-        if (error != null && killOn) {
-            AetherController.stop()
-            PsiphonController.stop()
-            TorController.stop()
-            enterKillSwitch(error)
-            return
-        }
         tearingDown = true
-        stopAutoSelect()
-        pollJob?.cancel()
-        pollJob = null
-        runCatching { Gozarcore.stop() }
-        AetherController.stop()
-        PsiphonController.stop()
-        TorController.stop()
-        if (error != null) VpnBridge.sendError(applicationContext, error)
-        else VpnBridge.sendDisconnected(applicationContext)
-        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
-        runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
-        stopSelf()
+        enginesReady = false
+        startJob?.cancel()
         scope.launch {
-            delay(60)
-            android.os.Process.killProcess(android.os.Process.myPid())
+            engineLock.withLock {
+                stopAutoSelect()
+                pollJob?.cancel(); pollJob = null
+                runCatching { Gozarcore.stop() }
+                PsiphonController.stop()
+                AetherController.stop()
+                TorController.stop()
+                runCatching { tunFd?.close() }; tunFd = null
+                val killOn = ConfigStore.get(applicationContext).killSwitch.value
+                if (error != null && killOn && oblivionOptions?.proxyOnly != true) {
+                    enterKillSwitch(error)
+                    tearingDown = false
+                } else {
+                    endError = error
+                    pendingEnd = true
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID)
+                    stopSelf()
+                }
+            }
         }
     }
 
@@ -333,12 +373,27 @@ class GozarVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        tearingDown = true
+        enginesReady = false
+        startJob?.cancel()
+        pollJob?.cancel()
         stopAutoSelect()
-        AetherController.stop()
-        PsiphonController.stop()
-        TorController.stop()
-        runCatching { blockFd?.close() }; blockFd = null
-        runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
+        // Report completion only after native teardown. A new UI retry cannot
+        // start a tunnel that this older service instance is still stopping.
+        scope.launch {
+            engineLock.withLock {
+                runCatching { Gozarcore.stop() }
+                AetherController.stop()
+                PsiphonController.stop()
+                TorController.stop()
+                runCatching { tunFd?.close() }; tunFd = null
+                runCatching { blockFd?.close() }; blockFd = null
+                runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
+            }
+            if (pendingEnd && endError != null) VpnBridge.sendError(applicationContext, endError!!)
+            else VpnBridge.sendDisconnected(applicationContext)
+            scope.cancel()
+        }
         super.onDestroy()
     }
 
@@ -422,10 +477,13 @@ class GozarVpnService : VpnService() {
         private const val TAG = "GozarVpnService"
         private const val CHANNEL_ID = "gozarnet_vpn"
         private const val NOTIF_ID = 1
+        const val ACTION_AETHER_CODE = "net.gozar.app.AETHER_CODE"
+        const val EXTRA_AETHER_CODE = "net.gozar.app.AETHER_EMAIL_CODE"
         const val ACTION_STOP = "net.gozar.app.STOP"
         const val ACTION_WARM = "net.gozar.app.WARM"
         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"
         const val EXTRA_AETHER = "net.gozar.app.AETHER"
+        const val EXTRA_PSIPHON = "net.gozar.app.PSIPHON"
         const val EXTRA_TOR = "net.gozar.app.TOR"
         const val EXTRA_NAME = "net.gozar.app.NAME"
         const val EXTRA_STOP_LABEL = "net.gozar.app.STOP_LABEL"
