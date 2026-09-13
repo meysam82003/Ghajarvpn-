@@ -1,21 +1,35 @@
-<p align="center">
-  <img src="docs/images/ghajarvpn-logo.png" width="180" alt="Ghajarvpn">
-</p>
-
-# Ghajarvpn · قاجار وی پی ان
-
-Native Android VPN client branded for Ghajarvpn. The default visual system is royal navy, emerald, ice blue and gold; purple is not part of the default palette.
-
-[فارسی](README-fa.md) · [Telegram channel](https://t.me/Ghajarvpn) · [Telegram bot](https://t.me/Ghajar_vpnbot)
-
-## Android baseline
-
-- Current demo: Android 8.0+ (API 26); Android 7 remains a target, not a verified build with the bundled core
-- Native Kotlin/Compose interface with RTL Persian support
-- VLESS, VMess, Trojan, Shadowsocks, SOCKS, HTTP, Hysteria2, WireGuard and IKEv2
-- Integrated OpenVPN engine with `.ovpn` import, embedded auth support, credential prompt and pre-connect ping
-- Public Happ/Xray-compatible deep-link and subscription import
-- Native dynamic store backed by the existing Ghajarvpn Mini App panel
+::: {align="center"} <img src="assets/logo.png" width="500">{=html}
+🚀 Ghajar VPN
+سیستم حرفه‌ای مدیریت، فروش و کنترل سرویس‌های VPN
+� � � :::
+📌 معرفی
+Ghajar VPN یک سیستم کامل مدیریت و فروش سرویس VPN است که برای مدیریت کاربران، اشتراک‌ها، کانفیگ‌ها و ارتباط با مشتریان طراحی شده است.
+این پروژه شامل پنل مدیریتی، سیستم فروش، ربات تلگرام و ابزارهای مدیریت سرویس‌ها می‌باشد.
+✨ امکانات
+بخش                   توضیحات
+🚀 مدیریت کانفیگ      مدیریت، بررسی و بروزرسانی کانفیگ‌ها ⚡ تست هوشمند         بررسی وضعیت اتصال و کیفیت کانفیگ‌ها 👤 مدیریت کاربران     مدیریت کاربران، اشتراک‌ها و دسترسی‌ها 💳 فروش سرویس         فروش، تمدید و مدیریت اشتراک VPN 🤖 ربات تلگرام        مدیریت سرویس‌ها و ارتباط با کاربران 💰 پرداخت             سیستم پرداخت و ثبت سفارش 🎫 پشتیبانی           سیستم تیکت و مدیریت درخواست‌ها 📊 گزارش‌ها            مشاهده وضعیت سرویس‌ها 🔄 بروزرسانی خودکار   هماهنگ‌سازی اطلاعات سرویس‌ها
+🛠 تکنولوژی‌ها
+PHP 8.x
+MySQL
+Telegram Bot API
+Web Application
+⚙ نصب
+git clone https://github.com/meysam82003/Ghajarvpn-.git
+تنظیمات دیتابیس و فایل‌های پیکربندی را انجام دهید.
+🛣 Roadmap
+نسخه 1.0.0
+✅ مدیریت کاربران
+✅ فروش سرویس
+✅ مدیریت کانفیگ
+✅ ربات تلگرام
+✅ پرداخت
+✅ پشتیبانی
+📦 Release
+نسخه فعلی:
+Ghajar VPN v1.0.0
+وضعیت: 🟢 Active Development
+📄 License
+GPL-3.0 License- Native dynamic store backed by the existing Ghajarvpn Mini App panel
 - Embedded HTTPS checkout without exposing a browser address bar
 - Automatic import of delivered subscriptions/configurations
 - Full, uncropped Ghajar royal welcome posters with a native animated transition
