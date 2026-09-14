@@ -13,6 +13,10 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.NEARBY_WIFI_DEVICES" android:usesPermissionFlags="neverForLocation" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
@@ -28,8 +32,9 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.Ghajarvpn"
         android:enableOnBackInvokedCallback="true">
+
         <activity
-            android:name=".MainActivity"
+            android:name=".PremiumMainActivity"
             android:exported="true"
             android:configChanges="uiMode|orientation|screenSize|smallestScreenSize|keyboardHidden|screenLayout"
             android:label="@string/app_name"
@@ -37,9 +42,17 @@
             android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
-
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:configChanges="uiMode|orientation|screenSize|smallestScreenSize|keyboardHidden|screenLayout"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.Ghajarvpn"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -150,6 +163,14 @@
                 android:value="VPN tunneling client" />
         </service>
         <service
+            android:name=".GhajarShareProxyService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="User initiated local VPN hotspot proxy relay" />
+        </service>
+        <service
             android:name=".GhajarNotificationJob"
             android:permission="android.permission.BIND_JOB_SERVICE"
             android:exported="false" />
@@ -159,7 +180,7 @@
             android:exported="false"
             android:grantUriPermissions="true">
             <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:name="android.support.FILE_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
         <service
