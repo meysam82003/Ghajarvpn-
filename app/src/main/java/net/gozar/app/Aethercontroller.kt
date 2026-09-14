@@ -16,9 +16,11 @@ data class AetherSpec(
     val scan: String = "balanced",
     val noise: String = "",
     val http2: Boolean = false,
-    val ipv6: Boolean = false
+    val ipv6: Boolean = false,
+    val oblivionJson: String = ""
 ) {
     fun toJson(): String = JSONObject()
+        .put("oblivionJson", oblivionJson)
         .put("mode", mode)
         .put("scan", scan)
         .put("noise", noise)
@@ -28,13 +30,14 @@ data class AetherSpec(
 
     companion object {
         fun from(config: ProxyConfig): AetherSpec? =
-            if (config.protocol != "aether") null
+            if (config.protocol != "aether" && !(config.protocol == "psiphon" && OblivionOptions(config.oblivionJson).aether)) null
             else AetherSpec(
                 mode = config.aetherMode.ifBlank { "masque" },
                 scan = config.aetherScan.ifBlank { "balanced" },
                 noise = config.aetherNoise,
                 http2 = config.aetherHttp2,
-                ipv6 = config.aetherIpv6
+                ipv6 = config.aetherIpv6,
+                oblivionJson = config.oblivionJson
             )
 
         fun parse(raw: String?): AetherSpec? {
@@ -46,7 +49,8 @@ data class AetherSpec(
                     scan = o.optString("scan", "balanced"),
                     noise = o.optString("noise", ""),
                     http2 = o.optBoolean("http2", false),
-                    ipv6 = o.optBoolean("ipv6", false)
+                    ipv6 = o.optBoolean("ipv6", false),
+                    oblivionJson = o.optString("oblivionJson", "")
                 )
             }.getOrNull()
         }
@@ -55,7 +59,8 @@ data class AetherSpec(
 
 object AetherController {
 
-    const val SOCKS_PORT = 1819
+    @Volatile var SOCKS_PORT = 1819
+        private set
 
     private const val TAG = "Aether"
     private const val READY_TIMEOUT_MS = 180_000L
@@ -80,6 +85,7 @@ object AetherController {
     fun spec(config: ProxyConfig): String = AetherSpec.from(config)?.toJson() ?: ""
 
     private fun args(spec: AetherSpec): List<String> {
+        if (spec.oblivionJson.isNotBlank()) return OblivionOptions(spec.oblivionJson).aetherArgs()
         val out = mutableListOf("--bind", "127.0.0.1:" + AetherController.SOCKS_PORT)
         out += when (spec.mode) {
             "wg" -> "--wg"
@@ -108,6 +114,11 @@ object AetherController {
             "HOME" to dir.absolutePath,
             "TMPDIR" to context.cacheDir.absolutePath
         )
+        if (spec.oblivionJson.isNotBlank()) {
+            // The complete settings are provided via explicit CLI arguments.
+            listOf("AETHER_PROTOCOL", "AETHER_SCAN", "AETHER_IP", "AETHER_QUICK_RECONNECT").forEach { out.remove(it) }
+            return out
+        }
         if (spec.http2) out["AETHER_MASQUE_HTTP2"] = "1"
         if (spec.noise.isNotBlank()) out["AETHER_NOIZE"] = spec.noise
         return out
@@ -116,6 +127,7 @@ object AetherController {
     fun start(context: Context, spec: AetherSpec): Boolean {
         stop()
         stopping = false
+        SOCKS_PORT = if (spec.oblivionJson.isBlank()) 1819 else OblivionOptions(spec.oblivionJson).aetherPort
 
         val bin = binary(context)
         if (!bin.exists()) {
@@ -125,7 +137,7 @@ object AetherController {
 
         val dir = workDir(context)
         val cmd = mutableListOf(bin.absolutePath).apply { addAll(args(spec)) }
-        Log.i(TAG, "exec: " + cmd.joinToString(" "))
+        Log.i(TAG, "Starting Aether")
         lastOutput.clear()
 
         val p = try {
@@ -195,6 +207,12 @@ object AetherController {
             Log.e(TAG, "last " + tail.size + " lines from aether:")
             tail.forEach { Log.e(TAG, "  | " + it) }
         }
+    }
+
+    fun submitEmailCode(code: String) {
+        require(code.matches(Regex("[0-9]{6}"))) { "کد ایمیل باید ۶ رقم باشد" }
+        val running = process ?: return
+        synchronized(running) { running.outputStream.write((code + "\n").toByteArray()); running.outputStream.flush() }
     }
 
     fun stop() {

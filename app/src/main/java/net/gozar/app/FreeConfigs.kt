@@ -1,237 +1,146 @@
 package net.gozar.app
 
 import gozarcore.Gozarcore
+import net.gozar.app.freecfg.FreeFeedRules
+import net.gozar.app.freecfg.FreeFeedHttp
 import net.gozar.app.freecfg.FreeSourceRegistry
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.*
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
-import kotlinx.coroutines.withContext
-import java.net.HttpURLConnection
 import java.net.InetSocketAddress
 import java.net.Proxy
-import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 object FreeConfigs {
-
     const val CHANNEL = BrandConfig.FREE_CONFIG_CHANNEL
     const val SOURCE_URL = "https://t.me/s/$CHANNEL"
-
-    private const val TAG = "GhajarFree"
-    private const val CONCURRENCY = 16
-    private const val MESSAGES = 50
-    private const val MAX_TEST = 200
-    private const val MAX_PAGES = 8
-    private const val HTTP_TIMEOUT = 12_000
-    private const val MEASURE_TIMEOUT_MS = 20_000L
-
-    const val CONFIG_NAME = "Ghajarvpn-Free"
-
-
-    private val LINK = Regex(
-        "(?:vless|vmess|trojan|ss|hysteria2|hy2)://[^\\s\"'<>\\\\]+",
-        RegexOption.IGNORE_CASE
-    )
-    private val POST_ID = Regex("data-post=\"[^/\"]+/(\\d+)\"")
-
-    data class Progress(val tested: Int, val total: Int, val alive: Int)
-
-    private val _progress = MutableStateFlow<Progress?>(null)
-    val progress: StateFlow<Progress?> = _progress.asStateFlow()
-
-    private val _busy = MutableStateFlow(false)
-    val busy: StateFlow<Boolean> = _busy.asStateFlow()
-
-    fun subscriptionOf(store: ConfigStore): Subscription? =
-        store.subscriptions.value.firstOrNull { it.url == SOURCE_URL }
-
-    fun isAdded(store: ConfigStore): Boolean = subscriptionOf(store) != null
-
-    private fun route(): Proxy =
-        if (VpnState.state.value == Connection.CONNECTED && !IkeController.active)
-            Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value))
-        else Proxy.NO_PROXY
-
-    private fun unescape(raw: String): String = raw
-        .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
-        .replace("&lt;", "<").replace("&gt;", ">").replace("&nbsp;", " ")
-
-    private fun page(before: Long, sourceUrl: String = SOURCE_URL): String = runCatching {
-        val url = if (before <= 0) sourceUrl else "$sourceUrl?before=$before"
-        val conn = (URL(url).openConnection(route()) as HttpURLConnection).apply {
-            connectTimeout = HTTP_TIMEOUT
-            readTimeout = HTTP_TIMEOUT
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14)")
-            setRequestProperty("Accept-Language", "en")
-        }
-        val code = conn.responseCode
-        val body = if (code in 200..299)
-            conn.inputStream.bufferedReader().use { it.readText() } else ""
-        runCatching { conn.disconnect() }
-        body
-    }.getOrDefault("")
-
-    data class Scrape(val reachable: Boolean, val messages: Int, val configs: List<ProxyConfig>)
-
-    /**
-     * Multi-source scrape across FreeSourceRegistry channels with per-source
-     * failure isolation: one dead channel never blocks the rest. Results are
-     * merged and deduped through the same signature as the primary channel.
-     */
-    suspend fun refreshMultiSource(store: ConfigStore, label: String): Int {
-        if (_busy.value) return BUSY
-        _busy.value = true
-        try {
-            val sources = FreeSourceRegistry.DEFAULT_SOURCES.filter { it.enabled && it.healthy }
-            val merged = LinkedHashMap<String, ProxyConfig>()
-            var anyReachable = false
-            val skipped = mutableListOf<String>()
-            for (source in sources) {
-                val scrape = withContext(Dispatchers.IO) { scrapeSource(source.endpoint) }
-                if (!scrape.reachable) {
-                    skipped += source.id
-                    continue
-                }
-                anyReachable = true
-                scrape.configs.forEach { cfg -> merged.putIfAbsent(sig(cfg), cfg) }
-            }
-            if (!anyReachable) return UNREACHABLE
-            if (merged.isEmpty()) return NO_CONFIGS
-            val existing = subscriptionOf(store)
-            val current = if (existing == null) emptyList()
-            else store.configs.value.filter { it.subId == existing.id }
-            val combined = (current + merged.values.toList()).distinctBy { sig(it) }.take(MAX_TEST)
-            val alive = measureAll(combined)
-            val sub = (existing ?: Subscription(name = label, url = SOURCE_URL))
-                .copy(lastUpdated = System.currentTimeMillis())
-            if (alive.isNotEmpty() || existing != null) store.upsertSubscription(sub, alive)
-            return alive.size
-        } finally {
-            _busy.value = false
-            _progress.value = null
-        }
-    }
-
-    private suspend fun scrapeSource(sourceUrl: String): Scrape = withContext(Dispatchers.IO) {
-        val seen = LinkedHashMap<String, ProxyConfig>()
-        var before = 0L
-        var pages = 0
-        var messages = 0
-        var reachable = false
-        var links = 0
-
-        while (pages < MAX_PAGES && messages < MESSAGES) {
-            val html = page(before, sourceUrl)
-            if (html.isBlank()) break
-            reachable = true
-
-            val ids = POST_ID.findAll(html).mapNotNull { it.groupValues[1].toLongOrNull() }.toList()
-            if (ids.isEmpty()) break
-            val room = MESSAGES - messages
-            val take = ids.sortedDescending().take(room).toSet()
-            messages += take.size
-
-            LINK.findAll(html).forEach { m ->
-                links++
-                val uri = unescape(m.value)
-                val cfg = runCatching { ConfigParser.parse(uri, ConfigSource.COMMUNITY) }.getOrNull()
-                if (cfg != null && cfg.address.isNotBlank() && cfg.port in 1..65535) {
-                    seen.putIfAbsent(sig(cfg), rename(cfg))
-                }
-            }
-
-            val oldest = ids.minOrNull() ?: break
-            if (before != 0L && oldest >= before) break
-            before = oldest
-            pages++
-        }
-
-        android.util.Log.i(
-            TAG,
-            "pages=$pages messages=$messages links=$links parsed=${seen.size} reachable=$reachable"
-        )
-        Scrape(reachable, messages, seen.values.toList())
-    }
-
-    private fun rename(cfg: ProxyConfig): ProxyConfig = cfg.copy(name = CONFIG_NAME)
-
-    private fun sig(c: ProxyConfig): String =
-        "${c.protocol}|${c.address}|${c.port}|${c.uuid}|${c.password}"
-
+    const val CONFIG_NAME = "Ghajarvpn"
     const val BUSY = -1
     const val UNREACHABLE = -2
     const val NO_CONFIGS = -3
+    const val MAX_LATENCY_MS = 2500
+    data class Progress(val tested: Int, val total: Int, val alive: Int, val pages: Int = 0, val collecting: Boolean = true)
+    private val _progress = MutableStateFlow<Progress?>(null)
+    val progress: StateFlow<Progress?> = _progress.asStateFlow()
+    private val _busy = MutableStateFlow(false)
+    val busy: StateFlow<Boolean> = _busy.asStateFlow()
+    private val _incomplete = MutableStateFlow(false)
+    val incomplete: StateFlow<Boolean> = _incomplete.asStateFlow()
+    private val refreshLock = Mutex()
+    fun subscriptionOf(store: ConfigStore): Subscription? = store.subscriptions.value.firstOrNull { it.url == SOURCE_URL }
+    fun isAdded(store: ConfigStore): Boolean = subscriptionOf(store) != null
+    private fun route(): Proxy = if (VpnState.state.value == Connection.CONNECTED && !IkeController.active &&
+        !VpnState.activeId.value.orEmpty().startsWith("ovpn:"))
+        Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value)) else Proxy.NO_PROXY
+    suspend fun refreshMultiSource(store: ConfigStore, label: String): Int = refresh(store, label)
 
+    /** Bounded workers consume every unique candidate from the last 72 hours.
+     * Healthy results appear during scanning. Only a complete scan replaces the
+     * whole subscription; an unreachable feed cannot erase its previous entries. */
     suspend fun refresh(store: ConfigStore, label: String): Int {
-        if (_busy.value) return BUSY
-        _busy.value = true
-        try {
-            val found = scrapeSource(SOURCE_URL)
-            if (!found.reachable) {
-                android.util.Log.w(TAG, "channel unreachable")
-                return UNREACHABLE
-            }
-            if (found.configs.isEmpty()) {
-                android.util.Log.w(TAG, "no parsable configs in ${found.messages} messages")
-                return NO_CONFIGS
-            }
-            val existing = subscriptionOf(store)
-            val current = if (existing == null) emptyList()
-            else store.configs.value.filter { it.subId == existing.id }
-
-            val merged = (current + found.configs).distinctBy { sig(it) }.take(MAX_TEST)
-            android.util.Log.i(
-                TAG,
-                "kept=${current.size} scraped=${found.configs.size} merged=${merged.size}"
-            )
-
-            val alive = measureAll(merged)
-            val sub = (existing ?: Subscription(name = label, url = SOURCE_URL))
-                .copy(lastUpdated = System.currentTimeMillis())
-            if (alive.isNotEmpty() || existing != null) store.upsertSubscription(sub, alive)
-            android.util.Log.i(TAG, "kept ${alive.size} of ${found.configs.size}")
-            return alive.size
-        } finally {
-            _busy.value = false
-            _progress.value = null
+        if (!refreshLock.tryLock()) return BUSY
+        _busy.value = true; _incomplete.value = false
+        _progress.value = Progress(0, 0, 0)
+        val started = System.currentTimeMillis()
+        val existing = subscriptionOf(store)
+        val sub = existing ?: Subscription(name = "@Ghajarvpn", url = SOURCE_URL)
+        val previous = store.configs.value.filter { it.subId == sub.id }
+        val candidates = ConcurrentHashMap.newKeySet<String>()
+        val urls = ConcurrentHashMap.newKeySet<String>()
+        val completed = ConcurrentHashMap.newKeySet<String>()
+        val passed = ConcurrentHashMap<String, Pair<ProxyConfig, Int>>()
+        val tested = AtomicInteger(); val pages = AtomicInteger(); val reachable = AtomicInteger(); val failures = AtomicInteger()
+        val collecting = java.util.concurrent.atomic.AtomicBoolean(true)
+        val publishLock = Mutex()
+        var lastPublish = 0L
+        fun progress(fetching: Boolean = collecting.get()) {
+            _progress.value = Progress(tested.get(), candidates.size, passed.size, pages.get(), fetching)
         }
-    }
-
-    private suspend fun measureAll(configs: List<ProxyConfig>): List<ProxyConfig> = coroutineScope {
-        val total = configs.size
-        val alive = java.util.Collections.synchronizedList(mutableListOf<Pair<ProxyConfig, Int>>())
-        var done = 0
-        val lock = Any()
-        _progress.value = Progress(0, total, 0)
-
-        val sem = Semaphore(CONCURRENCY)
-        configs.map { cfg ->
-            launch {
-                sem.withPermit {
-                    val ms = withContext(Dispatchers.IO) {
-                        runCatching {
-                            kotlinx.coroutines.withTimeoutOrNull(MEASURE_TIMEOUT_MS) {
-                                Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg))
-                            } ?: -1L
-                        }.getOrDefault(-1L)
-                    }
-                    if (ms >= 0) alive += cfg to ms.toInt()
-                    else android.util.Log.d(TAG, "dead ${cfg.protocol} ${cfg.address}:${cfg.port}")
-                    synchronized(lock) {
-                        done++
-                        _progress.value = Progress(done, total, alive.size)
+        suspend fun publish(final: Boolean) = withContext(Dispatchers.Main) {
+            publishLock.lock()
+            try {
+                val now = System.currentTimeMillis()
+                if (!final && (passed.isEmpty() || now - lastPublish < 1500)) return@withContext
+                lastPublish = now
+                val healthy = passed.values.sortedBy { it.second }.map { it.first }
+                val combined = FreeFeedRules.reconcile(previous, healthy, completed, final && failures.get() == 0)
+                // Keep refresh eligibility when some feeds could not be checked.
+                val stamp = if (final && failures.get() == 0) now else existing?.lastUpdated ?: 0L
+                store.upsertSubscription(sub.copy(name = "@Ghajarvpn", lastUpdated = stamp), combined)
+            } finally { publishLock.unlock() }
+        }
+        try {
+            coroutineScope {
+                val configs = Channel<ProxyConfig>(64)
+                val subscriptions = Channel<String>(32)
+                suspend fun offer(cfg: ProxyConfig) {
+                    if (cfg.address.isNotBlank() && cfg.port in 1..65535 && candidates.add(FreeFeedRules.signature(cfg))) {
+                        configs.send(cfg); progress()
                     }
                 }
+                val testers = List(8) { launch(Dispatchers.IO) {
+                    for (cfg in configs) {
+                        ensureActive()
+                        val ms = try { Gozarcore.measureDelayBounded(ConfigBuilder.buildForTest(cfg), 4000L) }
+                            catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { -1L }
+                        if (ms in 0L..MAX_LATENCY_MS.toLong()) passed[FreeFeedRules.signature(cfg)] = cfg to ms.toInt()
+                        completed.add(FreeFeedRules.signature(cfg))
+                        tested.incrementAndGet(); progress()
+                        publish(false)
+                    }
+                } }
+                val expanders = List(4) { launch(Dispatchers.IO) {
+                    for (url in subscriptions) {
+                        try { SubscriptionFetcher.parseBody(FreeFeedHttp.read(url, route()), ConfigSource.COMMUNITY).forEach { offer(it) } }
+                        catch (e: CancellationException) { throw e }
+                        catch (_: SubscriptionError) { /* A message's web link may be an ordinary page. */ }
+                        catch (_: Exception) { failures.incrementAndGet() }
+                    }
+                } }
+                val feedSlots = Semaphore(3)
+                FreeSourceRegistry.DEFAULT_SOURCES.filter { it.enabled }.map { source -> launch(Dispatchers.IO) {
+                    feedSlots.withPermit {
+                        var before = 0L
+                        try {
+                            while (true) {
+                                ensureActive()
+                                val url = source.endpoint + if (before == 0L) "" else "?before=$before"
+                                val html = FreeFeedHttp.read(url, route())
+                                val posts = FreeFeedRules.posts(html)
+                                if (posts.isEmpty()) { failures.incrementAndGet(); break }
+                                reachable.incrementAndGet(); pages.incrementAndGet(); progress()
+                                val fresh = FreeFeedRules.recentPosts(posts, started)
+                                for (post in fresh) {
+                                    val links = FreeFeedRules.extract(post.html)
+                                    for (link in links.configs) runCatching { ConfigParser.parse(link, ConfigSource.COMMUNITY) }.getOrNull()?.let { offer(it) }
+                                    for (link in links.subscriptions) if (urls.add(link)) subscriptions.send(link)
+                                }
+                                if (posts.any { it.publishedAt == null }) failures.incrementAndGet()
+                                if (posts.all { (it.publishedAt ?: Long.MAX_VALUE) < started - 72 * 60 * 60 * 1000L }) break
+                                val oldest = posts.minOf { it.id }
+                                if (oldest <= 1L) break
+                                if (before != 0L && oldest >= before) { failures.incrementAndGet(); break }
+                                before = oldest
+                            }
+                        } catch (e: CancellationException) { throw e }
+                          catch (_: Exception) { failures.incrementAndGet() }
+                    }
+                } }.joinAll()
+                subscriptions.close(); expanders.joinAll()
+                collecting.set(false); configs.close(); progress(); testers.joinAll()
             }
-        }.joinAll()
-
-        alive.sortedBy { it.second }.map { it.first }
+            _incomplete.value = failures.get() > 0
+            if (reachable.get() == 0) return UNREACHABLE
+            if (candidates.isEmpty() && failures.get() > 0) return NO_CONFIGS
+            publish(true)
+            return passed.size
+        } finally { _busy.value = false; _progress.value = null; refreshLock.unlock() }
     }
-
 }

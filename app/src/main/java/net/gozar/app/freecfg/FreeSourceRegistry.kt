@@ -46,13 +46,14 @@ data class FreeSource(
 
 object FreeSourceRegistry {
     val DEFAULT_SOURCES = listOf(
-        FreeSource("tg_prrofile_purple", "telegram_channel", "https://t.me/s/prrofile_purple", priority = 10),
-        FreeSource("tg_v2rayngvpn", "telegram_channel", "https://t.me/s/v2rayngvpn", priority = 9),
-        FreeSource("tg_meliproxyy", "telegram_channel", "https://t.me/s/meliproxyy", priority = 8),
-        FreeSource("tg_v2ray_tz", "telegram_channel", "https://t.me/s/V2Ray_Tz", priority = 7),
-        FreeSource("tg_mitivpn", "telegram_channel", "https://t.me/s/mitivpn", priority = 6),
-        FreeSource("tg_kingoclub", "telegram_group", "https://t.me/s/kingoclub", priority = 5),
-        FreeSource("tg_vpn_click", "telegram_group", "https://t.me/s/vpn_Click", priority = 4),
-        FreeSource("tg_hiddify_nexttt", "telegram_channel", "https://t.me/s/Hiddify_Nexttt", priority = 3)
+        FreeSource("tg_ghajarvpn", "telegram_channel", "https://t.me/s/Ghajarvpn", priority = 10),
+        FreeSource("tg_prrofile_purple", "telegram_channel", "https://t.me/s/prrofile_purple", priority = 5),
+        FreeSource("tg_v2rayngvpn", "telegram_channel", "https://t.me/s/v2rayngvpn", priority = 5),
+        FreeSource("tg_meliproxyy", "telegram_channel", "https://t.me/s/meliproxyy", priority = 5),
+        FreeSource("tg_v2ray_tz", "telegram_channel", "https://t.me/s/V2Ray_Tz", priority = 5),
+        FreeSource("tg_mitivpn", "telegram_channel", "https://t.me/s/mitivpn", priority = 5),
+        FreeSource("tg_kingoclub", "telegram_channel", "https://t.me/s/kingoclub", priority = 5),
+        FreeSource("tg_vpn_click", "telegram_channel", "https://t.me/s/vpn_Click", priority = 5),
+        FreeSource("tg_hiddify_nexttt", "telegram_channel", "https://t.me/s/Hiddify_Nexttt", priority = 5)
     )
 }

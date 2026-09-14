@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main, develop, ghajar-3.0.4-carousel-33-source]
+    branches: [main, develop, ghajar-3.0.4-carousel-33-source, fix/release-1.0.0]
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -17,6 +17,30 @@ permissions:
   contents: write
 
 jobs:
+  server-tests:
+    runs-on: ubuntu-latest
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: trial_test_only
+          MYSQL_DATABASE: trial_test
+        ports: ['3306:3306']
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -ptrial_test_only"
+          --health-interval=10s --health-timeout=5s --health-retries=10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PHP MySQL driver
+        run: sudo apt-get update && sudo apt-get install -y php-cli php-mysql
+      - name: Test per-panel trial quota under concurrent clients
+        env:
+          TRIAL_TEST_DSN: 'mysql:host=127.0.0.1;port=3306;dbname=trial_test;charset=utf8mb4'
+          TRIAL_TEST_USER: root
+          TRIAL_TEST_PASSWORD: trial_test_only
+        run: |
+          php server/faoxima-1.0.0/tests/panel-trial.php
+          php server/faoxima-1.0.0/tests/purchase-settlement.php
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 75
@@ -57,6 +81,7 @@ jobs:
           # are the canonical app overlay; the reviewed baseline owns the rest.
           rsync -a app/src/ .ghajarvpn-src/app/src/
           rsync -a app/libs/ .ghajarvpn-src/app/libs/
+          python3 scripts/sync-release-build.py .ghajarvpn-src
 
           # The combined gomobile AAR (gozarcore Xray engine + Psiphon tunnel
           # in one Go runtime) replaces the inherited gozarcore.aar binary:
@@ -106,23 +131,15 @@ jobs:
           test -s app/libs/ca.psiphon.aar
           test -s .ghajarvpn-src/app/libs/ca.psiphon.aar
           unzip -l .ghajarvpn-src/app/libs/ca.psiphon.aar | grep -E 'classes.jar|libgojni.so'
-      - name: Verify newest uploaded sources are compiled byte-for-byte
-        working-directory: .ghajarvpn-src
+      - name: Verify reviewed app sources are compiled byte-for-byte
         run: |
-          cat <<'SHA256' | sha256sum -c -
-          d8f348c267ce5f19bad7ba74ece5373be8c286bf2b6740a6644535cd278e11a9  app/src/main/java/net/gozar/app/ConfigStore.kt
-          86aa7219c7504f8e6fc7567b712d62a65fe566b9ae2366dd6514e215c423c6de  app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
-          c91d08af8c0dd5c73bc593eab489f702102b3640ef0aa930600b4ad3d6640da4  app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
-          c9274edadb786689fc11256d146b176408104c7d4baeb360f4845dac2be004e3  app/src/main/java/net/gozar/app/GhajarShopScreen.kt
-          e88a7947c9562d35151d3f75b03f50c14adfb88360052e596a55a9d49f463984  app/src/main/java/net/gozar/app/GozarVpnService.kt
-          68fc24be76784e25c621f9910223a6c0b3f7d77f8011e1377c05d3d590c14339  app/src/main/java/net/gozar/app/Gozarapplication.kt
-          59b5e9193522f34343f8382886e4d457e392eb39b018cd7cebfff29c6bf23694  app/src/main/java/net/gozar/app/MainActivity.kt
-          d71d1692a7a941e49b80dad3dc5040b197fbdc0a8d631e6357ccc637e47faded  app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
-          5231734910241f05211dd1662e2d73b321bf08f791958512c55fb558eec07467  app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
-          af5025b79e7be582ee4b7137eb74065a86f88e7298d087f245e275ea0088b8fc  app/src/main/java/net/gozar/app/PsiphonConfig.kt
-          5dd550f3f4674ffe6dd68904bfc63c41c99933f14d680814d34ee536bba26835  app/src/main/java/net/gozar/app/PsiphonEngine.kt
-          SHA256
-          echo 'Newest uploaded source changes verified byte-for-byte.'
+          python3 scripts/verify-app-overlay.py .ghajarvpn-src
+      - name: Install pinned Aether engine for Oblivion settings
+        run: python3 scripts/fetch-aether-release.py .ghajarvpn-src
+      - name: Check Faoxima compatibility PHP syntax
+        run: |
+          find server/faoxima-1.0.0/overlay -name '*.php' -print0 | xargs -0 -n1 php -l
+          python3 -m py_compile server/faoxima-1.0.0/install.py
       - name: Verify OpenVPN remote-process contract
         run: |
           python3 - <<'PY'
@@ -273,11 +290,11 @@ jobs:
           done
       - uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-0.0.1-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
+          name: Ghajarvpn-1.0.0-${{ github.event_name == 'workflow_dispatch' && inputs.signed_demo && 'signed-demo' || 'CI-ephemeral-key' }}-Android8plus
           path: ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
       - name: Deliver arm64 release APK via git branch
-        if: success()
+        if: success() && github.ref == 'refs/heads/main'
         working-directory: ${{ env.GHAJAR_SOURCE_ROOT }}
         run: |
           # Blob-storage artifacts are unreachable from some networks; publish
@@ -292,13 +309,93 @@ jobs:
           git -C "$GITHUB_WORKSPACE" add -f Ghajarvpn-arm64-v8a-release.apk
           git -C "$GITHUB_WORKSPACE" commit --quiet -m "arm64 release APK from run ${GITHUB_RUN_ID}"
           git -C "$GITHUB_WORKSPACE" push --force origin apk-delivery
+      - name: Package complete application and backend sources
+        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/release-1.0.0'
+        run: |
+          git clone --depth 1 --branch v1.9.0 https://github.com/CluvexStudio/Aether.git "$RUNNER_TEMP/aether-source"
+          test "$(git -C "$RUNNER_TEMP/aether-source" rev-parse HEAD)" = '311b573352bb67e494895ff67d20b002d075116a'
+          python3 scripts/package-complete-source.py .ghajarvpn-src complete-sources "$RUNNER_TEMP/psiphon-tunnel-core" "$RUNNER_TEMP/aether-source"
+      - uses: actions/upload-artifact@v4
+        if: github.event_name == 'push' && github.ref == 'refs/heads/fix/release-1.0.0'
+        with:
+          name: Ghajarvpn-1.0.0-complete-sources
+          path: complete-sources/*
+          if-no-files-found: error
+      - name: Upload server compatibility patch
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-1.0.0-Faoxima-server-patch
+          path: server/faoxima-1.0.0/
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Ghajarvpn-0.0.1-test-reports
+          name: Ghajarvpn-1.0.0-test-reports
           path: |
             ${{ env.GHAJAR_SOURCE_ROOT }}/app/build/test-results/testDebugUnitTest/*.xml
             ${{ env.GHAJAR_SOURCE_ROOT }}/browser/build/test-results/testDebugUnitTest/*.xml
             ${{ runner.temp }}/ghajar-native-arch-tests/Testing/Temporary/LastTest.log
           if-no-files-found: warn
+  draft-release:
+    needs: [server-tests, build]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/fix/release-1.0.0'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Ghajarvpn-1.0.0-CI-ephemeral-key-Android8plus
+          path: release-apks
+      - uses: actions/download-artifact@v4
+        with:
+          name: Ghajarvpn-1.0.0-complete-sources
+          path: complete-sources
+      - name: Package reviewed outputs
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import hashlib, shutil, zipfile
+          out = Path('release-files'); out.mkdir()
+          for apk in Path('release-apks').rglob('*release.apk'):
+              shutil.copy2(apk, out / apk.name.replace('app-', 'Ghajarvpn-1.0.0-'))
+          assert list(out.glob('*.apk')), 'No release APKs found'
+          for source in Path('complete-sources').iterdir():
+              shutil.copy2(source, out / source.name)
+          assert (out / 'Ghajarvpn-1.0.0-complete-source.tar.gz').is_file()
+          assert (out / 'Faoxima-1.0.0-complete-source.zip').is_file()
+          root = Path('server/faoxima-1.0.0')
+          with zipfile.ZipFile(out / 'Ghajarvpn-1.0.0-server-patch.zip', 'w', zipfile.ZIP_DEFLATED) as z:
+              for f in root.rglob('*'):
+                  if f.is_file() and '__pycache__' not in f.parts:
+                      if 'full-source' not in f.parts:
+                          z.write(f, 'Ghajarvpn-1.0.0-server-patch/' + str(f.relative_to(root)))
+          (out / 'SHA256SUMS.txt').write_text(''.join(
+              hashlib.sha256(f.read_bytes()).hexdigest() + '  ' + f.name + '\n'
+              for f in sorted(out.iterdir())))
+          PY
+      - name: Prepare draft 1.0.0 with APKs and server patch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view 1.0.0 --json isDraft > "$RUNNER_TEMP/release-state.json" 2>/dev/null; then
+            gh release edit 1.0.0 --target "$GITHUB_SHA" --title '1.0.0' --notes-file docs/RELEASE-NOTES-1.0.0.md
+            gh release upload 1.0.0 release-files/* --clobber
+            # User requested another update of the same 1.0.0 release.
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/git/refs/tags/1.0.0" -f sha="$GITHUB_SHA" -F force=true
+          else
+            gh release create 1.0.0 release-files/* --draft --target "$GITHUB_SHA" --title '1.0.0' --notes-file docs/RELEASE-NOTES-1.0.0.md
+          fi
+      - name: Publish requested release 1.0.0
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view 1.0.0 --json targetCommitish,assets > "$RUNNER_TEMP/final-release.json"
+          test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/1.0.0" --jq .object.sha)" = "$GITHUB_SHA"
+          python3 - <<'PYCODE'
+          import json,os
+          state=json.load(open(os.environ['RUNNER_TEMP']+'/final-release.json'))
+          names={a['name'] for a in state['assets']}
+          assert {'Ghajarvpn-1.0.0-arm64-v8a-release.apk','Ghajarvpn-1.0.0-armeabi-v7a-release.apk',
+            'Ghajarvpn-1.0.0-complete-source.tar.gz','Faoxima-1.0.0-complete-source.zip','SHA256SUMS.txt'} <= names
+          PYCODE
+          gh release edit 1.0.0 --draft=false --latest

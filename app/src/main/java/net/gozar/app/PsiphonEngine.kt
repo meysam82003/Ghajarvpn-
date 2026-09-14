@@ -24,16 +24,22 @@ import java.util.concurrent.atomic.AtomicInteger
  */
 data class PsiphonSpec(
     val mode: String = "auto",
-    val country: String = ""
+    val country: String = "",
+    val cdnIps: String = "",
+    val cdnSni: String = "",
+    val oblivionJson: String = ""
 ) {
-    fun toJson(): String = JSONObject().put("mode", mode).put("country", country).toString()
+    fun toJson(): String = JSONObject().put("mode", mode).put("country", country).put("cdnIps", cdnIps).put("cdnSni", cdnSni).put("oblivionJson", oblivionJson).toString()
 
     companion object {
         fun from(config: ProxyConfig): PsiphonSpec? =
-            if (config.protocol != "psiphon") null
+            if (config.protocol != "psiphon" || !OblivionOptions(config.oblivionJson).psiphon) null
             else PsiphonSpec(
                 mode = config.psiphonMode.ifBlank { "auto" },
-                country = config.psiphonCountry
+                country = config.psiphonCountry,
+                cdnIps = config.psiphonCdnIps,
+                cdnSni = config.psiphonCdnSni,
+                oblivionJson = config.oblivionJson
             )
 
         fun parse(raw: String?): PsiphonSpec? {
@@ -42,7 +48,10 @@ data class PsiphonSpec(
                 val o = JSONObject(raw)
                 PsiphonSpec(
                     mode = o.optString("mode", "auto"),
-                    country = o.optString("country", "")
+                    country = o.optString("country", ""),
+                    cdnIps = o.optString("cdnIps", ""),
+                    cdnSni = o.optString("cdnSni", ""),
+                    oblivionJson = o.optString("oblivionJson", "")
                 )
             }.getOrNull()
         }
@@ -64,6 +73,7 @@ private class PsiphonRuntime(
     private val onLog: (String) -> Unit,
     private val onStopped: (String?) -> Unit,
     private val onSocksPort: (Int) -> Unit,
+    private val onConnected: () -> Unit,
 ) {
     private val active = AtomicBoolean(false)
     private val socksPort = AtomicInteger(0)
@@ -84,6 +94,7 @@ private class PsiphonRuntime(
         override fun onDiagnosticMessage(message: String) = onLog("[psiphon] [*] $message")
 
         override fun onListeningSocksProxyPort(port: Int) {
+            if (!active.get()) return
             socksPort.set(port)
             onSocksPort(port)
             onLog("[psiphon] [+] socks proxy listening on $port")
@@ -92,7 +103,11 @@ private class PsiphonRuntime(
         override fun onSocksProxyPortInUse(port: Int) = fail("socks port $port already in use")
         override fun onHttpProxyPortInUse(port: Int) {}
         override fun onConnecting() = onLog("[psiphon] [*] establishing a tunnel")
-        override fun onConnected() = onLog("[psiphon] [+] tunnel established")
+        override fun onConnected() {
+            if (!active.get()) return
+            onLog("[psiphon] [+] tunnel established")
+            this@PsiphonRuntime.onConnected()
+        }
         override fun onConnectedServerRegion(region: String) = onLog("[psiphon] [+] connected through $region")
         override fun onClientRegion(region: String) = onLog("[psiphon] [*] client region reported as $region")
         override fun onUntunneledAddress(address: String) {}
@@ -119,6 +134,7 @@ private class PsiphonRuntime(
             instance.startTunneling("")
         }
         started.onFailure { error ->
+            runCatching { tunnel?.stop() }
             active.set(false); tunnel = null
             onLog("[psiphon] [-] failed to start: ${error.message}")
             onStopped(error.message ?: "psiphon core failed to start")
@@ -153,7 +169,7 @@ private class PsiphonRuntime(
  */
 object PsiphonController {
     private const val TAG = "Psiphon"
-    private const val READY_TIMEOUT_MS = 60_000L
+    private const val READY_TIMEOUT_MS = 90_000L
 
     @Volatile
     var SOCKS_PORT: Int = 0
@@ -176,9 +192,11 @@ object PsiphonController {
         val dataDir = File(service.filesDir, "psiphon").apply { mkdirs() }
         // socksPort=0 in the request lets tunnel-core pick a free ephemeral
         // port; we read the real one back from onListeningSocksProxyPort.
-        val requestJson = PsiphonConfig.build(spec.mode, 0, spec.country, dataDir)
+        val requestJson = PsiphonConfig.build(spec.mode, 0, spec.country, dataDir, spec.cdnIps, spec.cdnSni, spec.oblivionJson)
 
-        val portLatch = java.util.concurrent.CountDownLatch(1)
+        val portLatch = java.util.concurrent.CountDownLatch(2)
+        val portReported = AtomicBoolean(false)
+        val connectedReported = AtomicBoolean(false)
         var failure: String? = null
 
         val instance = PsiphonRuntime(
@@ -188,11 +206,14 @@ object PsiphonController {
             onStopped = { message ->
                 failure = message
                 SOCKS_PORT = 0
-                if (portLatch.count > 0) portLatch.countDown()
+                while (portLatch.count > 0) portLatch.countDown()
             },
             onSocksPort = { port ->
                 SOCKS_PORT = port
-                if (portLatch.count > 0) portLatch.countDown()
+                if (port > 0 && portReported.compareAndSet(false, true)) portLatch.countDown()
+            },
+            onConnected = {
+                if (connectedReported.compareAndSet(false, true)) portLatch.countDown()
             }
         )
         runtime = instance
@@ -207,8 +228,9 @@ object PsiphonController {
             stop()
             return false
         }
-        if (SOCKS_PORT == 0) {
+        if (SOCKS_PORT == 0 || !instance.isRunning || !connectedReported.get()) {
             Log.e(TAG, "psiphon did not come up: ${failure ?: "unknown error"}")
+            stop()
             return false
         }
         Log.i(TAG, "socks ready on 127.0.0.1:$SOCKS_PORT")

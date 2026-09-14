@@ -521,7 +521,7 @@ object ConfigBuilder {
 
     private fun buildOutbound(config: ProxyConfig): JSONObject {
         if (config.protocol == "wireguard") return buildWireguard(config)
-        if (config.protocol == "aether") return buildAether()
+        if (config.protocol == "aether" || (config.protocol == "psiphon" && !OblivionOptions(config.oblivionJson).psiphon)) return buildAether(config)
         if (config.protocol == "psiphon") return buildPsiphon()
         if (config.protocol == "hysteria2") return buildHysteria2(config)
         if (config.protocol == "tor") return buildTor()
@@ -615,10 +615,10 @@ object ConfigBuilder {
             .put("settings", settings).put("streamSettings", stream)
     }
 
-    private fun buildAether(): JSONObject {
+    private fun buildAether(config: ProxyConfig): JSONObject {
         val server = JSONObject()
             .put("address", "127.0.0.1")
-            .put("port", AetherController.SOCKS_PORT)
+            .put("port", if (config.oblivionJson.isBlank()) 1819 else OblivionOptions(config.oblivionJson).aetherPort)
         val settings = JSONObject().put("servers", JSONArray().put(server))
         return JSONObject().put("tag", "proxy").put("protocol", "socks").put("settings", settings)
     }

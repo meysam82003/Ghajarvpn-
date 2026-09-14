@@ -1,0 +1,1639 @@
+--- /dev/null
++++ b/api/handlers/PaymentFallbackWalletHandler.php
+@@ -0,0 +1,20 @@
++<?php
++declare(strict_types=1);
++require_once __DIR__.'/BaseHandler.php';
++require_once __DIR__.'/../../lib/DirectPurchase.php';
++final class PaymentFallbackWalletHandler extends BaseHandler {
++    public function handle(): void {
++        $this->requireMethod('POST');
++        $order=FaoximaInput::string($this->data,'order_id');
++        $report=FaoximaDb::fetchOne('SELECT * FROM Payment_report WHERE id_order=:o AND id_user=:u', [':o'=>$order,':u'=>$this->user['id']]);
++        if(!$report)FaoximaResponse::notFound('Payment not found');
++        if(($report['payment_Status']??'')!=='paid')FaoximaResponse::fail(409,'پرداخت هنوز تأیید نشده است.');
++        if(!str_starts_with((string)$report['id_invoice'],'getconfigafterpay|'))FaoximaResponse::fail(409,'این پرداخت خرید سرویس نیست.');
++        global $ManagePanel;$ManagePanel=$ManagePanel??new ManagePanel();
++        try{DirectPayment($order);}catch(Throwable $e){FaoximaLogger::exception($e,'Purchase reconciliation pending');}
++        $state=GhajarPurchaseSettlement::get('gateway:'.$order);
++        $refunded=($state['state']??'')==='refunded';
++        FaoximaResponse::ok(['wallet_credited'=>$refunded,'stage'=>$refunded?'wallet_refunded':($state['state']??'pending'),
++            'message'=>$refunded?'مبلغ پرداختی در کیف پول شما قرار گرفت.':'نتیجه ساخت سرویس در حال بررسی است.']);
++    }
++}
+--- a/api/handlers/PaymentStatusHandler.php
++++ b/api/handlers/PaymentStatusHandler.php
+@@ -5,6 +5,7 @@
+ 
+ require_once __DIR__ . '/BaseHandler.php';
+ require_once __DIR__ . '/ServiceHandler.php';
++require_once __DIR__ . '/../../lib/PurchaseSettlement.php';
+ 
+ final class PaymentStatusHandler extends BaseHandler
+ {
+@@ -127,7 +128,12 @@
+         }
+         $flow = $hasPurchaseTarget ? 'direct_buy' : ($pendingActionTag !== '' ? 'pending_action' : 'recharge');
+ 
++        $settlement=GhajarPurchaseSettlement::get('gateway:'.$orderId);
++        $walletRefunded=($settlement['state']??'')==='refunded';
++        if($walletRefunded){$isServiceReady=false;$service=null;$reasonFa='سرویس تحویل نشد؛ مبلغ پرداختی در کیف پول شما قرار گرفت.';}
+         $payload = [
++            'wallet_credited_only' => $walletRefunded,
++            'settlement_status' => $settlement['state']??null,
+             'order_id'         => $orderId,
+             'payment_status'   => $paymentStatus,
+             'invoice_status'   => $invoiceStatus !== '' ? $invoiceStatus : null,
+--- a/api/handlers/PurchaseHandler.php
++++ b/api/handlers/PurchaseHandler.php
+@@ -6,6 +6,7 @@
+ require_once __DIR__ . '/BaseHandler.php';
+ require_once __DIR__ . '/DiscountSupport.php';
+ require_once __DIR__ . '/service_output.php';
++require_once __DIR__ . '/../../lib/PurchaseSettlement.php';
+ 
+ final class PurchaseHandler extends BaseHandler
+ {
+@@ -259,7 +260,7 @@
+                     ':price'        => $product['price_product'],
+                     ':volume'       => $product['Volume_constraint'],
+                     ':service_time' => $serviceTime,
+-                    ':status'       => 'active',
++                    ':status'       => 'pending',
+                     ':note'         => $customNote,
+                     ':refral'       => $this->user['affiliates'],
+                     ':notifs'       => $notifications,
+@@ -286,10 +287,14 @@
+ 
+         $priceToCharge = (float) $product['price_product'];
+         $balanceChargedAtomically = false;
++        $lockKey='wallet:'.$orderId;
++        if(!GhajarPurchaseSettlement::lock($lockKey))FaoximaResponse::fail(409,'این سفارش در حال پردازش است.');
++        register_shutdown_function(static function()use($lockKey){try{GhajarPurchaseSettlement::unlock($lockKey);}catch(Throwable $e){}});
+         if ($priceToCharge > 0.0) {
+             $agent = $this->user['agent'] ?? 'f';
+             $allowNeg = ($agent === 'n2') ? (int)($this->user['maxbuyagent'] ?? 0) : 0;
+-            $charge = balance_atomic_charge($this->user['id'], $priceToCharge, $allowNeg);
++            $settlement = GhajarPurchaseSettlement::fund('wallet:'.$orderId, (string)$this->user['id'], $orderId, $priceToCharge, 0, $allowNeg);
++            $charge = ['ok' => $settlement['state'] === 'charged', 'new_balance' => FaoximaDb::fetchScalar('SELECT Balance FROM user WHERE id=:id', [':id'=>$this->user['id']])];
+             if (empty($charge['ok'])) {
+                 FaoximaLogger::warn('Atomic balance charge failed at purchase', [
+                     'user_id'  => $this->user['id'],
+@@ -297,7 +302,7 @@
+                     'price'    => $priceToCharge,
+                     'reason'   => $charge['reason'] ?? 'unknown',
+                 ]);
+-                try { FaoximaDb::execute('DELETE FROM invoice WHERE id_invoice = :o AND id_user = :u', [':o' => $orderId, ':u' => $this->user['id']]); } catch (Throwable $_) {}
++                try { FaoximaDb::execute("UPDATE invoice SET Status='refunded' WHERE id_invoice = :o AND id_user = :u", [':o' => $orderId, ':u' => $this->user['id']]); } catch (Throwable $_) {}
+                 FaoximaResponse::fail(402, faoxima_textbot_get('dyn_purchase_concurrent_balance_conflict', 'موجودی کافی نیست (تلاش هم‌زمان شناسایی شد). یک بار دیگر تلاش کنید.'));
+             }
+             $balanceChargedAtomically = true;
+@@ -316,7 +321,7 @@
+             if (!is_array($stock) || (string)($stock['content'] ?? '') === '') {
+                 if (is_array($stock) && function_exists('nmStockReleaseReservation')) nmStockReleaseReservation($stock);
+                 if ($balanceChargedAtomically) {
+-                    if (!balance_atomic_credit($this->user['id'], $priceToCharge)) {
++                    if (!GhajarPurchaseSettlement::refund('wallet:'.$orderId)) {
+                         FaoximaLogger::critical('Refund after stock reservation failure did not apply; user balance may be short', [
+                             'user_id'  => $this->user['id'],
+                             'order_id' => $orderId,
+@@ -326,7 +331,7 @@
+                         wallet_ledger_record($this->user['id'], 'credit', $priceToCharge, 'refund', 'بازگشت وجه به دلیل خطای انبار', $orderId, 'invoice', $orderId);
+                     }
+                 }
+-                try { FaoximaDb::execute('DELETE FROM invoice WHERE id_invoice = :o AND id_user = :u', [':o' => $orderId, ':u' => $this->user['id']]); } catch (Throwable $_) {}
++                try { FaoximaDb::execute("UPDATE invoice SET Status='refunded' WHERE id_invoice = :o AND id_user = :u", [':o' => $orderId, ':u' => $this->user['id']]); } catch (Throwable $_) {}
+                 FaoximaResponse::fail(409, faoxima_textbot_get('dyn_purchase_stock_depleted', '❌ موجودی انبار برای این محصول تمام شده است؛ مبلغی کسر نشد.'));
+             }
+ 
+@@ -341,6 +346,7 @@
+                 nmStockMarkDelivered($stock['id'], $this->user['id'], $orderId, ['mode' => 'miniapp_national_buy']);
+             }
+ 
++            if ($balanceChargedAtomically) GhajarPurchaseSettlement::delivered('wallet:'.$orderId);
+             if ($discountCode !== '') {
+                 MiniDiscount::markSellUsed($discountCode, $this->user);
+             }
+@@ -421,7 +427,7 @@
+             'type'       => 'buy',
+         ];
+ 
+-        $remote = $managePanel->createUser(
++        $remote = GhajarPurchaseSettlement::create($managePanel,
+             $panel['name_panel'],
+             $product['code_product'],
+             $usernameAc,
+@@ -439,7 +445,7 @@
+ 
+ 
+             if ($balanceChargedAtomically) {
+-                if (!balance_atomic_credit($this->user['id'], $priceToCharge)) {
++                if (!GhajarPurchaseSettlement::refund('wallet:'.$orderId)) {
+                     FaoximaLogger::critical('Refund after createUser failure did not apply; user balance may be short', [
+                         'user_id'  => $this->user['id'],
+                         'order_id' => $orderId,
+@@ -449,7 +455,7 @@
+                     wallet_ledger_record($this->user['id'], 'credit', $priceToCharge, 'refund', 'بازگشت وجه به دلیل خطای ساخت سرویس', $orderId, 'invoice', $orderId);
+                 }
+             }
+-            try { FaoximaDb::execute('DELETE FROM invoice WHERE id_invoice = :o AND id_user = :u', [':o' => $orderId, ':u' => $this->user['id']]); } catch (Throwable $_) {}
++            try { FaoximaDb::execute("UPDATE invoice SET Status='refunded' WHERE id_invoice = :o AND id_user = :u", [':o' => $orderId, ':u' => $this->user['id']]); } catch (Throwable $_) {}
+ 
+             $errorText = faoxima_render_text(faoxima_textbot_get('dyn_purchase_create_user_failed_report_tpl', "⭕️ خطای ساخت اشتراک \n<blockquote>✍️ دلیل خطا : </blockquote>\n<blockquote>{reason}</blockquote>\n<blockquote>آیدی کابر : {user_id}</blockquote>\n<blockquote>نام کاربری کاربر : @{username}</blockquote>\n<blockquote>نام پنل : {panel_name}</blockquote>"), [
+                 'reason' => $reason,
+@@ -459,9 +465,10 @@
+             ]);
+             $this->reportToChannel($errorText, $errorReport);
+ 
+-            FaoximaResponse::serverError(faoxima_textbot_get('dyn_purchase_create_user_failed_customer', 'خطایی در ساخت اشتراک رخ داده است با پشتیبانی در ارتباط باشید'));
+-        }
+-
++            FaoximaResponse::fail(409, 'سرویس ساخته نشد؛ مبلغ خرید به کیف پول شما برگشت داده شد.');
++        }
++
++        if ($balanceChargedAtomically) GhajarPurchaseSettlement::delivered('wallet:'.$orderId);
+         if ($discountCode !== '') {
+             MiniDiscount::markSellUsed($discountCode, $this->user);
+         }
+--- a/api/handlers/TestAccountHandler.php
++++ b/api/handlers/TestAccountHandler.php
+@@ -5,6 +5,7 @@
+ 
+ require_once __DIR__ . '/BaseHandler.php';
+ require_once __DIR__ . '/service_output.php';
++require_once __DIR__ . '/../lib/PanelTrial.php';
+ 
+ final class TestAccountHandler extends BaseHandler
+ {
+@@ -20,141 +21,33 @@
+     }
+ 
+ 
+-    private function isTestServiceAvailable(): bool
+-    {
+-        $count = (int) FaoximaDb::fetchScalar(
+-            "SELECT COUNT(*) FROM marzban_panel WHERE TestAccount = 'ONTestAccount'"
+-        );
+-        return $count > 0;
+-    }
+-
+-
+-    private function loadTestPanel(): ?array
+-    {
+-        $count = (int) FaoximaDb::fetchScalar(
+-            "SELECT COUNT(*) FROM marzban_panel WHERE TestAccount = 'ONTestAccount'"
+-        );
+-
+-        if ($count === 1) {
+-            $panel = FaoximaDb::fetchOne(
+-                "SELECT * FROM marzban_panel WHERE TestAccount = 'ONTestAccount' LIMIT 1"
+-            );
+-            if (!is_array($panel)) return null;
+-
+-            $hide = $this->decodeJsonField($panel['hide_user'] ?? null);
+-            if (!empty($hide) && in_array((string)$this->user['id'], array_map('strval', $hide), true)) {
+-                return null;
+-            }
+-            return $panel;
+-        }
+-
+-        return null;
+-    }
+-
+-
+-    private function listTestPanels(): array
+-    {
+-        $rows = FaoximaDb::fetchAll(
+-            "SELECT * FROM marzban_panel WHERE TestAccount = 'ONTestAccount' AND (agent = :agent OR agent = 'all')",
+-            [':agent' => (string)($this->user['agent'] ?? 'f')]
+-        );
+-        if (!is_array($rows)) return [];
+-
+-        $list = [];
+-        foreach ($rows as $row) {
+-            $hide = $this->decodeJsonField($row['hide_user'] ?? null);
+-            if (!empty($hide) && in_array((string)$this->user['id'], array_map('strval', $hide), true)) {
+-                continue;
+-            }
+-            $list[] = [
+-                'id'   => (string)$row['code_panel'],
+-                'name' => (string)$row['name_panel'],
+-            ];
+-        }
+-        return $list;
+-    }
+-
+-
+     private function handleInfo(): void
+     {
+         $this->requireMethod('GET');
+-
+-        $available = $this->isTestServiceAvailable();
+-        if (!$available) {
+-            FaoximaResponse::ok(['available' => false, 'panels' => [], 'limit_left' => 0]);
+-        }
+-
+-        $limitLeft = (int)($this->user['limit_usertest'] ?? 0);
+-        $isAdmin = $this->userIsAdmin();
+-
+-        $panels = [];
+-        $singlePanel = $this->loadTestPanel();
+-        if ($singlePanel === null && !$isAdmin) {
+-            $countAll = (int) FaoximaDb::fetchScalar(
+-                "SELECT COUNT(*) FROM marzban_panel WHERE TestAccount = 'ONTestAccount'"
+-            );
+-            if ($countAll !== 1) {
+-                $panels = $this->listTestPanels();
+-            }
+-        } elseif ($singlePanel !== null) {
+-            $panels = [[
+-                'id'   => (string)$singlePanel['code_panel'],
+-                'name' => (string)$singlePanel['name_panel'],
+-            ]];
+-        } else {
+-            $panels = $this->listTestPanels();
+-        }
+-
+-        FaoximaResponse::ok([
+-            'available'  => $available && ($limitLeft > 0 || $isAdmin),
+-            'panels'     => $panels,
+-            'limit_left' => $limitLeft,
+-        ]);
++        $admin = $this->userIsAdmin();
++        $panels = GhajarPanelTrial::panels($this->user, $this->setting, $admin);
++        $items = array_map(static function ($p) {
++            return ['id' => (string)$p['code_panel'], 'name' => (string)$p['name_panel'],
++                'limit_left' => $p['trial_limit_left']];
++        }, $panels);
++        FaoximaResponse::ok(['available' => count($items) > 0, 'panels' => $items,
++            'limit_per_panel' => GhajarPanelTrial::limit($this->setting),
++            'limit_left' => array_sum(array_column($items, 'limit_left'))]);
+     }
+-
+ 
+     private function handleCreate(): void
+     {
+         $this->requireMethod('POST');
+-
+-        if (!$this->isTestServiceAvailable()) {
+-            FaoximaResponse::fail(409, faoxima_textbot_get('dyn_testaccount_service_unavailable', '📌 سرویس تست در حال حاضر در دسترس نیست.'));
+-        }
+-
+-        $limitLeft = (int)($this->user['limit_usertest'] ?? 0);
+         $isAdmin = $this->userIsAdmin();
+-        if ($limitLeft <= 0 && !$isAdmin) {
+-            FaoximaResponse::fail(403, faoxima_textbot_get('dyn_testaccount_limit_reached', '❌ سقف دریافت اکانت تست شما به پایان رسیده است.'));
+-        }
+-
+         $codePanel = FaoximaInput::string($this->data, 'country_id');
+         $customUsername = FaoximaInput::nullableString($this->data, 'custom_username');
+-
++        $panels = GhajarPanelTrial::panels($this->user, $this->setting, $isAdmin);
++        if ($codePanel === '' && count($panels) === 1) $codePanel = (string)$panels[0]['code_panel'];
+         $panel = null;
+-        $countAll = (int) FaoximaDb::fetchScalar(
+-            "SELECT COUNT(*) FROM marzban_panel WHERE TestAccount = 'ONTestAccount'"
+-        );
+-        if ($countAll === 1) {
+-            $panel = $this->loadTestPanel();
+-        } else {
+-            if ($codePanel === '') {
+-                FaoximaResponse::badRequest('country_id is required');
+-            }
+-            $candidate = FaoximaDb::fetchOne(
+-                "SELECT * FROM marzban_panel WHERE code_panel = :c AND TestAccount = 'ONTestAccount' LIMIT 1",
+-                [':c' => $codePanel]
+-            );
+-            if (is_array($candidate)) {
+-                $hide = $this->decodeJsonField($candidate['hide_user'] ?? null);
+-                if (empty($hide) || !in_array((string)$this->user['id'], array_map('strval', $hide), true)) {
+-                    $panel = $candidate;
+-                }
+-            }
+-        }
+-
+-        if ($panel === null) {
+-            FaoximaResponse::fail(404, faoxima_textbot_get('dyn_testaccount_location_unavailable', '❌ سرویس تست برای این موقعیت در دسترس نیست.'));
+-        }
++        foreach ($panels as $candidate) {
++            if ((string)$candidate['code_panel'] === $codePanel) { $panel = $candidate; break; }
++        }
++        if ($panel === null) FaoximaResponse::fail(409, 'پنل فعال نیست یا سهمیه تست همین پنل تمام شده است.');
+ 
+         $methodUsername = (string)($panel['MethodUsername'] ?? '');
+         $requiresCustom = ($methodUsername === 'نام کاربری دلخواه + عدد رندوم' || $methodUsername === 'متن دلخواه کاربر + رندوم');
+@@ -203,9 +96,8 @@
+             $usernameAc = rand(1000000, 9999999) . '_' . $usernameAc;
+         }
+ 
+-        if (!$isAdmin) {
+-            update('user', 'limit_usertest', $limitLeft - 1, 'id', $this->user['id']);
+-        }
++        $claim = GhajarPanelTrial::reserve($this->user, (string)$panel['code_panel'], $this->setting, $isAdmin);
++        if ($claim === null) FaoximaResponse::fail(409, 'سهمیه تست این پنل تمام شده یا پنل غیرفعال شده است.');
+ 
+         $expireTs = strtotime('+' . (int)($panel['time_usertest'] ?? 0) . ' hours');
+         $dataLimitBytes = (int)($panel['val_usertest'] ?? 0) * 1048576;
+@@ -214,7 +106,7 @@
+         $notifications = json_encode(['volume' => false, 'time' => false]);
+ 
+         try {
+-            FaoximaDb::execute(
++            $saved = FaoximaDb::execute(
+                 "INSERT IGNORE INTO invoice
+                     (id_user, id_invoice, username, time_sell, Service_location, name_product,
+                      price_product, Volume, Service_time, Status, notifctions)
+@@ -234,10 +126,9 @@
+                     ':notifs'       => $notifications,
+                 ]
+             );
++            if ($saved !== 1) throw new RuntimeException("Trial invoice was not saved");
+         } catch (Throwable $e) {
+-            if (!$isAdmin) {
+-                update('user', 'limit_usertest', $limitLeft, 'id', $this->user['id']);
+-            }
++            GhajarPanelTrial::release($claim);
+             FaoximaLogger::exception($e, 'TestAccount invoice insert failed', ['user_id' => $this->user['id']]);
+             FaoximaResponse::serverError(faoxima_textbot_get('dyn_purchase_invoice_save_failed', 'خطا در ذخیره فاکتور'));
+         }
+@@ -260,9 +151,7 @@
+                 'reason'  => $reason,
+             ]);
+ 
+-            if (!$isAdmin) {
+-                update('user', 'limit_usertest', $limitLeft, 'id', $this->user['id']);
+-            }
++            GhajarPanelTrial::release($claim);
+             try { FaoximaDb::execute('DELETE FROM invoice WHERE id_invoice = :o AND id_user = :u', [':o' => $orderId, ':u' => $this->user['id']]); } catch (Throwable $_) {}
+ 
+             $errorText = faoxima_render_text(faoxima_textbot_get('dyn_testaccount_create_failed_report_tpl', "⭕️ یک کاربر قصد دریافت اکانت تست از مینی‌اپ داشت که ساخت کانفیگ با خطا مواجه شده\n<blockquote>✍️ دلیل خطا :</blockquote>\n<blockquote>{reason}</blockquote>\n<blockquote>آیدی کابر : {user_id}</blockquote>\n<blockquote>نام کاربری کاربر : @{username}</blockquote>\n<blockquote>نام پنل : {panel_name}</blockquote>"), [
+@@ -289,6 +178,7 @@
+             FaoximaResponse::serverError(faoxima_textbot_get('dyn_testaccount_create_failed_customer', '❌ خطایی در ساخت اکانت تست رخ داد. با پشتیبانی تماس بگیرید.'));
+         }
+ 
++        GhajarPanelTrial::finish($claim);
+         $configList = is_array($dataoutput['configs'] ?? null) ? $dataoutput['configs'] : [];
+         $subLink = ($panel['sublink'] ?? '') === 'onsublink' ? (string)($dataoutput['subscription_url'] ?? '') : '';
+ 
+--- a/api/handlers/VerifyHandler.php
++++ b/api/handlers/VerifyHandler.php
+@@ -57,10 +57,20 @@
+ 
+     public static function finalizeForUser(int $userId, array $userData, array $userRecord): void
+     {
++        self::emit(200, self::resolveForUser($userId, $userRecord));
++    }
++
++    /**
++     * Same gating/token logic as finalizeForUser(), but returns the payload
++     * instead of emitting+exiting. Lets other entrypoints (e.g. the browser
++     * "link code" flow in weblink.php) reuse the exact same rules without
++     * duplicating them.
++     */
++    public static function resolveForUser(int $userId, array $userRecord): array
++    {
+         $gate = self::evaluateGates($userId, $userRecord);
+         if ($gate !== null) {
+-            self::emit(200, array_merge(['status' => false, 'token' => null], $gate));
+-            return;
++            return array_merge(['status' => false, 'token' => null], $gate);
+         }
+ 
+         try {
+@@ -68,16 +78,16 @@
+             $token = $existingToken !== '' ? $existingToken : FaoximaAuth::issueToken($userId);
+         } catch (Throwable $e) {
+             FaoximaLogger::exception($e, 'Failed to issue token');
+-            self::sendVerifyError(500, 'Failed to generate session token');
++            return ['status' => false, 'token' => null, 'msg' => 'Failed to generate session token'];
+         }
+ 
+         FaoximaLogger::debug('User verified', ['user_id' => $userId]);
+ 
+-        self::emit(200, [
++        return [
+             'status' => true,
+             'msg'    => 'User verified',
+             'token'  => $token,
+-        ]);
++        ];
+     }
+ 
+     private static function evaluateGates(int $userId, array $userRecord): ?array
+--- /dev/null
++++ b/api/lib/PanelTrial.php
+@@ -0,0 +1,135 @@
++<?php
++
++declare(strict_types=1);
++
++/** Shared by Telegram, mini-app and Android. A reservation counts before remote provisioning. */
++final class GhajarPanelTrial
++{
++    private static function db(): PDO
++    {
++        global $pdo;
++        if (!($pdo instanceof PDO)) throw new RuntimeException('Database unavailable');
++        return $pdo;
++    }
++
++    public static function ensureSchema(): void
++    {
++        static $done = false;
++        if ($done) return;
++        $db = self::db();
++        $db->exec("CREATE TABLE IF NOT EXISTS ghajar_panel_trial_quota (
++            user_id BIGINT NOT NULL, panel_code VARCHAR(191) NOT NULL,
++            used_count INT NOT NULL DEFAULT 0,
++            PRIMARY KEY (user_id, panel_code)
++        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
++        $db->exec("CREATE TABLE IF NOT EXISTS ghajar_panel_trial_claim (
++            claim_id CHAR(32) PRIMARY KEY, user_id BIGINT NOT NULL,
++            panel_code VARCHAR(191) NOT NULL, status VARCHAR(16) NOT NULL,
++            created_at BIGINT NOT NULL
++        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
++        $done = true;
++    }
++
++    public static function limit(array $setting): int
++    {
++        // user.limit_usertest is the OLD global remaining counter, not a per-panel cap.
++        return max(0, (int)($setting['limit_usertest_all'] ?? 1));
++    }
++
++    public static function eligible(array $panel, array $user): bool
++    {
++        $hide = json_decode((string)($panel['hide_user'] ?? ''), true);
++        return ($panel['status'] ?? '') === 'active'
++            && ($panel['TestAccount'] ?? '') === 'ONTestAccount'
++            && in_array((string)($panel['agent'] ?? ''), ['all', (string)($user['agent'] ?? 'f')], true)
++            && (!is_array($hide) || !in_array((string)$user['id'], array_map('strval', $hide), true));
++    }
++
++    private static function seed(array $user, array $panel): void
++    {
++        $db = self::db();
++        // Existing successful trials still count after upgrading. Failed invoices do not.
++        $q = $db->prepare("INSERT IGNORE INTO ghajar_panel_trial_quota (user_id,panel_code,used_count)
++            SELECT :uid, :code, COUNT(*) FROM invoice
++             WHERE id_user = :history_uid AND Service_location = :location
++               AND name_product = 'سرویس تست' AND Status NOT IN ('Unsuccessful','failed')");
++        $q->execute([':uid' => $user['id'], ':code' => $panel['code_panel'],
++            ':history_uid' => $user['id'], ':location' => $panel['name_panel']]);
++    }
++
++    public static function remaining(array $user, array $panel, array $setting, bool $admin = false): int
++    {
++        if (!self::eligible($panel, $user)) return 0;
++        if ($admin) return PHP_INT_MAX;
++        self::ensureSchema();
++        self::seed($user, $panel);
++        $q = self::db()->prepare('SELECT used_count FROM ghajar_panel_trial_quota WHERE user_id=? AND panel_code=?');
++        $q->execute([$user['id'], $panel['code_panel']]);
++        return max(0, self::limit($setting) - (int)$q->fetchColumn());
++    }
++
++    public static function panels(array $user, array $setting, bool $admin = false): array
++    {
++        $q = self::db()->query("SELECT * FROM marzban_panel WHERE status='active' AND TestAccount='ONTestAccount' ORDER BY code_panel");
++        $panels = [];
++        foreach ($q->fetchAll(PDO::FETCH_ASSOC) as $row) {
++            if (!self::eligible($row, $user)) continue;
++            $left = self::remaining($user, $row, $setting, $admin);
++            if ($left <= 0) continue;
++            $row['trial_limit_left'] = $admin ? null : $left;
++            $panels[] = $row;
++        }
++        return $panels;
++    }
++
++    /** Returns an opaque reservation; null means unavailable or quota exhausted. */
++    public static function reserve(array $user, string $panelCode, array $setting, bool $admin = false): ?string
++    {
++        self::ensureSchema();
++        $db = self::db();
++        $db->beginTransaction();
++        try {
++            $q = $db->prepare('SELECT * FROM marzban_panel WHERE code_panel=? LIMIT 1 FOR UPDATE');
++            $q->execute([$panelCode]);
++            $panel = $q->fetch(PDO::FETCH_ASSOC);
++            if (!is_array($panel) || !self::eligible($panel, $user)) { $db->rollBack(); return null; }
++            self::seed($user, $panel);
++            if (!$admin) {
++                $q = $db->prepare('UPDATE ghajar_panel_trial_quota SET used_count=used_count+1 WHERE user_id=? AND panel_code=? AND used_count < ?');
++                $q->execute([$user['id'], $panelCode, self::limit($setting)]);
++                if ($q->rowCount() !== 1) { $db->rollBack(); return null; }
++            }
++            $id = bin2hex(random_bytes(16));
++            $q = $db->prepare('INSERT INTO ghajar_panel_trial_claim (claim_id,user_id,panel_code,status,created_at) VALUES (?,?,?,?,?)');
++            $q->execute([$id, $user['id'], $panelCode, $admin ? 'admin' : 'pending', time()]);
++            $db->commit();
++            return $id;
++        } catch (Throwable $e) {
++            if ($db->inTransaction()) $db->rollBack();
++            throw $e;
++        }
++    }
++
++    public static function finish(string $id): void
++    {
++        $q = self::db()->prepare("UPDATE ghajar_panel_trial_claim SET status='issued' WHERE claim_id=? AND status='pending'");
++        $q->execute([$id]);
++    }
++
++    /** Only release a confirmed failure. A process crash keeps its reservation for reconciliation. */
++    public static function release(string $id): void
++    {
++        $db = self::db(); $db->beginTransaction();
++        try {
++            $q = $db->prepare('SELECT * FROM ghajar_panel_trial_claim WHERE claim_id=? FOR UPDATE');
++            $q->execute([$id]); $claim = $q->fetch(PDO::FETCH_ASSOC);
++            if (is_array($claim) && $claim['status'] === 'pending') {
++                $q = $db->prepare('UPDATE ghajar_panel_trial_quota SET used_count=GREATEST(0,used_count-1) WHERE user_id=? AND panel_code=?');
++                $q->execute([$claim['user_id'], $claim['panel_code']]);
++                $q = $db->prepare("UPDATE ghajar_panel_trial_claim SET status='failed' WHERE claim_id=?");
++                $q->execute([$id]);
++            }
++            $db->commit();
++        } catch (Throwable $e) { if ($db->inTransaction()) $db->rollBack(); throw $e; }
++    }
++}
+--- /dev/null
++++ b/api/lib/WebLink.php
+@@ -0,0 +1,221 @@
++<?php
++
++declare(strict_types=1);
++
++if (class_exists('FaoximaWebLink')) {
++    return;
++}
++
++/**
++ * Lets the mini-app be opened outside Telegram (a normal browser tab).
++ *
++ * Since a plain browser has no Telegram WebApp `initData` to sign requests
++ * with, we can't trust "who the user is" the normal way. Instead:
++ *   1. The browser asks us for a short numeric code (generate()).
++ *   2. The person sends that code to the bot in Telegram.
++ *   3. The bot calls linkCode() with the code + their real Telegram id,
++ *      which is the only place identity is actually established.
++ *   4. The browser polls status() until the code has been linked, then
++ *      receives a normal session token (same one verify.php would issue).
++ *
++ * A code proves nothing by itself — it only becomes a session once someone
++ * with a working Telegram account claims it from inside the bot.
++ */
++final class FaoximaWebLink
++{
++    private const TTL_SECONDS = 300; // 5 minutes
++    private const MAX_ATTEMPTS = 5;
++
++    public static function ensureTable(): void
++    {
++        global $pdo;
++        static $done = false;
++        if ($done) {
++            return;
++        }
++        if (!($pdo instanceof PDO)) {
++            return;
++        }
++        $done = true;
++        try {
++            $pdo->exec(
++                "CREATE TABLE IF NOT EXISTS web_link_codes (
++                    id INT AUTO_INCREMENT PRIMARY KEY,
++                    code VARCHAR(8) NOT NULL,
++                    session_token VARCHAR(64) NOT NULL,
++                    telegram_id BIGINT NULL,
++                    status VARCHAR(16) NOT NULL DEFAULT 'pending',
++                    created_at INT NOT NULL,
++                    expires_at INT NOT NULL,
++                    claimed_at INT NULL,
++                    delivered_at INT NULL,
++                    UNIQUE KEY uniq_session (session_token),
++                    KEY idx_code (code),
++                    KEY idx_telegram (telegram_id)
++                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
++            );
++            foreach (['claimed_at', 'delivered_at'] as $column) {
++                $check = $pdo->query("SHOW COLUMNS FROM web_link_codes LIKE " . $pdo->quote($column));
++                if (!$check || $check->rowCount() === 0) {
++                    $pdo->exec("ALTER TABLE web_link_codes ADD COLUMN `{$column}` INT NULL");
++                }
++            }
++        } catch (Throwable $e) {
++            if (class_exists('FaoximaLogger')) {
++                FaoximaLogger::exception($e, 'Failed to ensure web_link_codes table');
++            }
++        }
++    }
++
++    /** Creates a fresh pending code + opaque session token for the browser tab. */
++    public static function generate(): array
++    {
++        global $pdo;
++        self::ensureTable();
++        if (!($pdo instanceof PDO)) {
++            throw new RuntimeException('Database unavailable');
++        }
++
++        $now = time();
++        $expires = $now + self::TTL_SECONDS;
++        try {
++            $pdo->prepare("DELETE FROM web_link_codes WHERE expires_at < :cutoff AND status <> 'linked'")
++                ->execute([':cutoff' => $now - 86400]);
++        } catch (Throwable $e) {
++        }
++
++        for ($attempt = 0; $attempt < self::MAX_ATTEMPTS; $attempt++) {
++            $code = (string)random_int(100000, 999999);
++            $session = bin2hex(random_bytes(24));
++            try {
++                $collision = $pdo->prepare(
++                    "SELECT COUNT(*) FROM web_link_codes
++                      WHERE code = :code AND status = 'pending' AND expires_at >= :now"
++                );
++                $collision->execute([':code' => $code, ':now' => $now]);
++                if ((int)$collision->fetchColumn() > 0) continue;
++                $stmt = $pdo->prepare(
++                    "INSERT INTO web_link_codes (code, session_token, telegram_id, status, created_at, expires_at)
++                     VALUES (:code, :session, NULL, 'pending', :created, :expires)"
++                );
++                $stmt->execute([
++                    ':code'    => $code,
++                    ':session' => $session,
++                    ':created' => $now,
++                    ':expires' => $expires,
++                ]);
++                return [
++                    'code'          => $code,
++                    'session_token' => $session,
++                    'expires_in'    => self::TTL_SECONDS,
++                ];
++            } catch (Throwable $e) {
++                continue;
++            }
++        }
++
++        throw new RuntimeException('Failed to generate link code');
++    }
++
++    /** Looks up the state of a browser session by its opaque token. */
++    public static function status(string $sessionToken): array
++    {
++        global $pdo;
++        self::ensureTable();
++        if (!($pdo instanceof PDO)) {
++            return ['link_status' => 'error'];
++        }
++        if ($sessionToken === '') {
++            return ['link_status' => 'not_found'];
++        }
++
++        $stmt = $pdo->prepare("SELECT * FROM web_link_codes WHERE session_token = :s LIMIT 1");
++        $stmt->execute([':s' => $sessionToken]);
++        $row = $stmt->fetch(PDO::FETCH_ASSOC);
++
++        if (!$row) {
++            return ['link_status' => 'not_found'];
++        }
++        if ($row['status'] === 'pending' && (int)$row['expires_at'] < time()) {
++            return ['link_status' => 'expired'];
++        }
++        if ($row['status'] === 'linked' && !empty($row['telegram_id'])) {
++            $claimedAt = (int)($row['claimed_at'] ?? 0);
++            $deliveredAt = (int)($row['delivered_at'] ?? 0);
++            if (($claimedAt > 0 && $claimedAt < time() - 600)
++                || ($deliveredAt > 0 && $deliveredAt < time() - 120)) {
++                return ['link_status' => 'expired'];
++            }
++            return ['link_status' => 'linked', 'telegram_id' => (int)$row['telegram_id']];
++        }
++        return ['link_status' => 'pending'];
++    }
++
++    /**
++     * Called from the bot's own message handler (never from the browser)
++     * once a real Telegram user has claimed a code. Only a still-pending,
++     * unexpired code can be claimed, and only once.
++     */
++    public static function linkCode(string $code, int $telegramId): bool
++    {
++        global $pdo;
++        self::ensureTable();
++        if (!($pdo instanceof PDO)) {
++            return false;
++        }
++        if (!preg_match('/^\d{6}$/', $code) || $telegramId <= 0) {
++            return false;
++        }
++
++        $now = time();
++        $stmt = $pdo->prepare(
++            "UPDATE web_link_codes
++             SET telegram_id = :tid, status = 'linked', claimed_at = :claimed
++             WHERE code = :code AND status = 'pending' AND expires_at >= :expires_now
++             ORDER BY id DESC LIMIT 1"
++        );
++        $stmt->execute([
++            ':tid' => $telegramId,
++            ':code' => $code,
++            ':claimed' => $now,
++            ':expires_now' => $now,
++        ]);
++        return $stmt->rowCount() > 0;
++    }
++
++    /** Limits replay of a browser-link session after the permanent token was delivered. */
++    public static function markDelivered(string $sessionToken): void
++    {
++        global $pdo;
++        if (!($pdo instanceof PDO) || $sessionToken === '') return;
++        try {
++            $stmt = $pdo->prepare(
++                "UPDATE web_link_codes SET delivered_at = COALESCE(delivered_at, :now)
++                  WHERE session_token = :session AND status = 'linked'"
++            );
++            $stmt->execute([':now' => time(), ':session' => $sessionToken]);
++        } catch (Throwable $e) {
++        }
++    }
++
++    public static function resolveBotUsername(): string
++    {
++        global $setting;
++        $botUsername = '';
++        if (is_array($setting ?? null)) {
++            foreach (['bot_username', 'username_bot', 'usernamebot', 'BotUsername', 'bot_user'] as $k) {
++                if (isset($setting[$k]) && is_string($setting[$k]) && trim($setting[$k]) !== '') {
++                    $botUsername = ltrim((string)$setting[$k], '@');
++                    break;
++                }
++            }
++        }
++        if ($botUsername === '' && function_exists('telegram')) {
++            $me = @telegram('getMe', []);
++            if (is_array($me) && isset($me['result']['username'])) {
++                $botUsername = (string)$me['result']['username'];
++            }
++        }
++        return $botUsername;
++    }
++}
+--- a/api/miniapp.php
++++ b/api/miniapp.php
+@@ -110,6 +110,7 @@
+         'payment_init'           => 'PaymentInitHandler',
+         'payment_receipt'        => 'PaymentReceiptHandler',
+         'payment_status'         => 'PaymentStatusHandler',
++        'payment_fallback_wallet'=> 'PaymentFallbackWalletHandler',
+         'payment_reset'          => 'PaymentResetHandler',
+         'crypto_currencies'      => 'CryptoCurrenciesHandler',
+         'crypto_invoice_init'    => 'CryptoInvoiceInitHandler',
+--- /dev/null
++++ b/api/weblink.php
+@@ -0,0 +1,111 @@
++<?php
++
++declare(strict_types=1);
++
++if (!defined('FAOXIMA_SKIP_BOTAPI_ROUTER')) {
++    define('FAOXIMA_SKIP_BOTAPI_ROUTER', true);
++}
++
++ob_start();
++
++@ini_set('display_errors',         '0');
++@ini_set('display_startup_errors', '0');
++@ini_set('log_errors',             '1');
++error_reporting(E_ALL);
++
++$GLOBALS['__weblink_response_sent'] = false;
++
++function __weblink_emit(int $http, array $payload): void
++{
++    while (ob_get_level() > 0) {
++        @ob_end_clean();
++    }
++    if (!headers_sent()) {
++        http_response_code($http);
++        header('Content-Type: application/json; charset=utf-8');
++        header('Cache-Control: no-store, max-age=0');
++    }
++    echo json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
++    $GLOBALS['__weblink_response_sent'] = true;
++}
++
++register_shutdown_function(static function () {
++    if (!empty($GLOBALS['__weblink_response_sent'])) {
++        return;
++    }
++    $err = error_get_last();
++    $fatal = [E_ERROR, E_PARSE, E_COMPILE_ERROR, E_CORE_ERROR, E_USER_ERROR];
++    if (is_array($err) && in_array($err['type'], $fatal, true)) {
++        __weblink_emit(500, [
++            'status' => false,
++            'msg'    => 'Internal server error',
++            'detail' => 'See server error log',
++        ]);
++        return;
++    }
++    __weblink_emit(500, [
++        'status' => false,
++        'msg'    => 'weblink.php finished without emitting a response',
++    ]);
++});
++
++try {
++    require_once __DIR__ . '/lib/Bootstrap.php';
++    require_once __DIR__ . '/lib/WebLink.php';
++    require_once __DIR__ . '/handlers/BaseHandler.php';
++    require_once __DIR__ . '/handlers/VerifyHandler.php';
++
++    while (ob_get_level() > 0) {
++        @ob_end_clean();
++    }
++    ob_start();
++
++    $action = (string)($_GET['action'] ?? $_POST['action'] ?? '');
++
++    if ($action === 'generate') {
++        $data = FaoximaWebLink::generate();
++        $data['bot_username'] = FaoximaWebLink::resolveBotUsername();
++        __weblink_emit(200, ['status' => true] + $data);
++        exit;
++    }
++
++    if ($action === 'status') {
++        $sessionToken = trim((string)($_GET['session_token'] ?? $_POST['session_token'] ?? ''));
++        if ($sessionToken === '') {
++            __weblink_emit(400, ['status' => false, 'msg' => 'session_token is required']);
++            exit;
++        }
++
++        $result = FaoximaWebLink::status($sessionToken);
++
++        if ($result['link_status'] === 'linked') {
++            $userId = (int)$result['telegram_id'];
++            $userRecord = select('user', '*', 'id', $userId, 'select', ['cache' => false]);
++            if (empty($userRecord) || !is_array($userRecord)) {
++                // The Telegram id was claimed but the user row isn't ready yet
++                // (e.g. bot hasn't finished auto-registering) — tell the
++                // browser to keep waiting rather than failing outright.
++                __weblink_emit(200, ['status' => true, 'link_status' => 'pending']);
++                exit;
++            }
++            $verify = VerifyHandler::resolveForUser($userId, $userRecord);
++            if (!empty($verify['status']) && !empty($verify['token'])) {
++                FaoximaWebLink::markDelivered($sessionToken);
++            }
++            __weblink_emit(200, array_merge($verify, ['link_status' => 'linked']));
++            exit;
++        }
++
++        __weblink_emit(200, ['status' => true, 'link_status' => $result['link_status']]);
++        exit;
++    }
++
++    __weblink_emit(400, ['status' => false, 'msg' => 'Unknown action']);
++} catch (Throwable $e) {
++    error_log('[GhajarWebLink] ' . $e->getMessage());
++    __weblink_emit(500, [
++        'status' => false,
++        'msg'    => 'Unable to create or verify link session',
++        'detail' => 'See server error log',
++    ]);
++}
+--- a/app/assets/v1.0.0/api.js
++++ b/app/assets/v1.0.0/api.js
+@@ -56,6 +56,9 @@
+ }
+ 
+ export async function verify() {
++    // The native client seeds its verified bearer in this same-origin session.
++    // Every API action still validates the bearer server-side.
++    if (getToken()) return getToken();
+     const sdkLoaded = await waitForSDK(4000);
+     if (!sdkLoaded) {
+         const diag = diagnostics();
+--- a/app/assets/v1.0.0/pages/gateway-watch.js
++++ b/app/assets/v1.0.0/pages/gateway-watch.js
+@@ -198,6 +198,11 @@
+             const obj = res?.obj || {};
+             const status = String(obj.payment_status || '');
+ 
++            if (status === 'paid' && obj.wallet_credited_only) {
++                cleanup(); toast('سرویس تحویل نشد؛ مبلغ پرداختی به کیف پول برگشت.', 'success');
++                if (typeof onSuccess === 'function') onSuccess(obj);
++                return;
++            }
+             if (status === 'paid') {
+ 
+                 if (mode === 'recharge' || mode === 'pending_action') {
+@@ -208,6 +213,8 @@
+                     cleanup();
+                     hapticNotify('success');
+                     if (typeof onSuccess === 'function') onSuccess(obj);
++                } else if (serviceBuilding) {
++                    await call('payment_fallback_wallet', {method:'POST', body:{order_id:orderId}});
+                 } else if (!serviceBuilding) {
+                     serviceBuilding = true;
+                     setSubtitle(finalizingMsg);
+@@ -240,7 +247,7 @@
+             const obj = res?.obj || {};
+             const status = String(obj.payment_status || '');
+ 
+-            const isReady = (mode === 'recharge' || mode === 'pending_action') ? true : !!obj.is_service_ready;
++            const isReady = (obj.wallet_credited_only || mode === 'recharge' || mode === 'pending_action') ? true : !!obj.is_service_ready;
+             if (status === 'paid' && isReady) {
+                 cleanup();
+                 hapticNotify('success');
+--- a/app/assets/v1.0.0/pages/home.js
++++ b/app/assets/v1.0.0/pages/home.js
+@@ -162,7 +162,7 @@
+             <a href="#/usertest" class="list-item mt-md">
+                 <div class="li-main">
+                     <div class="li-title">${icon('gift', 'class="ico ico-leading"')} دریافت اکانت تست</div>
+-                    <div class="li-sub">سهمیه باقیمانده: ${escapeHtml(obj.limit_left ?? 0)}</div>
++                    <div class="li-sub">سقف تست هر پنل: ${escapeHtml(obj.limit_per_panel ?? 0)}</div>
+                 </div>
+                 <span class="li-action" aria-hidden="true">${icon('chevronLeft', 'class="ico"')}</span>
+             </a>
+--- a/app/assets/v1.0.0/pages/usertest.js
++++ b/app/assets/v1.0.0/pages/usertest.js
+@@ -52,11 +52,11 @@
+ 
+ function renderPanelList($host, panels, info) {
+     $host.innerHTML = `
+-        <p class="muted" style="font-size:13px">موقعیت سرویس تست را انتخاب کنید (سهمیه باقیمانده: <b>${escapeHtml(info.limit_left)}</b>)</p>
++        <p class="muted" style="font-size:13px">موقعیت سرویس تست را انتخاب کنید (سقف تست برای هر پنل: <b>${escapeHtml(info.limit_per_panel)}</b>)</p>
+         <div class="list mt-sm">
+             ${panels.map((p) => `
+                 <button class="plan" data-id="${escapeHtml(p.id)}" data-name="${escapeHtml(p.name)}">
+-                    <div class="plan-info"><div class="plan-title">${escapeHtml(p.name)}</div></div>
++                    <div class="plan-info"><div class="plan-title">${escapeHtml(p.name)} — باقی‌مانده: ${escapeHtml(p.limit_left ?? "∞")}</div></div>
+                     <div class="plan-price"><span class="amt">${icon('select', 'class="ico ico-lg"')}</span></div>
+                 </button>
+             `).join('')}
+@@ -65,7 +65,7 @@
+     $host.querySelectorAll('.plan').forEach((btn) => {
+         btn.addEventListener('click', () => {
+             hapticImpact('light');
+-            renderCreateForm($host, { id: btn.dataset.id, name: btn.dataset.name }, info);
++            renderCreateForm($host, panels.find(p => String(p.id) === btn.dataset.id), info);
+         });
+     });
+ }
+@@ -73,7 +73,7 @@
+ function renderCreateForm($host, panel, info) {
+     $host.innerHTML = `
+         <p class="muted" style="font-size:13px">
+-            ${panel ? `موقعیت: <b>${escapeHtml(panel.name)}</b> — ` : ''}سهمیه باقیمانده: <b>${escapeHtml(info.limit_left)}</b>
++            ${panel ? `موقعیت: <b>${escapeHtml(panel.name)}</b> — ` : ''}سهمیه باقیمانده: <b>${escapeHtml(panel?.limit_left ?? "∞")}</b>
+         </p>
+         <div class="form-row mt-sm" id="ut-username-row" hidden>
+             <label class="muted" style="font-size:12px">نام کاربری دلخواه</label>
+--- a/app/assets/v1.0.0/router.js
++++ b/app/assets/v1.0.0/router.js
+@@ -79,13 +79,13 @@
+             </article>`;
+         return;
+     }
+-    if (paymentStatus === 'paid' && !statusObj.is_service_ready && flowStr !== 'direct_buy') {
++    if (paymentStatus === 'paid' && !statusObj.is_service_ready && (flowStr !== 'direct_buy' || statusObj.wallet_credited_only)) {
+         view.innerHTML = `
+             <article class="card card-window">
+                 <header class="card-window-bar"><span class="dots"><span></span><span></span><span></span></span><span class="window-url">faoxima/recharge/done</span></header>
+                 <div class="card-body" style="text-align:center;padding:22px">
+                     <div style="font-size:42px;line-height:1;color:var(--green);margin:4px 0 10px">${icon('checkCircle', 'class="ico ico-xxl ico-success"')}</div>
+-                    <h2 style="margin:6px 0;font-size:18px">پرداخت با موفقیت تایید شد</h2>
++                    <h2 style="margin:6px 0;font-size:18px">${statusObj.wallet_credited_only ? 'سرویس تحویل نشد؛ مبلغ به کیف پول برگشت' : 'پرداخت با موفقیت تایید شد'}</h2>
+                     <div class="kv mt-md"><span class="kv-label">کد پیگیری</span><span class="kv-value mono gold">${orderId}</span></div>
+                     <div class="row-spread mt-md stack-on-mobile" style="gap:10px">
+                         <a href="#/account" class="btn btn-primary btn-block" style="flex:1">حساب من</a>
+--- a/cronbot/cryptocheck.php
++++ b/cronbot/cryptocheck.php
+@@ -29,6 +29,8 @@
+ }
+ 
+ $ManagePanel = class_exists('ManagePanel') ? new ManagePanel() : null;
++require_once __DIR__.'/../lib/PurchaseRecovery.php';
++try { ghajar_recover_purchases($ManagePanel); } catch (Throwable $e) { error_log('[Ghajar recovery] '.$e->getMessage()); }
+ $setting = function_exists('select') ? select('setting', '*') : [];
+ $paymentreports = function_exists('select')
+     ? (select('topicid', 'idreport', 'report', 'paymentreport', 'select')['idreport'] ?? null)
+@@ -202,7 +204,7 @@
+         WHERE p.payment_Status = 'paid'
+           AND p.Payment_Method = 'arze digital offline'
+           AND p.id_invoice LIKE 'getconfigafterpay|%'
+-          AND (p.dec_not_confirmed IS NULL OR (p.dec_not_confirmed NOT LIKE '%auto-refund%' AND p.dec_not_confirmed NOT LIKE '%service-created%'))
++          AND (p.dec_not_confirmed IS NULL OR (p.dec_not_confirmed NOT LIKE '%auto-refund%' AND p.dec_not_confirmed NOT LIKE '%service-created%' AND dec_not_confirmed NOT LIKE '%ghajar-settlement%'))
+           AND (i.id_invoice IS NULL OR LOWER(i.Status) = 'unpaid' OR i.uuid IS NULL OR i.uuid = '')
+           AND p.at_updated < DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+         LIMIT 25
+@@ -234,7 +236,7 @@
+                         END
+                     WHERE id_order = :o
+                       AND payment_Status = 'paid'
+-                      AND (dec_not_confirmed IS NULL OR (dec_not_confirmed NOT LIKE '%auto-refund%' AND dec_not_confirmed NOT LIKE '%service-created%'))
++                      AND (dec_not_confirmed IS NULL OR (dec_not_confirmed NOT LIKE '%auto-refund%' AND dec_not_confirmed NOT LIKE '%service-created%' AND dec_not_confirmed NOT LIKE '%ghajar-settlement%'))
+                 ");
+                 $mark->execute([':note' => $markNote, ':note2' => $markNote, ':o' => $stuckOrderId]);
+                 if ($mark->rowCount() < 1) {
+@@ -316,7 +318,7 @@
+         WHERE p.payment_Status = 'paid'
+           AND p.Payment_Method = 'arze digital offline'
+           AND p.id_invoice LIKE 'getconfigafterpay|%'
+-          AND (p.dec_not_confirmed IS NULL OR (p.dec_not_confirmed NOT LIKE '%auto-refund%' AND p.dec_not_confirmed NOT LIKE '%service-created%'))
++          AND (p.dec_not_confirmed IS NULL OR (p.dec_not_confirmed NOT LIKE '%auto-refund%' AND p.dec_not_confirmed NOT LIKE '%service-created%' AND dec_not_confirmed NOT LIKE '%ghajar-settlement%'))
+           AND (i.uuid IS NULL OR i.uuid = '' OR LOWER(i.Status) = 'unpaid')
+           AND p.at_updated >= DATE_SUB(NOW(), INTERVAL 5 MINUTE)
+           AND COALESCE(p.crypto_check_count, 0) < 5
+--- /dev/null
++++ b/lib/DirectPurchase.php
+@@ -0,0 +1,33 @@
++<?php
++require_once __DIR__.'/PurchaseSettlement.php';
++
++/** Shared entry point for verified callbacks, receipt approval and retries. */
++function DirectPayment($order_id, $image='images.jpg') {
++    global $pdo;
++    $report=select('Payment_report','*','id_order',$order_id,'select');
++    if(!is_array($report))return;
++    if(!str_starts_with((string)($report['id_invoice']??''),'getconfigafterpay|')) {
++        GhajarDirectPaymentLegacy($order_id,$image);return;
++    }
++    if(($report['payment_Status']??'')!=='paid')return;
++    $key='gateway:'.$order_id;
++    if(!GhajarPurchaseSettlement::lock($key))return;
++    try {
++        $state=GhajarPurchaseSettlement::get($key);
++        if($state && in_array($state['state'],['delivered','refunded'],true))return;
++        $username=explode('|',(string)$report['id_invoice'],2)[1];
++        $q=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND username=? LIMIT 1');$q->execute([$report['id_user'],$username]);$invoice=$q->fetch(PDO::FETCH_ASSOC);
++        if(!$invoice && $state && $state['invoice_id']!=='') {
++            $q=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND id_invoice=?');$q->execute([$report['id_user'],$state['invoice_id']]);$invoice=$q->fetch(PDO::FETCH_ASSOC);
++        }
++        if($invoice && strtolower((string)$invoice['Status'])==='active') {
++            if(!$state)return;
++            if(!empty($invoice['user_info'])){GhajarPurchaseSettlement::delivered($key);return;}
++        }
++        $state=GhajarPurchaseSettlement::fund($key,(string)$report['id_user'],(string)($invoice['id_invoice']??''),(float)($invoice['price_product']??0),(float)$report['price']);
++        if($state['state']==='refunded'){
++            if(function_exists('sendmessage'))sendmessage($report['id_user'],'سرویس تحویل نشد؛ مبلغ پرداختی در کیف پول شما قرار گرفت.',null,'HTML');return;
++        }
++        GhajarDirectPaymentLegacy($order_id,$image);
++    } finally { GhajarPurchaseSettlement::unlock($key); }
++}
+--- /dev/null
++++ b/lib/PurchaseRecovery.php
+@@ -0,0 +1,26 @@
++<?php
++require_once __DIR__.'/PurchaseSettlement.php';
++/** Reconcile uncertain requests without creating another remote account. */
++function ghajar_recover_purchases($manager): void {
++    global $pdo;
++    if(!$manager)return;
++    GhajarPurchaseSettlement::schema();
++    $q=$pdo->prepare("SELECT * FROM ghajar_purchase_settlement WHERE state='charged' AND updated_at<? ORDER BY updated_at LIMIT 3");$q->execute([time()-300]);
++    foreach($q->fetchAll(PDO::FETCH_ASSOC) as $row) {
++        $key=$row['purchase_key'];
++        if(!GhajarPurchaseSettlement::lock($key))continue;
++        try {
++            $fresh=GhajarPurchaseSettlement::get($key);if(($fresh['state']??'')!=='charged')continue;
++            $s=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND id_invoice=?');$s->execute([$row['user_id'],$row['invoice_id']]);$invoice=$s->fetch(PDO::FETCH_ASSOC);
++            $refund=!$invoice;
++            if($invoice) {
++                if(!empty($invoice['user_info']) && strtolower((string)$invoice['Status'])==='active'){GhajarPurchaseSettlement::delivered($key);continue;}
++                $remote=$manager->DataUser($invoice['Service_location'],$invoice['username']);
++                if(is_array($remote)&&($remote['username']??'')===$invoice['username']){GhajarPurchaseSettlement::delivered($key);continue;}
++                $refund=GhajarPurchaseSettlement::missing($remote);
++            }
++            if($refund && GhajarPurchaseSettlement::refund($key) && function_exists('sendmessage'))sendmessage($row['user_id'],'سرویس ساخته نشد؛ مبلغ پرداختی به کیف پول شما برگشت داده شد.',null,'HTML');
++        }catch(Throwable $e){error_log('[Ghajar purchase reconciliation] '.$e->getMessage());}
++        finally{GhajarPurchaseSettlement::unlock($key);}
++    }
++}
+--- /dev/null
++++ b/lib/PurchaseSettlement.php
+@@ -0,0 +1,108 @@
++<?php
++declare(strict_types=1);
++
++/** Durable funding/refunds. All monetary mutations and their receipts use the same PDO transaction. */
++final class GhajarPurchaseSettlement
++{
++    private static function db(): PDO { global $pdo; if (!($pdo instanceof PDO)) throw new RuntimeException('Database unavailable'); return $pdo; }
++    public static function schema(): void {
++        static $ready=false; if ($ready) return;
++        self::db()->exec("CREATE TABLE IF NOT EXISTS ghajar_purchase_settlement (
++            purchase_key VARCHAR(191) PRIMARY KEY, user_id BIGINT NOT NULL,
++            invoice_id VARCHAR(191) NOT NULL, paid_amount DECIMAL(20,4) NOT NULL DEFAULT 0,
++            charged_amount DECIMAL(20,4) NOT NULL DEFAULT 0, state VARCHAR(24) NOT NULL,
++            updated_at BIGINT NOT NULL
++        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"); $ready=true;
++    }
++    /** Prevent two callbacks from provisioning the same order while allowing unrelated purchases. */
++    public static function lock(string $key): bool {
++        self::schema();$q=self::db()->prepare('SELECT GET_LOCK(?, 0)');$q->execute(['ghajar-buy:'.substr(hash('sha256',$key),0,40)]);return (int)$q->fetchColumn()===1;
++    }
++    public static function unlock(string $key): void {
++        $q=self::db()->prepare('SELECT RELEASE_LOCK(?)');$q->execute(['ghajar-buy:'.substr(hash('sha256',$key),0,40)]);
++    }
++    public static function get(string $key): ?array {
++        self::schema();$q=self::db()->prepare('SELECT * FROM ghajar_purchase_settlement WHERE purchase_key=?');$q->execute([$key]);return $q->fetch(PDO::FETCH_ASSOC) ?: null;
++    }
++    /** A verified gateway payment is credited first, then the invoice is charged.
++     * If funding is insufficient or no invoice exists, the payment remains in the wallet.
++     */
++    public static function fund(string $key, string $uid, string $invoice, float $price, float $paid=0, float $allowNegative=0): array {
++        if (!is_finite($price)||!is_finite($paid)||$price<0||$paid<0) throw new InvalidArgumentException('Invalid amount');
++        self::schema();$db=self::db();$db->beginTransaction();
++        try {
++            if (str_starts_with($key,'gateway:')) {
++                $q=$db->prepare('SELECT * FROM Payment_report WHERE id_order=? FOR UPDATE');$q->execute([substr($key,8)]);$payment=$q->fetch(PDO::FETCH_ASSOC);
++                if(!$payment || $payment['payment_Status']!=='paid' || (string)$payment['id_user']!==$uid || (float)$payment['price']!==$paid) throw new RuntimeException('Payment not verified');
++                $previous=self::get($key);
++                if(!$previous && preg_match('/auto-refund|service-created/i',(string)($payment['dec_not_confirmed']??''))) throw new RuntimeException('Payment already settled by previous version');
++                $q=$db->prepare("UPDATE Payment_report SET dec_not_confirmed=CONCAT(COALESCE(dec_not_confirmed,''),' [ghajar-settlement]') WHERE id_order=? AND COALESCE(dec_not_confirmed,'') NOT LIKE '%ghajar-settlement%'");$q->execute([substr($key,8)]);
++            }
++            $q=$db->prepare('SELECT * FROM user WHERE id=? FOR UPDATE');$q->execute([$uid]);$user=$q->fetch(PDO::FETCH_ASSOC);
++            if (!$user) throw new RuntimeException('Purchase user missing');
++            $q=$db->prepare('SELECT * FROM ghajar_purchase_settlement WHERE purchase_key=? FOR UPDATE');$q->execute([$key]);$existing=$q->fetch(PDO::FETCH_ASSOC);
++            if ($existing) { if ((string)$existing['user_id']!==$uid) throw new RuntimeException('Purchase owner mismatch'); $db->commit();return $existing; }
++            if ($paid>0) { $q=$db->prepare('UPDATE user SET Balance=Balance+? WHERE id=?');$q->execute([$paid,$uid]); }
++            $charged=0.0;$state='refunded';
++            if ($invoice!=='' && $price>0) {
++                $q=$db->prepare('UPDATE user SET Balance=Balance-? WHERE id=? AND Balance+? >= ?');
++                $q->execute([$price,$uid,max(0,$allowNegative),$price]);
++                if($q->rowCount()===1){$charged=$price;$state='charged';}
++            } elseif ($invoice!=='' && $price==0) $state='charged';
++            $q=$db->prepare('INSERT INTO ghajar_purchase_settlement VALUES (?,?,?,?,?,?,?)');
++            $q->execute([$key,$uid,$invoice,$paid,$charged,$state,time()]);
++            if ($state==='refunded') { self::markInvoice($db,$uid,$invoice,'refunded'); self::markPayment($db,$key,'auto-refund'); }
++            $db->commit();return self::get($key);
++        } catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
++    }
++    private static function markPayment(PDO $db,string $key,string $state): void {
++        if(!str_starts_with($key,'gateway:'))return;
++        $q=$db->prepare("UPDATE Payment_report SET dec_not_confirmed=CONCAT(COALESCE(dec_not_confirmed,''),?) WHERE id_order=?");$q->execute([' ['.$state.': ghajar]',substr($key,8)]);
++    }
++    private static function markInvoice(PDO $db,string $uid,string $invoice,string $status): void {
++        if($invoice==='')return;$q=$db->prepare('UPDATE invoice SET Status=? WHERE id_user=? AND id_invoice=?');$q->execute([$status,$uid,$invoice]);
++    }
++    /** Returns true only for the transaction that actually returned a charged amount. */
++    public static function refund(string $key): bool {
++        $db=self::db();$db->beginTransaction();
++        try {
++            $q=$db->prepare('SELECT * FROM ghajar_purchase_settlement WHERE purchase_key=? FOR UPDATE');$q->execute([$key]);$r=$q->fetch(PDO::FETCH_ASSOC);
++            if(!$r || $r['state']!=='charged'){$db->commit();return false;}
++            $q=$db->prepare('UPDATE user SET Balance=Balance+? WHERE id=?');$q->execute([$r['charged_amount'],$r['user_id']]);
++            if((float)$r['charged_amount']>0 && $q->rowCount()!==1)throw new RuntimeException('Refund user missing');
++            $q=$db->prepare("UPDATE ghajar_purchase_settlement SET state='refunded',updated_at=? WHERE purchase_key=?");$q->execute([time(),$key]);
++            self::markInvoice($db,(string)$r['user_id'],(string)$r['invoice_id'],'refunded');self::markPayment($db,$key,'auto-refund');
++            $db->commit();return true;
++        }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
++    }
++    public static function delivered(string $key): bool {
++        $db=self::db();$db->beginTransaction();
++        try {
++            $q=$db->prepare('SELECT * FROM ghajar_purchase_settlement WHERE purchase_key=? FOR UPDATE');$q->execute([$key]);$r=$q->fetch(PDO::FETCH_ASSOC);
++            if(!$r || $r['state']!=='charged'){$db->commit();return $r && $r['state']==='delivered';}
++            self::markInvoice($db,(string)$r['user_id'],(string)$r['invoice_id'],'active');self::markPayment($db,$key,'service-created');
++            $q=$db->prepare("UPDATE ghajar_purchase_settlement SET state='delivered',updated_at=? WHERE purchase_key=?");$q->execute([time(),$key]);$db->commit();return true;
++        }catch(Throwable $e){if($db->inTransaction())$db->rollBack();throw $e;}
++    }
++    public static function missing($result): bool {
++        if(!is_array($result))return false;
++        $msg=is_string($result['msg']??null)?$result['msg']:json_encode($result['msg']??'');
++        return (bool)preg_match('/\b404\b|(?:user|panel|customer|account).{0,15}not found|does not exist|not_found/i',$msg);
++    }
++    /** A transport exception is not proof of failure: recover the same username before retrying/refunding. */
++    public static function create($manager, string $panel, string $product, string $username, array $payload): array {
++        try { $result=$manager->createUser($panel,$product,$username,$payload); }
++        catch(Throwable $e){ $result=['msg'=>'Provisioning response unavailable']; }
++        if(is_array($result)&&!empty($result['username']))return $result;
++        try{$existing=$manager->DataUser($panel,$username);if(is_array($existing)&&($existing['username']??'')===$username){
++            if(empty($existing['configs'])&&!empty($existing['links']))$existing['configs']=is_array($existing['links'])?$existing['links']:explode("\n",$existing['links']);
++            return $existing;
++        }}catch(Throwable $e){throw new RuntimeException('Service outcome pending reconciliation',0,$e);}
++        $failureText=is_string($result['msg']??null)?$result['msg']:json_encode($result['msg']??'');
++        if(preg_match('/timeout|timed out|connection|network|curl|\b50[0-9]\b|unavailable|response unavailable/i',$failureText))throw new RuntimeException('Service outcome pending reconciliation');
++        // Unknown outcomes remain charged for retry; a structured panel rejection is definitive.
++        if(!is_array($result) || !array_key_exists('msg',$result) || ($result['msg']??'')==='Provisioning response unavailable')
++            throw new RuntimeException('Service outcome pending reconciliation');
++        return $result;
++    }
++}
+--- a/re/rx/function/database_helpers_2.php
++++ b/re/rx/function/database_helpers_2.php
+@@ -1703,7 +1703,8 @@
+ 
+     return array_values($normalized);
+ }
+-function DirectPayment($order_id, $image = 'images.jpg')
++require_once __DIR__ . '/../../../lib/DirectPurchase.php';
++function GhajarDirectPaymentLegacy($order_id, $image = 'images.jpg')
+ {
+     global $pdo, $ManagePanel, $textbotlang, $keyboardextendfnished, $keyboard, $Confirm_pay, $from_id, $message_id, $datatextbot, $update;
+     $buyreport = select("topicid", "idreport", "report", "buyreport", "select")['idreport'];
+@@ -1733,75 +1734,14 @@
+     update("user", "Processing_value_tow", "0", "id", $Balance_id['id']);
+     update("user", "Processing_value_four", "0", "id", $Balance_id['id']);
+     if ($steppay[0] == "getconfigafterpay") {
+-        // [invoice lookup with fallbacks] گاهی به‌خاطر race/cleanup/timing بین crypto-pay و DirectPayment،
+-        // فاکتور با username + Status='unpaid' پیدا نمیشه. چندتا fallback می‌گذاریم تا قبل از refund همه گزینه‌ها تست بشن.
+-        $__invUsername = isset($steppay[1]) ? trim((string)$steppay[1]) : '';
+-        $get_invoice = false;
+-        if ($__invUsername !== '') {
+-            try {
+-                // 1) دقیقا مثل قبل: username + Status='unpaid'
+-                $stmt = $pdo->prepare("SELECT * FROM invoice WHERE username = :u AND Status = 'unpaid' ORDER BY id_invoice DESC LIMIT 1");
+-                $stmt->execute([':u' => $__invUsername]);
+-                $get_invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+-            } catch (Throwable $__e) { $get_invoice = false; }
+-            if (!$get_invoice) {
+-                try {
+-                    // 2) بدون فیلتر Status (در صورت تفاوت case یا تغییر status توسط cron دیگه)
+-                    $stmt = $pdo->prepare("SELECT * FROM invoice WHERE username = :u ORDER BY id_invoice DESC LIMIT 1");
+-                    $stmt->execute([':u' => $__invUsername]);
+-                    $get_invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+-                } catch (Throwable $__e) { $get_invoice = false; }
+-            }
+-            if (!$get_invoice) {
+-                try {
+-                    // 3) case-insensitive روی username — اگه collation داره فرق می‌کنه
+-                    $stmt = $pdo->prepare("SELECT * FROM invoice WHERE LOWER(username) = LOWER(:u) ORDER BY id_invoice DESC LIMIT 1");
+-                    $stmt->execute([':u' => $__invUsername]);
+-                    $get_invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+-                } catch (Throwable $__e) { $get_invoice = false; }
+-            }
+-        }
+-        if (!$get_invoice) {
+-            try {
+-                // 4) آخرین چاره: آخرین فاکتور unpaid این کاربر که usernameش با user_id شروع میشه (پترن مرسوم)
+-                $stmt = $pdo->prepare("SELECT * FROM invoice WHERE id_user = :uid AND (Status = 'unpaid' OR Status = 'Unpaid') AND username LIKE :prefix ORDER BY time_sell DESC LIMIT 1");
+-                $stmt->execute([':uid' => (string)$Balance_id['id'], ':prefix' => $Balance_id['id'] . '_%']);
+-                $get_invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+-                if (!$get_invoice) {
+-                    // اگه پیدا نشد، بدون prefix filter
+-                    $stmt = $pdo->prepare("SELECT * FROM invoice WHERE id_user = :uid AND (Status = 'unpaid' OR Status = 'Unpaid') ORDER BY time_sell DESC LIMIT 1");
+-                    $stmt->execute([':uid' => (string)$Balance_id['id']]);
+-                    $get_invoice = $stmt->fetch(PDO::FETCH_ASSOC);
+-                }
+-                // [NOTE] قبلاً اینجا username رو به مقدار اصلی (`$__invUsername`) برمی‌گردوندیم،
+-                // ولی این باعث می‌شد cycle شکست-retry بی‌نهایت بشه: هر retry با username اصلی duplicate می‌خورد،
+-                // یوزرنیم تازه می‌ساخت تو پنل (zombie)، بعد restore دوباره به اصلی، دوباره duplicate، الی آخر.
+-                // الان username رو همون که DB داره نگه می‌داریم. اگه retry قبلی یوزر تو پنل ساخته، zombie-rescue
+-                // اون رو پیدا می‌کنه و استفاده می‌کنه؛ اگه نساخته، duplicate-retry با random جدید موفق میشه.
+-            } catch (Throwable $__e) { $get_invoice = false; }
+-        }
+-        // اگه با هیچ روشی پیدا نشد، قبل از اینکه به refund برسیم به ادمین گزارش بدیم و مستقیم برگردیم
+-        if (!$get_invoice) {
+-            if (function_exists('error_log')) {
+-                @error_log("[DirectPayment] invoice NOT FOUND for order={$order_id} user={$Balance_id['id']} steppay[1]={$__invUsername} — aborting WITHOUT refund (so cryptocheck stuck-refund can handle it cleanly)");
+-            }
+-            $__setting = function_exists('select') ? select('setting', '*', null, null, 'select') : [];
+-            $__errReport = function_exists('select') ? (select('topicid', 'idreport', 'report', 'errorreport', 'select')['idreport'] ?? null) : null;
+-            $__txt = "⚠️ <b>فاکتور پیدا نشد برای ساخت سرویس</b>\n"
+-                   . "<blockquote>🛒 کد سفارش: <code>{$order_id}</code></blockquote>\n"
+-                   . "<blockquote>👤 کاربر: <code>{$Balance_id['id']}</code></blockquote>\n"
+-                   . "<blockquote>🔎 username موردنظر: <code>" . htmlspecialchars($__invUsername) . "</code></blockquote>\n"
+-                   . "ℹ️ DirectPayment بدون refund برگشت — لطفاً دستی بررسی کنید.";
+-            if (!empty($__setting['Channel_Report']) && function_exists('telegram')) {
+-                @telegram('sendmessage', [
+-                    'chat_id' => $__setting['Channel_Report'],
+-                    'message_thread_id' => $__errReport,
+-                    'text' => $__txt,
+-                    'parse_mode' => 'HTML',
+-                ]);
+-            }
+-            return;
+-        }
++        $stmt = $pdo->prepare("SELECT * FROM invoice WHERE id_user=:u AND username=:n LIMIT 1");
++        $stmt->execute([':u'=>(string)$Balance_id['id'],':n'=>(string)($steppay[1]??'')]);
++        $get_invoice=$stmt->fetch(PDO::FETCH_ASSOC);
++        if(!$get_invoice){
++            $owned=GhajarPurchaseSettlement::get('gateway:'.$order_id);
++            $stmt=$pdo->prepare('SELECT * FROM invoice WHERE id_user=? AND id_invoice=?');$stmt->execute([$Balance_id['id'],$owned['invoice_id']??'']);$get_invoice=$stmt->fetch(PDO::FETCH_ASSOC);
++        }
++        if(!$get_invoice){GhajarPurchaseSettlement::refund('gateway:'.$order_id);return;}
+         $userAgent = $Balance_id['agent'] ?? 'f';
+         $stmt = $pdo->prepare("SELECT * FROM product WHERE name_product = :name AND (FIND_IN_SET(:loc, Location) > 0 OR Location = '/all') AND (agent = :agent OR agent = 'all')");
+         $stmt->execute([':name' => $get_invoice['name_product'], ':loc' => $get_invoice['Service_location'], ':agent' => $userAgent]);
+@@ -1822,46 +1762,10 @@
+         $randomString = bin2hex(random_bytes(2));
+         $marzban_list_get = select("marzban_panel", "*", "name_panel", $get_invoice['Service_location'], "select");
+ 
+-        // [panel-missing guard] اگه پنل پیدا نشد، اصلاً نباید بریم سراغ createUser چون قطعاً "Panel Not Found" برمی‌گردونه.
+-        // قبل از refund، به ادمین گزارش بدیم تا دلیل واقعی (مثلاً پنل حذف شده، نام عوض شده، Service_location خراب) مشخص بشه.
+-        if (!is_array($marzban_list_get) || empty($marzban_list_get['name_panel'])) {
+-            if (function_exists('error_log')) {
+-                @error_log("[DirectPayment] panel missing for order={$order_id} user={$Balance_id['id']} location='" . (string)($get_invoice['Service_location'] ?? '') . "' invoice={$get_invoice['id_invoice']} — aborting WITHOUT refund");
+-            }
+-            $__setting2 = function_exists('select') ? select('setting', '*', null, null, 'select') : [];
+-            $__errReport2 = function_exists('select') ? (select('topicid', 'idreport', 'report', 'errorreport', 'select')['idreport'] ?? null) : null;
+-            $__txt2 = "⚠️ <b>پنل برای ساخت سرویس پیدا نشد</b>\n"
+-                    . "<blockquote>🛒 کد سفارش: <code>{$order_id}</code></blockquote>\n"
+-                    . "<blockquote>👤 کاربر: <code>{$Balance_id['id']}</code></blockquote>\n"
+-                    . "<blockquote>📍 لوکیشن ذخیره‌شده در فاکتور: <code>" . htmlspecialchars((string)($get_invoice['Service_location'] ?? '')) . "</code></blockquote>\n"
+-                    . "<blockquote>🧾 شناسه فاکتور: <code>{$get_invoice['id_invoice']}</code></blockquote>\n"
+-                    . "ℹ️ DirectPayment بدون refund برگشت — لطفاً پنل را در دیتابیس بررسی کنید.";
+-            if (!empty($__setting2['Channel_Report']) && function_exists('telegram')) {
+-                @telegram('sendmessage', [
+-                    'chat_id' => $__setting2['Channel_Report'],
+-                    'message_thread_id' => $__errReport2,
+-                    'text' => $__txt2,
+-                    'parse_mode' => 'HTML',
+-                ]);
+-            }
+-            return;
+-        }
+-
+-        // [idempotent-refund guard] اگر این فاکتور قبلاً refund خورده (نشانه auto-refund تو dec_not_confirmed)،
+-        // دیگه نباید دوباره کیف پول رو شارژ کنیم — همینجا برمی‌گردیم و فقط لاگ می‌زنیم.
+-        // این جلوی double/triple-credit موقع retry گیر کردن سرویس رو می‌گیره.
+-        $__alreadyRefunded = false;
+-        try {
+-            $__pr = select("Payment_report", "dec_not_confirmed", "id_order", $order_id, "select");
+-            $__decNote = is_array($__pr) ? (string)($__pr['dec_not_confirmed'] ?? '') : '';
+-            if ($__decNote !== '' && stripos($__decNote, 'auto-refund') !== false) {
+-                $__alreadyRefunded = true;
+-            }
+-        } catch (Throwable $__e) { $__alreadyRefunded = false; }
+-        if ($__alreadyRefunded) {
+-            return;
+-        }
+-
++        if (!is_array($marzban_list_get) || empty($marzban_list_get['name_panel']) || ($marzban_list_get['status']??'')!=='active' || !is_array($info_product)) {
++            GhajarPurchaseSettlement::refund('gateway:'.$order_id);
++            sendmessage($Balance_id['id'], 'سرویس قابل ارائه نیست؛ مبلغ پرداختی در کیف پول شما قرار گرفت.', $keyboard, 'HTML');return;
++        }
+         // [username normalize] اگر یوزرنیم فاکتور خالی/کوتاه‌تر از 3 کاراکتر بود، یکی معتبر بساز.
+         // این از خطای پنل "Username must be at least 3 characters long" جلوگیری می‌کنه.
+         if (!is_string($username_ac) || trim($username_ac) === '' || strlen(trim($username_ac)) < 3) {
+@@ -1895,11 +1799,12 @@
+         );
+         if (function_exists('nmPanelNationalEnabled') && nmPanelNationalEnabled($marzban_list_get)) {
+             if (is_array($info_product) && nmStockCompleteBuyFromInventory($Balance_id['id'], $Balance_id, $marzban_list_get, $info_product, $get_invoice['id_invoice'], $username_ac, false, 'paid_national_buy')) {
++                GhajarPurchaseSettlement::delivered('gateway:'.$order_id);
+                 sendmessage($Balance_id['id'], $textbotlang['users']['selectoption'], $keyboard, 'HTML');
+                 return;
+             }
+             $balance = $Balance_id['Balance'] + $Payment_report['price'];
+-            balance_atomic_credit($Balance_id['id'], $Payment_report['price']);
++            GhajarPurchaseSettlement::refund('gateway:'.$order_id);
+             try {
+                 $__nationalNote = '[auto-refund: national stock empty at ' . date('Y-m-d H:i:s') . ']';
+                 $__mk = $pdo->prepare("UPDATE Payment_report SET dec_not_confirmed = CASE WHEN dec_not_confirmed IS NULL OR dec_not_confirmed = '' THEN :n1 ELSE CONCAT(dec_not_confirmed, ' | ', :n2) END WHERE id_order = :o");
+@@ -1911,7 +1816,7 @@
+         // [zombie-rescue] قبل از تلاش جدید، اگه قبلاً تو panel یوزری برای این کاربر ساخته شده (zombie)،
+         // اول بررسی کن: شاید createUser تو call قبلی موفق بوده فقط response نرسیده. اگه پیدا کردیم،
+         // از همون استفاده کن (بدون ساختن یوزر جدید) — این جلوی تولید بیشتر zombie رو می‌گیره.
+-        $__isRetryCall = false;
++        $__isRetryCall = true;
+         try {
+             $__pr2 = select("Payment_report", "crypto_check_count", "id_order", $order_id, "select");
+             $__cnt = is_array($__pr2) ? (int)($__pr2['crypto_check_count'] ?? 0) : 0;
+@@ -1936,44 +1841,13 @@
+         }
+ 
+         if (empty($dataoutput) || empty($dataoutput['username'])) {
+-            $dataoutput = $ManagePanel->createUser($marzban_list_get['name_panel'], $info_product['code_product'], $username_ac, $datac);
+-        }
+-
+-        // [duplicate retry — حداکثر 1 بار] اگه createUser duplicate برگردوند، فقط یک بار با random جدید retry می‌کنیم.
+-        try {
+-            if (empty($dataoutput['username'])) {
+-                $__msgRaw = is_array($dataoutput) ? ($dataoutput['msg'] ?? '') : '';
+-                $__msgStr = is_string($__msgRaw) ? $__msgRaw : json_encode($__msgRaw);
+-                if (stripos($__msgStr, 'duplicate') !== false || stripos($__msgStr, 'already exist') !== false || stripos($__msgStr, 'exists') !== false) {
+-                    $username_ac = preg_replace('/[^A-Za-z0-9_]/', '', (string)$Balance_id['id']) . '_' . bin2hex(random_bytes(4));
+-                    if (strlen($username_ac) < 3) $username_ac = 'u' . bin2hex(random_bytes(4));
+-                    if (!empty($get_invoice['id_invoice'])) {
+-                        try { update("invoice", "username", $username_ac, "id_invoice", $get_invoice['id_invoice']); } catch (Throwable $__e2) { /* fail-open */ }
+-                    }
+-                    $dataoutput = $ManagePanel->createUser($marzban_list_get['name_panel'], $info_product['code_product'], $username_ac, $datac);
+-                }
+-            }
+-        } catch (Throwable $__e) { /* fail-open */ }
+-
+-        // [CRITICAL: mark invoice active EARLY]
+-        // اگه createUser موفق بوده، همین الان قبل از هر sendmessage/QR code generation/الخ که ممکنه hang کنه،
+-        // invoice رو active علامت بزن. این جلوی retry بعدی توسط cron رو می‌گیره حتی اگه پیام تلگرام hang کنه.
+-        if (!empty($dataoutput['username']) && !empty($get_invoice['id_invoice'])) {
+-            try {
+-                $__early = $pdo->prepare("UPDATE invoice SET Status = 'active' WHERE id_invoice = :i");
+-                $__early->execute([':i' => $get_invoice['id_invoice']]);
+-            } catch (Throwable $__e) { /* fail-open */ }
+-            // و dec_not_confirmed را با علامت موفقیت بگذار تا retry cron این رو پیدا نکنه
+-            try {
+-                $__doneNote = '[service-created at ' . date('Y-m-d H:i:s') . ' username=' . $dataoutput['username'] . ']';
+-                $__mk = $pdo->prepare("UPDATE Payment_report SET dec_not_confirmed = CASE WHEN dec_not_confirmed IS NULL OR dec_not_confirmed = '' THEN :n1 ELSE CONCAT(dec_not_confirmed, ' | ', :n2) END WHERE id_order = :o");
+-                $__mk->execute([':n1' => $__doneNote, ':n2' => $__doneNote, ':o' => $order_id]);
+-            } catch (Throwable $__e) { /* fail-open */ }
+-        }
+-        if ($dataoutput['username'] == null) {
++            $dataoutput = GhajarPurchaseSettlement::create($ManagePanel, $marzban_list_get['name_panel'], $info_product['code_product'], $username_ac, $datac);
++        }
++
++        if (empty($dataoutput['username'])) {
+             $dataoutput['msg'] = json_encode($dataoutput['msg']);
+             $balance = $Balance_id['Balance'] + $Payment_report['price'];
+-            balance_atomic_credit($Balance_id['id'], $Payment_report['price']);
++            GhajarPurchaseSettlement::refund('gateway:'.$order_id);
+             // [refund-marker] برای جلوگیری از double-refund توسط retry — حتماً قبل از sendmessageها مارک کن
+             try {
+                 $__failNote = '[auto-refund: service creation failed at ' . date('Y-m-d H:i:s') . ']';
+@@ -1985,7 +1859,7 @@
+                 ? $textbotlang['users']['sell']['ErrorConfig']
+                 : "❌ متاسفانه ساخت سرویس با خطا مواجه شد. مبلغ پرداختی به کیف پول شما برگشت داده شد.";
+             sendmessage($Balance_id['id'], $__uiErr, $keyboard, 'HTML');
+-            sendmessage($Balance_id['id'], "💎  کاربر عزیز بدلیل ساخته نشدن سرویس مبلغ $balance تومان به کیف پول شما اضافه گردید.", $keyboard, 'HTML');
++            sendmessage($Balance_id['id'], "💎  کاربر عزیز بدلیل ساخته نشدن سرویس مبلغ پرداختی به کیف پول شما برگشت داده شد.", $keyboard, 'HTML');
+             $texterros = "
+ ⭕️ خطا در ساخت کانفیگ
+ <blockquote>✍️ دلیل خطا : {$dataoutput['msg']}</blockquote>
+@@ -2002,6 +1876,7 @@
+             }
+             return;
+         }
++        GhajarPurchaseSettlement::delivered('gateway:'.$order_id);
+         $Shoppinginfo = json_encode([
+             'inline_keyboard' => [
+                 [
+@@ -2081,16 +1956,6 @@
+                 update("setting", "numbercount", $value);
+             }
+         }
+-        $__walletPortion = (float)$get_invoice['price_product'] - (float)($Payment_report['price'] ?? 0);
+-        if ($__walletPortion < 0) {
+-            $__walletPortion = 0;
+-        }
+-        $Balance_prims = (float)$Balance_id['Balance'] - $__walletPortion;
+-        if ($Balance_prims <= 0) {
+-            $Balance_prims = 0;
+-        }
+-        $__stmtWalletDeduct = $pdo->prepare("UPDATE user SET Balance = GREATEST(Balance - :d, 0) WHERE id = :u");
+-        $__stmtWalletDeduct->execute([':d' => $__walletPortion, ':u' => $Balance_id['id']]);
+         $balanceformatsell = select("user", "Balance", "id", $get_invoice['id_user'], "select")['Balance'];
+         $balanceformatsell = number_format($balanceformatsell, 0);
+         $balancebefore = number_format($Balance_id['Balance'], 0);
+--- a/re/rx/index/bootstrap.php
++++ b/re/rx/index/bootstrap.php
+@@ -835,6 +835,16 @@
+     }
+ }
+ 
++// Ghajarvpn native pairing: identity comes only from this existing Telegram webhook.
++if (preg_match('/^(?:\/start(?:@[A-Za-z0-9_]+)?\s+link_|\/link(?:@[A-Za-z0-9_]+)?\s+)([0-9]{6})\s*$/u', trim((string)$text), $ghajarMatch)) {
++    require_once REFACTORED_LEGACY_ROOT . '/api/lib/WebLink.php';
++    $linked = FaoximaWebLink::linkCode($ghajarMatch[1], (int)$from_id);
++    sendmessage($from_id, $linked
++        ? "✅ حساب تایید شد؛ به برنامه قاجار برگرد. اگر برنامه عضویت یا شماره خواست، مراحل ربات را کامل کن."
++        : "کد نامعتبر یا منقضی شده است؛ در برنامه کد تازه بگیر.", $keyboard, 'html');
++    return;
++}
++
+ if (strpos($text, "/start ") !== false && $user['step'] != "gettextSystemMessage") {
+     $affiliatesid = explode(" ", $text)[1];
+     if (!in_array($affiliatesid, ['start', "usertest", "/start", "buy", "help"])) {
+@@ -4906,7 +4916,9 @@
+         sendmessage($from_id, $datatextbot['dyn_errors_test_service_unavailable'] ?? "📌 سرویس تست در حال حاضر در دسترس نیست .", null, 'HTML');
+         return;
+     }
+-    $locationproduct = select("marzban_panel", "*", "TestAccount", "ONTestAccount", "count");
++    require_once REFACTORED_LEGACY_ROOT . '/api/lib/PanelTrial.php';
++    $ghajarTrialPanels = GhajarPanelTrial::panels($user, $setting, in_array($from_id, $admin_ids));
++    $locationproduct = count($ghajarTrialPanels);
+     if ($locationproduct == 0) {
+         sendmessage($from_id, $textbotlang['Admin']['managepanel']['nullpanel'], null, 'HTML');
+         return;
+@@ -4918,10 +4930,8 @@
+         }
+         if ($user['number'] == "none" && (($setting['get_number'] == "onAuthenticationphone") || ($setting['iran_number'] == "onAuthenticationiran")) && !rx_auth_skip_user($user))
+             return;
+-        if ($user['limit_usertest'] <= 0 && !in_array($from_id, $admin_ids)) {
+-            sendmessage($from_id, $textbotlang['users']['usertest']['limitwarning'], $keyboard_buy, 'html');
+-            return;
+-        }
+-        sendmessage($from_id, $datatextbot['textselectlocation'], $list_marzban_usertest, 'html');
++        $ghajarKeys = [];
++        foreach ($ghajarTrialPanels as $p) $ghajarKeys[] = [['text' => $p['name_panel'], 'callback_data' => 'locationtest_' . $p['code_panel']]];
++        sendmessage($from_id, $datatextbot['textselectlocation'], json_encode(['inline_keyboard' => $ghajarKeys]), 'html');
+     }
+ }--- a/re/rx/index/user_flow.php
++++ b/re/rx/index/user_flow.php
+@@ -57,39 +57,24 @@
+         return;
+     }
+     $userlimit = select("user", "*", "id", $from_id, "select");
+-    if ($userlimit['limit_usertest'] <= 0 && !in_array($from_id, $admin_ids)) {
+-        sendmessage($from_id, $textbotlang['users']['usertest']['limitwarning'], $keyboard_buy, 'html');
+-        return;
+-    }
++    require_once REFACTORED_LEGACY_ROOT . '/api/lib/PanelTrial.php';
+     if ((($setting['get_number'] == "onAuthenticationphone") || ($setting['iran_number'] == "onAuthenticationiran")) && $user['step'] != "get_number" && $user['number'] == "none" && !rx_auth_skip_user($user)) {
+         sendmessage($from_id, $textbotlang['users']['number']['Confirming'], $request_contact, 'HTML');
+         step('get_number', $from_id);
+     }
+     if ($user['number'] == "none" && (($setting['get_number'] == "onAuthenticationphone") || ($setting['iran_number'] == "onAuthenticationiran")) && !rx_auth_skip_user($user))
+         return;
+-    $locationproduct = select("marzban_panel", "*", "TestAccount", "ONTestAccount", "count");
+-    if ($locationproduct == 1) {
+-        $panel = select("marzban_panel", "*", "TestAccount", "ONTestAccount", "select");
+-        if ($panel['hide_user'] != null) {
+-            $list_user = json_decode($panel['hide_user'], true);
+-            if (in_array($from_id, $list_user)) {
+-                sendmessage($from_id, $textbotlang['Admin']['managepanel']['nullpanel'], null, 'HTML');
+-                return;
+-            }
+-        }
+-        $location = $panel['code_panel'];
+-    } else {
+-        if (isset($dataget[1])) {
+-            $location = $dataget[1];
+-        } else {
+-            if ($user['step'] != "createusertest") {
+-                return;
+-            } else {
+-                $location = $user['Processing_value_one'];
+-            }
+-        }
+-    }
+-    $marzban_list_get = select("marzban_panel", "*", "code_panel", $location, "select");
++    $ghajarPanels = GhajarPanelTrial::panels($userlimit, $setting, in_array($from_id, $admin_ids));
++    $location = isset($dataget[1]) ? (string)$dataget[1]
++        : ($user['step'] === 'createusertest' ? (string)$user['Processing_value_one'] : '');
++    if ($location === '' && count($ghajarPanels) === 1) $location = (string)$ghajarPanels[0]['code_panel'];
++    $marzban_list_get = null;
++    foreach ($ghajarPanels as $p) if ((string)$p['code_panel'] === $location) { $marzban_list_get = $p; break; }
++    if ($marzban_list_get === null) {
++        if ($location === '' && count($ghajarPanels) > 1) return; // bootstrap renders the selector
++        sendmessage($from_id, 'این پنل فعال نیست یا سهمیه تست همین پنل تمام شده است.', $keyboard_buy, 'html');
++        return;
++    }
+     $_rx_usernameKb = ($marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم" || $marzban_list_get['MethodUsername'] == "متن دلخواه کاربر + رندوم") ? $usernamePromptKb : $backuser;
+     if ($marzban_list_get['MethodUsername'] == $textbotlang['users']['customusername'] || $marzban_list_get['MethodUsername'] == "نام کاربری دلخواه + عدد رندوم" || $marzban_list_get['MethodUsername'] == "متن دلخواه کاربر + رندوم") {
+         if ($user['step'] != "createusertest") {
+@@ -128,8 +113,7 @@
+             return;
+         }
+     }
+-    $limit_usertest = $userlimit['limit_usertest'] - 1;
+-    update("user", "limit_usertest", $limit_usertest, "id", $from_id);
++
+     $randomString = bin2hex(random_bytes(4));
+     $text = strtolower($text);
+     $marzban_list_get = select("marzban_panel", "*", "code_panel", $name_panel, "select");
+@@ -153,16 +137,27 @@
+         'volume' => false,
+         'time' => false,
+     ));
++    $ghajarClaim = GhajarPanelTrial::reserve($userlimit, (string)$marzban_list_get['code_panel'], $setting, in_array($from_id, $admin_ids));
++    if ($ghajarClaim === null) {
++        sendmessage($from_id, 'سهمیه تست این پنل تمام شده یا پنل غیرفعال شده است.', $keyboard_buy, 'html');
++        return;
++    }
++    try {
+     $stmt = $connect->prepare("INSERT IGNORE INTO invoice (id_user, id_invoice, username,time_sell, Service_location, name_product, price_product, Volume, Service_time,Status,notifctions) VALUES (?, ?,  ?, ?, ?, ?, ?,?,?,?,?)");
+     $Status = "active";
+     $info_product['name_product'] = "سرویس تست";
+     $info_product['price_product'] = "0";
+     $Status = "active";
+     $stmt->bind_param("sssssssssss", $from_id, $randomString, $username_ac, $date, $marzban_list_get['name_panel'], $info_product['name_product'], $info_product['price_product'], $marzban_list_get['val_usertest'], $marzban_list_get['time_usertest'], $Status, $notifctions);
+-    $stmt->execute();
++    if (!$stmt->execute() || $stmt->affected_rows !== 1) throw new RuntimeException("Trial invoice was not saved");
+     $stmt->close();
++    } catch (Throwable $e) {
++        GhajarPanelTrial::release($ghajarClaim);
++        throw $e;
++    }
+     $dataoutput = $ManagePanel->createUser($marzban_list_get['name_panel'], "usertest", $username_ac, $datac);
+-    if ($dataoutput['username'] == null) {
++    if (empty($dataoutput['username'])) {
++        GhajarPanelTrial::release($ghajarClaim);
+         $dataoutput['msg'] = json_encode($dataoutput['msg']);
+         sendmessage($from_id, $textbotlang['users']['usertest']['errorcreat'], $keyboard, 'html');
+         $texterros = "
+@@ -184,6 +179,7 @@
+         update("invoice", "Status", "Unsuccessful", "id_invoice", $randomString);
+         return;
+     }
++    GhajarPanelTrial::finish($ghajarClaim);
+     $output_config_link = "";
+     $config = "";
+     $output_config_link = rxShouldShowConnectionLink($marzban_list_get, $dataoutput['file_ext'] ?? null) ? rxResolveConnectionLink($marzban_list_get, $dataoutput['subscription_url'], $dataoutput['file_ext'] ?? null) : "";
+--- a/re/rx/keyboard/layouts_2.php
++++ b/re/rx/keyboard/layouts_2.php
+@@ -451,7 +451,7 @@
+ $list_marzban_panel_userschange = json_encode($list_marzban_panel_users_change);
+ 
+ 
+-    $stmt = $pdo->prepare("SELECT * FROM marzban_panel WHERE TestAccount = 'ONTestAccount' AND (agent = :ag OR agent = 'all')");
++    $stmt = $pdo->prepare("SELECT * FROM marzban_panel WHERE status = 'active' AND TestAccount = 'ONTestAccount' AND (agent = :ag OR agent = 'all')");
+     $stmt->execute([':ag' => (string)($users['agent'] ?? '')]);
+     $list_marzban_panel_usertest = ['inline_keyboard' => []];
+     while ($result = $stmt->fetch(PDO::FETCH_ASSOC)) {

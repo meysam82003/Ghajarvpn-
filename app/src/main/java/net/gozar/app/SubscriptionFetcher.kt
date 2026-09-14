@@ -38,32 +38,50 @@ object SubscriptionFetcher {
     suspend fun fetch(url: String, source: ConfigSource = ConfigSource.PERSONAL): List<ProxyConfig> =
         fetchFull(url, source).configs
 
-    suspend fun fetchFull(url: String, source: ConfigSource = ConfigSource.PERSONAL): FetchResult =
+    suspend fun fetchFull(url: String, source: ConfigSource = ConfigSource.PERSONAL,
+        proxy: java.net.Proxy = java.net.Proxy.NO_PROXY, strictTls: Boolean = false): FetchResult =
         withContext(Dispatchers.IO) {
-            val conn = openFollowingRedirects(url)
+            val conn = openFollowingRedirects(url, proxy, strictTls)
             try {
                 val code = conn.responseCode
                 if (code !in 200..299) {
                     runCatching { conn.errorStream?.use { it.readBytes() } }
                     throw SubscriptionError(SubscriptionError.Kind.HTTP, code)
                 }
-                val body = conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
+                val body = conn.inputStream.use { input ->
+                    val output = java.io.ByteArrayOutputStream()
+                    val buffer = ByteArray(8192)
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        require(output.size() + count <= 4 * 1024 * 1024) { "Subscription response too large" }
+                        output.write(buffer, 0, count)
+                    }
+                    val bytes = output.toByteArray()
+                    require(bytes.size <= 4 * 1024 * 1024) { "Subscription response too large" }
+                    bytes.toString(Charsets.UTF_8)
+                }
                 val userInfo = parseUserInfo(conn.getHeaderField("subscription-userinfo"))
-                val text = decodeMaybeBase64(body)
-                val configs = ConfigParser.parseBundle(text, source)
-                if (configs.isEmpty()) throw classify(text)
+                val configs = parseBody(body, source)
                 FetchResult(configs, userInfo)
             } finally {
                 conn.disconnect()
             }
         }
 
-    private fun openFollowingRedirects(startUrl: String): HttpURLConnection {
+    fun parseBody(body: String, source: ConfigSource = ConfigSource.PERSONAL): List<ProxyConfig> {
+        val text = decodeMaybeBase64(body)
+        return ConfigParser.parseBundle(text, source).also {
+            if (it.isEmpty()) throw classify(text)
+        }
+    }
+
+    private fun openFollowingRedirects(startUrl: String, proxy: java.net.Proxy, strictTls: Boolean): HttpURLConnection {
         var current = startUrl
         var hops = 0
         while (true) {
-            val conn = (URL(current).openConnection() as HttpURLConnection).apply {
-                if (this is HttpsURLConnection) {
+            val conn = (URL(current).openConnection(proxy) as HttpURLConnection).apply {
+                if (this is HttpsURLConnection && !strictTls) {
                     sslSocketFactory = insecureSocketFactory()
                     hostnameVerifier = HostnameVerifier { _, _ -> true }
                 }
@@ -81,7 +99,10 @@ object SubscriptionFetcher {
                 if (loc.isNullOrBlank()) {
                     throw SubscriptionError(SubscriptionError.Kind.HTTP, code)
                 }
-                current = URL(URL(current), loc).toString()
+                val next = URL(URL(current), loc)
+                require(next.protocol in setOf("http", "https"))
+                if (strictTls && URL(current).protocol == "https") require(next.protocol == "https")
+                current = next.toString()
                 hops++
                 continue
             }

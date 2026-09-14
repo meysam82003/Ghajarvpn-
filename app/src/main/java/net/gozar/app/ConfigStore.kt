@@ -346,10 +346,11 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun upsertSubscription(sub: Subscription, fetched: List<ProxyConfig>) {
+        val identity: (ProxyConfig) -> String = if (sub.url == FreeConfigs.SOURCE_URL) net.gozar.app.freecfg.FreeFeedRules::signature else ::sigOf
         val oldBySig = _configs.value.filter { it.subId == sub.id }
-            .associateBy { sigOf(it) }.toMutableMap()
+            .associateBy { identity(it) }.toMutableMap()
         val tagged = fetched.map { f ->
-            val kept = oldBySig.remove(sigOf(f))
+            val kept = oldBySig.remove(identity(f))
             f.copy(subId = sub.id, id = kept?.id ?: f.id)
         }
         _configs.value = _configs.value.filterNot { it.subId == sub.id } + tagged
