@@ -1,0 +1,83 @@
+name: Premium Test APK
+
+on:
+  push:
+    branches: [test]
+    paths:
+      - 'app/**'
+      - 'scripts/**'
+      - '.github/workflows/test-premium.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.3'
+      - name: Install native prerequisites
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build rsync
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install Android SDK and NDK
+        run: sdkmanager "platforms;android-36.1" "build-tools;36.0.0" "ndk;28.2.13676358" "cmake;3.22.1"
+      - name: Reconstruct full source and overlay test branch
+        run: |
+          chmod +x scripts/bootstrap-from-upstream.sh
+          scripts/bootstrap-from-upstream.sh
+          rsync -a app/src/ .ghajarvpn-src/app/src/
+          rsync -a app/libs/ .ghajarvpn-src/app/libs/
+          sed -i 's|implementation(files("libs/gozarcore.aar"))|implementation(files("libs/ca.psiphon.aar"))|' .ghajarvpn-src/app/build.gradle.kts
+          rm -f .ghajarvpn-src/app/libs/gozarcore.aar
+          if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt ]] && grep -q 'val AppGreen' .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt; then
+            rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/AppColors.kt
+          fi
+          if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/IkeController.kt ]]; then
+            rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/Ikecontroller.kt
+          fi
+          sed -i 's/Intent(this, MainActivity::class.java)/Intent(this, PremiumMainActivity::class.java)/g' .ghajarvpn-src/app/src/main/java/net/gozar/app/GozarVpnService.kt || true
+          sed -i 's/Intent(this, MainActivity::class.java)/Intent(this, PremiumMainActivity::class.java)/g' .ghajarvpn-src/app/src/main/java/net/gozar/app/Qstileservice.kt || true
+          echo "GHAJAR_SOURCE_ROOT=.ghajarvpn-src" >> "$GITHUB_ENV"
+          chmod +x .ghajarvpn-src/gradlew
+      - name: Build combined gozarcore + Psiphon AAR
+        run: |
+          psiphon_sha='83aa73b9b982e7421e00117f5b0c5aceb5dda452'
+          git clone --depth 1 -b shirokhorshid https://github.com/CluvexStudio/psiphon-tunnel-core "$RUNNER_TEMP/psiphon-tunnel-core"
+          actual_sha="$(git -C "$RUNNER_TEMP/psiphon-tunnel-core" rev-parse HEAD)"
+          test "$actual_sha" = "$psiphon_sha"
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          export PSIPHON_ANDROID_API=26
+          export GOTOOLCHAIN=go1.26.3
+          chmod +x scripts/build-psiphon-aar.sh
+          ./scripts/build-psiphon-aar.sh .ghajarvpn-src "$RUNNER_TEMP/psiphon-tunnel-core"
+          test -s .ghajarvpn-src/app/libs/ca.psiphon.aar
+      - name: Fetch pinned OpenVPN native engine
+        run: |
+          chmod +x .ghajarvpn-src/scripts/fetch-openvpn-native.sh
+          .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
+      - name: Unit tests and debug APK
+        working-directory: .ghajarvpn-src
+        run: |
+          ./gradlew --no-daemon -Pghajar.demo=true :app:testDebugUnitTest :app:assembleDebug
+      - name: Rename APK
+        run: |
+          cp .ghajarvpn-src/app/build/outputs/apk/debug/app-debug.apk GhajarVPN-Premium-test-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GhajarVPN-Premium-test-debug
+          path: GhajarVPN-Premium-test-debug.apk
+          if-no-files-found: error
