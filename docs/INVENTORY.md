@@ -69,12 +69,20 @@ machine with the Android SDK.
 
 ## Next steps (in order)
 
-1. Home screen visual redesign to match the supplied reference screenshots
-   (dotted world map + glow ring hero, subscription card, stat row, quick
-   actions) — in progress this session.
+1. ~~Home screen visual redesign~~ — **done this session**: hero now sits on
+   the shared `drawDotWorldMap` dot field with a state-colored glow ring
+   (`MainActivity.kt` `ConnectionScreen`), a real plan/expiry card
+   (`GhajarPlanStatusCard`) sourced from `GhajarStoreApi`, an always-visible
+   download/upload stat row, and a `GhajarQuickActionsRow` wired to four real
+   destinations (fastest sort, full list, Free Configs, QR scan). The
+   connect/disconnect pill's own logic was left untouched and only wrapped,
+   since there is no compiler in this environment to verify a riskier rewrite
+   of the one control the app cannot get wrong.
 2. Locate and verify Backup/Restore and VPN Share implementations (not yet
    confirmed present or absent).
 3. Build real `SshScreen` and `CleanIpScreen` UIs against their existing
    backends (separate, sizeable pass).
 4. Migrate the 5-page pager down to the required 3 tabs, moving SSH and
-   Debugger into Settings, without deleting any of their functionality.
+   Debugger into Settings, without deleting any of their functionality —
+   the supplied reference screenshots also only ever show 3 bottom-nav
+   items, confirming this is required, not optional polish.
