@@ -60,7 +60,7 @@ machine with the Android SDK.
 | Notifications | System | `GhajarNotificationJob.kt`, `GhajarNotificationMonitor.kt` | WorkManager/service | POST_NOTIFICATIONS | Present |
 | Quick Settings tile | System | `QsTileService` (`Qstileservice.kt`) | `VpnState` | — | Present |
 | Store / purchase | PAGE_SHOP | `GhajarShopScreen.kt` | `GhajarStoreApi.kt`, `GhajarPaymentPolicy.kt` | network | Present |
-| Wallet / payment | Store → checkout | `GhajarCheckoutCards.kt`, `GhajarCheckoutViewModel.kt` | `SecurePaymentActivity`, `GhajarStoreApi.kt` | network | Present |
+| Wallet / payment | Store → checkout | `GhajarCheckoutCards.kt`, `GhajarCheckoutViewModel.kt`, `WalletSummaryCard` (new, always-visible balance) | `SecurePaymentActivity`, `GhajarStoreApi.kt` | network | Present. **Gap found**: the brief (§14) and the reference Store screenshot both call for a transaction-history list, but `GhajarStoreApi.kt` has no transactions/history endpoint at all — this isn't a missing screen like SshScreen/CleanIpScreen, it's missing backend/API support this Android repo alone can't add. Not fabricated; flagged here instead. |
 | Account linking | Store | `GhajarAccountStore.kt`, `GhajarLinkFlow.kt` | Telegram bot link | network | Present |
 | Browser-adjacent | Store web view | `GhajarStoreWebActivity.kt` | WebView | INTERNET | Present |
 | Data usage | Settings → Data Usage | `UsageStore.kt`, `"data_usage"` route | TrafficStats | local | Present, **not yet per-app/per-config split** per doc section 17 — needs dedicated pass |
