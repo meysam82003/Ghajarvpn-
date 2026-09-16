@@ -1,0 +1,144 @@
+name: Ghajar test-1 validation
+
+on:
+  push:
+    branches: [test-1]
+  workflow_dispatch:
+
+# This workflow never writes to main, test, release, or diagnostic branches.
+permissions:
+  contents: read
+
+concurrency:
+  group: ghajar-test-1-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Record exact source revision and verify the bootstrap inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Branch: ${GITHUB_REF_NAME}"
+          echo "Commit: $(git rev-parse HEAD)"
+          test "$GITHUB_REF_NAME" = test-1
+          test -f scripts/bootstrap-from-upstream.sh
+          test -f scripts/build-psiphon-aar.sh
+          test -f app/build.gradle.kts
+          test -f app/src/main/AndroidManifest.xml
+          compgen -G 'patches/android-series/ghajarvpn-series.b64.part-*' >/dev/null
+          echo 'Source audit passed. Gradle and APK status are NOT established by this step.'
+
+  android-build:
+    needs: source-audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.3'
+      - name: Install native and Android prerequisites
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y swig ninja-build rsync
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install pinned Android SDK, NDK and CMake
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager 'platforms;android-36' 'platforms;android-36.1' 'build-tools;36.0.0' 'ndk;28.2.13676358' 'cmake;3.22.1'
+      - name: Reconstruct full source and overlay exactly this branch's app sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/bootstrap-from-upstream.sh
+          rsync -a app/src/ .ghajarvpn-src/app/src/
+          rsync -a app/libs/ .ghajarvpn-src/app/libs/
+          # Check every overlay source against the exact branch revision rather
+          # than rejecting legitimate future edits via hard-coded hashes.
+          while IFS= read -r -d '' source; do
+            cmp -- "$source" ".ghajarvpn-src/$source"
+          done < <(find app/src -type f -print0)
+          sed -i 's|implementation(files("libs/gozarcore.aar"))|implementation(files("libs/ca.psiphon.aar"))|' .ghajarvpn-src/app/build.gradle.kts
+          grep -q 'ca.psiphon.aar' .ghajarvpn-src/app/build.gradle.kts
+          rm -f .ghajarvpn-src/app/libs/gozarcore.aar
+          if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt ]] && grep -q 'val AppGreen' .ghajarvpn-src/app/src/main/java/net/gozar/app/DotGlobe.kt; then
+            rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/AppColors.kt
+          fi
+          if [[ -f .ghajarvpn-src/app/src/main/java/net/gozar/app/IkeController.kt ]]; then
+            rm -f .ghajarvpn-src/app/src/main/java/net/gozar/app/Ikecontroller.kt
+          fi
+          test -f .ghajarvpn-src/gradlew
+          test -f .ghajarvpn-src/browser/build.gradle.kts
+          chmod +x .ghajarvpn-src/gradlew
+      - name: Build single Xray and Psiphon Go runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          expected=83aa73b9b982e7421e00117f5b0c5aceb5dda452
+          git clone --depth 1 --branch shirokhorshid https://github.com/CluvexStudio/psiphon-tunnel-core "$RUNNER_TEMP/psiphon-tunnel-core"
+          actual="$(git -C "$RUNNER_TEMP/psiphon-tunnel-core" rev-parse HEAD)"
+          test "$actual" = "$expected" || { echo 'Pinned Psiphon revision mismatch' >&2; exit 1; }
+          export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+          export PSIPHON_ANDROID_API=26
+          export GOTOOLCHAIN=go1.26.3
+          bash scripts/build-psiphon-aar.sh .ghajarvpn-src "$RUNNER_TEMP/psiphon-tunnel-core"
+          test -s .ghajarvpn-src/app/libs/ca.psiphon.aar
+      - name: Restore pinned native OpenVPN sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f .ghajarvpn-src/scripts/fetch-openvpn-native.sh
+          bash .ghajarvpn-src/scripts/fetch-openvpn-native.sh .
+          test -s .ghajarvpn-src/openvpn/src/main/cpp/openvpn3/client/ovpncli.i
+      - name: Compile, unit-test and assemble real APKs
+        shell: bash
+        working-directory: .ghajarvpn-src
+        run: |
+          set -euo pipefail
+          ./gradlew --no-daemon -Pghajar.demo=true :browser:testDebugUnitTest :app:compileDebugKotlin :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease 2>&1 | tee "$RUNNER_TEMP/ghajar-test-1-gradle.log"
+      - name: Verify signed APKs and record hashes
+        shell: bash
+        working-directory: .ghajarvpn-src
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          apks=(app/build/outputs/apk/debug/*.apk app/build/outputs/apk/release/*.apk)
+          (( ${#apks[@]} > 0 )) || { echo 'No APK produced' >&2; exit 1; }
+          for apk in "${apks[@]}"; do
+            "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose "$apk"
+            sha256sum "$apk"
+          done
+      - name: Upload APKs built with CI test keys (not production-signed)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghajar-test-1-CI-test-key-APKs
+          path: .ghajarvpn-src/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+      - name: Preserve actual build evidence on failure or success
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghajar-test-1-build-evidence
+          path: |
+            ${{ runner.temp }}/ghajar-test-1-gradle.log
+            .ghajarvpn-src/app/build/test-results/**/*.xml
+            .ghajarvpn-src/browser/build/test-results/**/*.xml
+          if-no-files-found: warn
