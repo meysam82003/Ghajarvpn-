@@ -27,6 +27,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddCircle
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.ContentCopy
@@ -345,6 +347,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         item {
             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
         }
+        if (linked) {
+            item {
+                WalletSummaryCard(
+                    balanceText = paymentOptions?.let { "${formatPrice(it.balance)} ${it.currency}" },
+                    onTopUp = { section = 3 }
+                )
+            }
+        }
         if (busy || checkoutBusy) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         message?.let { text -> item { StatusCard(text, error = false, onDismiss = { message = null }) } }
         error?.let { text -> item { StatusCard(text, error = true, onDismiss = { error = null }) } }
@@ -653,6 +663,39 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
             Text(if (linked) "حساب متصل و همگام است" else "برای خرید، حساب ربات را یک‌بار متصل کن", color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         if (linked) IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, "بروزرسانی") }
+    }
+}
+
+/**
+ * Always-visible wallet balance card (matches the reference Store layout,
+ * which keeps balance in view instead of behind a tab). Reads the same
+ * paymentOptions state the Wallet tab already uses — no separate fetch,
+ * no fabricated balance while it's loading.
+ */
+@Composable
+private fun WalletSummaryCard(balanceText: String?, onTopUp: () -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
+    ) {
+        Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(AppGreen.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(Icons.Filled.AccountBalanceWallet, contentDescription = null, tint = AppGreen)
+            }
+            Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                Text("موجودی کیف پول", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(balanceText ?: "در حال دریافت…", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+            }
+            Button(onClick = onTopUp, shape = RoundedCornerShape(14.dp)) {
+                Icon(Icons.Filled.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(4.dp))
+                Text("افزایش موجودی")
+            }
+        }
     }
 }
 
