@@ -28,6 +28,8 @@ jobs:
           test "$GITHUB_REF_NAME" = test-1
           test -f scripts/bootstrap-from-upstream.sh
           test -f scripts/build-psiphon-aar.sh
+          test -f scripts/apply-test-1-premium.py
+          python3 -m py_compile scripts/apply-test-1-premium.py
           test -f app/build.gradle.kts
           test -f app/src/main/AndroidManifest.xml
           compgen -G 'patches/android-series/ghajarvpn-series.b64.part-*' >/dev/null
@@ -70,8 +72,6 @@ jobs:
           bash scripts/bootstrap-from-upstream.sh
           rsync -a app/src/ .ghajarvpn-src/app/src/
           rsync -a app/libs/ .ghajarvpn-src/app/libs/
-          # Check every overlay source against the exact branch revision rather
-          # than rejecting legitimate future edits via hard-coded hashes.
           while IFS= read -r -d '' source; do
             cmp -- "$source" ".ghajarvpn-src/$source"
           done < <(find app/src -type f -print0)
@@ -87,6 +87,23 @@ jobs:
           test -f .ghajarvpn-src/gradlew
           test -f .ghajarvpn-src/browser/build.gradle.kts
           chmod +x .ghajarvpn-src/gradlew
+      - name: Apply checked premium navigation and verify exact three public destinations
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/apply-test-1-premium.py .ghajarvpn-src
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+          source = Path('.ghajarvpn-src/app/src/main/java/net/gozar/app/MainActivity.kt').read_text()
+          segment = source.split('        bottomBar = {\n            NavigationBar(', 1)[1].split('\n            }\n        }\n    ) { padding ->', 1)[0]
+          items = re.findall(r'(?m)^                NavigationBarItem\(', segment)
+          assert len(items) == 3, f'Expected 3 public tabs, got {len(items)}'
+          assert segment.index('ic_royal_home') < segment.index('ic_royal_shop') < segment.index('ic_royal_settings')
+          assert 'ic_royal_tunnel' not in segment and 'ic_royal_tools' not in segment
+          assert '"ssh" -> SshScreen(' in source and '"debugger" -> ConfigDebuggerScreen(' in source
+          print('Premium navigation static assertions: PASS (runtime/UI tests still required)')
+          PY
       - name: Build single Xray and Psiphon Go runtime
         shell: bash
         run: |
