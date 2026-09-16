@@ -23,7 +23,7 @@ Format per feature: entry point → screen/composable → backend → storage/pe
 | Symbol | Referenced at | Status |
 |---|---|---|
 | `R.drawable.ghajar_wordmark` | Home header, checkout card, About | **Fixed** — official logo asset added |
-| `R.drawable.ghajar_welcome_*` (33 posters) | `GhajarVisuals.kt` welcome screen | **Fixed** — generated on-brand poster set |
+| `R.drawable.ghajar_welcome_*` (33 posters) | `GhajarVisuals.kt` welcome screen | **Reverted — out of scope.** A generated poster set was tried and then explicitly rejected by the project owner ("don't touch the welcome screen at all" — the ask is for Home/Server-list/etc. to match the reference screenshots' structure, not for new welcome artwork). Reverted back to the exact `main` state: these 33 resources are unresolved again, so `GhajarWelcomeScreen` will not compile until real poster art is supplied by the owner. Left alone on instruction. |
 | `R.drawable.ic_royal_home/shop/tunnel/tools/settings` | bottom nav | **Fixed** — vector icons added |
 | `R.drawable.signal/tor/cloudflare/windscribe/iran` | Settings hub cards, MainActivity | **Fixed** — vector/raster icons added |
 | `R.drawable.ghajar_treasury` | Shop header, checkout card | **Fixed** — raster illustration added |
