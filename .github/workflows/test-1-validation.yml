@@ -29,7 +29,11 @@ jobs:
           test -f scripts/bootstrap-from-upstream.sh
           test -f scripts/build-psiphon-aar.sh
           test -f scripts/apply-test-1-premium.py
-          python3 -m py_compile scripts/apply-test-1-premium.py
+          test -f scripts/apply-test-1-home.py
+          test -f app/src/main/java/net/gozar/app/GhajarHomeServices.kt
+          test -f app/src/main/java/net/gozar/app/GhajarSharePolicy.kt
+          test -f app/src/test/java/net/gozar/app/GhajarSharePolicyTest.kt
+          python3 -m py_compile scripts/apply-test-1-premium.py scripts/apply-test-1-home.py
           test -f app/build.gradle.kts
           test -f app/src/main/AndroidManifest.xml
           compgen -G 'patches/android-series/ghajarvpn-series.b64.part-*' >/dev/null
@@ -87,11 +91,12 @@ jobs:
           test -f .ghajarvpn-src/gradlew
           test -f .ghajarvpn-src/browser/build.gradle.kts
           chmod +x .ghajarvpn-src/gradlew
-      - name: Apply checked premium navigation and verify exact three public destinations
+      - name: Apply and inspect premium three-tab Home and Store migrations
         shell: bash
         run: |
           set -euo pipefail
           python3 scripts/apply-test-1-premium.py .ghajarvpn-src
+          python3 scripts/apply-test-1-home.py .ghajarvpn-src
           python3 - <<'PY'
           from pathlib import Path
           import re
@@ -102,7 +107,11 @@ jobs:
           assert segment.index('ic_royal_home') < segment.index('ic_royal_shop') < segment.index('ic_royal_settings')
           assert 'ic_royal_tunnel' not in segment and 'ic_royal_tools' not in segment
           assert '"ssh" -> SshScreen(' in source and '"debugger" -> ConfigDebuggerScreen(' in source
-          print('Premium navigation static assertions: PASS (runtime/UI tests still required)')
+          assert source.count('GhajarHomeServices(') == 1
+          shop = Path('.ghajarvpn-src/app/src/main/java/net/gozar/app/GhajarShopScreen.kt').read_text()
+          assert 'LaunchedEffect(section, pendingPurchase)' not in shop
+          assert 'var section by rememberSaveable' in shop
+          print('Navigation, real Home service preview and storefront state static assertions: PASS (runtime/UI tests still required)')
           PY
       - name: Build single Xray and Psiphon Go runtime
         shell: bash
