@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Strict migration of the reconstructed UI; abort on upstream drift.
+"""Strict migration of reconstructed UI; abort on upstream drift.
 
-Applied AFTER app/src overlay. Internal SSH/debug screens are retained, but
-only Home/Store/Settings appear in bottom navigation.
+Applied AFTER app/src overlay. Legacy SSH/debug pages remain reachable through
+Settings; shop section and input state survive Activity recreation.
 """
 from pathlib import Path
 import re
 import sys
 
-path = Path(sys.argv[1]) / 'app/src/main/java/net/gozar/app/MainActivity.kt'
+root = Path(sys.argv[1])
+path = root / 'app/src/main/java/net/gozar/app/MainActivity.kt'
 s = path.read_text(encoding='utf-8')
 
 def put(old, new):
@@ -18,7 +19,6 @@ def put(old, new):
         raise RuntimeError(f'Unsafe UI migration: expected one anchor, found {count}: {old[:90]!r}')
     s = s.replace(old, new, 1)
 
-# Update existing Material 3 semantic tokens; retain light and AMOLED choices.
 for name, next_name in [('GnetDarkColors', 'GnetAmoledColors'), ('GnetAmoledColors', 'AppCyan')]:
     start = s.index(f'private val {name} = darkColorScheme(')
     end = s.index(f'private val {next_name}', start)
@@ -35,7 +35,6 @@ for name, next_name in [('GnetDarkColors', 'GnetAmoledColors'), ('GnetAmoledColo
 put('private val SplashBackground = Color(0xFF071B2E)', 'private val SplashBackground = Color(0xFF050807)')
 put('window.navigationBarColor = if (dark) 0xFF071B2E.toInt() else 0xFFEEF3FA.toInt()', 'window.navigationBarColor = if (dark) 0xFF050807.toInt() else 0xFFEEF3FA.toInt()')
 
-# Preserve every existing destination; move SSH and Debugger into Settings.
 put('    var sshSubScreen by remember { mutableStateOf(false) }', '    var sshSubScreen by remember { mutableStateOf(false) }\n    var sshSettingsDetail by remember { mutableStateOf(false) }\n    var debugSettingsDetail by remember { mutableStateOf(false) }')
 put('|| (onSettingsTab && (usageDetail ||', '|| (onSettingsTab && (sshSettingsDetail || debugSettingsDetail || usageDetail ||')
 put('        page == PAGE_DEBUG -> "debugger"', '        onSettingsTab && sshSettingsDetail -> "ssh"\n        onSettingsTab && debugSettingsDetail -> "debugger"\n        page == PAGE_DEBUG -> "debugger"')
@@ -47,8 +46,6 @@ put('                            onOpenNetMon = { netMonDetail = true }', '     
 put('    onOpenNetMon: () -> Unit,\n    modifier: Modifier = Modifier\n) {', '    onOpenNetMon: () -> Unit,\n    onOpenSsh: () -> Unit,\n    onOpenDebugger: () -> Unit,\n    modifier: Modifier = Modifier\n) {')
 put('        SettingsHubCard(\n            icon = Icons.Filled.DataUsage,', '        SettingsHubCard(\n            icon = Icons.Filled.Terminal, title = t("ssh"),\n            subtitle = if (lang == Lang.FA) "مدیریت واقعی SSH" else "SSH management",\n            onClick = onOpenSsh\n        )\n        SettingsHubCard(\n            icon = Icons.Filled.BugReport, title = t("debugger_title"),\n            subtitle = if (lang == Lang.FA) "عیب‌یابی و آزمایش اتصال" else "Diagnostics and connection tests",\n            onClick = onOpenDebugger\n        )\n        SettingsHubCard(\n            icon = Icons.Filled.DataUsage,')
 
-# Reorder five old bottom items into exactly Home, Store, Settings. Retain
-# the two internal pager destinations to avoid destructive feature removal.
 start = s.index('        bottomBar = {\n            NavigationBar(')
 end = s.index('\n            }\n        }\n    ) { padding ->', start)
 nav = s[start:end]
@@ -67,3 +64,24 @@ if len(identified) != 5:
 s = s[:start] + nav[:items[0].start()] + identified['home'] + identified['shop'] + identified['settings'] + s[end:]
 path.write_text(s, encoding='utf-8')
 print('Applied emerald palette, three bottom tabs, and nested live SSH/Debugger with preserved legacy pages')
+
+shop_path = root / 'app/src/main/java/net/gozar/app/GhajarShopScreen.kt'
+shop = shop_path.read_text(encoding='utf-8')
+def shop_replace(old, new):
+    global shop
+    count = shop.count(old)
+    if count != 1:
+        raise RuntimeError(f'Unsafe shop migration: expected one anchor, found {count}: {old[:80]!r}')
+    shop = shop.replace(old, new, 1)
+
+shop_replace('import androidx.compose.runtime.remember\n', 'import androidx.compose.runtime.remember\nimport androidx.compose.runtime.saveable.rememberSaveable\n')
+shop_replace('    var section by remember { mutableIntStateOf(0) }', '    var section by rememberSaveable { mutableIntStateOf(0) }')
+shop_replace('    var walletAmount by remember { mutableStateOf("") }', '    var walletAmount by rememberSaveable { mutableStateOf("") }')
+shop_replace('    var customTraffic by remember { mutableStateOf("") }', '    var customTraffic by rememberSaveable { mutableStateOf("") }')
+shop_replace('    var customDays by remember { mutableStateOf("") }', '    var customDays by rememberSaveable { mutableStateOf("") }')
+shop_replace('    LaunchedEffect(section, pendingPurchase) {', '    LaunchedEffect(section) {')
+shop_replace('Text("خزانهٔ قاجار", style = MaterialTheme.typography.titleLarge', 'Text("فروشگاه قاجار VPN", style = MaterialTheme.typography.titleLarge')
+for before, after in [('0B211C', '101816'), ('D6B45F', '24D98B'), ('F7F2E8', 'E8F8F0'), ('91BCC7', 'A8C3B6'), ('143A32', '14231F')]:
+    shop = shop.replace(f'Color(0xFF{before})', f'Color(0xFF{after})')
+shop_path.write_text(shop, encoding='utf-8')
+print('Applied storefront palette and preserved purchase section/inputs across recreation without checkout-triggered scroll reset')
