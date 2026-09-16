@@ -1802,7 +1802,9 @@ private fun GozarApp(
                             onOpenPicker = { showPicker = true },
                             onConnect = onConnect,
                             onDisconnect = onDisconnect,
-                            onCancelPick = onCancelPick
+                            onCancelPick = onCancelPick,
+                            onOpenFreeConfigs = { showProjects = true },
+                            onOpenScanQr = { showScanner = true }
                         )
                     }
                 }
@@ -1905,6 +1907,8 @@ private fun ConnectionScreen(
     onConnect: (ProxyConfig) -> Unit,
     onDisconnect: () -> Unit,
     onCancelPick: () -> Unit = {},
+    onOpenFreeConfigs: () -> Unit = {},
+    onOpenScanQr: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -1971,6 +1975,8 @@ private fun ConnectionScreen(
                 Modifier.fillMaxSize().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                GhajarPlanStatusCard()
+
                 GhajarSelectedServerCard(selectedConfig, conn, onOpenPicker)
 
                 var btnPressed by remember { mutableStateOf(false) }
@@ -1980,9 +1986,24 @@ private fun ConnectionScreen(
                     animationSpec = tween(300),
                     label = "glowAlpha"
                 )
+                val heroTint = if (connected) AppGreen else MaterialTheme.colorScheme.primary
+                Box(
+                    Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(24.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(Modifier.matchParentSize()) { drawDotWorldMap(heroTint, alpha = 0.16f) }
+                    Box(
+                        Modifier.matchParentSize().background(
+                            Brush.radialGradient(
+                                listOf(heroTint.copy(alpha = 0.16f), Color.Transparent),
+                                radius = 260f
+                            )
+                        )
+                    )
                 Box(
                     Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
                         .height(64.dp)
                         .pointerInput(Unit) {
                             awaitEachGesture {
@@ -2099,31 +2120,28 @@ private fun ConnectionScreen(
                         }
                     }
                 }
+                }
 
-                AnimatedVisibility(
-                    visible = conn == Connection.CONNECTED,
-                    enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-                    exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        StatBox(
-                            speed = downSpeed,
-                            total = totalDown,
-                            icon = Icons.Filled.ArrowDownward,
-                            color = Color(0xFF35E0FF),
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatBox(
-                            speed = upSpeed,
-                            total = totalUp,
-                            icon = Icons.Filled.ArrowUpward,
-                            color = Color(0xFFD6B25E),
-                            modifier = Modifier.weight(1f)
-                        )
+                    StatBox(
+                        speed = downSpeed,
+                        total = totalDown,
+                        icon = Icons.Filled.ArrowDownward,
+                        color = Color(0xFF35E0FF),
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatBox(
+                        speed = upSpeed,
+                        total = totalUp,
+                        icon = Icons.Filled.ArrowUpward,
+                        color = Color(0xFFD6B25E),
+                        modifier = Modifier.weight(1f)
+                    )
+                    AnimatedVisibility(visible = conn == Connection.CONNECTED) {
                         BounceOutlinedButton(
                             onClick = {
                                 delayRunning = true; delayResult = null
@@ -2145,6 +2163,16 @@ private fun ConnectionScreen(
                         }
                     }
                 }
+
+                GhajarQuickActionsRow(
+                    onFastest = {
+                        store.setSortMode(ConfigStore.SORT_FASTEST)
+                        onOpenPicker()
+                    },
+                    onAllServers = onOpenPicker,
+                    onFreeConfigs = onOpenFreeConfigs,
+                    onScanQr = onOpenScanQr
+                )
 
                 val globeStyle by store.globeStyle.collectAsState()
                 if (globeStyle == "dots") {

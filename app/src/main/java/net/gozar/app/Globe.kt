@@ -930,6 +930,26 @@ internal fun fmtHMS(totalSec: Long): String {
     return "%02d:%02d:%02d".format(h, m, s)
 }
 
+/** Shared dotted-world-map texture: the brand's signature backdrop for the
+ *  Home hero and DotGlobeSection alike (matches the supplied reference UI). */
+internal fun androidx.compose.ui.graphics.drawscope.DrawScope.drawDotWorldMap(
+    accent: Color,
+    alpha: Float = 0.18f
+) {
+    val step = 20.dp.toPx()
+    val cols = (size.width / step).toInt()
+    val rows = (size.height / step).toInt()
+    for (ry in 0..rows) {
+        for (rx in 0..cols) {
+            val x = rx * step
+            val y = ry * step
+            val landmass = (sin(x * 0.045f + y * 0.03f) + sin(y * 0.05f - x * 0.02f)) > 0.2f
+            if (!landmass) continue
+            drawCircle(color = accent.copy(alpha = alpha), radius = 1.6.dp.toPx(), center = Offset(x, y))
+        }
+    }
+}
+
 /**
  * Flat dotted-world-map view of the same connection/location state EarthSection
  * shows on its 3D globe, selected via Settings > globeStyle == "dots". Kept
@@ -983,22 +1003,7 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
 
     Box(modifier.fillMaxWidth()) {
         Canvas(Modifier.matchParentSize()) {
-            val step = 20.dp.toPx()
-            val cols = (size.width / step).toInt()
-            val rows = (size.height / step).toInt()
-            for (ry in 0..rows) {
-                for (rx in 0..cols) {
-                    val x = rx * step
-                    val y = ry * step
-                    val landmass = (sin(x * 0.045f + y * 0.03f) + sin(y * 0.05f - x * 0.02f)) > 0.2f
-                    if (!landmass) continue
-                    drawCircle(
-                        color = accent.copy(alpha = 0.18f),
-                        radius = 1.6.dp.toPx(),
-                        center = Offset(x, y)
-                    )
-                }
-            }
+            drawDotWorldMap(accent)
 
             val mx = ((loc.lon.toFloat() + 180f) / 360f) * size.width
             val my = ((90f - loc.lat.toFloat()) / 180f) * size.height
