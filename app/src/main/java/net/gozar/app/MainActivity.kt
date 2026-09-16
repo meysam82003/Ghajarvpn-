@@ -481,11 +481,9 @@ private val AppAqua: Color
 internal val LocalLang = compositionLocalOf { Lang.EN }
 
 private const val PAGE_SHOP = 0
-private const val PAGE_SSH = 1
-private const val PAGE_HOME = 2
-private const val PAGE_DEBUG = 3
-private const val PAGE_SETTINGS = 4
-private const val PAGE_COUNT = 5
+private const val PAGE_HOME = 1
+private const val PAGE_SETTINGS = 2
+private const val PAGE_COUNT = 3
 
 @Composable
 private fun stringsFn(): (String) -> String {
@@ -1329,6 +1327,8 @@ private fun GozarApp(
     var toolsDetail by remember { mutableStateOf(false) }
     var connDetail by remember { mutableStateOf(false) }
     var prefsDetail by remember { mutableStateOf(false) }
+    var sshDetail by remember { mutableStateOf(false) }
+    var debugDetail by remember { mutableStateOf(false) }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
     val sortMode by store.sortMode.collectAsState()
     val selectedId by store.selectedId.collectAsState()
@@ -1446,11 +1446,10 @@ private fun GozarApp(
     var sshSubScreen by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_SSH && sshSubScreen) || (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail))
+    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
-        page == PAGE_SSH -> "ssh"
         page == PAGE_HOME && exportConfigs != null -> "export"
         page == PAGE_HOME && showManual -> "manual"
         page == PAGE_HOME && showTorNodes -> "tornodes"
@@ -1461,7 +1460,6 @@ private fun GozarApp(
         page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
         page == PAGE_HOME -> "connection"
-        page == PAGE_DEBUG -> "debugger"
         onSettingsTab && usageDetail -> "usage"
         onSettingsTab && perAppDetail -> "perapp"
         onSettingsTab && logsDetail -> "logs"
@@ -1476,6 +1474,8 @@ private fun GozarApp(
         onSettingsTab && toolsDetail -> "tools"
         onSettingsTab && connDetail -> "connection_settings"
         onSettingsTab && prefsDetail -> "preferences"
+        onSettingsTab && sshDetail -> "ssh"
+        onSettingsTab && debugDetail -> "debugger"
         else -> "settings"
     }
 
@@ -1504,7 +1504,8 @@ private fun GozarApp(
             toolsDetail -> toolsDetail = false
             connDetail -> connDetail = false
             prefsDetail -> prefsDetail = false
-            page == PAGE_SSH && sshSubScreen -> Unit
+            sshDetail -> sshDetail = false
+            debugDetail -> debugDetail = false
             page != PAGE_HOME -> scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
         }
     }
@@ -1605,6 +1606,8 @@ private fun GozarApp(
                         "tools" -> BounceIconButton(onClick = { toolsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "connection_settings" -> BounceIconButton(onClick = { connDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "preferences" -> BounceIconButton(onClick = { prefsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "ssh" -> BounceIconButton(onClick = { sshDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "debugger" -> BounceIconButton(onClick = { debugDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                     }
                 },
                 actions = {
@@ -1645,12 +1648,6 @@ private fun GozarApp(
                     label = { Text(t("shop")) }
                 )
                 NavigationBarItem(
-                    selected = page == PAGE_SSH,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SSH) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_tunnel), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("ssh")) }
-                )
-                NavigationBarItem(
                     selected = page == PAGE_HOME,
                     onClick = {
                         showPicker = false; showManual = false; showProjects = false; showTorNodes = false; showWindscribe = false; editingConfig = null
@@ -1658,12 +1655,6 @@ private fun GozarApp(
                     },
                     icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(28.dp)) },
                     label = { Text(t("home")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_DEBUG,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_DEBUG) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_tools), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("debugger")) }
                 )
                 NavigationBarItem(
                     selected = page == PAGE_SETTINGS,
@@ -1682,6 +1673,8 @@ private fun GozarApp(
                         toolsDetail = false
                         connDetail = false
                         prefsDetail = false
+                        sshDetail = false
+                        debugDetail = false
                         scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
                     },
                     icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(28.dp)) },
@@ -1710,11 +1703,6 @@ private fun GozarApp(
         ) { p ->
             if (p == PAGE_SHOP) {
                 GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
-            } else if (p == PAGE_SSH) {
-                SshScreen(
-                    store = SshStore.get(LocalContext.current),
-                    onSubScreenChange = { sshSubScreen = it }
-                )
             } else if (p == PAGE_HOME) {
                 val connKey = when {
                     exportConfigs != null -> "export"
@@ -1802,16 +1790,12 @@ private fun GozarApp(
                             onOpenPicker = { showPicker = true },
                             onConnect = onConnect,
                             onDisconnect = onDisconnect,
-                            onCancelPick = onCancelPick
+                            onCancelPick = onCancelPick,
+                            onOpenFreeConfigs = { showProjects = true },
+                            onOpenScanQr = { showScanner = true }
                         )
                     }
                 }
-            } else if (p == PAGE_DEBUG) {
-                ConfigDebuggerScreen(
-                    store = store,
-                    onSwitch = onSwitch,
-                    active = pagerState.settledPage == 2 && !pagerState.isScrollInProgress
-                )
             } else {
                 val setKey = when {
                     usageDetail -> "usage"
@@ -1828,6 +1812,8 @@ private fun GozarApp(
                     toolsDetail -> "tools"
                     connDetail -> "connection_settings"
                     prefsDetail -> "preferences"
+                    sshDetail -> "ssh"
+                    debugDetail -> "debugger"
                     else -> "settings"
                 }
                 AnimatedContent(
@@ -1870,6 +1856,15 @@ private fun GozarApp(
                             store = store,
                             onOpenTheme = { themeDetail = true }
                         )
+                        "ssh" -> SshScreen(
+                            store = SshStore.get(LocalContext.current),
+                            onSubScreenChange = { sshSubScreen = it }
+                        )
+                        "debugger" -> ConfigDebuggerScreen(
+                            store = store,
+                            onSwitch = onSwitch,
+                            active = onSettingsTab && !pagerState.isScrollInProgress
+                        )
                         else -> SettingsScreen(
                             store = store,
                             scrollState = settingsScroll,
@@ -1878,7 +1873,9 @@ private fun GozarApp(
                             onOpenConnection = { connDetail = true },
                             onOpenPreferences = { prefsDetail = true },
                             onOpenAbout = { aboutDetail = true },
-                            onOpenNetMon = { netMonDetail = true }
+                            onOpenNetMon = { netMonDetail = true },
+                            onOpenSsh = { sshDetail = true },
+                            onOpenDebugger = { debugDetail = true }
                         )
                     }
                 }
@@ -1905,6 +1902,8 @@ private fun ConnectionScreen(
     onConnect: (ProxyConfig) -> Unit,
     onDisconnect: () -> Unit,
     onCancelPick: () -> Unit = {},
+    onOpenFreeConfigs: () -> Unit = {},
+    onOpenScanQr: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -1971,6 +1970,8 @@ private fun ConnectionScreen(
                 Modifier.fillMaxSize().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
+                GhajarPlanStatusCard()
+
                 GhajarSelectedServerCard(selectedConfig, conn, onOpenPicker)
 
                 var btnPressed by remember { mutableStateOf(false) }
@@ -1980,9 +1981,24 @@ private fun ConnectionScreen(
                     animationSpec = tween(300),
                     label = "glowAlpha"
                 )
+                val heroTint = if (connected) AppGreen else MaterialTheme.colorScheme.primary
+                Box(
+                    Modifier.fillMaxWidth().height(200.dp).clip(RoundedCornerShape(24.dp)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Canvas(Modifier.matchParentSize()) { drawDotWorldMap(heroTint, alpha = 0.16f) }
+                    Box(
+                        Modifier.matchParentSize().background(
+                            Brush.radialGradient(
+                                listOf(heroTint.copy(alpha = 0.16f), Color.Transparent),
+                                radius = 260f
+                            )
+                        )
+                    )
                 Box(
                     Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 16.dp)
                         .height(64.dp)
                         .pointerInput(Unit) {
                             awaitEachGesture {
@@ -2099,31 +2115,28 @@ private fun ConnectionScreen(
                         }
                     }
                 }
+                }
 
-                AnimatedVisibility(
-                    visible = conn == Connection.CONNECTED,
-                    enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-                    exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        StatBox(
-                            speed = downSpeed,
-                            total = totalDown,
-                            icon = Icons.Filled.ArrowDownward,
-                            color = Color(0xFF35E0FF),
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatBox(
-                            speed = upSpeed,
-                            total = totalUp,
-                            icon = Icons.Filled.ArrowUpward,
-                            color = Color(0xFFD6B25E),
-                            modifier = Modifier.weight(1f)
-                        )
+                    StatBox(
+                        speed = downSpeed,
+                        total = totalDown,
+                        icon = Icons.Filled.ArrowDownward,
+                        color = Color(0xFF35E0FF),
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatBox(
+                        speed = upSpeed,
+                        total = totalUp,
+                        icon = Icons.Filled.ArrowUpward,
+                        color = Color(0xFFD6B25E),
+                        modifier = Modifier.weight(1f)
+                    )
+                    AnimatedVisibility(visible = conn == Connection.CONNECTED) {
                         BounceOutlinedButton(
                             onClick = {
                                 delayRunning = true; delayResult = null
@@ -2145,6 +2158,16 @@ private fun ConnectionScreen(
                         }
                     }
                 }
+
+                GhajarQuickActionsRow(
+                    onFastest = {
+                        store.setSortMode(ConfigStore.SORT_FASTEST)
+                        onOpenPicker()
+                    },
+                    onAllServers = onOpenPicker,
+                    onFreeConfigs = onOpenFreeConfigs,
+                    onScanQr = onOpenScanQr
+                )
 
                 val globeStyle by store.globeStyle.collectAsState()
                 if (globeStyle == "dots") {
@@ -5418,6 +5441,8 @@ private fun SettingsScreen(
     onOpenPreferences: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenNetMon: () -> Unit,
+    onOpenSsh: () -> Unit,
+    onOpenDebugger: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -5452,6 +5477,18 @@ private fun SettingsScreen(
             title = t("connection_settings"),
             subtitle = t("connection_settings_sub"),
             onClick = onOpenConnection
+        )
+        SettingsHubCard(
+            iconRes = R.drawable.ic_royal_tunnel,
+            title = t("ssh"),
+            subtitle = t("ssh_sub"),
+            onClick = onOpenSsh
+        )
+        SettingsHubCard(
+            iconRes = R.drawable.ic_royal_tools,
+            title = t("debugger"),
+            subtitle = t("debugger_sub"),
+            onClick = onOpenDebugger
         )
         SettingsHubCard(
             icon = Icons.Filled.Tune,
