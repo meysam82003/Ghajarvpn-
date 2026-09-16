@@ -91,7 +91,15 @@ machine with the Android SDK.
    environment has no Android SDK). Run:
    https://github.com/meysam82003/Ghajarvpn-/actions/runs/35137224590 —
    result to be recorded here once it finishes.
-5. Migrate the 5-page pager down to the required 3 tabs, moving SSH and
-   Debugger into Settings, without deleting any of their functionality —
-   the supplied reference screenshots also only ever show 3 bottom-nav
-   items, confirming this is required, not optional polish.
+5. ~~Migrate the 5-page pager down to the required 3 tabs~~ — **done this
+   session**. `PAGE_SSH`/`PAGE_DEBUG` and their bottom-nav items are gone;
+   `PAGE_COUNT` is now 3 (Shop, Home, Settings), matching `05_Settings.png`.
+   SSH and Debugger are now `SettingsHubCard` rows in `SettingsScreen`
+   (`onOpenSsh`/`onOpenDebugger`), rendered as new `sshDetail`/`debugDetail`
+   sub-routes in the same settings sub-navigation stack as Data Usage/Tools/
+   etc — same `SshScreen`/`ConfigDebuggerScreen` composables as before, zero
+   functionality removed, just re-homed per the reference. Their own
+   internal back-navigation, title, and back-icon wiring were added
+   following the exact pattern the other settings sub-routes already use.
+   `.github/workflows/android.yml`'s pinned MainActivity.kt sha256 was
+   bumped again for this edit.
