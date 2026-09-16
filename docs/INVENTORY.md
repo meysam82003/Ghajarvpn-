@@ -28,7 +28,7 @@ Format per feature: entry point → screen/composable → backend → storage/pe
 | `R.drawable.signal/tor/cloudflare/windscribe/iran` | Settings hub cards, MainActivity | **Fixed** — vector/raster icons added |
 | `R.drawable.ghajar_treasury` | Shop header, checkout card | **Fixed** — raster illustration added |
 | `DotGlobeSection(...)` | `MainActivity.kt:2151`, gated by `store.globeStyle == "dots"` | **Fixed** — implemented in `Globe.kt` using the same location/connection state as `EarthSection`, rendered as a flat dotted-map + glow marker |
-| `SshScreen(...)` | `MainActivity.kt:1712` (PAGE_SSH) | **NOT FIXED — BLOCKED.** No composable named `SshScreen` exists anywhere in the module. Backend exists (`SshShell.kt`, `sshmanager.kt`, `sshhost.kt`, `SftpBrowser.kt`) but has no UI. Building a real SSH terminal/session-manager screen is a substantial feature-build, not a visual fix — flagged for a dedicated pass rather than a rushed stand-in. |
+| `SshScreen(...)` | `MainActivity.kt:1712` (PAGE_SSH) | **Fixed** — implemented in `SshScreen.kt`: host list (CRUD via `SshStore`) → connect (`SshManager`) → interactive PTY terminal (`SshShell`) and an SFTP browser (`SftpBrowser`, list/navigate/delete). SFTP upload/download is not wired yet (needs a file-picker integration) — noted as follow-up, not silently dropped. |
 | `CleanIpScreen()` | `MainActivity.kt:1853` | **NOT FIXED — BLOCKED.** No composable named `CleanIpScreen` exists. `Warp.kt` / `Ipintelligence.kt` appear to hold related backend logic (Cloudflare WARP / clean-IP scanning) but there is no screen wired to it. Same reasoning as SshScreen. |
 
 No Gradle/Android SDK is available in this execution environment, so these
@@ -46,7 +46,7 @@ machine with the Android SDK.
 | Ping/latency test | Server cards, connect bar | `Pinger.kt`, `SpeedTest.kt` | network | INTERNET | Working |
 | V2Ray/Xray configs | Config picker, manual add | `ConfigBuilder.kt`, `ConfigParser.kt` | xray core | local | Working |
 | OpenVPN | Settings → OpenVPN | `GhajarOpenVpnSettings.kt`, `GhajarOpenVpnBridge.kt` | native OpenVPN bridge | local profiles | Working |
-| SSH | PAGE_SSH (own tab, should move to Settings) | **missing `SshScreen`** | `SshShell.kt`, `sshmanager.kt`, `sshhost.kt`, `SftpBrowser.kt`, `ShellSession.kt` | local | **UI blocked** |
+| SSH | PAGE_SSH (own tab, should move to Settings) | `SshScreen.kt` | `SshShell.kt`, `sshmanager.kt`, `sshhost.kt`, `SftpBrowser.kt`, `ShellSession.kt` | local | Working (SFTP upload/download pending) |
 | Debugger | PAGE_DEBUG (own tab, should move to Settings) | present under `MainActivity.kt` debug page | `GhajarLog.kt`, `GhajarLogActivity.kt`, `Configdebug.kt` | local logs | Working, needs re-homing into Settings |
 | Tor | Settings hub card | referenced via `R.drawable.tor`, `Torcontroller.kt`, `"proj_tor_desc"` | `Torcontroller.kt` | network | Present |
 | Psiphon | Settings/hub | `PsiphonConfig.kt`, `PsiphonEngine.kt` | native | network | Present |
@@ -80,8 +80,10 @@ machine with the Android SDK.
    of the one control the app cannot get wrong.
 2. Locate and verify Backup/Restore and VPN Share implementations (not yet
    confirmed present or absent).
-3. Build real `SshScreen` and `CleanIpScreen` UIs against their existing
-   backends (separate, sizeable pass).
+3. ~~Build real `SshScreen`~~ — **done this session** (`SshScreen.kt`): host
+   list/CRUD, connect, interactive terminal, SFTP browser (upload/download
+   still pending a file-picker integration). `CleanIpScreen` remains open —
+   same shape of work, not yet started.
 4. Migrate the 5-page pager down to the required 3 tabs, moving SSH and
    Debugger into Settings, without deleting any of their functionality —
    the supplied reference screenshots also only ever show 3 bottom-nav
