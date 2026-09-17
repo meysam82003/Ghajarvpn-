@@ -1,12 +1,16 @@
-<p align="center">
-  <img src="docs/images/ghajarvpn-logo.png" width="180" alt="قاجار وی پی ان">
-</p>
+<div align="center">
 
-# قاجار وی پی ان · Ghajarvpn
+<img src="assets/banner.png" width="100%" alt="بنر قاجار وی پی ان">
+
+<img src="assets/logo.png" width="260" alt="لوگوی قاجار وی پی ان">
+
+# 👑 قاجار وی پی ان · Ghajar VPN
 
 کلاینت بومی اندروید قاجار وی پی ان با پالت پیش‌فرض سرمه‌ای، سبز قاجاری، آبی یخی و طلایی. بنفش در تم پیش‌فرض و دارایی‌های اصلی استفاده نمی‌شود و فقط می‌تواند انتخاب اختیاری کاربر باشد.
 
 [کانال تلگرام](https://t.me/Ghajarvpn) · [ربات و مینی‌اپ](https://t.me/Ghajar_vpnbot)
+
+</div>
 
 ## امکانات نسخهٔ اندروید
 
