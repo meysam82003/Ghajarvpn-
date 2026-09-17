@@ -12,7 +12,10 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.DataOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URL
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -724,6 +727,31 @@ class GhajarStoreApi(context: Context) {
         )
     }
 
+    /**
+     * GhajarVPN's own store/bot-link requests never go through its own VPN
+     * tunnel: GozarVpnService.applyPerApp() always excludes this app's own
+     * traffic from the tunnel (otherwise the app's outbound connection to
+     * its own proxy server would route back into itself). That's correct
+     * and necessary - but it means that if the store's domain is filtered
+     * on the device's raw connection while the tunnel is actively bypassing
+     * that exact kind of filtering for every *other* app, the user sees
+     * "internet is fine, VPN is connected" while the store still can't be
+     * reached, because its own requests never benefit from the tunnel they
+     * are sitting right next to.
+     *
+     * A real, already-running fix for that: whenever the active tunnel is
+     * one of the Xray-core protocols (vless/vmess/trojan/ss/etc., not
+     * OpenVPN/IKEv2 which use separate engines), it always exposes a plain
+     * local SOCKS5 inbound at 127.0.0.1:MixedPort (the same inbound VPN
+     * Share re-exposes on the LAN) whether or not VPN Share is on. A direct
+     * request that fails with a network-level IOException (DNS failure,
+     * TLS failure, timeout, connection refused - never an application-level
+     * GhajarApiException from an actual HTTP response) is retried once
+     * through that local proxy before giving up. If nothing is listening
+     * there (OpenVPN/IKEv2 active, or the VPN is off), the retry fails fast
+     * with its own connection-refused and the original error is what
+     * surfaces - never a silently swallowed cause.
+     */
     private fun requestJson(
         url: URL,
         method: String,
@@ -732,7 +760,35 @@ class GhajarStoreApi(context: Context) {
         allowPaymentRequired: Boolean = false,
         allowLinkGate: Boolean = false
     ): JSONObject {
-        val connection = (url.openConnection() as HttpURLConnection).apply {
+        return try {
+            performRequest(url, method, bearer, body, allowPaymentRequired, allowLinkGate, proxy = null)
+        } catch (direct: IOException) {
+            GhajarLog.w("Store", "direct request to ${url.host} failed " +
+                "(${direct.javaClass.simpleName}: ${direct.message}); retrying via local tunnel proxy")
+            try {
+                performRequest(
+                    url, method, bearer, body, allowPaymentRequired, allowLinkGate,
+                    proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value))
+                )
+            } catch (viaProxy: IOException) {
+                GhajarLog.e("Store", "local-proxy retry for ${url.host} also failed: " +
+                    "${viaProxy.javaClass.simpleName}: ${viaProxy.message}")
+                throw direct
+            }
+        }
+    }
+
+    private fun performRequest(
+        url: URL,
+        method: String,
+        bearer: String?,
+        body: JSONObject?,
+        allowPaymentRequired: Boolean,
+        allowLinkGate: Boolean,
+        proxy: Proxy?
+    ): JSONObject {
+        val connection = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
+        connection.apply {
             requestMethod = method
             connectTimeout = CONNECT_TIMEOUT
             readTimeout = READ_TIMEOUT

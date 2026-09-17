@@ -440,8 +440,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                                 openBot(linkSession)
                             } catch (cancelled: CancellationException) {
                                 throw cancelled
-                            } catch (_: IOException) {
-                                error = "کد اتصال دریافت نشد؛ اینترنت را بررسی کن و دوباره تلاش کن."
+                            } catch (failure: IOException) {
+                                // A real network cause (DNS/TLS/timeout/refused, already
+                                // retried once through the active tunnel's local proxy in
+                                // GhajarStoreApi) gets its own specific, logged message
+                                // instead of a blanket "check your internet" regardless of
+                                // what actually failed.
+                                error = GhajarCommerceRules.publicMessage(failure)
                             } catch (failure: Exception) {
                                 error = failure.message ?: "ساخت کد اتصال انجام نشد؛ دوباره تلاش کن."
                             } finally { busy = false }
