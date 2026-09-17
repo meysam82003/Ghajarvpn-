@@ -1335,7 +1335,7 @@ private fun GozarApp(
 
     LaunchedEffect(Unit) {
         store.awaitReady()
-        store.seedDefaultAetherIfNeeded()
+        store.removeLegacyDefaultAetherSeed()
         while (true) {
             SubscriptionRefresher.refreshStale(store)
             delay(30 * 60 * 1000L)

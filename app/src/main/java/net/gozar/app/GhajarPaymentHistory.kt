@@ -70,7 +70,7 @@ fun GhajarTransactionHistory(api: GhajarStoreApi, revision: Int) {
             val array = result.optJSONArray("items")
             items = (0 until (array?.length() ?: 0)).mapNotNull { array?.optJSONObject(it) }
         } catch (e: CancellationException) { throw e }
-          catch (e: Exception) { error = GhajarCommerceRules.publicMessage(e.message.orEmpty()) }
+          catch (e: Exception) { error = GhajarCommerceRules.publicMessage(e) }
         finally { busy = false }
     }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {

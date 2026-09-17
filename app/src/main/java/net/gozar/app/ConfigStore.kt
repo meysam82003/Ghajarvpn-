@@ -312,30 +312,37 @@ class ConfigStore private constructor(context: Context) {
         persistConfigs()
     }
 
-    fun seedDefaultAetherIfNeeded(): ProxyConfig? {
-        if (prefs.getBoolean(KEY_AETHER_SEEDED, false)) return null
-        prefs.edit().putBoolean(KEY_AETHER_SEEDED, true).apply()
-        if (_configs.value.any { it.protocol == "aether" }) return null
-        val cfg = ProxyConfig(
-            name = "Aether (MASQUE)",
-            protocol = "aether",
-            address = "127.0.0.1",
-            port = AetherController.SOCKS_PORT,
-            aetherMode = "masque",
-            aetherScan = "balanced",
-            aetherHttp2 = true,
-            source = ConfigSource.COMMUNITY
-        )
-        _configs.value = _configs.value + cfg
+    /**
+     * One-time cleanup for installs from before the auto-seeded default
+     * config was removed: deletes only the exact fingerprint that seeding
+     * ever created (name, protocol, address and port all match, and it was
+     * never converted to a real subscription/manual entry, i.e. subId is
+     * still empty) so a user's own manually-added Aether config — even one
+     * that happens to share the name — is never touched. The Aether engine,
+     * manual "add config" flow, and any other Aether config remain fully
+     * intact; only this exact seeded artifact is removed, and only once.
+     */
+    fun removeLegacyDefaultAetherSeed() {
+        if (prefs.getBoolean(KEY_AETHER_SEED_CLEANED, false)) return
+        prefs.edit().putBoolean(KEY_AETHER_SEED_CLEANED, true).apply()
+        val before = _configs.value
+        val after = before.filterNot {
+            it.protocol == "aether" && it.name == "Aether (MASQUE)" &&
+                it.address == "127.0.0.1" && it.port == 1819 && it.subId.isEmpty()
+        }
+        if (after.size == before.size) return
+        if (_selectedId.value != null && after.none { it.id == _selectedId.value }) {
+            setSelectedId(after.firstOrNull()?.id)
+        }
+        _configs.value = after
         persistConfigs()
-        if (_selectedId.value.isNullOrEmpty()) setSelectedId(cfg.id)
-        return cfg
     }
 
-    /** Finds the singleton Psiphon config, creating it on first use. Unlike
-     * seedDefaultAetherIfNeeded() this isn't a one-shot on first app launch -
-     * it's created lazily the first time the user opens the Psiphon hub, since
-     * (unlike Aether) it isn't meant to appear in every install by default. */
+    /** Finds the singleton Psiphon config, creating it on first use. This is
+     * lazy - created the first time the user opens the Psiphon hub - and
+     * never auto-seeded into every install by default (Aether's own default
+     * config used to be; that auto-seeding was removed, see
+     * removeLegacyDefaultAetherSeed()). */
     fun ensurePsiphonConfig(): ProxyConfig {
         _configs.value.firstOrNull { it.protocol == "psiphon" }?.let { return it }
         val cfg = ProxyConfig(
@@ -542,22 +549,36 @@ class ConfigStore private constructor(context: Context) {
         persistSubscriptions()
     }
 
+    // persistConfigs()/persistSubscriptions() run after nearly every mutation,
+    // many of them triggered directly from UI callbacks on the main thread
+    // (add/delete/select, a subscription refresh replacing dozens of items).
+    // JSON-serializing the whole list used to happen synchronously on
+    // whichever thread called persist*() before handing only the final
+    // string off to a background dispatcher for the actual disk write - for
+    // a large config/subscription list that serialization itself was real,
+    // measurable main-thread work. Both the serialization and the write now
+    // happen off-thread; only capturing the current snapshot (a cheap
+    // reference copy of an immutable list) stays on the caller's thread.
     private fun persistConfigs() {
-        val arr = JSONArray()
-        _configs.value.forEach { arr.put(it.toJson()) }
-        putSecret(KEY_CONFIGS, arr.toString())
+        val snapshot = _configs.value
+        scope.launch(writeDispatcher) {
+            val arr = JSONArray()
+            snapshot.forEach { arr.put(it.toJson()) }
+            putSecretBlocking(KEY_CONFIGS, arr.toString())
+        }
     }
 
     private fun persistSubscriptions() {
-        val arr = JSONArray()
-        _subscriptions.value.forEach { arr.put(it.toJson()) }
-        putSecret(KEY_SUBS, arr.toString())
+        val snapshot = _subscriptions.value
+        scope.launch(writeDispatcher) {
+            val arr = JSONArray()
+            snapshot.forEach { arr.put(it.toJson()) }
+            putSecretBlocking(KEY_SUBS, arr.toString())
+        }
     }
 
-    private fun putSecret(key: String, json: String) {
-        scope.launch(writeDispatcher) {
-            prefs.edit().putString(key, Crypto.encrypt(json) ?: json).apply()
-        }
+    private fun putSecretBlocking(key: String, json: String) {
+        prefs.edit().putString(key, Crypto.encrypt(json) ?: json).apply()
     }
 
     private fun readSecret(key: String): String? {
@@ -679,7 +700,7 @@ class ConfigStore private constructor(context: Context) {
         const val SORT_ALPHA = "alpha"
         const val SORT_FASTEST = "fastest"
         private const val KEY_THEME = "theme_mode"
-        private const val KEY_AETHER_SEEDED = "aether_seeded"
+        private const val KEY_AETHER_SEED_CLEANED = "aether_seed_cleaned_v1"
         private const val KEY_AUTOREFRESH = "auto_refresh_hours"
         private const val DEFAULT_AUTOREFRESH = 1
         private const val KEY_LANG = "app_lang"

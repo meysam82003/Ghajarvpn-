@@ -91,7 +91,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 // beginPayment/purchase call left the user looking at a generic
                 // error with zero trace in Debugger/log export to diagnose from.
                 GhajarLog.e("Payment", "operation failed: ${failure.javaClass.simpleName}: ${failure.message}")
-                if (!silent) error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
+                if (!silent) error.value = GhajarCommerceRules.publicMessage(failure)
             } finally {
                 if (!silent) busy.value = false
             }

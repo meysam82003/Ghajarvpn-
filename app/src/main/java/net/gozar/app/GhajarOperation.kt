@@ -122,6 +122,34 @@ internal object GhajarCommerceRules {
     }
 
     fun welcomeTipIndex(tip: String): Int = welcomeTips.indexOf(tip).coerceAtLeast(0)
+
+    /**
+     * Every store/payment failure funnels through here before reaching the
+     * user. The panel's own [GhajarApiException] messages are already
+     * Persian and specific (wrong OTP, insufficient balance, invoice not
+     * found, ...) and pass through unchanged. Everything else - a network
+     * exception, a JSON parse failure, a bug - used to collapse into one
+     * identical, unhelpful message regardless of cause. That generic text
+     * is still the final fallback, but common real causes now get their own
+     * actionable message, and the real exception is always logged (never
+     * shown to the user) so the diagnostics screen has the actual cause to
+     * work with instead of nothing.
+     */
+    fun publicMessage(error: Throwable): String {
+        val msg = error.message.orEmpty()
+        runCatching { GhajarLog.e("Store", error.javaClass.simpleName + ": " + msg) }
+        if (msg.any { it in '؀'..'ۿ' }) return BrandConfig.sanitizePublicText(msg).take(500)
+        return when (error) {
+            is java.net.UnknownHostException, is java.net.NoRouteToHostException ->
+                "اتصال اینترنت برقرار نیست؛ اتصال شبکه یا VPN را بررسی کن و دوباره تلاش کن."
+            is java.net.SocketTimeoutException ->
+                "سرور به‌موقع پاسخ نداد؛ اتصال اینترنت را بررسی کن و دوباره تلاش کن."
+            is javax.net.ssl.SSLException ->
+                "اتصال امن به سرور برقرار نشد؛ اگر از VPN یا فیلترشکن دیگری استفاده می‌کنی، آن را خاموش کن و دوباره تلاش کن."
+            else -> publicMessage(msg)
+        }
+    }
+
     fun publicMessage(message: String): String =
         if (message.any { it in '\u0600'..'\u06ff' }) BrandConfig.sanitizePublicText(message).take(500)
         else "عملیات کامل نشد؛ اتصال اینترنت و وضعیت سفارش را بررسی کن."

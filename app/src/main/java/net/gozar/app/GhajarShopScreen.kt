@@ -287,7 +287,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             categories = api.categories(panel.id)
             timeRanges = api.timeRanges(panel.id)
             loadedPanelId = panel.id
-        }.onFailure { error = GhajarCommerceRules.publicMessage(it.message.orEmpty()) }
+        }.onFailure { error = GhajarCommerceRules.publicMessage(it) }
     }
     LaunchedEffect(loadedPanelId, selectedCategory?.id, selectedTime?.days, customMode) {
         val panel = selectedPanel ?: return@LaunchedEffect
@@ -296,7 +296,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         try {
             storeResult {
                 products = if (customMode) emptyList() else api.products(panel.id, selectedCategory?.id, selectedTime?.days)
-            }.onFailure { error = GhajarCommerceRules.publicMessage(it.message.orEmpty()) }
+            }.onFailure { error = GhajarCommerceRules.publicMessage(it) }
         } finally { busy = false }
     }
 
