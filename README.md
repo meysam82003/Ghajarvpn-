@@ -10,7 +10,8 @@ Native Android VPN client branded for Ghajarvpn. The default visual system is ro
 
 ## Android baseline
 
-- Android 7.0 (API 24) through current Android releases
+- Android 8.0 (API 26) through current Android releases — required by the
+  committed engine AAR (`app/libs/ca.psiphon.aar`); see `SOURCE-POLICY.md`
 - Native Kotlin/Compose interface with RTL Persian support
 - VLESS, VMess, Trojan, Shadowsocks, SOCKS, HTTP, Hysteria2, WireGuard and IKEv2
 - Integrated OpenVPN engine with `.ovpn` import, embedded auth support, credential prompt and pre-connect ping
@@ -27,21 +28,28 @@ Native Android VPN client branded for Ghajarvpn. The default visual system is ro
 - `app/` — Ghajarvpn Android application and native store
 - `openvpn/` — upstream `ics-openvpn` core integrated as a library
 - `strongswan/` — IKEv2 engine
+- `browser/` — embedded browser module
+- `native/Aether`, `native/Psiphon` — upstream native engine sources
+- `backend/Faoxima-1.0.0` — Faoxima panel, bot and mini-app backend source
 - `docs/` — brand assets, architecture and delivery roadmap
+- `SOURCE-POLICY.md` — provenance, layout mapping, and documented deviations
+  from the original release commit
+
+This repository is self-contained: `main` is built directly from this
+checkout. No step clones an upstream fork, applies a patch series, or
+overlays sources from elsewhere.
 
 ## Build
 
-Requirements: JDK 21, Android SDK 36.1, NDK 28.2 and SWIG.
+Requirements: JDK 17, Android SDK platform 36 / build-tools 36.0.0, NDK
+27.3.13750724, and SWIG/ninja-build — see `.github/workflows/android.yml`
+for the exact, currently-used toolchain.
 
 ```bash
 ./gradlew :app:assembleDebug
 ```
 
 Release signing is read from CI secrets or a local untracked `keystore.properties`. Never commit the signing key.
-
-When the repository is distributed as a compact patch series, run
-`./scripts/bootstrap-from-upstream.sh` first. See
-[`docs/GITHUB_BOOTSTRAP_FA.md`](docs/GITHUB_BOOTSTRAP_FA.md).
 
 ## Branding and backend safety
 

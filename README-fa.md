@@ -10,7 +10,7 @@
 
 ## امکانات نسخهٔ اندروید
 
-- پشتیبانی از اندروید ۷ به بعد
+- پشتیبانی از اندروید ۸ (API 26) به بعد — این حداقل توسط AAR موتور تعبیه‌شده (`app/libs/ca.psiphon.aar`) الزامی شده؛ جزئیات در `SOURCE-POLICY.md`
 - رابط کاملاً بومی Kotlin/Compose و فارسی RTL
 - پشتیبانی از VLESS، VMess، Trojan، Shadowsocks، SOCKS، HTTP، Hysteria2، WireGuard و IKEv2
 - موتور داخلی OpenVPN، ورود فایل `.ovpn`، احراز هویت تعبیه‌شده یا دریافت نام کاربری/رمز و پینگ پیش از اتصال
@@ -22,19 +22,19 @@
 - نمایش اعلان‌های عمومی، شخصی، شناور، پایان حجم و پایان زمان هم داخل برنامه و هم در نوار اعلان گوشی
 - اعلان اتصال با آواتار قاجار، نمایش/بررسی پینگ و دکمهٔ قطع اتصال
 
+## ساختار سورس
+
+این مخزن خودکفاست: `main` مستقیماً از همین چک‌اوت ساخته می‌شود، بدون کلون کردن هیچ مخزن بالادستی، بدون اعمال سری پچ، و بدون overlay از منبع دیگر. سورس کامل اپ اندروید (`app/`, `openvpn/`, `strongswan/`, `browser/`)، سورس‌های موتور بومی (`native/Aether`, `native/Psiphon`) و بک‌اند Faoxima (`backend/Faoxima-1.0.0`) همگی مستقیماً در همین مخزن commit شده‌اند. جزئیات کامل provenance در [`SOURCE-POLICY.md`](SOURCE-POLICY.md) آمده است.
+
 ## ساخت پروژه
 
-پیش‌نیاز: JDK 21، Android SDK 36.1، NDK 28.2 و SWIG.
+پیش‌نیاز واقعی طبق CI فعلی: JDK 17، پلتفرم Android SDK 36 / build-tools 36.0.0، NDK 27.3.13750724، و SWIG/ninja-build — برای مرجع دقیق به `.github/workflows/android.yml` نگاه کنید.
 
 ```bash
 ./gradlew :app:assembleDebug
 ```
 
 کلید امضای انتشار باید فقط در Secrets گیت‌هاب یا فایل محلی خارج از Git نگهداری شود.
-
-اگر مخزن به‌صورت سری پچ کم‌حجم منتشر شده است، ابتدا
-`./scripts/bootstrap-from-upstream.sh` را اجرا کنید. توضیح کامل در
-[`docs/GITHUB_BOOTSTRAP_FA.md`](docs/GITHUB_BOOTSTRAP_FA.md) قرار دارد.
 
 ## نقشهٔ ادامه
 
