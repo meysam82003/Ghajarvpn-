@@ -113,10 +113,10 @@ jobs:
           d8f348c267ce5f19bad7ba74ece5373be8c286bf2b6740a6644535cd278e11a9  app/src/main/java/net/gozar/app/ConfigStore.kt
           86aa7219c7504f8e6fc7567b712d62a65fe566b9ae2366dd6514e215c423c6de  app/src/main/java/net/gozar/app/GhajarCheckoutViewModel.kt
           c91d08af8c0dd5c73bc593eab489f702102b3640ef0aa930600b4ad3d6640da4  app/src/main/java/net/gozar/app/GhajarSelectedServerCard.kt
-          e3e404d6b3f78a33c8b69d848806451ffc6ae61286f1900036e4ea31373628bc  app/src/main/java/net/gozar/app/GhajarShopScreen.kt
+          c9274edadb786689fc11256d146b176408104c7d4baeb360f4845dac2be004e3  app/src/main/java/net/gozar/app/GhajarShopScreen.kt
           e88a7947c9562d35151d3f75b03f50c14adfb88360052e596a55a9d49f463984  app/src/main/java/net/gozar/app/GozarVpnService.kt
           68fc24be76784e25c621f9910223a6c0b3f7d77f8011e1377c05d3d590c14339  app/src/main/java/net/gozar/app/Gozarapplication.kt
-          7ef1c4d8d75d7ca8acd2063b2423fd6b7d908ab8d6fe7de0ebbe6b02c2a96a43  app/src/main/java/net/gozar/app/MainActivity.kt
+          59b5e9193522f34343f8382886e4d457e392eb39b018cd7cebfff29c6bf23694  app/src/main/java/net/gozar/app/MainActivity.kt
           d71d1692a7a941e49b80dad3dc5040b197fbdc0a8d631e6357ccc637e47faded  app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
           5231734910241f05211dd1662e2d73b321bf08f791958512c55fb558eec07467  app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
           af5025b79e7be582ee4b7137eb74065a86f88e7298d087f245e275ea0088b8fc  app/src/main/java/net/gozar/app/PsiphonConfig.kt
