@@ -136,6 +136,20 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_BLOCK_WHEN_OFF, enabled).apply()
     }
 
+    /** VPN Share: exposes the same local SOCKS5 inbound the engine already
+     * binds to 127.0.0.1 (see ConfigBuilder's socksIn) on 0.0.0.0 instead, so
+     * devices on this phone's own hotspot can point their proxy settings at
+     * it. Tearing down the tunnel tears down this listener with it - there is
+     * no fallback path, so a dropped VPN fails shared clients closed rather
+     * than leaking their traffic direct. */
+    private val _vpnShareEnabled = MutableStateFlow(prefs.getBoolean(KEY_VPN_SHARE, false))
+    val vpnShareEnabled: StateFlow<Boolean> = _vpnShareEnabled.asStateFlow()
+
+    fun setVpnShareEnabled(enabled: Boolean) {
+        _vpnShareEnabled.value = enabled
+        prefs.edit().putBoolean(KEY_VPN_SHARE, enabled).apply()
+    }
+
     private val _onionRouting = MutableStateFlow(prefs.getBoolean(KEY_ONION, false))
     val onionRouting: StateFlow<Boolean> = _onionRouting.asStateFlow()
 
@@ -420,6 +434,7 @@ class ConfigStore private constructor(context: Context) {
         put("muxConcurrency", _muxConcurrency.value)
         put("globeStyle", _globeStyle.value)
         put("blockWhenOff", _blockWhenOff.value)
+        put("vpnShareEnabled", _vpnShareEnabled.value)
         put("onionRouting", _onionRouting.value)
         put("encryptedDns", _encryptedDns.value)
         put("fakeDns", _fakeDns.value)
@@ -452,6 +467,7 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("muxConcurrency")) setMuxConcurrency(o.getInt("muxConcurrency"))
         if (o.has("globeStyle")) setGlobeStyle(o.getString("globeStyle"))
         if (o.has("blockWhenOff")) setBlockWhenOff(o.getBoolean("blockWhenOff"))
+        if (o.has("vpnShareEnabled")) setVpnShareEnabled(o.getBoolean("vpnShareEnabled"))
         if (o.has("onionRouting")) setOnionRouting(o.getBoolean("onionRouting"))
         if (o.has("encryptedDns")) setEncryptedDns(o.getBoolean("encryptedDns"))
         if (o.has("fakeDns")) setFakeDns(o.getBoolean("fakeDns"))
@@ -482,6 +498,41 @@ class ConfigStore private constructor(context: Context) {
         settings?.let { restoreSettings(it) }
         val wanted = settings?.optString("selectedId").orEmpty()
         setSelectedId(if (configs.any { it.id == wanted }) wanted else configs.firstOrNull()?.id)
+    }
+
+    data class MergeReport(
+        val addedConfigs: Int,
+        val duplicateConfigs: Int,
+        val addedSubscriptions: Int,
+        val duplicateSubscriptions: Int
+    )
+
+    /**
+     * Adds a backup's configs/subscriptions to whatever already exists,
+     * instead of [restoreBackup]'s full replace: nothing already on the
+     * device is deleted or overwritten, duplicates (by the same identity
+     * [upsertSubscription] already uses for configs, and by URL for
+     * subscriptions) are skipped rather than doubled, and settings/wallet
+     * data are left untouched entirely (there is no server-authoritative
+     * data in this local format to begin with — balance lives on the panel).
+     */
+    fun mergeBackup(configs: List<ProxyConfig>, subs: List<Subscription>): MergeReport {
+        val existingConfigSigs = _configs.value.mapTo(HashSet(), ::sigOf)
+        val newConfigs = configs.filter { sigOf(it) !in existingConfigSigs }
+            .map { it.copy(id = java.util.UUID.randomUUID().toString()) }
+        val duplicateConfigs = configs.size - newConfigs.size
+
+        val existingSubUrls = _subscriptions.value.mapTo(HashSet()) { it.url }
+        val newSubs = subs.filter { it.url !in existingSubUrls }
+            .map { it.copy(id = java.util.UUID.randomUUID().toString()) }
+        val duplicateSubs = subs.size - newSubs.size
+
+        if (newConfigs.isNotEmpty()) _configs.value = _configs.value + newConfigs
+        if (newSubs.isNotEmpty()) _subscriptions.value = _subscriptions.value + newSubs
+        if (newConfigs.isNotEmpty()) persistConfigs()
+        if (newSubs.isNotEmpty()) persistSubscriptions()
+
+        return MergeReport(newConfigs.size, duplicateConfigs, newSubs.size, duplicateSubs)
     }
 
     fun deleteSubscription(id: String) {
@@ -623,6 +674,7 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_ENC_DNS = "encrypted_dns"
         private const val KEY_ONION = "onion_routing"
         private const val KEY_BLOCK_WHEN_OFF = "block_when_off"
+        private const val KEY_VPN_SHARE = "vpn_share_enabled"
         const val SORT_ADDED = "added"
         const val SORT_ALPHA = "alpha"
         const val SORT_FASTEST = "fastest"

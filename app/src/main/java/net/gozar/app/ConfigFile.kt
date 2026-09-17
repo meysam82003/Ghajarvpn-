@@ -57,7 +57,13 @@ object ConfigFile {
     class Backup(
         val configs: List<ProxyConfig>,
         val subs: List<Subscription>,
-        val settings: JSONObject?
+        val settings: JSONObject?,
+        /** OpenVPN engine preferences (ConfigFile v>=3 only); null on older
+         * backups. Imported OpenVPN profile files themselves are NOT part of
+         * this backup format: ics-openvpn stores each profile with its own
+         * internal serialization unrelated to this JSON format, and safely
+         * exporting/reimporting it is out of scope here. */
+        val openVpnSettings: JSONObject?
     )
 
     fun isPasswordProtected(bytes: ByteArray): Boolean {
@@ -89,12 +95,19 @@ object ConfigFile {
         configs.forEach { cfgArr.put(it.toJson()) }
         val subArr = JSONArray()
         subs.forEach { subArr.put(it.toJson()) }
+        val ovpn = GhajarOpenVpnSettings.read(context)
+        val ovpnObj = JSONObject()
+            .put("reconnectOnNetworkChange", ovpn.reconnectOnNetworkChange)
+            .put("useSystemProxy", ovpn.useSystemProxy)
+            .put("pauseOnScreenOff", ovpn.pauseOnScreenOff)
+            .put("encryptProfiles", ovpn.encryptProfiles)
         val root = JSONObject()
-            .put("v", 2)
+            .put("v", 3)
             .put("kind", "backup")
             .put("configs", cfgArr)
             .put("subs", subArr)
             .put("settings", settings)
+            .put("openVpnSettings", ovpnObj)
         return seal(context, root, password)
     }
 
@@ -152,7 +165,7 @@ object ConfigFile {
         val subs = (0 until subArr.length()).map {
             Subscription.fromJson(subArr.getJSONObject(it))
         }
-        return Backup(configs, subs, root.optJSONObject("settings"))
+        return Backup(configs, subs, root.optJSONObject("settings"), root.optJSONObject("openVpnSettings"))
     }
 
     private fun open(context: Context, bytes: ByteArray, password: String?): JSONObject {

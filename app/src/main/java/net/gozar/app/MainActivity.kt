@@ -151,6 +151,7 @@ import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
@@ -1178,7 +1179,8 @@ class MainActivity : ComponentActivity() {
             chainBase = if (config.chainId.isNotEmpty())
                 store.configs.value.find { it.id == config.chainId } else null,
             onionRouting = store.onionRouting.value,
-            coreLogLevel = store.coreLogLevel.value)
+            coreLogLevel = store.coreLogLevel.value,
+            shareOnLan = store.vpnShareEnabled.value)
         VpnState.setConnecting(config.id)
         val aether = AetherController.spec(config)
         val psiphon = PsiphonSpec.from(config)?.toJson()
@@ -5738,31 +5740,71 @@ private fun BackupRow(store: ConfigStore) {
     }
 
     pending?.let { bytes ->
+        var preview by remember(bytes) { mutableStateOf<ConfigFile.Backup?>(null) }
+        var previewFailed by remember(bytes) { mutableStateOf(false) }
+        LaunchedEffect(bytes) {
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ConfigFile.decodeBackup(context, bytes, null) }.getOrNull()
+            }
+            if (result == null) previewFailed = true else preview = result
+        }
         GlassDialog(
             onDismiss = { pending = null },
             title = t("backup_import"),
-            confirmLabel = t("import_button"),
+            confirmLabel = "جایگزینی کامل",
             dismissLabel = t("cancel"),
             accentOverride = AppGreen,
             onConfirm = {
+                val result = preview
                 pending = null
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) {
-                        runCatching { ConfigFile.decodeBackup(context, bytes, null) }.getOrNull()
+                if (result != null) {
+                    store.restoreBackup(result.configs, result.subs, result.settings)
+                    GhajarOpenVpnSettings.restore(context, result.openVpnSettings)
+                    status = localizeDigits(
+                        t("backup_restored").format(result.configs.size, result.subs.size),
+                        store.lang.value
+                    )
+                } else status = t("import_bad_file")
+            }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                when {
+                    previewFailed -> Text(t("import_bad_file"), color = MaterialTheme.colorScheme.error)
+                    preview == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("در حال خواندن فایل بکاپ…", style = MaterialTheme.typography.bodySmall)
                     }
-                    if (result == null) {
-                        status = t("import_bad_file")
-                    } else {
-                        store.restoreBackup(result.configs, result.subs, result.settings)
-                        status = localizeDigits(
-                            t("backup_restored").format(result.configs.size, result.subs.size),
-                            store.lang.value
+                    else -> {
+                        val p = preview!!
+                        Text(
+                            "این فایل شامل ${p.configs.size} کانفیگ و ${p.subs.size} اشتراک است.",
+                            style = MaterialTheme.typography.bodyMedium
                         )
+                        if (p.openVpnSettings == null) {
+                            Text(
+                                "توجه: پروفایل‌های وارد‌شدهٔ OpenVPN در بکاپ ذخیره نمی‌شوند و باید دوباره وارد شوند.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(mixedText(t("backup_restore_q")), style = MaterialTheme.typography.bodySmall)
+                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
+                        BounceOutlinedButton(
+                            onClick = {
+                                pending = null
+                                val report = store.mergeBackup(p.configs, p.subs)
+                                status = localizeDigits(
+                                    "افزوده شد: ${report.addedConfigs} کانفیگ، ${report.addedSubscriptions} اشتراک" +
+                                        " (تکراری نادیده گرفته شد: ${report.duplicateConfigs} کانفیگ، ${report.duplicateSubscriptions} اشتراک)",
+                                    store.lang.value
+                                )
+                            },
+                            minHeight = 38.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("در عوض فقط افزودن (بدون حذف موارد فعلی)") }
                     }
                 }
             }
-        ) {
-            Text(mixedText(t("backup_restore_q")), style = MaterialTheme.typography.bodyMedium)
         }
     }
 }
@@ -5781,10 +5823,17 @@ private fun ToolsScreen(
     val onionRouting by store.onionRouting.collectAsState()
     val adBlock by store.adBlock.collectAsState()
     val blockWhenOff by store.blockWhenOff.collectAsState()
+    var vpnShareOpen by remember { mutableStateOf(false) }
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        SettingsHubCard(
+            icon = Icons.Filled.Wifi,
+            title = "اشتراک‌گذاری VPN",
+            subtitle = "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی",
+            onClick = { vpnShareOpen = true }
+        )
         SettingsHubCard(
             icon = Icons.Filled.NetworkCheck,
             title = t("stab_title"),
@@ -5850,7 +5899,110 @@ private fun ToolsScreen(
             )
         }
     }
+    if (vpnShareOpen) VpnShareDialog(store = store, onDismiss = { vpnShareOpen = false })
 }
+
+/**
+ * "VPN Only" sharing: exposes the engine's own local SOCKS5 inbound (already
+ * bound to 127.0.0.1 for every connection, see ConfigBuilder's socksIn) on
+ * this device's hotspot interface instead. A device connected to this
+ * phone's hotspot can point its Wi-Fi proxy settings at this phone's
+ * hotspot IP and the shown port to route through the exact same tunnel this
+ * phone uses. Fail-closed by construction: the SOCKS listener lives inside
+ * the same Xray core process as the tunnel itself, so disconnecting or
+ * losing the VPN tears the listener down with it — there is no path for a
+ * connected device to fall through to this phone's raw internet.
+ *
+ * The other two requested modes are NOT implemented, and not faked:
+ * - "VPN + Internet" (mixed, chosen routes) would need to selectively
+ *   redirect only some destinations from hotspot clients while leaving
+ *   others direct. VpnService only ever intercepts this device's own
+ *   per-UID-selected traffic; it has no API to inspect or redirect packets
+ *   arriving from other devices over the hotspot interface at all.
+ * - "VPN only for connected devices, host stays direct" needs the same
+ *   thing in reverse (redirect guest traffic, leave the host alone) and
+ *   hits the identical wall: without root-level netfilter rules on the
+ *   hotspot interface, Android gives this app no hook into hotspot client
+ *   traffic. The SOCKS relay above is the only mechanism available without
+ *   root, and it only ever affects a device that explicitly configures
+ *   itself to use it — it cannot make that separation automatic.
+ */
+@Composable
+private fun VpnShareDialog(store: ConfigStore, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val enabled by store.vpnShareEnabled.collectAsState()
+    val connected by VpnState.state.collectAsState()
+    val port = MixedPort.value
+    val hotspotIp = remember { hotspotInterfaceAddress() }
+    GlassDialog(
+        onDismiss = onDismiss,
+        title = "اشتراک‌گذاری VPN (SOCKS5)",
+        confirmLabel = "بستن",
+        onConfirm = onDismiss
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("فعال‌سازی اشتراک‌گذاری", fontWeight = FontWeight.Bold)
+                    Text(
+                        "فقط حالت «VPN Only» — دستگاه‌های مهمان باید پروکسی SOCKS5 را دستی تنظیم کنند",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(checked = enabled, onCheckedChange = { store.setVpnShareEnabled(it) })
+            }
+            if (enabled) {
+                if (connected == Connection.CONNECTED) {
+                    Column(
+                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                            .background(AppGreen.copy(alpha = 0.10f))
+                            .padding(horizontal = 14.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text("تنظیمات پروکسی روی دستگاه مهمان:", fontWeight = FontWeight.Bold)
+                        Text("نوع: SOCKS5")
+                        Text("آدرس: ${hotspotIp ?: "ابتدا هات‌اسپات این گوشی را روشن کن"}")
+                        Text("پورت: $port")
+                        Text(
+                            "دستگاه باید به هات‌اسپات همین گوشی متصل باشد و این مقادیر را در تنظیمات Wi-Fi/پروکسی خودش وارد کند.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    Text(
+                        "برای اشتراک‌گذاری، اول از صفحهٔ اصلی به یک سرور وصل شو؛ پروکسی وقتی فعال می‌شود که اتصال برقرار باشد.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
+            Text(
+                "دو حالت «ترکیبی VPN و اینترنت» و «فقط دستگاه‌های متصل از VPN استفاده کنند» در این نسخه پیاده‌سازی نشده‌اند: اندروید به این اپ اجازهٔ دخالت در ترافیک دستگاه‌های دیگرِ متصل به هات‌اسپات را نمی‌دهد؛ این کار بدون دسترسی روت ممکن نیست. تنها راه واقعی، همین پروکسی SOCKS5 دستی بالاست.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+/** Best-effort discovery of this device's own hotspot/AP IP (typically
+ * 192.168.43.1 or 192.168.49.1 depending on OEM); null if no such interface
+ * is currently up (hotspot off). No special permission required. */
+private fun hotspotInterfaceAddress(): String? = runCatching {
+    java.net.NetworkInterface.getNetworkInterfaces().asSequence()
+        .filter { it.isUp && !it.isLoopback }
+        .filter { iface -> iface.name.startsWith("ap") || iface.name.startsWith("wlan1") || iface.name.contains("swlan") }
+        .flatMap { it.inetAddresses.asSequence() }
+        .filterIsInstance<java.net.Inet4Address>()
+        .firstOrNull()?.hostAddress
+}.getOrNull()
 
 @Composable
 private fun TorCountryGroup(

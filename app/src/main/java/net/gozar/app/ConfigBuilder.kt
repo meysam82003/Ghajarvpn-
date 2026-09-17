@@ -310,7 +310,11 @@ object ConfigBuilder {
         torBase: ProxyConfig? = null,
         chainBase: ProxyConfig? = null,
         onionRouting: Boolean = false,
-        coreLogLevel: String = "warning"
+        coreLogLevel: String = "warning",
+        /** VPN Share ("VPN Only" mode): binds the mixed SOCKS5 inbound to all
+         * interfaces instead of loopback so devices on this phone's own
+         * hotspot can use it as their proxy. See ConfigStore.vpnShareEnabled. */
+        shareOnLan: Boolean = false
     ): String {
         val onion = onionRouting && config.protocol != "tor"
         val fake = fakeDns || onion
@@ -361,7 +365,9 @@ object ConfigBuilder {
         }
 
         val socksIn = JSONObject().put("tag", "socks-in")
-            .put("port", MixedPort.value).put("listen", "127.0.0.1").put("protocol", "socks")
+            .put("port", MixedPort.value)
+            .put("listen", if (shareOnLan) "0.0.0.0" else "127.0.0.1")
+            .put("protocol", "socks")
             .put("settings", JSONObject().put("udp", true))
         if (splitRouting || sniffing || adBlock) {
             val socksTypes = JSONArray()

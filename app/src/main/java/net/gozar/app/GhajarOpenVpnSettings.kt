@@ -42,6 +42,16 @@ object GhajarOpenVpnSettings {
         )
     }
 
+    /** Applies a snapshot decoded from a ConfigFile backup (v>=3). Missing
+     * keys are left untouched rather than reset to defaults. */
+    fun restore(context: Context, o: org.json.JSONObject?) {
+        o ?: return
+        if (o.has("reconnectOnNetworkChange")) setReconnectOnNetworkChange(context, o.getBoolean("reconnectOnNetworkChange"))
+        if (o.has("useSystemProxy")) setUseSystemProxy(context, o.getBoolean("useSystemProxy"))
+        if (o.has("pauseOnScreenOff")) setPauseOnScreenOff(context, o.getBoolean("pauseOnScreenOff"))
+        if (o.has("encryptProfiles")) setEncryptProfiles(context, o.getBoolean("encryptProfiles"))
+    }
+
     fun setReconnectOnNetworkChange(context: Context, value: Boolean) = put(context, KEY_RECONNECT_NETWORK, value)
     fun setUseSystemProxy(context: Context, value: Boolean) = put(context, KEY_SYSTEM_PROXY, value)
     fun setPauseOnScreenOff(context: Context, value: Boolean) = put(context, KEY_SCREEN_OFF, value)

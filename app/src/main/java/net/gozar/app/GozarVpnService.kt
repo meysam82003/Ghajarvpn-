@@ -235,7 +235,8 @@ class GozarVpnService : VpnService() {
             adBlock = store.adBlock.value,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
-            onionRouting = store.onionRouting.value
+            onionRouting = store.onionRouting.value,
+            shareOnLan = store.vpnShareEnabled.value
         )
         Log.d(TAG, "switching tunnel to ${config.name}")
         pollJob?.cancel(); pollJob = null
