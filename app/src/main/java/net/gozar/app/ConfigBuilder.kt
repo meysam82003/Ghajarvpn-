@@ -393,6 +393,21 @@ object ConfigBuilder {
         }
 
         val inbounds = JSONArray().put(tunIn).put(socksIn)
+        if (shareOnLan) {
+            // Android's own per-network "Manual Proxy" setting is HTTP-only
+            // and has no credential field at all, so it can never speak to
+            // an authenticated SOCKS5 inbound. This plain HTTP inbound is
+            // what that native setting actually needs - by construction it
+            // cannot carry a password, so anyone on the same Wi-Fi/hotspot
+            // can use it while it's on. The authenticated socks-in above
+            // stays available at the same time for anything that supports
+            // manual SOCKS5+credentials (a browser, Telegram, etc.).
+            inbounds.put(JSONObject().put("tag", "http-share-in")
+                .put("port", HttpSharePort.value)
+                .put("listen", "0.0.0.0")
+                .put("protocol", "http")
+                .put("settings", JSONObject()))
+        }
         if (config.protocol == "tor" || onion) {
             inbounds.put(JSONObject().put("tag", "tor-in")
                 .put("port", TorController.BRIDGE_PORT).put("listen", "127.0.0.1")
@@ -495,8 +510,10 @@ object ConfigBuilder {
                 .put("domain", JSONArray().put("geosite:category-ir"))
                 .put("outboundTag", "direct"))
         }
+        val proxiedInbounds = JSONArray().put("tun-in").put("socks-in")
+        if (shareOnLan) proxiedInbounds.put("http-share-in")
         rules.put(JSONObject().put("type", "field")
-            .put("inboundTag", JSONArray().put("tun-in").put("socks-in"))
+            .put("inboundTag", proxiedInbounds)
             .put("outboundTag", "proxy"))
         root.put("routing", JSONObject().put("domainStrategy", "AsIs").put("rules", rules))
 

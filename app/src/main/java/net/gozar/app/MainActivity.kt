@@ -236,6 +236,7 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -1889,7 +1890,8 @@ private fun GozarApp(
                             store = store,
                             onOpenCheckHost = { checkHostDetail = true },
                             onOpenStability = { stabilityDetail = true },
-                            onOpenCleanIp = { cleanIpDetail = true }
+                            onOpenCleanIp = { cleanIpDetail = true },
+                            onSwitch = onSwitch
                         )
                         "connection_settings" -> ConnectionSettingsScreen(
                             store = store,
@@ -5892,6 +5894,7 @@ private fun ToolsScreen(
     onOpenStability: () -> Unit,
     onOpenCleanIp: () -> Unit,
     onOpenCheckHost: () -> Unit,
+    onSwitch: (ProxyConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -5983,7 +5986,7 @@ private fun ToolsScreen(
             )
         }
     }
-    if (vpnShareOpen) VpnShareDialog(store = store, onDismiss = { vpnShareOpen = false })
+    if (vpnShareOpen) VpnShareDialog(store = store, onSwitch = onSwitch, onDismiss = { vpnShareOpen = false })
     if (connectionHistoryOpen) ConnectionHistoryDialog(onDismiss = { connectionHistoryOpen = false })
 }
 
@@ -6013,86 +6016,162 @@ private fun ToolsScreen(
  *   itself to use it — it cannot make that separation automatic.
  */
 @Composable
-private fun VpnShareDialog(store: ConfigStore, onDismiss: () -> Unit) {
+private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
     val enabled by store.vpnShareEnabled.collectAsState()
     val connected by VpnState.state.collectAsState()
-    val port = MixedPort.value
-    val hotspotIp = remember { hotspotInterfaceAddress() }
+    val activeId by VpnState.activeId.collectAsState()
+    val configs by store.configs.collectAsState()
+    // Toggling the switch only takes effect on the next connect, exactly
+    // like every other tunnel-affecting setting in this app (adBlock,
+    // splitRouting, ...). But leaving an open (no-password) proxy running
+    // after the user pressed "stop sharing" would be a real leak, not just
+    // a UI inconsistency - so this one setting forces a live rebuild of the
+    // current tunnel through the same switchTo() sequencing a manual server
+    // switch already uses, instead of waiting for the next reconnect.
+    fun applyLiveIfConnected() {
+        if (connected == Connection.CONNECTED) {
+            configs.find { it.id == activeId }?.let(onSwitch)
+        }
+    }
+    val socksPort = MixedPort.value
+    val httpPort = HttpSharePort.value
+    // Re-read every few seconds instead of once: switching Wi-Fi/hotspot
+    // while this dialog stays open must not keep showing a stale address.
+    var hotspotIp by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            hotspotIp = withContext(Dispatchers.IO) { hotspotInterfaceAddress() }
+            delay(3000)
+        }
+    }
     val shareUser by store.vpnShareUsername.collectAsState()
     val sharePass by store.vpnSharePassword.collectAsState()
+    var showGuide by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (enabled) store.ensureVpnShareCredential() }
+    // Only the Xray-core engine (ConfigBuilder's socks-in/http-share-in)
+    // actually exposes the shared proxy - OpenVPN and IKEv2 run through
+    // completely separate engines with no such inbound at all, so telling
+    // the user it's active there would be a real IP/port that never works.
+    val activeProtocol = configs.find { it.id == activeId }?.protocol
+    val xraySupported = !activeId.orEmpty().startsWith("ovpn:") && activeProtocol != "ikev2"
+    val live = enabled && connected == Connection.CONNECTED && xraySupported
+
+    fun copy(label: String, value: String) {
+        clipboard.setText(AnnotatedString(value))
+        android.widget.Toast.makeText(context, "$label کپی شد", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
     GlassDialog(
         onDismiss = onDismiss,
-        title = "اشتراک‌گذاری VPN (SOCKS5)",
+        title = "VPN Share",
         confirmLabel = "بستن",
         onConfirm = onDismiss
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("اشتراک‌گذاری اتصال VPN با دستگاه دیگر", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
                     .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(Modifier.weight(1f)) {
-                    Text("فعال‌سازی اشتراک‌گذاری", fontWeight = FontWeight.Bold)
-                    Text(
-                        "فقط حالت «VPN Only» — دستگاه‌های مهمان باید پروکسی SOCKS5 را دستی تنظیم کنند",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Switch(checked = enabled, onCheckedChange = { store.setVpnShareEnabled(it) })
+                Text(
+                    "فعال‌سازی اشتراک‌گذاری", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
+                )
+                Switch(checked = enabled, onCheckedChange = { store.setVpnShareEnabled(it); applyLiveIfConnected() })
             }
-            if (enabled) {
-                if (connected == Connection.CONNECTED) {
-                    Column(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                            .background(AppGreen.copy(alpha = 0.10f))
-                            .padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        Text("تنظیمات پروکسی روی دستگاه مهمان:", fontWeight = FontWeight.Bold)
-                        Text("نوع: SOCKS5")
-                        Text("آدرس: ${hotspotIp ?: "ابتدا هات‌اسپات این گوشی را روشن کن"}")
-                        Text("پورت: $port")
-                        Text("نام کاربری: $shareUser")
-                        Text("رمز عبور: $sharePass")
-                        Text(
-                            "دستگاه باید به هات‌اسپات همین گوشی متصل باشد و این مقادیر — همراه با نام کاربری و رمز — را در تنظیمات Wi-Fi/پروکسی خودش وارد کند؛ بدون آن‌ها وصل نمی‌شود.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (hotspotIp != null && shareUser.isNotBlank() && sharePass.isNotBlank()) {
-                            val qrText = "socks5://$shareUser:$sharePass@$hotspotIp:$port"
-                            val qrBitmap = remember(qrText) { ConfigShare.qrBitmap(qrText, size = 480) }
-                            qrBitmap?.let {
-                                Image(
-                                    it.asImageBitmap(),
-                                    contentDescription = null,
-                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).aspectRatio(1f)
-                                )
-                            }
-                        }
-                        TextButton(
-                            onClick = { store.regenerateVpnShareCredential() },
-                            modifier = Modifier.align(Alignment.End)
-                        ) { Text("تولید رمز جدید (برای اعمال شدن، اتصال را قطع و دوباره وصل کن)") }
-                    }
+            if (enabled && connected != Connection.CONNECTED) {
+                Text(
+                    "وضعیت: غیرفعال (برای شروع، اول از صفحهٔ اصلی به یک سرور وصل شو)",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+                )
+            } else if (enabled && connected == Connection.CONNECTED && !xraySupported) {
+                Text(
+                    "وضعیت: غیرفعال (این قابلیت فقط برای پروتکل‌های Xray کار می‌کند؛ اتصال فعلی OpenVPN یا IKEv2 است)",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+                )
+            }
+            if (live) {
+                Text("وضعیت: فعال", fontWeight = FontWeight.Bold, color = AppGreen)
+                val ip = hotspotIp
+                if (ip == null) {
+                    Text("ابتدا هات‌اسپات همین گوشی را روشن کن.", color = MaterialTheme.colorScheme.error)
                 } else {
+                    ShareAddressRow("آدرس پراکسی (HTTP، برای تنظیمات Wi-Fi)", ip, httpPort.toString(), ::copy)
                     Text(
-                        "برای اشتراک‌گذاری، اول از صفحهٔ اصلی به یک سرور وصل شو؛ پروکسی وقتی فعال می‌شود که اتصال برقرار باشد.",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+                        "بدون رمز؛ هر دستگاهی در همین شبکه می‌تواند از این آدرس استفاده کند.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error
                     )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f))
+                    ShareAddressRow("آدرس SOCKS5 (امن‌تر؛ برای اپ/مرورگری که SOCKS را پشتیبانی کند)",
+                        ip, socksPort.toString(), ::copy)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("کاربری: $shareUser", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { copy("نام کاربری", shareUser) },
+                            contentPadding = PaddingValues(4.dp)) { Text("کپی") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("رمز: $sharePass", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { copy("رمز", sharePass) },
+                            contentPadding = PaddingValues(4.dp)) { Text("کپی") }
+                    }
+                    TextButton(onClick = { store.regenerateVpnShareCredential(); applyLiveIfConnected() }) {
+                        Text("تولید رمز SOCKS5 جدید")
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { showGuide = true }, modifier = Modifier.weight(1f)) {
+                        Text("راهنمای اتصال")
+                    }
+                    OutlinedButton(
+                        onClick = { store.setVpnShareEnabled(false); applyLiveIfConnected() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.weight(1f)
+                    ) { Text("توقف اشتراک‌گذاری") }
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
             Text(
-                "دو حالت «ترکیبی VPN و اینترنت» و «فقط دستگاه‌های متصل از VPN استفاده کنند» در این نسخه پیاده‌سازی نشده‌اند: اندروید به این اپ اجازهٔ دخالت در ترافیک دستگاه‌های دیگرِ متصل به هات‌اسپات را نمی‌دهد؛ این کار بدون دسترسی روت ممکن نیست. تنها راه واقعی، همین پروکسی SOCKS5 دستی بالاست.",
+                "این پراکسی فقط ترافیکی را که خودت به آن دستگاه اجازه می‌دهی از VPN رد می‌کند، نه کل دستگاه دوم را؛ بستگی به این دارد که خود آن دستگاه یا برنامه‌اش پراکسی را رعایت کند. اشتراک‌گذاری کامل ترافیک دستگاه دوم بدون دسترسی روت روی اندروید ممکن نیست.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+
+    if (showGuide) {
+        AlertDialog(
+            onDismissRequest = { showGuide = false },
+            title = { Text("راهنمای اتصال") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("۱. دستگاه دوم را به همان Wi-Fi یا هات‌اسپات این گوشی وصل کن.")
+                    Text("۲. تنظیمات شبکهٔ Wi-Fi را باز کن.")
+                    Text("۳. بخش Proxy را روی Manual بگذار.")
+                    Text("۴. آدرس و پورت HTTP بالا را وارد کن (این تنظیم رمز را نمی‌پذیرد).")
+                    Text("۵. برای اتصال امن‌تر با رمز، به‌جای تنظیمات Wi-Fi از پراکسی SOCKS5 داخل خود مرورگر یا برنامه استفاده کن.")
+                    Text("۶. تنظیمات را ذخیره کن و یک اتصال واقعی را امتحان کن.")
+                }
+            },
+            confirmButton = { TextButton(onClick = { showGuide = false }) { Text("متوجه شدم") } }
+        )
+    }
+}
+
+@Composable
+private fun ShareAddressRow(label: String, ip: String, port: String, onCopy: (String, String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("آدرس: $ip", modifier = Modifier.weight(1f))
+            TextButton(onClick = { onCopy("آدرس", ip) }, contentPadding = PaddingValues(4.dp)) { Text("کپی آدرس") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("پورت: $port", modifier = Modifier.weight(1f))
+            TextButton(onClick = { onCopy("پورت", port) }, contentPadding = PaddingValues(4.dp)) { Text("کپی پورت") }
         }
     }
 }
