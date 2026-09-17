@@ -95,4 +95,10 @@ androidComponents {
 dependencies {
     implementation("androidx.annotation:annotation:1.9.1")
     implementation("androidx.core:core-ktx:1.17.0")
+
+    // src/test/java/.../TestConfigParser.kt uses these directly; the module
+    // never declared them, which fails compileDebugUnitTestKotlin.
+    testImplementation(libs.junit)
+    testImplementation("org.robolectric:robolectric:4.13")
+    testImplementation("androidx.test:core:1.6.1")
 }
