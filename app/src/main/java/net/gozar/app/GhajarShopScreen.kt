@@ -422,6 +422,17 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             item(key = "shop-block-5") {
                 StoreSectionTabs(section = section, onSelect = { section = it })
             }
+            item(key = "shop-status-center") {
+                OrderStatusCenter(
+                    balanceText = paymentOptions?.let { "${formatPrice(it.balance)} ${it.currency}" },
+                    pendingCount = serverPending.size,
+                    activeServiceCount = owned.count { it.status.lowercase() in setOf("active", "enabled", "فعال") },
+                    totalServiceCount = owned.size,
+                    onOpenWallet = { section = 3 },
+                    onOpenPending = { section = 0 },
+                    onOpenServices = { section = 1 }
+                )
+            }
             if (section == 4) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
@@ -1217,6 +1228,49 @@ private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
 }
 
 private fun formatPrice(price: Long): String = NumberFormat.getIntegerInstance(Locale("fa", "IR")).format(price)
+
+/** One glance at everything the checkout/wallet tabs already track
+ * separately - balance, pending payments, active services - built from
+ * the same state this screen already fetched, no new API calls. */
+@Composable
+private fun OrderStatusCenter(
+    balanceText: String?,
+    pendingCount: Int,
+    activeServiceCount: Int,
+    totalServiceCount: Int,
+    onOpenWallet: () -> Unit,
+    onOpenPending: () -> Unit,
+    onOpenServices: () -> Unit
+) {
+    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier.fillMaxWidth().padding(vertical = 14.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            StatusCenterCell("موجودی", balanceText ?: "…", onOpenWallet)
+            StatusCenterCell("در انتظار پرداخت", pendingCount.toString(), onOpenPending,
+                accent = pendingCount > 0)
+            StatusCenterCell("سرویس‌های فعال", "$activeServiceCount/$totalServiceCount", onOpenServices)
+        }
+    }
+}
+
+@Composable
+private fun StatusCenterCell(label: String, value: String, onClick: () -> Unit, accent: Boolean = false) {
+    Column(
+        Modifier.clickable(onClick = onClick).padding(horizontal = 10.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (accent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+        )
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
 
 /** A real side-by-side comparison built from the same GhajarProduct list the
  * store already fetched from the panel - no separate numbers, no guessing. */
