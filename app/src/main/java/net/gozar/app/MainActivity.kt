@@ -8735,6 +8735,31 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        OutlinedButton(
+            onClick = {
+                val csv = buildString {
+                    append("label,upload_bytes,download_bytes\n")
+                    bars.forEach { bar -> append("${bar.label},${bar.up},${bar.down}\n") }
+                }
+                runCatching {
+                    val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+                    val file = java.io.File(dir, "ghajar-usage.csv")
+                    file.writeText(csv, Charsets.UTF_8)
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", file
+                    )
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/csv"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, "خروجی CSV مصرف"))
+                }
+            },
+            enabled = bars.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("خروجی CSV همین بازه") }
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
