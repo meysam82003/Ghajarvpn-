@@ -1,6 +1,17 @@
 package net.gozar.app
 
+import java.util.concurrent.atomic.AtomicBoolean
+
 object SubscriptionRefresher {
+
+    // Two independent callers can ask for a refresh around the same moment -
+    // Gozarapplication's onActivityStarted (every foreground return) and
+    // MainActivity's own 30-minute loop (which also fires immediately on
+    // first composition). With no guard both ran their own full sequential
+    // sweep over every subscription at once, doubling the network fetches/
+    // parsing for that whole pass. A concurrent call is redundant work on
+    // the same store.subscriptions.value list, so it's skipped, not queued.
+    private val running = AtomicBoolean(false)
 
     /**
      * @param force When true, refresh every subscription regardless of the
@@ -9,6 +20,15 @@ object SubscriptionRefresher {
      * only subscriptions older than [ConfigStore.autoRefreshHours] are touched.
      */
     suspend fun refreshStale(store: ConfigStore, force: Boolean = false) {
+        if (!running.compareAndSet(false, true)) return
+        try {
+            refreshStaleLocked(store, force)
+        } finally {
+            running.set(false)
+        }
+    }
+
+    private suspend fun refreshStaleLocked(store: ConfigStore, force: Boolean) {
         val targets = if (force) {
             store.subscriptions.value
         } else {
