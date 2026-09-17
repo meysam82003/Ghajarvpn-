@@ -150,6 +150,8 @@ class QsTileService : TileService() {
             )
             .putExtra(GozarVpnService.EXTRA_NAME, config.name)
             .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
+            .putExtra(GozarVpnService.EXTRA_ADDRESS, config.address)
+            .putExtra(GozarVpnService.EXTRA_PORT, config.port)
         runCatching { ContextCompat.startForegroundService(this, intent) }
             .onFailure { VpnState.setError("شروع سرویس VPN ناموفق بود") }
     }

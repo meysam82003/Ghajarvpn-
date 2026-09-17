@@ -39,6 +39,10 @@ class GozarVpnService : VpnService() {
     private var startJob: Job? = null
     private val engineLock = kotlinx.coroutines.sync.Mutex()
     private var configName: String = "VPN"
+    private var configAddress: String = ""
+    private var configPort: Int = 0
+    @Volatile private var lastPingMs: Int? = null
+    @Volatile private var pinging = false
     private var stopLabel: String = "Disconnect"
     @Volatile private var tearingDown = false
     private var autoSelector: AutoSelector? = null
@@ -74,6 +78,10 @@ class GozarVpnService : VpnService() {
                 }
                 return START_NOT_STICKY
             }
+            ACTION_PING -> {
+                if (enginesReady && !tearingDown) runPing()
+                return START_STICKY
+            }
             else -> {
                 val configJson = intent?.getStringExtra(EXTRA_CONFIG)
                 if (startJob?.isActive == true || enginesReady || tunFd != null) return START_STICKY
@@ -81,6 +89,9 @@ class GozarVpnService : VpnService() {
                 psiphonSpec = PsiphonSpec.parse(intent?.getStringExtra(EXTRA_PSIPHON))
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
                 configName = intent?.getStringExtra(EXTRA_NAME) ?: "VPN"
+                configAddress = intent?.getStringExtra(EXTRA_ADDRESS).orEmpty()
+                configPort = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
+                lastPingMs = null
                 stopLabel = intent?.getStringExtra(EXTRA_STOP_LABEL) ?: "Disconnect"
                 if (configJson.isNullOrEmpty()) {
                     die("No config provided")
@@ -254,8 +265,30 @@ class GozarVpnService : VpnService() {
         torSpec = if (config.protocol == "tor")
             config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
         configName = config.name
+        configAddress = config.address
+        configPort = config.port
+        lastPingMs = null
         VpnState.setConnecting(config.id)
         startTunnel(json)
+    }
+
+    /** A real TCP-connect round trip to the active server (same mechanism
+     * Pinger already uses elsewhere in the app), triggered by the notification's
+     * "پینگ" action. Never fabricated: a failed probe clears the shown value
+     * instead of keeping a stale number on screen. */
+    private fun runPing() {
+        if (pinging || configAddress.isBlank() || configPort <= 0) return
+        pinging = true
+        scope.launch {
+            val result = Pinger.ping(configAddress, configPort)
+            lastPingMs = (result as? PingResult.Ok)?.ms
+            pinging = false
+            if (!tearingDown) {
+                runCatching {
+                    getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, buildNotification())
+                }
+            }
+        }
     }
 
     private fun setupGeoAssets() {
@@ -419,17 +452,28 @@ class GozarVpnService : VpnService() {
             this, 1, Intent(this, GozarVpnService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
+        val pingPi = PendingIntent.getService(
+            this, 2, Intent(this, GozarVpnService::class.java).setAction(ACTION_PING),
+            PendingIntent.FLAG_IMMUTABLE
+        )
         // First line: live instantaneous speed (updates every second). Second
         // line: total data used this session so far. Both, not one replacing
         // the other.
         val speedLine = "↓ ${fmt(downSpeed)}/s   ↑ ${fmt(upSpeed)}/s"
         val usageLine = "${fmt(totalDown)} دانلود  •  ${fmt(totalUp)} آپلود"
+        val titleWithPing = lastPingMs?.let { "$configName · ${it}ms" } ?: configName
+        val pingLabel = if (pinging) "در حال تست…" else "پینگ"
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(configName)
+            .setContentTitle(titleWithPing)
             .setContentText(speedLine)
             .setStyle(Notification.BigTextStyle().bigText("$speedLine\n$usageLine"))
             .setSmallIcon(R.drawable.ic_stat_ghajar)
             .setContentIntent(pi)
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_rotate, pingLabel, pingPi
+                ).build()
+            )
             .addAction(
                 Notification.Action.Builder(
                     android.R.drawable.ic_menu_close_clear_cancel, stopLabel, stopPi
@@ -486,11 +530,14 @@ class GozarVpnService : VpnService() {
         const val EXTRA_AETHER_CODE = "net.gozar.app.AETHER_EMAIL_CODE"
         const val ACTION_STOP = "net.gozar.app.STOP"
         const val ACTION_WARM = "net.gozar.app.WARM"
+        const val ACTION_PING = "net.gozar.app.PING"
         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"
         const val EXTRA_AETHER = "net.gozar.app.AETHER"
         const val EXTRA_PSIPHON = "net.gozar.app.PSIPHON"
         const val EXTRA_TOR = "net.gozar.app.TOR"
         const val EXTRA_NAME = "net.gozar.app.NAME"
         const val EXTRA_STOP_LABEL = "net.gozar.app.STOP_LABEL"
+        const val EXTRA_ADDRESS = "net.gozar.app.ADDRESS"
+        const val EXTRA_PORT = "net.gozar.app.PORT"
     }
 }

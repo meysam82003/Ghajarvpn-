@@ -1198,11 +1198,14 @@ class MainActivity : ComponentActivity() {
             store.onionRouting.value -> "|1"
             else -> null
         }
-        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon) }; vpnPermission.launch(intent) }
-        else startTunnel(json, config.name, aether, tor, psiphon)
+        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port) }; vpnPermission.launch(intent) }
+        else startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port)
     }
 
-    private fun startTunnel(configJson: String, name: String, aether: String, tor: String?, psiphon: String? = null) {
+    private fun startTunnel(
+        configJson: String, name: String, aether: String, tor: String?, psiphon: String? = null,
+        address: String = "", port: Int = 0
+    ) {
         guardedConnect { androidx.core.content.ContextCompat.startForegroundService(this,
             Intent(this, GozarVpnService::class.java)
                 .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
@@ -1211,6 +1214,8 @@ class MainActivity : ComponentActivity() {
                 .putExtra(GozarVpnService.EXTRA_TOR, tor)
                 .putExtra(GozarVpnService.EXTRA_PSIPHON, psiphon)
                 .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
+                .putExtra(GozarVpnService.EXTRA_ADDRESS, address)
+                .putExtra(GozarVpnService.EXTRA_PORT, port)
         ) }
     }
 
