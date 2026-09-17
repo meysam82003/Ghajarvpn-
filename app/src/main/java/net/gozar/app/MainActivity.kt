@@ -996,8 +996,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectTo(config: ProxyConfig) {
-        val s = VpnState.state.value
-        if (s == Connection.CONNECTING || s == Connection.CONNECTED || s == Connection.DISCONNECTING) return
+        // Any request to connect to a specific server - the picker's play
+        // button, the home screen's main button, a quick-connect shortcut -
+        // makes that server the selection, exactly like tapping the row
+        // itself already does via ConfigPickerScreen's onSelect. This used
+        // to only happen for the row tap: connecting via the play button
+        // left the previous selection in store.selectedId untouched, so the
+        // home button (which always reads store.selectedId) reconnected to
+        // a stale, different server after the next disconnect.
+        store.setSelectedId(config.id)
+
+        when (ConnectDecision.resolve(VpnState.state.value, VpnState.activeId.value, config.id)) {
+            ConnectAction.IGNORE -> return
+            // Already on a tunnel to a different server: switch through the
+            // same disconnect-then-connect sequencing switchTo() already
+            // uses for a row tap while connected, instead of silently doing
+            // nothing.
+            ConnectAction.SWITCH -> { switchTo(config); return }
+            ConnectAction.CONNECT -> Unit
+        }
 
         if (!store.autoSelect.value) {
             launchConnect(config)
