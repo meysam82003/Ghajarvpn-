@@ -158,7 +158,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     suspend fun refreshOwnedAndNotices() {
         owned = api.ownedServices()
         notices = api.notices()
+        GhajarServiceExpiryNotifier.checkAndNotify(context, owned)
     }
+
+    var renewTarget by remember { mutableStateOf<GhajarOwnedService?>(null) }
+    val needingRenewal = remember(owned) { owned.filter { it.needsRenewal } }
 
     val checkout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         checkoutModel.checkPayment()
@@ -423,9 +427,16 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
             if (section == 1) {
                 item { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
+                if (needingRenewal.isNotEmpty()) {
+                    item { ServiceExpiryBanner(needingRenewal, onRenew = { renewTarget = it }) }
+                }
                 if (owned.isEmpty() && !busy) item { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
                 items(owned, key = { "owned:${it.username}" }) { service ->
-                    OwnedServiceCard(service) { checkoutModel.importOwned(service.username) }
+                    OwnedServiceCard(
+                        service = service,
+                        onImport = { checkoutModel.importOwned(service.username) },
+                        onRenew = { renewTarget = service }
+                    )
                 }
             }
 
@@ -638,6 +649,21 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             dismissButton = { TextButton(onClick = { confirmation = null }) { Text("بازگشت") } }
         )
     }
+    renewTarget?.let { service ->
+        RenewServiceDialog(
+            api = api,
+            service = service,
+            onDismiss = { renewTarget = null },
+            onTopUp = { amount ->
+                walletAmount = amount.toString()
+                checkoutModel.topUp(amount)
+            },
+            onRenewed = {
+                renewTarget = null
+                scope.launch { storeResult { refreshOwnedAndNotices() } }
+            }
+        )
+    }
 }
 
 private fun asciiDigits(value: String): String = GhajarUiRules.asciiDigits(value)
@@ -731,7 +757,7 @@ private fun SectionTitle(title: String, subtitle: String) {
 }
 
 @Composable
-private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) {
+private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, onRenew: () -> Unit) {
     Card(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -742,13 +768,137 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) 
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
             val active = service.status.lowercase() in setOf("active", "enabled", "فعال")
-            Text(if (active) "فعال" else when(service.status.lowercase()) { "expired" -> "منقضی"; "disabled", "inactive" -> "غیرفعال"; else -> service.status },
+            Text(
+                when (service.status.lowercase()) {
+                    "active", "enabled", "فعال" -> "فعال"
+                    "expired" -> "منقضی"
+                    "disabled", "inactive" -> "غیرفعال"
+                    "end_of_time" -> "زمان تمام‌شده"
+                    "end_of_volume" -> "حجم تمام‌شده"
+                    "send_on_hold" -> "متوقف‌شده"
+                    "sendedwarn" -> "هشدار انقضا"
+                    else -> service.status
+                },
                 style = MaterialTheme.typography.labelMedium,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+            )
+            if (service.needsRenewal) {
+                Spacer(Modifier.width(8.dp))
+                TextButton(onClick = onRenew) { Text("تمدید") }
+            }
             Spacer(Modifier.width(6.dp))
             Icon(Icons.Filled.AddCircle, "افزودن")
         }
     }
+}
+
+@Composable
+private fun ServiceExpiryBanner(services: List<GhajarOwnedService>, onRenew: (GhajarOwnedService) -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFD6B45F).copy(alpha = 0.16f))
+    ) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                if (services.size == 1) "یک سرویس نیاز به تمدید دارد" else "${services.size} سرویس نیاز به تمدید دارند",
+                fontWeight = FontWeight.Bold
+            )
+            services.forEach { service ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(service.productName, modifier = Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Button(onClick = { onRenew(service) }) { Text("تمدید") }
+                }
+            }
+        }
+    }
+}
+
+/** Renewal dialog: fetches real plans/pricing from the panel and confirms against
+ * wallet balance; on insufficient balance, hands the shortfall to the existing
+ * wallet top-up flow rather than inventing a separate payment path. */
+@Composable
+private fun RenewServiceDialog(
+    api: GhajarStoreApi,
+    service: GhajarOwnedService,
+    onDismiss: () -> Unit,
+    onTopUp: (Long) -> Unit,
+    onRenewed: () -> Unit
+) {
+    var loading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var options by remember { mutableStateOf<GhajarRenewOptions?>(null) }
+    var confirming by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<GhajarRenewResult?>(null) }
+    val scope = rememberCoroutineScope()
+
+    LaunchedEffect(service.username) {
+        loading = true; error = null
+        runCatching { api.renewOptions(service.username) }
+            .onSuccess { options = it }
+            .onFailure { error = it.message ?: "خطا در دریافت گزینه‌های تمدید" }
+        loading = false
+    }
+
+    fun confirm(code: String) {
+        confirming = true
+        error = null
+        scope.launch {
+            runCatching { api.confirmRenew(service.username, code) }
+                .onSuccess { r -> result = r; if (r.done) onRenewed() }
+                .onFailure { error = it.message ?: "تمدید ناموفق بود" }
+            confirming = false
+        }
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("تمدید ${service.productName}") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                when {
+                    loading -> Text("در حال دریافت گزینه‌ها…")
+                    error != null -> Text(error!!, color = MaterialTheme.colorScheme.error)
+                    else -> {
+                        val opts = options
+                        if (opts != null && result?.done != true) {
+                            Text("موجودی کیف پول: ${formatPrice(opts.balance)} تومان", style = MaterialTheme.typography.bodySmall)
+                            opts.currentPlan?.let { Text("پلن فعلی: ${it.name}", fontWeight = FontWeight.Bold) }
+                            if (opts.products.isEmpty()) Text("پلنی برای تمدید در دسترس نیست.")
+                            opts.products.forEach { product ->
+                                Card(onClick = { if (!confirming) confirm(product.code) }, modifier = Modifier.fillMaxWidth()) {
+                                    Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                                        Column(Modifier.weight(1f)) {
+                                            Text(product.name, fontWeight = FontWeight.Bold)
+                                            Text("${product.volumeGb} گیگابایت • ${product.timeDays} روز", style = MaterialTheme.typography.bodySmall)
+                                        }
+                                        if (product.showPrice) Text("${formatPrice(product.price)} تومان", fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                        if (confirming) Text("در حال تمدید…")
+                        result?.let { r ->
+                            when {
+                                r.done -> Text(r.message, color = AppGreen)
+                                r.amountDue != null -> {
+                                    Text(r.message, color = Color(0xFFD6B45F))
+                                    Button(
+                                        onClick = { onTopUp(r.amountDue); onDismiss() },
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) { Text("شارژ ${formatPrice(r.amountDue)} تومان و تلاش دوباره") }
+                                }
+                                else -> Text(r.message)
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text(if (result?.done == true) "بستن" else "انصراف") }
+        }
+    )
 }
 
 /** Store tabs: exact labels, horizontally and vertically centered, uniform metrics. */

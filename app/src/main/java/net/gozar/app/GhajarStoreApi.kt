@@ -61,6 +61,49 @@ data class GhajarOwnedService(
     val productName: String,
     val status: String,
     val location: String
+) {
+    /** Real invoice statuses the panel's cron sets (see NoticationsService.php):
+     * a service in one of these needs the user's attention to renew. */
+    val needsRenewal: Boolean
+        get() = status.lowercase() in setOf("end_of_time", "end_of_volume", "sendedwarn", "send_on_hold")
+}
+
+data class GhajarRenewProduct(
+    val code: String,
+    val name: String,
+    val volumeGb: Int,
+    val timeDays: Int,
+    val price: Long,
+    val showPrice: Boolean,
+    val note: String
+)
+
+data class GhajarRenewCustomOptions(
+    val enabled: Boolean,
+    val pricePerGb: Long,
+    val pricePerDay: Long,
+    val minVolumeGb: Int,
+    val maxVolumeGb: Int,
+    val minTimeDays: Int,
+    val maxTimeDays: Int
+)
+
+data class GhajarRenewOptions(
+    val username: String,
+    val panelName: String,
+    val currentPlan: GhajarRenewProduct?,
+    val products: List<GhajarRenewProduct>,
+    val showPrice: Boolean,
+    val balance: Long,
+    val custom: GhajarRenewCustomOptions
+)
+
+data class GhajarRenewResult(
+    val done: Boolean,
+    val message: String,
+    val balanceAfter: Long?,
+    val amountDue: Long?,
+    val orderId: String?
 )
 
 data class GhajarServiceDetails(
@@ -291,6 +334,54 @@ class GhajarStoreApi(context: Context) {
     suspend fun service(username: String): GhajarServiceDetails {
         val payload = action("service", params = mapOf("username" to username)).payloadObject()
         return serviceFrom(payload, username)
+    }
+
+    /** Renewal plans for an owned service (action=service_renew_options on the panel). */
+    suspend fun renewOptions(username: String): GhajarRenewOptions {
+        val payload = action("service_renew_options", params = mapOf("username" to username)).payloadObject()
+        fun product(o: JSONObject) = GhajarRenewProduct(
+            code = o.optString("code"),
+            name = visible(o.optString("name")),
+            volumeGb = o.optInt("volume_gb"),
+            timeDays = o.optInt("time_days"),
+            price = o.optDouble("price", 0.0).toLong(),
+            showPrice = o.optBoolean("show_price", true),
+            note = visible(o.optString("note"))
+        )
+        val custom = payload.optJSONObject("custom") ?: JSONObject()
+        return GhajarRenewOptions(
+            username = payload.optString("username", username),
+            panelName = visible(payload.optJSONObject("panel")?.optString("name").orEmpty()),
+            currentPlan = payload.optJSONObject("current_plan")?.let(::product),
+            products = payload.optJSONArray("products").orEmpty().objects().map(::product),
+            showPrice = payload.optBoolean("show_price", true),
+            balance = payload.optDouble("balance", 0.0).toLong(),
+            custom = GhajarRenewCustomOptions(
+                enabled = custom.optBoolean("enabled"),
+                pricePerGb = custom.optDouble("price_per_gb", 0.0).toLong(),
+                pricePerDay = custom.optDouble("price_per_day", 0.0).toLong(),
+                minVolumeGb = custom.optInt("min_volume_gb"),
+                maxVolumeGb = custom.optInt("max_volume_gb"),
+                minTimeDays = custom.optInt("min_time_days"),
+                maxTimeDays = custom.optInt("max_time_days")
+            )
+        )
+    }
+
+    /** Confirms a renewal by product code (action=service_renew_confirm). If the wallet
+     * balance doesn't cover it, `done` is false and amountDue/orderId are set so the
+     * caller can top up (the existing wallet top-up flow) and retry. */
+    suspend fun confirmRenew(username: String, productCode: String): GhajarRenewResult {
+        val body = JSONObject().put("username", username).put("product_code", productCode)
+        val payload = action("service_renew_confirm", method = "POST", body = body).payloadObject()
+        val kind = payload.optString("kind")
+        return GhajarRenewResult(
+            done = kind == "done",
+            message = visible(payload.optString("message")),
+            balanceAfter = payload.optNullableDouble("balance_after")?.toLong(),
+            amountDue = payload.optNullableDouble("amount_due")?.toLong(),
+            orderId = payload.optString("order_id").takeIf { it.isNotBlank() }
+        )
     }
 
     suspend fun notices(): List<GhajarNotice> {
