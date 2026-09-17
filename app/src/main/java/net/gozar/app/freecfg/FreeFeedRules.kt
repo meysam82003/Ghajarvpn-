@@ -64,9 +64,21 @@ object FreeFeedRules {
             .sorted().joinToString("|") { key -> "$key=${json.get(key)}" }
     }
 
-    fun reconcile(previous: List<ProxyConfig>, healthy: List<ProxyConfig>, tested: Set<String>, complete: Boolean): List<ProxyConfig> {
+    /** Hard ceiling on the managed free-config set (@Ghajarvpn subscription only). */
+    const val MAX_MANAGED_CONFIGS = 35
+
+    fun reconcile(
+        previous: List<ProxyConfig>,
+        healthy: List<ProxyConfig>,
+        tested: Set<String>,
+        complete: Boolean,
+        limit: Int = MAX_MANAGED_CONFIGS
+    ): List<ProxyConfig> {
         val retained = if (complete) emptyList() else previous.filterNot { signature(it) in tested }
-        return (healthy + retained).distinctBy(::signature)
+        // `healthy` already arrives fastest-first; retained (still-valid, untested)
+        // configs fill any remaining slots so a partial refresh never discards more
+        // than the cap forces. distinctBy + take preserve that priority order.
+        return (healthy + retained).distinctBy(::signature).take(limit)
             .mapIndexed { i, cfg -> cfg.copy(name = "Ghajarvpn ${i + 1}") }
     }
 

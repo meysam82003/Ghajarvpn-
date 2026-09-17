@@ -61,6 +61,26 @@ class FreeFeedRulesTest {
         assertTrue(FreeFeedRules.reconcile(old, emptyList(), tested, true).isEmpty())
     }
 
+    @Test fun reconcileCapsTheManagedFeedAt35ButNeverTouchesOtherSubscriptions() {
+        assertEquals(35, FreeFeedRules.MAX_MANAGED_CONFIGS)
+        val healthy = (1..50).map { ProxyConfig("h$it", "vless", "healthy$it.example", 443, uuid = "id") }
+        val previous = (1..50).map { ProxyConfig("p$it", "vless", "previous$it.example", 443, uuid = "id") }
+
+        // A complete, all-healthy refresh still respects the cap.
+        val complete = FreeFeedRules.reconcile(previous, healthy, emptySet(), complete = true)
+        assertEquals(35, complete.size)
+        assertEquals((1..35).map { "healthy$it.example" }, complete.map { it.address })
+
+        // A partial refresh fills any cap headroom from untested survivors, fastest
+        // (healthy) entries first, never exceeding 35 regardless of how many
+        // candidates or untested previous entries exist.
+        val fewHealthy = healthy.take(10)
+        val partial = FreeFeedRules.reconcile(previous, fewHealthy, emptySet(), complete = false)
+        assertEquals(35, partial.size)
+        assertEquals((1..10).map { "healthy$it.example" } + (1..25).map { "previous$it.example" },
+            partial.map { it.address })
+    }
+
     @Test fun jsonSubscriptionArrayReadsAllNineProfilesAndSkipsDirectOutbounds() {
         val json = (1..9).joinToString(",", "[", "]") { i -> """
           {"remarks":"source $i","log":{},"inbounds":[],"outbounds":[
