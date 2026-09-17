@@ -425,7 +425,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
             if (section == 2) item(key = "notification-settings") { GhajarNotificationSettings() }
-            if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision) }
+            if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, store.lang.value) }
             if (section in setOf(0, 3)) {
                 val entries = serverPending.toMutableList()
                 paymentInit?.let { local ->
@@ -434,7 +434,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                             local.amount, local.expiresAt, "pending"))
                 }
                 items(entries, key = { "pending:${it.orderId}" }) { item ->
-                    GhajarPendingPaymentCard(item, checkoutBusy,
+                    GhajarPendingPaymentCard(item, checkoutBusy, store.lang.value,
                         onResume = { checkoutModel.resumePayment(item); section = 0 },
                         onCancel = { checkoutModel.cancelPayment(item.orderId) })
                 }

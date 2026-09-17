@@ -24,7 +24,7 @@ data class GhajarPendingPayment(val orderId: String, val method: String, val lab
 }
 
 @Composable
-fun GhajarPendingPaymentCard(item: GhajarPendingPayment, busy: Boolean, onResume: () -> Unit, onCancel: () -> Unit) {
+fun GhajarPendingPaymentCard(item: GhajarPendingPayment, busy: Boolean, lang: Lang, onResume: () -> Unit, onCancel: () -> Unit) {
     var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
     var confirmCancel by remember { mutableStateOf(false) }
     LaunchedEffect(item.expiresAt) {
@@ -40,7 +40,7 @@ fun GhajarPendingPaymentCard(item: GhajarPendingPayment, busy: Boolean, onResume
             Text("مبلغ: ${paymentMoney(item.amount)} تومان")
             Text(if (item.expiresAt <= 0) "در انتظار بررسی وضعیت سرور"
                 else if (left == 0L) "زمان پرداخت تمام شده؛ وضعیت را پیگیری کن"
-                else "باقی‌مانده: %02d:%02d".format(left / 60, left % 60))
+                else localizeDigits("باقی‌مانده: %02d:%02d".format(left / 60, left % 60), lang))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Button(onClick = onResume, enabled = !busy, modifier = Modifier.weight(1f)) { Text("ادامه پیگیری") }
                 OutlinedButton(onClick = { confirmCancel = true }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("انصراف") }
@@ -55,7 +55,7 @@ fun GhajarPendingPaymentCard(item: GhajarPendingPayment, busy: Boolean, onResume
 }
 
 @Composable
-fun GhajarTransactionHistory(api: GhajarStoreApi, revision: Int) {
+fun GhajarTransactionHistory(api: GhajarStoreApi, revision: Int, lang: Lang) {
     var page by remember { mutableIntStateOf(1) }
     var refresh by remember { mutableIntStateOf(0) }
     var pages by remember { mutableIntStateOf(0) }
@@ -96,7 +96,7 @@ fun GhajarTransactionHistory(api: GhajarStoreApi, revision: Int) {
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             OutlinedButton(onClick = { page-- }, enabled = page > 1 && !busy) { Text("قبلی") }
-            Text("$page / ${pages.coerceAtLeast(1)}", Modifier.padding(top = 12.dp))
+            Text(localizeDigits("$page / ${pages.coerceAtLeast(1)}", lang), Modifier.padding(top = 12.dp))
             OutlinedButton(onClick = { page++ }, enabled = page < pages && !busy) { Text("بعدی") }
         }
     }
