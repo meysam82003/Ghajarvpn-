@@ -229,6 +229,8 @@ class GozarVpnService : VpnService() {
     private fun switchTunnel(config: ProxyConfig) {
         if (tearingDown) return
         val store = ConfigStore.get(applicationContext)
+        val sharing = store.vpnShareEnabled.value
+        val shareCredential = if (sharing) store.ensureVpnShareCredential() else null
         val json = ConfigBuilder.build(
             config, store.fragment.value, store.splitRouting.value,
             store.sniffing.value, store.sniffTypes.value,
@@ -236,7 +238,9 @@ class GozarVpnService : VpnService() {
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             onionRouting = store.onionRouting.value,
-            shareOnLan = store.vpnShareEnabled.value
+            shareOnLan = sharing,
+            shareUser = shareCredential?.first.orEmpty(),
+            sharePass = shareCredential?.second.orEmpty()
         )
         Log.d(TAG, "switching tunnel to ${config.name}")
         pollJob?.cancel(); pollJob = null

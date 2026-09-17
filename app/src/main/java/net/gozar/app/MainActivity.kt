@@ -113,6 +113,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -1180,7 +1181,9 @@ class MainActivity : ComponentActivity() {
                 store.configs.value.find { it.id == config.chainId } else null,
             onionRouting = store.onionRouting.value,
             coreLogLevel = store.coreLogLevel.value,
-            shareOnLan = store.vpnShareEnabled.value)
+            shareOnLan = store.vpnShareEnabled.value,
+            shareUser = if (store.vpnShareEnabled.value) store.ensureVpnShareCredential().first else "",
+            sharePass = store.vpnSharePassword.value)
         VpnState.setConnecting(config.id)
         val aether = AetherController.spec(config)
         val psiphon = PsiphonSpec.from(config)?.toJson()
@@ -5943,6 +5946,9 @@ private fun VpnShareDialog(store: ConfigStore, onDismiss: () -> Unit) {
     val connected by VpnState.state.collectAsState()
     val port = MixedPort.value
     val hotspotIp = remember { hotspotInterfaceAddress() }
+    val shareUser by store.vpnShareUsername.collectAsState()
+    val sharePass by store.vpnSharePassword.collectAsState()
+    LaunchedEffect(enabled) { if (enabled) store.ensureVpnShareCredential() }
     GlassDialog(
         onDismiss = onDismiss,
         title = "اشتراک‌گذاری VPN (SOCKS5)",
@@ -5978,11 +5984,28 @@ private fun VpnShareDialog(store: ConfigStore, onDismiss: () -> Unit) {
                         Text("نوع: SOCKS5")
                         Text("آدرس: ${hotspotIp ?: "ابتدا هات‌اسپات این گوشی را روشن کن"}")
                         Text("پورت: $port")
+                        Text("نام کاربری: $shareUser")
+                        Text("رمز عبور: $sharePass")
                         Text(
-                            "دستگاه باید به هات‌اسپات همین گوشی متصل باشد و این مقادیر را در تنظیمات Wi-Fi/پروکسی خودش وارد کند.",
+                            "دستگاه باید به هات‌اسپات همین گوشی متصل باشد و این مقادیر — همراه با نام کاربری و رمز — را در تنظیمات Wi-Fi/پروکسی خودش وارد کند؛ بدون آن‌ها وصل نمی‌شود.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (hotspotIp != null && shareUser.isNotBlank() && sharePass.isNotBlank()) {
+                            val qrText = "socks5://$shareUser:$sharePass@$hotspotIp:$port"
+                            val qrBitmap = remember(qrText) { ConfigShare.qrBitmap(qrText, size = 480) }
+                            qrBitmap?.let {
+                                Image(
+                                    it.asImageBitmap(),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp).aspectRatio(1f)
+                                )
+                            }
+                        }
+                        TextButton(
+                            onClick = { store.regenerateVpnShareCredential() },
+                            modifier = Modifier.align(Alignment.End)
+                        ) { Text("تولید رمز جدید (برای اعمال شدن، اتصال را قطع و دوباره وصل کن)") }
                     }
                 } else {
                     Text(

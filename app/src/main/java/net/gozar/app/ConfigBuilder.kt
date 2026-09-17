@@ -314,7 +314,13 @@ object ConfigBuilder {
         /** VPN Share ("VPN Only" mode): binds the mixed SOCKS5 inbound to all
          * interfaces instead of loopback so devices on this phone's own
          * hotspot can use it as their proxy. See ConfigStore.vpnShareEnabled. */
-        shareOnLan: Boolean = false
+        shareOnLan: Boolean = false,
+        /** Required whenever [shareOnLan] is true: without a SOCKS5 username/
+         * password Xray's socks-in accepts any client on the LAN with no
+         * check at all, i.e. an open proxy. Ignored when [shareOnLan] is
+         * false (the loopback-only inbound never needs one). */
+        shareUser: String = "",
+        sharePass: String = ""
     ): String {
         val onion = onionRouting && config.protocol != "tor"
         val fake = fakeDns || onion
@@ -364,11 +370,19 @@ object ConfigBuilder {
                 .put("routeOnly", !adBlock && splitRouting && !sniffing))
         }
 
+        // A missing credential must never fall back to an open, unauthenticated
+        // proxy on the LAN - fail safe to loopback-only instead.
+        val shareAuthed = shareOnLan && shareUser.isNotBlank() && sharePass.isNotBlank()
+        val socksSettings = JSONObject().put("udp", true)
+        if (shareAuthed) {
+            socksSettings.put("auth", "password")
+                .put("accounts", JSONArray().put(JSONObject().put("user", shareUser).put("pass", sharePass)))
+        }
         val socksIn = JSONObject().put("tag", "socks-in")
             .put("port", MixedPort.value)
-            .put("listen", if (shareOnLan) "0.0.0.0" else "127.0.0.1")
+            .put("listen", if (shareAuthed) "0.0.0.0" else "127.0.0.1")
             .put("protocol", "socks")
-            .put("settings", JSONObject().put("udp", true))
+            .put("settings", socksSettings)
         if (splitRouting || sniffing || adBlock) {
             val socksTypes = JSONArray()
             listOf("http", "tls", "quic").forEach { socksTypes.put(it) }

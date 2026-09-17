@@ -150,6 +150,45 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_VPN_SHARE, enabled).apply()
     }
 
+    /** SOCKS5 credential Xray requires from every VPN-Share client. Without
+     * this the shared inbound was a plain unauthenticated open proxy on the
+     * hotspot subnet - anyone on the same Wi-Fi AP could use or sniff through
+     * it. Generated once on first use and stored the same way other secrets
+     * (KEY_CONFIGS/KEY_SUBS) already are; changing it forces every guest
+     * device to re-enter the new value, which is the intended effect of the
+     * "تولید مجدد" action in the share dialog. */
+    private val _vpnShareUsername = MutableStateFlow(readSecret(KEY_VPN_SHARE_USER).orEmpty())
+    val vpnShareUsername: StateFlow<String> = _vpnShareUsername.asStateFlow()
+
+    private val _vpnSharePassword = MutableStateFlow(readSecret(KEY_VPN_SHARE_PASS).orEmpty())
+    val vpnSharePassword: StateFlow<String> = _vpnSharePassword.asStateFlow()
+
+    /** Returns the current credential, generating and persisting one first if
+     * this is the first time VPN Share is used. */
+    fun ensureVpnShareCredential(): Pair<String, String> {
+        if (_vpnShareUsername.value.isNotBlank() && _vpnSharePassword.value.isNotBlank()) {
+            return _vpnShareUsername.value to _vpnSharePassword.value
+        }
+        return regenerateVpnShareCredential()
+    }
+
+    fun regenerateVpnShareCredential(): Pair<String, String> {
+        val user = "ghajar" + secureRandomToken(4)
+        val pass = secureRandomToken(12)
+        _vpnShareUsername.value = user
+        _vpnSharePassword.value = pass
+        scope.launch(writeDispatcher) {
+            putSecretBlocking(KEY_VPN_SHARE_USER, user)
+            putSecretBlocking(KEY_VPN_SHARE_PASS, pass)
+        }
+        return user to pass
+    }
+
+    private fun secureRandomToken(bytes: Int): String {
+        val raw = ByteArray(bytes).also { java.security.SecureRandom().nextBytes(it) }
+        return raw.joinToString("") { "%02x".format(it) }
+    }
+
     private val _onionRouting = MutableStateFlow(prefs.getBoolean(KEY_ONION, false))
     val onionRouting: StateFlow<Boolean> = _onionRouting.asStateFlow()
 
@@ -696,6 +735,8 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_ONION = "onion_routing"
         private const val KEY_BLOCK_WHEN_OFF = "block_when_off"
         private const val KEY_VPN_SHARE = "vpn_share_enabled"
+        private const val KEY_VPN_SHARE_USER = "vpn_share_user"
+        private const val KEY_VPN_SHARE_PASS = "vpn_share_pass"
         const val SORT_ADDED = "added"
         const val SORT_ALPHA = "alpha"
         const val SORT_FASTEST = "fastest"
