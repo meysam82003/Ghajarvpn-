@@ -656,7 +656,16 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                                 modifier = Modifier.fillMaxWidth()) { Text("ادامهٔ همین پرداخت") }
                         }
                         OutlinedButton(onClick = checkoutModel::checkPayment, enabled = !checkoutBusy,
-                            modifier = Modifier.fillMaxWidth()) { Text("پرداخت کردم؛ بررسی و دریافت سرویس") }
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text(if (checkoutModel.deliveryFailed) "تلاش مجدد برای تحویل سرویس" else "پرداخت کردم؛ بررسی و دریافت سرویس")
+                        }
+                        if (checkoutModel.deliveryFailed) {
+                            Text(
+                                "پرداخت تأیید شده؛ تحویل سرویس یک‌بار ناموفق بود. دوباره پرداخت نکن، فقط تلاش مجدد را بزن.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                         Text("بستن صفحه به معنی لغو تراکنش نیست. در صورت پرداخت، دوباره واریز نکن.",
                             style = MaterialTheme.typography.bodySmall)
                     }

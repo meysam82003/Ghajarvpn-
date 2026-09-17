@@ -39,6 +39,11 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     val pendingPayments = mutableStateOf<List<GhajarPendingPayment>>(emptyList())
     /** Delivery/refund lifecycle of the current paid order; null for unpaid browsing. */
     private val stage = mutableStateOf<GhajarOrderStage?>(null)
+    /** True once a confirmed payment's delivery attempt has failed at least
+     * once - lets the UI show an explicit "retry delivery" action distinct
+     * from the generic "check payment status" one, for the same paid,
+     * undelivered order. */
+    val deliveryFailed: Boolean get() = stage.value == GhajarOrderStage.PROVISION_FAILED
     private var owner = ""
     // The wallet fallback for one invoice is attempted at most once per session
     // and only after the panel had a real chance to finish provisioning.
