@@ -116,7 +116,7 @@ jobs:
           2f3ed72f21c1aa0571b3ba5eb400193a28e9ac02dd65ef4c8b6c45914c1154c0  app/src/main/java/net/gozar/app/GhajarShopScreen.kt
           e88a7947c9562d35151d3f75b03f50c14adfb88360052e596a55a9d49f463984  app/src/main/java/net/gozar/app/GozarVpnService.kt
           68fc24be76784e25c621f9910223a6c0b3f7d77f8011e1377c05d3d590c14339  app/src/main/java/net/gozar/app/Gozarapplication.kt
-          59b5e9193522f34343f8382886e4d457e392eb39b018cd7cebfff29c6bf23694  app/src/main/java/net/gozar/app/MainActivity.kt
+          133a6b6cd914c4ee7f995adce4c5f5bfd1df22a12f4637130f522d7ac03248bc  app/src/main/java/net/gozar/app/MainActivity.kt
           d71d1692a7a941e49b80dad3dc5040b197fbdc0a8d631e6357ccc637e47faded  app/src/main/java/net/gozar/app/SecurePaymentActivity.kt
           5231734910241f05211dd1662e2d73b321bf08f791958512c55fb558eec07467  app/src/main/java/net/gozar/app/Subscriptionrefresher.kt
           af5025b79e7be582ee4b7137eb74065a86f88e7298d087f245e275ea0088b8fc  app/src/main/java/net/gozar/app/PsiphonConfig.kt

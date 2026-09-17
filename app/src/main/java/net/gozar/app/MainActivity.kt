@@ -231,6 +231,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -1293,6 +1294,8 @@ private fun GozarApp(
     val updateCtx = LocalContext.current
     val updateUri = LocalUriHandler.current
     var updateAvailable by remember { mutableStateOf<UpdateChecker.Result.Available?>(null) }
+    var updateDownloadProgress by remember { mutableStateOf<Float?>(null) }
+    var updateDownloadError by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         if (System.currentTimeMillis() - store.lastUpdateCheck() >= 24L * 60 * 60 * 1000L) {
             val ver = runCatching {
@@ -1304,16 +1307,62 @@ private fun GozarApp(
         }
     }
     updateAvailable?.let { upd ->
+        val busy = updateDownloadProgress != null
         GlassDialog(
-            onDismiss = { updateAvailable = null },
+            onDismiss = { if (!busy) updateAvailable = null },
             title = t("update_available").format(upd.version),
             confirmLabel = t("update_now"),
-            dismissLabel = t("later"),
+            dismissLabel = if (busy) null else t("later"),
+            confirmEnabled = !busy,
             onConfirm = {
-                runCatching { updateUri.openUri(upd.url) }
-                updateAvailable = null
+                when {
+                    upd.apkUrl == null -> {
+                        updateDownloadError = t("update_no_apk")
+                        runCatching { updateUri.openUri(upd.url) }
+                        updateAvailable = null
+                    }
+                    !GhajarUpdateInstaller.canInstallPackages(updateCtx) -> {
+                        updateDownloadError = t("update_need_unknown_sources")
+                        runCatching {
+                            updateCtx.startActivity(GhajarUpdateInstaller.unknownSourcesSettingsIntent(updateCtx))
+                        }
+                    }
+                    else -> {
+                        updateDownloadError = null
+                        updateDownloadProgress = 0f
+                        scope.launch {
+                            runCatching {
+                                val file = GhajarUpdateInstaller.download(updateCtx, upd.apkUrl) { p ->
+                                    updateDownloadProgress = p
+                                }
+                                GhajarUpdateInstaller.install(updateCtx, file)
+                            }.onFailure {
+                                updateDownloadError = t("update_download_failed")
+                            }
+                            updateDownloadProgress = null
+                            updateAvailable = null
+                        }
+                    }
+                }
             }
-        ) {}
+        ) {
+            if (upd.changelog.isNotBlank()) {
+                Text(
+                    upd.changelog,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())
+                )
+            }
+            updateDownloadProgress?.let { p ->
+                Spacer(Modifier.height(8.dp))
+                LinearProgressIndicator(progress = { p }, modifier = Modifier.fillMaxWidth())
+                Text(t("update_downloading").format((p * 100).toInt()), style = MaterialTheme.typography.labelSmall)
+            }
+            updateDownloadError?.let { err ->
+                Spacer(Modifier.height(8.dp))
+                Text(err, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+            }
+        }
     }
     var usageDetail by remember { mutableStateOf(false) }
     var perAppDetail by remember { mutableStateOf(false) }
@@ -4029,6 +4078,7 @@ private fun GlassDialog(
     dismissLabel: String? = null,
     destructive: Boolean = false,
     accentOverride: Color? = null,
+    confirmEnabled: Boolean = true,
     body: @Composable ColumnScope.() -> Unit
 ) {
     val accent = accentOverride
@@ -4069,6 +4119,7 @@ private fun GlassDialog(
                     }
                     BounceOutlinedButton(
                         onClick = onConfirm,
+                        enabled = confirmEnabled,
                         minHeight = 42.dp,
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
                         accent = accent,

@@ -12,7 +12,13 @@ object UpdateChecker {
     private const val RELEASES = "https://github.com/meysam82003/Ghajarvpn-/releases/latest"
 
     sealed interface Result {
-        data class Available(val version: String, val url: String) : Result
+        data class Available(
+            val version: String,
+            val url: String,
+            val changelog: String,
+            val apkUrl: String?,
+            val apkSizeBytes: Long?
+        ) : Result
         data object UpToDate : Result
         data object Failed : Result
     }
@@ -36,7 +42,29 @@ object UpdateChecker {
             val url = o.optString("html_url").ifEmpty { RELEASES }
             when {
                 tag.isEmpty() -> Result.Failed
-                isNewer(tag, currentVersion) -> Result.Available(tag, url)
+                isNewer(tag, currentVersion) -> {
+                    val assets = o.optJSONArray("assets")
+                    var apkUrl: String? = null
+                    var apkSize: Long? = null
+                    if (assets != null) {
+                        for (i in 0 until assets.length()) {
+                            val asset = assets.optJSONObject(i) ?: continue
+                            val name = asset.optString("name")
+                            if (name.endsWith(".apk", ignoreCase = true)) {
+                                apkUrl = asset.optString("browser_download_url").ifBlank { null }
+                                apkSize = asset.optLong("size", -1L).takeIf { it > 0 }
+                                break
+                            }
+                        }
+                    }
+                    Result.Available(
+                        version = tag,
+                        url = url,
+                        changelog = o.optString("body").trim(),
+                        apkUrl = apkUrl,
+                        apkSizeBytes = apkSize
+                    )
+                }
                 else -> Result.UpToDate
             }
         } catch (e: Exception) {
