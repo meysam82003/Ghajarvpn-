@@ -149,6 +149,8 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
@@ -1778,7 +1780,9 @@ private fun GozarApp(
                             onPsiphonHub = { showPsiphonHub = true },
                             onConnectOpenVpn = onConnectOpenVpn,
                             onDisconnectOpenVpn = onDisconnectOpenVpn,
-                            onTestOpenVpn = onTestOpenVpn
+                            onTestOpenVpn = onTestOpenVpn,
+                            onConnect = onConnect,
+                            onDisconnect = onDisconnect
                         )
                         "openvpnhub" -> OpenVpnHubScreen(
                             onConnect = onConnectOpenVpn,
@@ -2182,6 +2186,8 @@ private fun ConfigPickerScreen(
     onConnectOpenVpn: (String) -> Unit = {},
     onDisconnectOpenVpn: () -> Unit = {},
     onTestOpenVpn: (String) -> Unit = {},
+    onConnect: (ProxyConfig) -> Unit = {},
+    onDisconnect: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -2190,6 +2196,10 @@ private fun ConfigPickerScreen(
     val configs by store.configs.collectAsState()
     val subscriptions by store.subscriptions.collectAsState()
     val activeId by VpnState.activeId.collectAsState()
+    val conn by VpnState.state.collectAsState()
+    fun toggleConnection(cfg: ProxyConfig) {
+        if (cfg.id == activeId && conn != Connection.DISCONNECTED) onDisconnect() else onConnect(cfg)
+    }
     val clipboard = LocalClipboardManager.current
     val pickerContext = LocalContext.current
     val pickerScope = rememberCoroutineScope()
@@ -2889,7 +2899,9 @@ private fun ConfigPickerScreen(
                                 openActionsId = if (openActionsId == cfg.id) null else cfg.id
                             },
                             modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
-                            containerColor = wsRow
+                            containerColor = wsRow,
+                            conn = conn,
+                            onToggleConnection = { toggleConnection(cfg) }
                         )
                     }
                 }
@@ -2950,7 +2962,9 @@ private fun ConfigPickerScreen(
                         onToggleActions = {
                             openActionsId = if (openActionsId == cfg.id) null else cfg.id
                         },
-                        modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200))
+                        modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
+                        conn = conn,
+                        onToggleConnection = { toggleConnection(cfg) }
                     )
                 }
             }
@@ -10313,7 +10327,9 @@ private fun ConfigRow(
     onToggleActions: () -> Unit,
     modifier: Modifier = Modifier,
     appear: Boolean = true,
-    containerColor: Color? = null
+    containerColor: Color? = null,
+    conn: Connection = Connection.DISCONNECTED,
+    onToggleConnection: (() -> Unit)? = null
 ) {
     val t = stringsFn()
     val lang = LocalLang.current
@@ -10488,6 +10504,22 @@ private fun ConfigRow(
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.clip(CircleShape).clickable { onDelete() }.padding(4.dp).size(21.dp))
                 }
+            }
+            if (!checked && !selectionMode && onToggleConnection != null) {
+                val connectedHere = isActive && conn == Connection.CONNECTED
+                val connectingHere = isActive && conn == Connection.CONNECTING
+                Icon(
+                    when {
+                        connectedHere -> Icons.Filled.Stop
+                        connectingHere -> Icons.Filled.Autorenew
+                        else -> Icons.Filled.PlayArrow
+                    },
+                    contentDescription = if (connectedHere) "قطع اتصال" else "اتصال",
+                    tint = if (connectedHere) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clip(CircleShape)
+                        .clickable(enabled = !connectingHere) { onToggleConnection() }
+                        .padding(4.dp).size(21.dp)
+                )
             }
             if (!checked && !selectionMode) {
                 Box(Modifier.size(29.dp), contentAlignment = Alignment.Center) {
