@@ -28,6 +28,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.security.MessageDigest
 
+/** A tapped "renew this service" action (notification or in-app banner) asks the
+ * store screen to open the renewal dialog for exactly that service username. */
+object GhajarRenewRequest {
+    private val _requested = MutableStateFlow<String?>(null)
+    val requested = _requested.asStateFlow()
+    fun request(username: String) { _requested.value = username }
+    fun consume() { _requested.value = null }
+}
+
 object GhajarNoticeBus {
     private val _notice = MutableStateFlow<GhajarNotice?>(null)
     val notice = _notice.asStateFlow()
@@ -170,7 +179,7 @@ object GhajarNotificationMonitor {
             Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val notification = NotificationCompat.Builder(context, channel)
+        val builder = NotificationCompat.Builder(context, channel)
             .setSmallIcon(R.drawable.ic_stat_ghajar)
             .setContentTitle(notice.title)
             .setContentText(notice.message)
@@ -178,7 +187,18 @@ object GhajarNotificationMonitor {
             .setPriority(if (notice.important) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(open)
-            .build()
+        notice.serviceUsername?.takeIf { it.isNotBlank() }?.let { username ->
+            val renew = PendingIntent.getActivity(
+                context,
+                (notice.id + ":renew").hashCode(),
+                Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(MainActivity.EXTRA_RENEW_SERVICE_USERNAME, username),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(0, "تمدید همین سرویس", renew)
+        }
+        val notification = builder.build()
         return runCatching {
             NotificationManagerCompat.from(context).notify(notice.id.hashCode(), notification)
             true

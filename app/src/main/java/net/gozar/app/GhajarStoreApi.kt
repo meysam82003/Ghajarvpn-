@@ -145,6 +145,49 @@ data class GhajarPurchaseResult(
 data class GhajarTrialPanel(val code: String, val name: String, val remaining: Int? = null)
 data class GhajarTrialOptions(val panels: List<GhajarTrialPanel>, val remaining: Int?, val canRequest: Boolean)
 
+data class GhajarRenewProduct(
+    val code: String,
+    val name: String,
+    val volumeGb: Int,
+    val timeDays: Int,
+    val price: Long,
+    val showPrice: Boolean,
+    val note: String,
+    val isCurrentPlan: Boolean = false
+)
+
+data class GhajarRenewCustomOptions(
+    val enabled: Boolean,
+    val forced: Boolean,
+    val pricePerGb: Long,
+    val pricePerDay: Long,
+    val minVolumeGb: Int,
+    val maxVolumeGb: Int,
+    val minTimeDays: Int,
+    val maxTimeDays: Int
+)
+
+data class GhajarRenewOptions(
+    val username: String,
+    val panelName: String,
+    val products: List<GhajarRenewProduct>,
+    val currentPlanCode: String?,
+    val showPrice: Boolean,
+    val discountPercent: Int,
+    val balance: Long,
+    val custom: GhajarRenewCustomOptions
+)
+
+data class GhajarRenewResult(
+    val completed: Boolean,
+    val requiresPayment: Boolean,
+    val username: String,
+    val amountDue: Long,
+    val balance: Long,
+    val price: Long,
+    val orderId: String?
+)
+
 class GhajarApiException(message: String, val httpCode: Int = 0) : IllegalStateException(message)
 
 /** Native client matched to the API shipped in Ghajar_vpnbot_-3-1.zip. */
@@ -294,6 +337,101 @@ class GhajarStoreApi(context: Context) {
     suspend fun service(username: String): GhajarServiceDetails {
         val payload = action("service", params = mapOf("username" to username)).payloadObject()
         return serviceFrom(payload, username)
+    }
+
+    /** Renewal offer for one already-owned service, from `service_renew_options`. */
+    suspend fun renewOptions(username: String): GhajarRenewOptions {
+        val payload = action("service_renew_options", params = mapOf("username" to username)).payloadObject()
+        val products = payload.optJSONArray("products").orEmpty().objects().mapNotNull { row ->
+            val code = row.optString("code")
+            if (code.isBlank()) return@mapNotNull null
+            GhajarRenewProduct(
+                code = code,
+                name = visible(row.optString("name", "پلن قاجار")),
+                volumeGb = row.optInt("volume_gb"),
+                timeDays = row.optInt("time_days"),
+                price = row.optNullableDouble("price")?.toLong() ?: 0,
+                showPrice = row.optBoolean("show_price", true),
+                note = visible(row.optString("note"))
+            )
+        }
+        val currentPlan = payload.optJSONObject("current_plan")
+        val currentCode = currentPlan?.optString("code")?.takeIf { it.isNotBlank() }
+        val custom = payload.optJSONObject("custom")
+        return GhajarRenewOptions(
+            username = payload.optString("username", username),
+            panelName = visible(payload.optJSONObject("panel")?.optString("name").orEmpty()),
+            products = products.map { it.copy(isCurrentPlan = it.code == currentCode) },
+            currentPlanCode = currentCode,
+            showPrice = payload.optBoolean("show_price", true),
+            discountPercent = payload.optInt("discount"),
+            balance = payload.optNullableDouble("balance")?.toLong() ?: 0,
+            custom = GhajarRenewCustomOptions(
+                enabled = custom?.optBoolean("enabled") ?: false,
+                forced = custom?.optBoolean("force") ?: false,
+                pricePerGb = custom?.optNullableLong("price_per_gb") ?: 0,
+                pricePerDay = custom?.optNullableLong("price_per_day") ?: 0,
+                minVolumeGb = custom?.optInt("min_volume_gb") ?: 0,
+                maxVolumeGb = custom?.optInt("max_volume_gb") ?: 0,
+                minTimeDays = custom?.optInt("min_time_days") ?: 0,
+                maxTimeDays = custom?.optInt("max_time_days") ?: 0
+            )
+        )
+    }
+
+    /**
+     * Confirms renewal of [username]'s service with either a catalog [productCode]
+     * or a custom volume/time pair, mirroring [purchase]'s payment-required shape:
+     * `service_renew_confirm` answers with `{kind: "requires_payment", ...}` inside
+     * `obj` when the wallet balance falls short, exactly like the purchase flow.
+     */
+    suspend fun confirmRenew(
+        username: String,
+        productCode: String? = null,
+        customVolumeGb: Int? = null,
+        customTimeDays: Int? = null,
+        discountCode: String? = null
+    ): GhajarRenewResult {
+        val body = JSONObject().put("username", username)
+        if (productCode != null) {
+            body.put("product_code", productCode)
+        } else {
+            body.put(
+                "custom",
+                JSONObject()
+                    .put("traffic_gb", customVolumeGb ?: 0)
+                    .put("time_days", customTimeDays ?: 0)
+            )
+        }
+        discountCode?.takeIf { it.isNotBlank() }?.let { body.put("discount_code", it) }
+
+        val root = action("service_renew_confirm", method = "POST", body = body, allowPaymentRequired = true)
+        val payload = root.payloadObject()
+        val paymentObject = when {
+            root.optBoolean("requires_payment") -> root
+            payload.optString("kind") == "requires_payment" -> payload
+            else -> null
+        }
+        if (paymentObject != null) {
+            return GhajarRenewResult(
+                completed = false,
+                requiresPayment = true,
+                username = paymentObject.optString("username", username),
+                amountDue = paymentObject.optNullableDouble("amount_due")?.toLong() ?: 0,
+                balance = paymentObject.optNullableDouble("balance")?.toLong() ?: 0,
+                price = paymentObject.optNullableDouble("price")?.toLong() ?: 0,
+                orderId = paymentObject.optString("order_id").takeIf { it.isNotBlank() }
+            )
+        }
+        return GhajarRenewResult(
+            completed = root.optBoolean("status", true) && payload.optBoolean("success", true),
+            requiresPayment = false,
+            username = username,
+            amountDue = 0,
+            balance = payload.optNullableDouble("balance")?.toLong() ?: 0,
+            price = 0,
+            orderId = null
+        )
     }
 
     suspend fun notices(forDelivery: Boolean = false): List<GhajarNotice> {

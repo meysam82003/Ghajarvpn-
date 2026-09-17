@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AddCircle
+import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
@@ -49,6 +50,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -60,6 +62,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -159,10 +162,20 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val paymentInit by checkoutModel.payment
     var receiptUri by checkoutModel.receipt
     var trialOptions by remember { mutableStateOf<GhajarTrialOptions?>(null) }
+    var renewUsername by remember { mutableStateOf<String?>(null) }
 
     suspend fun refreshOwnedAndNotices() {
         owned = api.ownedServices()
         notices = api.notices()
+    }
+
+    val renewRequest by GhajarRenewRequest.requested.collectAsState()
+    LaunchedEffect(renewRequest, active) {
+        val username = renewRequest ?: return@LaunchedEffect
+        if (!active) return@LaunchedEffect
+        section = 1
+        renewUsername = username
+        GhajarRenewRequest.consume()
     }
 
     val checkout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
@@ -463,7 +476,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 item(key = "shop-block-11") { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
                 if (owned.isEmpty() && !busy) item(key = "shop-block-12") { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
                 items(owned, key = { "owned:${it.username}" }) { service ->
-                    OwnedServiceCard(service) { checkoutModel.importOwned(service.username) }
+                    OwnedServiceCard(service, onImport = { checkoutModel.importOwned(service.username) },
+                        onRenew = { renewUsername = service.username })
                 }
             }
 
@@ -676,6 +690,17 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             dismissButton = { TextButton(onClick = { confirmation = null }) { Text("بازگشت") } }
         )
     }
+    renewUsername?.let { username ->
+        RenewServiceDialog(
+            username = username,
+            api = api,
+            onDismiss = { renewUsername = null },
+            onRenewed = {
+                renewUsername = null
+                scope.launch { storeResult { refreshOwnedAndNotices() } }
+            }
+        )
+    }
 }
 
 private fun asciiDigits(value: String): String = GhajarUiRules.asciiDigits(value)
@@ -763,13 +788,161 @@ private fun NoticeCard(notice: GhajarNotice) {
     }
 }
 
+/** Renewal dialog for one already-owned service, styled like the existing
+ * purchase-confirmation AlertDialog so it does not introduce a new visual
+ * language: same AlertDialog shell, same RadioButton/OutlinedTextField/Button
+ * components, same colors and spacing. */
+@Composable
+private fun RenewServiceDialog(
+    username: String,
+    api: GhajarStoreApi,
+    onDismiss: () -> Unit,
+    onRenewed: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var loading by remember(username) { mutableStateOf(true) }
+    var busy by remember { mutableStateOf(false) }
+    var options by remember(username) { mutableStateOf<GhajarRenewOptions?>(null) }
+    var loadError by remember(username) { mutableStateOf<String?>(null) }
+    var actionError by remember(username) { mutableStateOf<String?>(null) }
+    var selectedCode by remember(username) { mutableStateOf<String?>(null) }
+    var useCustom by remember(username) { mutableStateOf(false) }
+    var customVolume by remember(username) { mutableStateOf("") }
+    var customTime by remember(username) { mutableStateOf("") }
+
+    LaunchedEffect(username) {
+        loading = true; loadError = null
+        runCatching { api.renewOptions(username) }
+            .onSuccess { result ->
+                options = result
+                selectedCode = result.currentPlanCode ?: result.products.firstOrNull()?.code
+                useCustom = result.custom.forced || (result.products.isEmpty() && result.custom.enabled)
+            }
+            .onFailure { loadError = it.message ?: "دریافت گزینه‌های تمدید ناموفق بود" }
+        loading = false
+    }
+
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text("تمدید سرویس") },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()).heightIn(max = 420.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Text(username, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                when {
+                    loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator()
+                    }
+                    loadError != null -> Text(loadError!!, color = MaterialTheme.colorScheme.error)
+                    options != null -> {
+                        val opt = options!!
+                        opt.products.forEach { product ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { useCustom = false; selectedCode = product.code },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = !useCustom && selectedCode == product.code,
+                                    onClick = { useCustom = false; selectedCode = product.code })
+                                Column(Modifier.weight(1f)) {
+                                    Text(product.name, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        listOfNotNull(
+                                            product.volumeGb.takeIf { it > 0 }?.let { "$it گیگ" },
+                                            product.timeDays.takeIf { it > 0 }?.let { "$it روز" }
+                                        ).joinToString("  •  "),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                                Text(
+                                    if (product.showPrice) "${formatPrice(product.price)} تومان" else "قیمت پس از تأیید",
+                                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        if (opt.custom.enabled) {
+                            Row(
+                                Modifier.fillMaxWidth().clickable { useCustom = true },
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(selected = useCustom, onClick = { useCustom = true })
+                                Text("حجم/زمان دلخواه", fontWeight = FontWeight.Bold)
+                            }
+                            if (useCustom) {
+                                OutlinedTextField(
+                                    customVolume, { customVolume = asciiDigits(it).filter(Char::isDigit).take(6) },
+                                    label = { Text("حجم (گیگابایت) بین ${opt.custom.minVolumeGb} و ${opt.custom.maxVolumeGb}") },
+                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    singleLine = true, modifier = Modifier.fillMaxWidth()
+                                )
+                                if (opt.custom.maxTimeDays > opt.custom.minTimeDays) {
+                                    OutlinedTextField(
+                                        customTime, { customTime = asciiDigits(it).filter(Char::isDigit).take(4) },
+                                        label = { Text("زمان (روز) بین ${opt.custom.minTimeDays} و ${opt.custom.maxTimeDays}") },
+                                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+                            }
+                        }
+                        if (opt.products.isEmpty() && !opt.custom.enabled) {
+                            Text("گزینه‌ای برای تمدید این سرویس در دسترس نیست.")
+                        }
+                        Text("موجودی کیف پول: ${formatPrice(opt.balance)} تومان", style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+                actionError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = {
+            val opt = options
+            val customVolumeInt = customVolume.toIntOrNull()
+            val customValid = opt != null && customVolumeInt != null &&
+                customVolumeInt in opt.custom.minVolumeGb..opt.custom.maxVolumeGb &&
+                (opt.custom.maxTimeDays <= opt.custom.minTimeDays || (customTime.toIntOrNull() ?: -1) in opt.custom.minTimeDays..opt.custom.maxTimeDays)
+            val canConfirm = !busy && !loading && opt != null &&
+                (if (useCustom) customValid else selectedCode != null)
+            Button(enabled = canConfirm, onClick = click@{
+                opt ?: return@click
+                busy = true; actionError = null
+                scope.launch {
+                    runCatching {
+                        if (useCustom) api.confirmRenew(
+                            username, customVolumeGb = customVolumeInt,
+                            customTimeDays = customTime.toIntOrNull()
+                        ) else api.confirmRenew(username, productCode = selectedCode)
+                    }.onSuccess { result ->
+                        busy = false
+                        if (result.requiresPayment) {
+                            actionError = "موجودی کیف پول کافی نیست؛ ${formatPrice(result.amountDue)} تومان کسری دارید. " +
+                                "ابتدا از تب «کیف پول» شارژ کن، سپس دوباره تمدید کن."
+                        } else if (result.completed) {
+                            onRenewed()
+                        } else {
+                            actionError = "تمدید تأیید نشد؛ دوباره تلاش کن."
+                        }
+                    }.onFailure {
+                        busy = false
+                        actionError = it.message ?: "تمدید ناموفق بود"
+                    }
+                    Unit
+                }
+            }) { Text(if (busy) "در حال تمدید…" else "تأیید تمدید") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("بازگشت") } }
+    )
+}
+
 @Composable
 private fun SectionTitle(title: String, subtitle: String) {
     Column { Text(title, fontWeight = FontWeight.ExtraBold); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
 @Composable
-private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) {
+private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, onRenew: () -> Unit) {
     Card(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
@@ -783,7 +956,9 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit) 
             Text(if (active) "فعال" else when(service.status.lowercase()) { "expired" -> "منقضی"; "disabled", "inactive" -> "غیرفعال"; else -> service.status },
                 style = MaterialTheme.typography.labelMedium,
                 color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            Spacer(Modifier.width(6.dp))
+            IconButton(onClick = onRenew) {
+                Icon(Icons.Filled.Autorenew, "تمدید سرویس", tint = MaterialTheme.colorScheme.primary)
+            }
             Icon(Icons.Filled.AddCircle, "افزودن")
         }
     }

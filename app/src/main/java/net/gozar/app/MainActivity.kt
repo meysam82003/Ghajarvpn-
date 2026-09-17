@@ -572,6 +572,9 @@ object ImportBus {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_RENEW_SERVICE_USERNAME = "ghajar_renew_service_username"
+    }
 
     private lateinit var store: ConfigStore
     private var afterPermission: (() -> Unit)? = null
@@ -603,6 +606,7 @@ class MainActivity : ComponentActivity() {
         GhajarOpenVpnBridge.initialize(applicationContext)
         GhajarLog.i("Startup", "phase: bridges registered")
         handleImportIntent(intent)
+        handleRenewIntent(intent)
         IkeController.bind(this)
         watchTunnel()
         GhajarLog.i("Startup", "phase: services bound")
@@ -752,6 +756,15 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleImportIntent(intent)
+        handleRenewIntent(intent)
+    }
+
+    /** Notification's "renew this service" action asks the store screen to open
+     * the renewal dialog for exactly that username. */
+    private fun handleRenewIntent(intent: Intent?) {
+        val username = intent?.getStringExtra(EXTRA_RENEW_SERVICE_USERNAME)?.takeIf { it.isNotBlank() } ?: return
+        intent.removeExtra(EXTRA_RENEW_SERVICE_USERNAME)
+        GhajarRenewRequest.request(username)
     }
 
     private fun handleImportIntent(intent: Intent?) {
