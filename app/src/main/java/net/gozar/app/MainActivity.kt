@@ -8394,6 +8394,14 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
     val rangeDirect = remember(bars, dailyCfg, hourlyCfg, hourlyMode) { bars.sumOf(directOf) }
     val rangeVpn = (total[0] + total[1] - rangeDirect).coerceAtLeast(0L)
 
+    val ranged = remember(dailyCfg, hourlyCfg, bars, hourlyMode) {
+        UsageStore.configTotalsRange(dailyCfg, hourlyCfg, bars, hourlyMode)
+    }
+    val configDirect = ranged.firstOrNull { it.first == UsageStore.DIRECT_KEY }?.second
+        ?: longArrayOf(0L, 0L)
+    val perConfig = ranged.filter { it.first != UsageStore.DIRECT_KEY }
+    val grand = configDirect[0] + configDirect[1] + perConfig.sumOf { it.second[0] + it.second[1] }
+
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -8586,19 +8594,11 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        val ranged = remember(dailyCfg, hourlyCfg, bars, hourlyMode) {
-            UsageStore.configTotalsRange(dailyCfg, hourlyCfg, bars, hourlyMode)
-        }
-        val direct = ranged.firstOrNull { it.first == UsageStore.DIRECT_KEY }?.second
-            ?: longArrayOf(0L, 0L)
-        val perConfig = ranged.filter { it.first != UsageStore.DIRECT_KEY }
-        val grand = direct[0] + direct[1] + perConfig.sumOf { it.second[0] + it.second[1] }
-
         if (grand > 0L) {
             SettingsGroup(t("usage_by_config")) {
                 UsageShareRow(
                     name = t("usage_direct"),
-                    bytes = direct[0] + direct[1],
+                    bytes = configDirect[0] + configDirect[1],
                     grand = grand,
                     tint = DirectBarColor,
                     lang = lang
