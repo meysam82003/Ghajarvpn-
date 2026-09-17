@@ -325,6 +325,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.lifecycleScope
@@ -1299,8 +1300,6 @@ private fun GozarApp(
     var showPsiphonHub by remember { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
     val updateCtx = LocalContext.current
-    val updateUri = LocalUriHandler.current
-    var updateAvailable by remember { mutableStateOf<UpdateChecker.Result.Available?>(null) }
     LaunchedEffect(Unit) {
         if (System.currentTimeMillis() - store.lastUpdateCheck() >= 24L * 60 * 60 * 1000L) {
             val ver = runCatching {
@@ -1308,21 +1307,11 @@ private fun GozarApp(
             }.getOrNull() ?: ""
             val r = UpdateChecker.check(ver)
             store.markUpdateChecked()
-            if (r is UpdateChecker.Result.Available) updateAvailable = r
+            if (r is UpdateChecker.Result.Available) GhajarUpdateFlow.offer(r)
         }
     }
-    updateAvailable?.let { upd ->
-        GlassDialog(
-            onDismiss = { updateAvailable = null },
-            title = t("update_available").format(upd.version),
-            confirmLabel = t("update_now"),
-            dismissLabel = t("later"),
-            onConfirm = {
-                runCatching { updateUri.openUri(upd.url) }
-                updateAvailable = null
-            }
-        ) {}
-    }
+    val pendingUpdate by GhajarUpdateFlow.available.collectAsState()
+    pendingUpdate?.let { upd -> UpdateFlowDialog(upd, onDismiss = { GhajarUpdateFlow.clear() }) }
     var usageDetail by remember { mutableStateOf(false) }
     var perAppDetail by remember { mutableStateOf(false) }
     var logsDetail by remember { mutableStateOf(false) }
@@ -4099,6 +4088,143 @@ private fun GlassDialog(
                     }
                 }
             }
+        }
+    }
+}
+
+/** Full update flow (changelog, download+progress+cancel, checksum + signature
+ * verification, install) for a release UpdateChecker found, reached from both
+ * the periodic background check and the manual "check for updates" button.
+ * Reuses GlassDialog's exact card/typography/button styling at every stage. */
+@Composable
+private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    var stage by remember(upd.version) { mutableStateOf(0) } // 0 offer, 1 downloading, 2 verifying, 3 ready, 4 error
+    var progress by remember(upd.version) { mutableStateOf(0f) }
+    var errorText by remember(upd.version) { mutableStateOf<String?>(null) }
+    var readyFile by remember(upd.version) { mutableStateOf<java.io.File?>(null) }
+    var downloadJob by remember(upd.version) { mutableStateOf<Job?>(null) }
+
+    fun startDownload() {
+        val apk = upd.apk
+        if (apk == null) { runCatching { uriHandler.openUri(upd.url) }; onDismiss(); return }
+        stage = 1; progress = 0f; errorText = null
+        downloadJob = scope.launch {
+            when (val result = GhajarUpdateInstaller.download(context, apk) { read, total ->
+                progress = if (total > 0) (read.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+            }) {
+                is GhajarUpdateInstaller.DownloadResult.Cancelled -> stage = 0
+                is GhajarUpdateInstaller.DownloadResult.Failed -> {
+                    errorText = "دانلود ناموفق بود: ${result.reason}"
+                    stage = 4
+                }
+                is GhajarUpdateInstaller.DownloadResult.Success -> {
+                    stage = 2
+                    val checksum = GhajarUpdateInstaller.verifySha256(result.file, upd.apkSha256)
+                    if (checksum is GhajarUpdateInstaller.VerifyResult.ChecksumMismatch) {
+                        result.file.delete()
+                        errorText = "فایل دانلودشده با نسخهٔ منتشرشده مطابقت ندارد؛ ممکن است دانلود خراب شده باشد. دوباره تلاش کن."
+                        stage = 4
+                        return@launch
+                    }
+                    val signature = GhajarUpdateInstaller.verifySignatureMatchesInstalled(context, result.file)
+                    if (signature is GhajarUpdateInstaller.VerifyResult.SignatureMismatch) {
+                        result.file.delete()
+                        errorText = signature.reason
+                        stage = 4
+                        return@launch
+                    }
+                    // A checksum/signature Unavailable is reported, not hidden — the file is still
+                    // safe to install (Android's own installer re-verifies the APK signature).
+                    errorText = listOfNotNull(
+                        (checksum as? GhajarUpdateInstaller.VerifyResult.Unavailable)?.reason,
+                        (signature as? GhajarUpdateInstaller.VerifyResult.Unavailable)?.reason
+                    ).joinToString("\n").takeIf { it.isNotBlank() }
+                    readyFile = result.file
+                    stage = 3
+                }
+            }
+        }
+    }
+
+    GlassDialog(
+        onDismiss = {
+            if (stage == 1) downloadJob?.cancel()
+            onDismiss()
+        },
+        title = when (stage) {
+            1 -> "در حال دانلود نسخهٔ ${upd.version}"
+            2 -> "در حال بررسی فایل"
+            3 -> "نسخهٔ ${upd.version} آماده نصب است"
+            4 -> "بروزرسانی ناموفق بود"
+            else -> "نسخهٔ جدید ${upd.version} موجود است"
+        },
+        confirmLabel = when (stage) {
+            1 -> "لغو دانلود"
+            2 -> "لطفاً صبر کن…"
+            3 -> "نصب"
+            4 -> "تلاش دوباره"
+            else -> "دانلود و بروزرسانی"
+        },
+        dismissLabel = if (stage == 0) "بعداً" else if (stage == 1) null else "بستن",
+        onConfirm = {
+            when (stage) {
+                0 -> startDownload()
+                1 -> downloadJob?.cancel()
+                2 -> Unit
+                3 -> readyFile?.let { GhajarUpdateInstaller.install(context, it) }
+                4 -> startDownload()
+                else -> Unit
+            }
+        }
+    ) {
+        when (stage) {
+            0 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (upd.changelog.isNotBlank()) {
+                    Text("تغییرات این نسخه:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    Column(
+                        Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        upd.changelog.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.forEach { line ->
+                            Row(verticalAlignment = Alignment.Top) {
+                                Text("•", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 6.dp))
+                                Text(line.trimStart('-', '*', '•', ' '), style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
+                }
+                if (upd.apk == null) {
+                    Text("فایل APK متناسب با این دستگاه در این نسخه پیدا نشد؛ صفحهٔ ریلیز باز می‌شود.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (upd.apkSha256 == null) {
+                    Text("این نسخه فایل SHA256SUMS.txt منتشر نکرده؛ صحت فایل پس از دانلود قابل تأیید کامل نیست.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            1 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+            }
+            2 -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("بررسی SHA-256 و امضای بستهٔ دانلودشده…", style = MaterialTheme.typography.bodySmall)
+            }
+            3 -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("فایل دانلود و بررسی شد. تنظیمات و اطلاعات فعلی برنامه در نصب حفظ می‌شود.",
+                    style = MaterialTheme.typography.bodySmall)
+                errorText?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                if (!GhajarUpdateInstaller.canInstallPackages(context)) {
+                    Text("برای نصب باید اجازهٔ «نصب از منابع ناشناس» را برای قاجار وی‌پی‌ان فعال کنی.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    BounceOutlinedButton(onClick = {
+                        runCatching { context.startActivity(GhajarUpdateInstaller.unknownSourcesSettingsIntent(context)) }
+                    }, minHeight = 38.dp, modifier = Modifier.fillMaxWidth()) { Text("باز کردن تنظیمات") }
+                }
+            }
+            4 -> Text(errorText ?: "خطای نامشخص", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -7009,6 +7135,7 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
                             is UpdateChecker.Result.Available -> {
                                 updateStatus = t("update_available").format(r.version)
                                 updateUrl = r.url
+                                GhajarUpdateFlow.offer(r)
                             }
                             UpdateChecker.Result.UpToDate -> updateStatus = t("up_to_date")
                             UpdateChecker.Result.Failed -> updateStatus = t("update_failed")
