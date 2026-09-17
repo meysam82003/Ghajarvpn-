@@ -75,9 +75,11 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -306,9 +308,7 @@ internal val AppGreen: Color
 internal fun IpLocatorContent(
     l: IpLocation,
     accent: Color,
-    liveColor: Color,
     connected: Boolean,
-    pulse: Float,
     scale: Float = 1f
 ) {
     val lang = LocalLang.current
@@ -446,6 +446,8 @@ internal fun IpLocatorDot(color: Color, scale: Float = 1f) {
     }
 }
 
+private val DOT_GLOBE_THEME_SPEC = tween<Color>(520, easing = FastOutSlowInEasing)
+
 @Composable
 fun DotGlobeSection(modifier: Modifier = Modifier) {
     val conn by VpnState.state.collectAsState()
@@ -455,7 +457,7 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val rawPrimary = MaterialTheme.colorScheme.primary
-    val themeSpec = tween<Color>(520, easing = FastOutSlowInEasing)
+    val themeSpec = DOT_GLOBE_THEME_SPEC
     val themePrimary by animateColorAsState(rawPrimary, themeSpec, label = "globePrimary")
     val dotColor by animateColorAsState(
         targetValue = if (isDark) rawPrimary else lerp(rawPrimary, Color.Black, 0.30f),
@@ -496,8 +498,15 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
         label = "globePopupBorder"
     )
 
-    val land = remember { LandPoints() }
-    val pointBuf = remember { FloatArray(land.bx.size * 2) }
+    // LandPoints() runs a 56,000-iteration trig loop; building it inline in
+    // remember{} would block the UI thread on first composition (and any
+    // globeStyle switch). Loaded once, off the main thread, mirroring the
+    // GlobeLut pattern already used by EarthSection.
+    var land by remember { mutableStateOf<LandPoints?>(null) }
+    LaunchedEffect(Unit) {
+        land = withContext(Dispatchers.Default) { LandPoints() }
+    }
+    val pointBuf = remember(land) { land?.let { FloatArray(it.bx.size * 2) } }
     val dotPaint = remember {
         android.graphics.Paint().apply {
             isAntiAlias = true
@@ -561,13 +570,18 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
             launch { tiltX.animateTo(targetTilt, tween(900, easing = FastOutSlowInEasing)) }
         }
     }
+    // Read only inside each Canvas draw lambda below (never `by` at this
+    // composable's own body scope) - unwrapping an infinite animation's
+    // State here would resnapshot this whole function on every animation
+    // frame forever, forcing the globe *and* the connection-status subtree
+    // it contains to fully recompose and redraw continuously.
     val inf = rememberInfiniteTransition(label = "dotglobe")
-    val pulse by inf.animateFloat(
+    val pulseState = inf.animateFloat(
         initialValue = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(1400, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "pulse"
     )
-    val glow by inf.animateFloat(
+    val glowState = inf.animateFloat(
         initialValue = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(2300, easing = FastOutSlowInEasing), RepeatMode.Reverse),
         label = "glow"
@@ -615,6 +629,7 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
                         }
                 ) {
                     Canvas(Modifier.fillMaxSize()) {
+                        val glow = glowState.value
                         val a = 0.05f + 0.085f * glow
                         val rr = rad * (1.12f + 0.06f * glow)
                         drawCircle(
@@ -684,26 +699,31 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
                             }
                         }
 
-                        dotPaint.color = dotColor.copy(alpha = 0.92f).toArgb()
-                        dotPaint.strokeWidth = rad * 0.011f
-                        var nPts = 0
-                        for (i in land.bx.indices) {
-                            val ax = land.bx[i]; val ay = land.by[i]; val az = land.bz[i]
-                            val rx = ax * cs + az * sn
-                            val rz = -ax * sn + az * cs
-                            val ty = ay * ct - rz * st
-                            val tz = ay * st + rz * ct
-                            if (tz > 0.02f) {
-                                pointBuf[nPts++] = cx + rad * rx
-                                pointBuf[nPts++] = cy - rad * ty
+                        val currentLand = land
+                        val buf = pointBuf
+                        if (currentLand != null && buf != null) {
+                            dotPaint.color = dotColor.copy(alpha = 0.92f).toArgb()
+                            dotPaint.strokeWidth = rad * 0.011f
+                            var nPts = 0
+                            for (i in currentLand.bx.indices) {
+                                val ax = currentLand.bx[i]; val ay = currentLand.by[i]; val az = currentLand.bz[i]
+                                val rx = ax * cs + az * sn
+                                val rz = -ax * sn + az * cs
+                                val ty = ay * ct - rz * st
+                                val tz = ay * st + rz * ct
+                                if (tz > 0.02f) {
+                                    buf[nPts++] = cx + rad * rx
+                                    buf[nPts++] = cy - rad * ty
+                                }
                             }
-                        }
-                        drawIntoCanvas { canvas ->
-                            canvas.nativeCanvas.drawPoints(pointBuf, 0, nPts, dotPaint)
+                            drawIntoCanvas { canvas ->
+                                canvas.nativeCanvas.drawPoints(buf, 0, nPts, dotPaint)
+                            }
                         }
                     }
 
                     Canvas(Modifier.fillMaxSize()) {
+                        val pulse = pulseState.value
                         val m = project(loc.lat, loc.lon, spinY.value, tiltX.value, cx, cy, rad)
                         if (m[2] > 0f) {
                             val mc = Offset(m[0], m[1])
@@ -739,7 +759,7 @@ fun DotGlobeSection(modifier: Modifier = Modifier) {
                         colors = CardDefaults.cardColors(containerColor = popupBg)
                     ) {
                         CompositionLocalProvider(LocalLayoutDirection provides appDir) {
-                            IpLocatorContent(loc, themePrimary, markerColor, secured, pulse, uiScale)
+                            IpLocatorContent(loc, themePrimary, secured, uiScale)
                         }
                     }
                 }

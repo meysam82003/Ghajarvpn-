@@ -501,6 +501,8 @@ internal fun nearestAngle(target: Float, current: Float): Float {
     return t
 }
 
+private val GLOBE_THEME_SPEC = tween<Color>(520, easing = FastOutSlowInEasing)
+
 @Composable
 fun EarthSection(modifier: Modifier = Modifier) {
     val conn by VpnState.state.collectAsState()
@@ -509,21 +511,12 @@ fun EarthSection(modifier: Modifier = Modifier) {
     val lang = LocalLang.current
 
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val themeSpec = tween<Color>(520, easing = FastOutSlowInEasing)
+    val themeSpec = GLOBE_THEME_SPEC
     val markerColor by animateColorAsState(AppGreen, themeSpec, label = "globeMarker")
     val offline = rememberInternetOffline()
     val badgeTarget = MaterialTheme.colorScheme.primary
     var badgeShown by remember { mutableStateOf(badgeTarget) }
     val badgeTint by animateColorAsState(badgeShown, tween(450), label = "badgeTint")
-    val badgePulse by rememberInfiniteTransition(label = "badgePulse").animateFloat(
-        initialValue = 0.45f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(
-            tween(1100, easing = FastOutSlowInEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "badgePulseV"
-    )
-    val badgeGlow = if (connected && !offline) badgePulse else 0.65f
     val nodeColor by animateColorAsState(
         targetValue = if (isDark) Color(0xFF8FC0FF) else Color(0xFF2E5F9E),
         animationSpec = themeSpec,
@@ -613,8 +606,12 @@ fun EarthSection(modifier: Modifier = Modifier) {
             }
         }
     }
+    // Read only inside the Canvas draw lambda that uses it (see below) - a
+    // `by` unwrap here would resnapshot this whole function every animation
+    // frame forever, forcing the globe render + status subtree to fully
+    // recompose continuously.
     val inf = rememberInfiniteTransition(label = "globe")
-    val ringT by inf.animateFloat(
+    val ringTState = inf.animateFloat(
         initialValue = 0f, targetValue = 1f,
         animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
         label = "ringT"
@@ -780,6 +777,7 @@ fun EarthSection(modifier: Modifier = Modifier) {
                         val m = project(loc.lat, loc.lon, ms, mt, cx, cy, rad)
                         if (m[2] > 0f) {
                             val mc = Offset(m[0], m[1])
+                            val ringT = ringTState.value
                             val ph1 = ringT
                             val ph2 = (ringT + 0.5f) % 1f
                             drawCircle(
@@ -838,7 +836,7 @@ fun EarthSection(modifier: Modifier = Modifier) {
                         colors = CardDefaults.cardColors(containerColor = popupBg)
                     ) {
                         CompositionLocalProvider(LocalLayoutDirection provides appDir) {
-                            IpLocatorContent(loc, badgeTint, markerColor, secured, badgeGlow, uiScale)
+                            IpLocatorContent(loc, badgeTint, secured, uiScale)
                         }
                     }
                 }
