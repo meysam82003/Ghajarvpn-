@@ -110,6 +110,30 @@ class GhajarCommerceRulesTest {
         assertTrue(GhajarOrderFlow.refundEligible("paid", false, true, false))
         assertFalse(GhajarOrderFlow.refundEligible("paid", true, false, false))
     }
+    @Test fun aDeliveryFailureIsOnlyEverRecordedWhenTheStageWasSeeded() {
+        // Pins the bug behind the "در حال همگام‌سازی" (syncing) dialog that never
+        // resolved: GhajarCheckoutViewModel.deliver()'s catch block only calls
+        // onDeliveryFailed() when stage.value was already non-null on entry
+        // (stage.value?.let(::onDeliveryAttempt)). checkPayment()'s SERVICE_READY
+        // branch used to call deliver() without seeding stage first when the panel
+        // resolved the order straight to SERVICE_READY (skipping PAID_WAITING,
+        // which is the only other place that seeded it) - so a failed delivery on
+        // that path recorded nothing at all: deliveryFailed stayed false forever,
+        // and since checkPayment() runs silent(=true), the generic error.value
+        // path never fired either. Nothing was left to ever resolve the dialog.
+        val neverSeeded: GhajarOrderStage? = null
+        val afterFailedAttempt = neverSeeded?.let(GhajarOrderFlow::onDeliveryAttempt)
+            ?.let(GhajarOrderFlow::onDeliveryFailed)
+        assertNull("an unseeded stage can never become PROVISION_FAILED", afterFailedAttempt)
+
+        // The fix: checkPayment()'s SERVICE_READY branch now seeds stage exactly
+        // like PAID_WAITING already did, before calling deliver().
+        val seeded = GhajarOrderFlow.initialStage(paid = true, walletTopUp = false)
+        val attempted = seeded?.let(GhajarOrderFlow::onDeliveryAttempt)
+        val afterFix = attempted?.let(GhajarOrderFlow::onDeliveryFailed)
+        assertEquals(GhajarOrderStage.PROVISION_FAILED, afterFix)
+    }
+
     @Test fun stageMachineSurvivesStorageRoundTrip() {
         GhajarOrderStage.entries.forEach { stage ->
             assertEquals(stage, GhajarOrderFlow.fromStorage(stage.name))

@@ -105,7 +105,15 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
 }
 
 @Composable
-internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Unit, onRetry: () -> Unit, busy: Boolean) {
+internal fun GhajarDeliveryDialog(
+    delivery: GhajarDelivery, onDismiss: () -> Unit, onRetry: () -> Unit, busy: Boolean,
+    /** True once this same paid order's delivery has already failed at least
+     * once (GhajarCheckoutViewModel.deliveryFailed). Distinguishes "still
+     * working on it" from "already tried and failed, waiting on you to
+     * retry" - previously both looked identical here ("در حال همگام‌سازی"
+     * forever), which is exactly the stuck/unclear state item #3 called out. */
+    failed: Boolean = false
+) {
     val service = delivery.service
     val payloads = remember(service) { (listOfNotNull(service.subscriptionUrl) + service.outputs).filter { it.isNotBlank() }.distinct() }
     var index by remember(payloads) { mutableIntStateOf(0) }
@@ -125,7 +133,11 @@ internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Uni
     }
     val clipboard = LocalClipboardManager.current
     AlertDialog(onDismissRequest = onDismiss,
-        title = { Text(if (delivery.synced) "سرویس به قاجار VPN اضافه شد" else "سرویس صادر شد؛ در حال همگام‌سازی") },
+        title = { Text(when {
+            delivery.synced -> "سرویس به قاجار VPN اضافه شد"
+            failed -> "همگام‌سازی ناموفق بود"
+            else -> "سرویس صادر شد؛ در حال همگام‌سازی"
+        }) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -140,8 +152,12 @@ internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Uni
                     Text("${index + 1} / ${payloads.size}")
                     TextButton(onClick = { index++ }, enabled = index < payloads.lastIndex) { Text("بعدی") }
                 }
-                Text(if (delivery.synced) "کانفیگ‌ها همگام شدند و در فهرست اتصال قرار دارند." else
-                    "اگر همگام‌سازی کامل نشد، دریافت دوباره را بزن؛ خرید دوباره لازم نیست.", style = MaterialTheme.typography.bodySmall)
+                Text(when {
+                    delivery.synced -> "کانفیگ‌ها همگام شدند و در فهرست اتصال قرار دارند."
+                    failed -> "تلاش قبلی ناموفق بود؛ اتصال یا سرور را بررسی کن و «دریافت دوباره» را بزن. خرید دوباره لازم نیست."
+                    else -> "اگر همگام‌سازی کامل نشد، دریافت دوباره را بزن؛ خرید دوباره لازم نیست."
+                }, style = if (failed) MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.error)
+                    else MaterialTheme.typography.bodySmall)
                 Text("QR و لینک خصوصی‌اند؛ فقط با فرد مورد اعتماد به اشتراک بگذار.", style = MaterialTheme.typography.labelSmall)
             }
         },

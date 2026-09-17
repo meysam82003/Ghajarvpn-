@@ -771,7 +771,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             onRetry = {
                 if (paymentInit != null && pendingPurchase?.username == result.service.username) checkoutModel.checkPayment()
                 else checkoutModel.importOwned(result.service.username)
-            }, busy = checkoutBusy)
+            }, busy = checkoutBusy, failed = checkoutModel.deliveryFailed)
     }
     confirmation?.let { request ->
         AlertDialog(
