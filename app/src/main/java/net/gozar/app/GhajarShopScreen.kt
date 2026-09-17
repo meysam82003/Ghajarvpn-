@@ -146,6 +146,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var owned by remember { mutableStateOf<List<GhajarOwnedService>>(emptyList()) }
     var notices by remember { mutableStateOf<List<GhajarNotice>>(emptyList()) }
     var loadedPanelId by remember { mutableStateOf<String?>(null) }
+    var offlineProducts by remember { mutableStateOf(false) }
 
     var customMode by remember { mutableStateOf(false) }
     var comparePlans by remember { mutableStateOf(false) }
@@ -297,7 +298,18 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         try {
             storeResult {
                 products = if (customMode) emptyList() else api.products(panel.id, selectedCategory?.id, selectedTime?.days)
-            }.onFailure { error = GhajarCommerceRules.publicMessage(it) }
+            }.onSuccess {
+                offlineProducts = false
+                if (!customMode) GhajarStoreCache.saveProducts(context, panel.id, products)
+            }.onFailure {
+                val cached = if (!customMode) GhajarStoreCache.loadProducts(context, panel.id) else null
+                if (cached != null) {
+                    products = cached
+                    offlineProducts = true
+                } else {
+                    error = GhajarCommerceRules.publicMessage(it)
+                }
+            }
         } finally { busy = false }
     }
 
@@ -601,6 +613,22 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     )
                 }
             } else {
+                if (offlineProducts) {
+                    item(key = "shop-offline-banner") {
+                        Row(
+                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.errorContainer)
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "این پلن‌ها آخرین اطلاعات ذخیره‌شده هستند (بدون اینترنت)؛ خرید غیرفعال است تا اتصال برقرار شود.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                }
                 if (products.size > 1) {
                     item(key = "shop-block-compare") {
                         OutlinedButton(onClick = { comparePlans = true }, modifier = Modifier.fillMaxWidth()) {
@@ -609,7 +637,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     }
                 }
                 items(products, key = { "product:${it.id}" }) { product ->
-                    ProductCard(product, enabled = !busy && !checkoutBusy) {
+                    ProductCard(product, enabled = !busy && !checkoutBusy && !offlineProducts) {
                         confirmationTitle = product.name
                         confirmationPrice = product.price
                         confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
@@ -1228,6 +1256,45 @@ private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
 }
 
 private fun formatPrice(price: Long): String = NumberFormat.getIntegerInstance(Locale("fa", "IR")).format(price)
+
+/** Last-known plan list per panel, shown read-only when the live fetch fails
+ * so the store isn't just a blank error screen with no signal. Never used
+ * as a source for an actual purchase - callers must disable buy/payment
+ * actions whenever data came from here instead of a fresh fetch. */
+private object GhajarStoreCache {
+    private fun prefs(context: android.content.Context) =
+        context.getSharedPreferences("ghajar_store_cache", 0)
+
+    fun saveProducts(context: android.content.Context, panelId: String, products: List<GhajarProduct>) {
+        val arr = org.json.JSONArray()
+        products.forEach { p ->
+            arr.put(org.json.JSONObject()
+                .put("id", p.id).put("name", p.name)
+                .put("price", p.price ?: org.json.JSONObject.NULL)
+                .put("trafficGb", p.trafficGb ?: org.json.JSONObject.NULL)
+                .put("days", p.days ?: org.json.JSONObject.NULL)
+                .put("description", p.description).put("countryId", p.countryId))
+        }
+        prefs(context).edit().putString("products_$panelId", arr.toString()).apply()
+    }
+
+    fun loadProducts(context: android.content.Context, panelId: String): List<GhajarProduct>? {
+        val raw = prefs(context).getString("products_$panelId", null) ?: return null
+        return runCatching {
+            val arr = org.json.JSONArray(raw)
+            (0 until arr.length()).map { i ->
+                val o = arr.getJSONObject(i)
+                GhajarProduct(
+                    id = o.getString("id"), name = o.getString("name"),
+                    price = o.optLong("price").takeIf { !o.isNull("price") },
+                    trafficGb = o.optDouble("trafficGb").takeIf { !o.isNull("trafficGb") },
+                    days = o.optInt("days").takeIf { !o.isNull("days") },
+                    description = o.optString("description"), countryId = o.optString("countryId")
+                )
+            }
+        }.getOrNull()
+    }
+}
 
 /** One glance at everything the checkout/wallet tabs already track
  * separately - balance, pending payments, active services - built from
