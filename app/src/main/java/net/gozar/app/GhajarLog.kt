@@ -206,14 +206,34 @@ object GhajarLog {
         val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
         val out = File(sharedDir, "ghajar-log-export.txt")
         runCatching {
-            FileOutputStream(out).use { stream ->
+            val raw = buildString {
                 for (n in ROTATED_FILES downTo 1) {
                     val f = rotatedFile(n)
-                    if (f.exists()) stream.write(f.readBytes())
+                    if (f.exists()) append(f.readText(Charsets.UTF_8))
                 }
-                if (currentFile().exists()) stream.write(currentFile().readBytes())
+                if (currentFile().exists()) append(currentFile().readText(Charsets.UTF_8))
             }
+            out.writeText(redact(raw), Charsets.UTF_8)
         }
         out
     }
+
+    /**
+     * The exported file is meant to be shared with support/developers, so it
+     * must never carry anything that could be replayed against the account:
+     * bearer/session tokens, API keys, card numbers or phone numbers that may
+     * have ended up in a logged exception message or URL. This never touches
+     * what's kept in the in-app log (GhajarLogActivity), only the copy that
+     * leaves the device.
+     */
+    private val redactionPatterns: List<Pair<Regex, String>> = listOf(
+        Regex("(?i)bearer\\s+[A-Za-z0-9\\-_.]{8,}") to "Bearer [REDACTED]",
+        Regex("(?i)(\"?(?:token|access_token|api[_-]?key|session)\"?\\s*[:=]\\s*\"?)[A-Za-z0-9\\-_.]{8,}") to "$1[REDACTED]",
+        Regex("(?i)(\"?password\"?\\s*[:=]\\s*\"?)[^\"\\s,}]{1,}") to "$1[REDACTED]",
+        Regex("(?:\\+98|0)9\\d{9}\\b") to "[PHONE]",
+        Regex("\\b\\d{16}\\b") to "[CARD]"
+    )
+
+    private fun redact(text: String): String =
+        redactionPatterns.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
 }
