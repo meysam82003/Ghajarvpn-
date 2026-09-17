@@ -218,6 +218,7 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.TimerOff
@@ -2230,6 +2231,8 @@ private fun ConfigPickerScreen(
     var pingingSubs by remember { mutableStateOf(emptySet<String>()) }
     var query by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
+    var protocolFilter by remember { mutableStateOf<String?>(null) }
+    var protocolMenu by remember { mutableStateOf(false) }
     val expandedSubs by store.expandedSubs.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -2264,9 +2267,11 @@ private fun ConfigPickerScreen(
         }
     } else 0
     val q = query.trim()
-    val grouped = remember(configs, subscriptions, sortMode, pingSortKey, q, favoritesOnly) {
+    fun matchesFilters(cfg: ProxyConfig): Boolean =
+        (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter)
+    val grouped = remember(configs, subscriptions, sortMode, pingSortKey, q, favoritesOnly, protocolFilter) {
         subscriptions.map { sub ->
-            val all = sortMaybe(configs.filter { it.subId == sub.id && (!favoritesOnly || it.favorite) })
+            val all = sortMaybe(configs.filter { it.subId == sub.id && matchesFilters(it) })
             sub to when {
                 q.isEmpty() || sub.name.contains(q, true) -> all
                 else -> all.filter { it.name.contains(q, true) }
@@ -2274,9 +2279,9 @@ private fun ConfigPickerScreen(
         }.filter { (sub, list) -> q.isEmpty() || list.isNotEmpty() || sub.name.contains(q, true) }
             .sortedByDescending { (sub, _) -> WindscribeBrand.isWindscribe(sub) }
     }
-    val loose = remember(configs, sortMode, pingSortKey, q, favoritesOnly) {
+    val loose = remember(configs, sortMode, pingSortKey, q, favoritesOnly, protocolFilter) {
         sortMaybe(configs.filter {
-            it.subId.isEmpty() && (!favoritesOnly || it.favorite) && (q.isEmpty() || it.name.contains(q, true))
+            it.subId.isEmpty() && matchesFilters(it) && (q.isEmpty() || it.name.contains(q, true))
         })
     }
     fun displayedOrder(): List<String> = buildList {
@@ -2718,6 +2723,26 @@ private fun ConfigPickerScreen(
                         tint = if (favoritesOnly) MaterialTheme.colorScheme.primary
                             else MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+                Box {
+                    IconButton(onClick = { protocolMenu = true }) {
+                        Icon(
+                            Icons.Filled.FilterList,
+                            contentDescription = "فیلتر پروتکل",
+                            tint = if (protocolFilter != null) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    DropdownMenu(expanded = protocolMenu, onDismissRequest = { protocolMenu = false }) {
+                        DropdownMenuItem(text = { Text("همهٔ پروتکل‌ها") }, onClick = {
+                            protocolFilter = null; protocolMenu = false
+                        })
+                        configs.map { it.protocol }.distinct().sorted().forEach { proto ->
+                            DropdownMenuItem(text = { Text(proto) }, onClick = {
+                                protocolFilter = proto; protocolMenu = false
+                            })
+                        }
+                    }
                 }
             }
         }
