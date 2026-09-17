@@ -23,9 +23,10 @@ android {
 
     defaultConfig {
         applicationId = "com.ghajarvpn.app"
-        // The bundled core AAR requires API 26. Keep the API 24 release target
-        // explicit while building an honestly labelled Android 8+ demo.
-        minSdk = if (ghajarDemoBuild) 26 else 24
+        // libs/ca.psiphon.aar (the combined Xray+Psiphon gomobile engine that
+        // replaced the separate gozarcore.aar) declares minSdkVersion 26; a
+        // lower app minSdk fails the manifest merge regardless of the demo flag.
+        minSdk = 26
         targetSdk = 36
         versionCode = 30009
         versionName = "1.0.0"

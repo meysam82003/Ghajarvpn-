@@ -39,6 +39,19 @@ source check). That architecture is retired as of this consolidation.
 CI now checks out this repository and builds directly — no upstream
 clone, no patch application, no rsync overlay.
 
+## Known defect fixed during import
+
+`app/build.gradle.kts` at the imported commit set `minSdk = if (ghajarDemoBuild) 26 else 24`.
+The only engine AAR present in this source (`app/libs/ca.psiphon.aar`, the
+combined Xray+Psiphon gomobile build that replaced the older separate
+`gozarcore.aar`) declares `minSdkVersion 26`, so the non-demo (`else 24`)
+branch fails Gradle's manifest merge unconditionally — this is a real,
+pre-existing defect in the released commit, not something introduced by
+this migration. Fixed by setting `minSdk = 26` unconditionally, which is
+what AGP itself recommends and matches what the AAR actually requires.
+This changes the announced minimum OS version (Android 8.0+) but not any
+VPN logic, UI, or API contract.
+
 ## Known deviation from the packaged release tooling
 
 The release asset's own bundled `Android/.github/workflows/release.yml`
