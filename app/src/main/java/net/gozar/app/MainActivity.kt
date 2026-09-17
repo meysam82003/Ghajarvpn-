@@ -8358,6 +8358,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
     var toDate by remember { mutableStateOf(LocalDate.now()) }
     var fromHour by remember { mutableStateOf(0) }
     var toHour by remember { mutableStateOf(23) }
+    var detailConfig by remember { mutableStateOf<String?>(null) }
 
     val bars = remember(daily, hourly, mode, fromDate, toDate, fromHour, toHour) {
         when (mode) {
@@ -8608,11 +8609,30 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                         bytes = v[0] + v[1],
                         grand = grand,
                         tint = ServerPalette[i % ServerPalette.size],
-                        lang = lang
+                        lang = lang,
+                        onClick = { detailConfig = name }
                     )
                 }
             }
         }
+    }
+
+    detailConfig?.let { name ->
+        val windows = if (hourlyMode) bars.mapNotNull { bar ->
+            val perCfg = (if (hourlyMode) hourlyCfg else dailyCfg)[bar.key]?.get(name)
+            if (perCfg == null || (perCfg[0] + perCfg[1]) <= 0L) null
+            else UsageStore.hourKeyToEpochRange(bar.key)
+        } else emptyList()
+        val entry = perConfig.firstOrNull { it.first == name }?.second ?: longArrayOf(0L, 0L)
+        ConfigUsageDetailDialog(
+            name = name,
+            upBytes = entry[0],
+            downBytes = entry[1],
+            windows = windows,
+            longRange = !hourlyMode,
+            lang = lang,
+            onDismiss = { detailConfig = null }
+        )
     }
 }
 
@@ -8755,11 +8775,15 @@ private fun UsageShareRow(
     bytes: Long,
     grand: Long,
     tint: Color,
-    lang: Lang
+    lang: Lang,
+    onClick: (() -> Unit)? = null
 ) {
     val frac = if (grand > 0L) (bytes.toFloat() / grand.toFloat()).coerceIn(0f, 1f) else 0f
     val width by animateFloatAsState(frac, tween(500), label = "usageShare")
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 flagRuns(name, LexendFont),
@@ -8785,6 +8809,101 @@ private fun UsageShareRow(
                     .clip(RoundedCornerShape(3.dp))
                     .background(tint)
             )
+        }
+    }
+}
+
+/** Per-config usage detail, opened by tapping a row in the "usage by config"
+ * list. Reuses GlassDialog styling. The per-app breakdown is real Android
+ * NetworkStatsManager data restricted to the hour-buckets this exact config
+ * was actually active in (per UsageStore's own per-config attribution) — it
+ * is only offered for hourly-precision ranges (today, or a short custom
+ * range), since day-granularity buckets can't be windowed precisely enough
+ * to attribute to one config without also mixing in other configs' traffic
+ * from the same day. */
+@Composable
+private fun ConfigUsageDetailDialog(
+    name: String,
+    upBytes: Long,
+    downBytes: Long,
+    windows: List<Pair<Long, Long>>,
+    longRange: Boolean,
+    lang: Lang,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var perApp by remember(name, windows) { mutableStateOf<PerAppUsageStats.Result?>(null) }
+    LaunchedEffect(name, windows) {
+        perApp = if (longRange || windows.isEmpty()) null
+        else PerAppUsageStats.queryForWindows(context, windows)
+    }
+    GlassDialog(
+        onDismiss = onDismiss,
+        title = name,
+        confirmLabel = "بستن",
+        onConfirm = onDismiss
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column {
+                    Text("دانلود", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(formatBytes(downBytes, lang), fontWeight = FontWeight.Bold)
+                }
+                Column {
+                    Text("آپلود", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(formatBytes(upBytes, lang), fontWeight = FontWeight.Bold)
+                }
+                Column {
+                    Text("مجموع", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(formatBytes(upBytes + downBytes, lang), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
+            Text("مصرف به تفکیک برنامه", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+            when {
+                longRange -> Text(
+                    "تفکیک برنامه‌ای فقط برای «امروز» یا یک بازهٔ سفارشی کوتاه (حداکثر ۲ روز) در دسترس است؛ برای بازه‌های هفتگی و ماهانه فقط دقت روزانه ذخیره می‌شود.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                windows.isEmpty() -> Text("در این بازه مصرفی برای این سرویس ثبت نشده است.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                perApp == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text("در حال خواندن آمار برنامه‌ها…", style = MaterialTheme.typography.bodySmall)
+                }
+                else -> when (val r = perApp) {
+                    is PerAppUsageStats.Result.PermissionRequired -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "برای دیدن مصرف هر برنامه، دسترسی «Usage access» را برای قاجار وی‌پی‌ان فعال کن. اندروید این دسترسی را فقط از تنظیمات می‌دهد.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+                        )
+                        BounceOutlinedButton(
+                            onClick = { runCatching { context.startActivity(PerAppUsageStats.usageAccessSettingsIntent(context)) } },
+                            minHeight = 38.dp, modifier = Modifier.fillMaxWidth()
+                        ) { Text("باز کردن تنظیمات دسترسی") }
+                    }
+                    is PerAppUsageStats.Result.Unavailable -> Text(r.reason,
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    is PerAppUsageStats.Result.Ok -> if (r.apps.isEmpty()) {
+                        Text("اندروید هنوز ترافیکی را به برنامهٔ خاصی نسبت نداده است.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        val grand = r.apps.sumOf { it.totalBytes }.coerceAtLeast(1L)
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            r.apps.forEachIndexed { i, app ->
+                                UsageShareRow(
+                                    name = app.label,
+                                    bytes = app.totalBytes,
+                                    grand = grand,
+                                    tint = ServerPalette[i % ServerPalette.size],
+                                    lang = lang
+                                )
+                            }
+                        }
+                    }
+                    null -> Unit
+                }
+            }
         }
     }
 }

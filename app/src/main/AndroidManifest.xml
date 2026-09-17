@@ -18,6 +18,11 @@
          GitHub release APK; Android still requires the user's one-time
          "allow from this source" grant and the OS install confirmation. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Special-access permission for the per-app usage breakdown; there is no
+         runtime prompt for this, only a per-app toggle under Settings > Usage
+         access, which the app links to but cannot grant on the user's behalf. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
