@@ -1205,7 +1205,8 @@ class MainActivity : ComponentActivity() {
             coreLogLevel = store.coreLogLevel.value,
             shareOnLan = store.vpnShareEnabled.value,
             shareUser = if (store.vpnShareEnabled.value) store.ensureVpnShareCredential().first else "",
-            sharePass = store.vpnSharePassword.value)
+            sharePass = store.vpnSharePassword.value,
+            shareListenAddress = if (store.vpnShareEnabled.value) hotspotInterfaceAddress() ?: "127.0.0.1" else "127.0.0.1")
         VpnState.setConnecting(config.id)
         val aether = AetherController.spec(config)
         val psiphon = PsiphonSpec.from(config)?.toJson()
@@ -6194,18 +6195,6 @@ private fun ShareAddressRow(label: String, ip: String, port: String, onCopy: (St
         }
     }
 }
-
-/** Best-effort discovery of this device's own hotspot/AP IP (typically
- * 192.168.43.1 or 192.168.49.1 depending on OEM); null if no such interface
- * is currently up (hotspot off). No special permission required. */
-private fun hotspotInterfaceAddress(): String? = runCatching {
-    java.net.NetworkInterface.getNetworkInterfaces().asSequence()
-        .filter { it.isUp && !it.isLoopback }
-        .filter { iface -> iface.name.startsWith("ap") || iface.name.startsWith("wlan1") || iface.name.contains("swlan") }
-        .flatMap { it.inetAddresses.asSequence() }
-        .filterIsInstance<java.net.Inet4Address>()
-        .firstOrNull()?.hostAddress
-}.getOrNull()
 
 @Composable
 private fun TorCountryGroup(

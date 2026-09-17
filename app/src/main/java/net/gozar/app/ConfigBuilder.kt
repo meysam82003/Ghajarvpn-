@@ -311,16 +311,26 @@ object ConfigBuilder {
         chainBase: ProxyConfig? = null,
         onionRouting: Boolean = false,
         coreLogLevel: String = "warning",
-        /** VPN Share ("VPN Only" mode): binds the mixed SOCKS5 inbound to all
-         * interfaces instead of loopback so devices on this phone's own
-         * hotspot can use it as their proxy. See ConfigStore.vpnShareEnabled. */
+        /** VPN Share ("VPN Only" mode): binds the mixed SOCKS5 inbound to
+         * [shareListenAddress] instead of loopback so devices on this phone's
+         * own hotspot can use it as their proxy. See ConfigStore.vpnShareEnabled. */
         shareOnLan: Boolean = false,
         /** Required whenever [shareOnLan] is true: without a SOCKS5 username/
          * password Xray's socks-in accepts any client on the LAN with no
          * check at all, i.e. an open proxy. Ignored when [shareOnLan] is
          * false (the loopback-only inbound never needs one). */
         shareUser: String = "",
-        sharePass: String = ""
+        sharePass: String = "",
+        /** The exact interface address to bind the shared inbounds to -
+         * hotspotInterfaceAddress() from the caller, or "127.0.0.1" when no
+         * hotspot interface is currently up. Must never be the 0.0.0.0
+         * wildcard: that also binds the cellular data interface, which on
+         * some carriers/networks carries a real, routable address, turning
+         * this unauthenticated/LAN-only proxy into one reachable from the
+         * public internet. Falling back to loopback here disables the
+         * sharing without touching shareOnLan/UI state, exactly like the
+         * existing "missing credential -> loopback-only" fail-safe below. */
+        shareListenAddress: String = "127.0.0.1"
     ): String {
         val onion = onionRouting && config.protocol != "tor"
         val fake = fakeDns || onion
@@ -380,7 +390,7 @@ object ConfigBuilder {
         }
         val socksIn = JSONObject().put("tag", "socks-in")
             .put("port", MixedPort.value)
-            .put("listen", if (shareAuthed) "0.0.0.0" else "127.0.0.1")
+            .put("listen", if (shareAuthed) shareListenAddress else "127.0.0.1")
             .put("protocol", "socks")
             .put("settings", socksSettings)
         if (splitRouting || sniffing || adBlock) {
@@ -404,7 +414,7 @@ object ConfigBuilder {
             // manual SOCKS5+credentials (a browser, Telegram, etc.).
             inbounds.put(JSONObject().put("tag", "http-share-in")
                 .put("port", HttpSharePort.value)
-                .put("listen", "0.0.0.0")
+                .put("listen", shareListenAddress)
                 .put("protocol", "http")
                 .put("settings", JSONObject()))
         }

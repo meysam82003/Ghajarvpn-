@@ -272,7 +272,8 @@ class GozarVpnService : VpnService() {
             onionRouting = store.onionRouting.value,
             shareOnLan = sharing,
             shareUser = shareCredential?.first.orEmpty(),
-            sharePass = shareCredential?.second.orEmpty()
+            sharePass = shareCredential?.second.orEmpty(),
+            shareListenAddress = if (sharing) hotspotInterfaceAddress() ?: "127.0.0.1" else "127.0.0.1"
         )
         Log.d(TAG, "switching tunnel to ${config.name}")
         pollJob?.cancel(); pollJob = null
