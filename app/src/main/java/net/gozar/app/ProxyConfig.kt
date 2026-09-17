@@ -55,6 +55,7 @@ data class ProxyConfig(
     val oblivionJson: String = "",
     val source: ConfigSource = ConfigSource.PERSONAL,
     val locked: Boolean = false,
+    val favorite: Boolean = false,
     val id: String = UUID.randomUUID().toString()
 ) {
     fun toJson(): JSONObject = JSONObject()
@@ -69,7 +70,7 @@ data class ProxyConfig(
         .put("headerType", headerType)
         .put("subId", subId)
         .put("privateKey", privateKey).put("localAddress", localAddress)
-        .put("mtu", mtu).put("reserved", reserved).put("locked", locked)
+        .put("mtu", mtu).put("reserved", reserved).put("locked", locked).put("favorite", favorite)
         .put("aetherMode", aetherMode).put("aetherScan", aetherScan)
         .put("aetherNoise", aetherNoise).put("aetherHttp2", aetherHttp2)
         .put("aetherIpv6", aetherIpv6).put("oblivionJson", oblivionJson)
@@ -133,6 +134,7 @@ data class ProxyConfig(
             psiphonCdnSni = o.optString("psiphonCdnSni", ""),
             source = runCatching { ConfigSource.valueOf(o.optString("source", "PERSONAL")) }.getOrDefault(ConfigSource.PERSONAL),
             locked = o.optBoolean("locked", false),
+            favorite = o.optBoolean("favorite", false),
             id = o.optString("id", UUID.randomUUID().toString())
         )
     }

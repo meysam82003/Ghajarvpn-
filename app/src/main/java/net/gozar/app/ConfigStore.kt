@@ -351,6 +351,11 @@ class ConfigStore private constructor(context: Context) {
         persistConfigs()
     }
 
+    fun setFavorite(id: String, favorite: Boolean) {
+        _configs.value = _configs.value.map { if (it.id == id) it.copy(favorite = favorite) else it }
+        persistConfigs()
+    }
+
     /**
      * One-time cleanup for installs from before the auto-seeded default
      * config was removed: deletes only the exact fingerprint that seeding

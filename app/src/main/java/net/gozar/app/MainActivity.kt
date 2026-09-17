@@ -216,6 +216,8 @@ import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.TimerOff
@@ -2227,6 +2229,7 @@ private fun ConfigPickerScreen(
     var searchOpen by remember { mutableStateOf(false) }
     var pingingSubs by remember { mutableStateOf(emptySet<String>()) }
     var query by remember { mutableStateOf("") }
+    var favoritesOnly by remember { mutableStateOf(false) }
     val expandedSubs by store.expandedSubs.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -2261,9 +2264,9 @@ private fun ConfigPickerScreen(
         }
     } else 0
     val q = query.trim()
-    val grouped = remember(configs, subscriptions, sortMode, pingSortKey, q) {
+    val grouped = remember(configs, subscriptions, sortMode, pingSortKey, q, favoritesOnly) {
         subscriptions.map { sub ->
-            val all = sortMaybe(configs.filter { it.subId == sub.id })
+            val all = sortMaybe(configs.filter { it.subId == sub.id && (!favoritesOnly || it.favorite) })
             sub to when {
                 q.isEmpty() || sub.name.contains(q, true) -> all
                 else -> all.filter { it.name.contains(q, true) }
@@ -2271,8 +2274,10 @@ private fun ConfigPickerScreen(
         }.filter { (sub, list) -> q.isEmpty() || list.isNotEmpty() || sub.name.contains(q, true) }
             .sortedByDescending { (sub, _) -> WindscribeBrand.isWindscribe(sub) }
     }
-    val loose = remember(configs, sortMode, pingSortKey, q) {
-        sortMaybe(configs.filter { it.subId.isEmpty() && (q.isEmpty() || it.name.contains(q, true)) })
+    val loose = remember(configs, sortMode, pingSortKey, q, favoritesOnly) {
+        sortMaybe(configs.filter {
+            it.subId.isEmpty() && (!favoritesOnly || it.favorite) && (q.isEmpty() || it.name.contains(q, true))
+        })
     }
     fun displayedOrder(): List<String> = buildList {
         grouped.forEach { (sub, cfgs) -> if (sub.id in expandedSubs || q.isNotEmpty()) cfgs.forEach { add(it.id) } }
@@ -2696,15 +2701,25 @@ private fun ConfigPickerScreen(
             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                label = { Text(t("search_servers")) },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    label = { Text(t("search_servers")) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { favoritesOnly = !favoritesOnly }) {
+                    Icon(
+                        if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = "فقط موردعلاقه‌ها",
+                        tint = if (favoritesOnly) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
         }
 
         val statusLine = when {
@@ -2895,7 +2910,8 @@ private fun ConfigPickerScreen(
                             modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
                             containerColor = wsRow,
                             conn = conn,
-                            onToggleConnection = { toggleConnection(cfg) }
+                            onToggleConnection = { toggleConnection(cfg) },
+                            onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) }
                         )
                     }
                 }
@@ -2958,7 +2974,8 @@ private fun ConfigPickerScreen(
                         },
                         modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
                         conn = conn,
-                        onToggleConnection = { toggleConnection(cfg) }
+                        onToggleConnection = { toggleConnection(cfg) },
+                        onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) }
                     )
                 }
             }
@@ -10759,7 +10776,8 @@ private fun ConfigRow(
     appear: Boolean = true,
     containerColor: Color? = null,
     conn: Connection = Connection.DISCONNECTED,
-    onToggleConnection: (() -> Unit)? = null
+    onToggleConnection: (() -> Unit)? = null,
+    onToggleFavorite: () -> Unit = {}
 ) {
     val t = stringsFn()
     val lang = LocalLang.current
@@ -10889,6 +10907,14 @@ private fun ConfigRow(
                 )
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (config.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = "موردعلاقه",
+                        tint = if (config.favorite) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clip(CircleShape)
+                            .clickable { onToggleFavorite() }.padding(4.dp).size(21.dp)
+                    )
                     Box {
                         Icon(Icons.Filled.Share, contentDescription = t("share"),
                             tint = MaterialTheme.colorScheme.primary,
