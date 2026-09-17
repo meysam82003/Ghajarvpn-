@@ -129,6 +129,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Dns
@@ -5878,6 +5879,7 @@ private fun ToolsScreen(
     val adBlock by store.adBlock.collectAsState()
     val blockWhenOff by store.blockWhenOff.collectAsState()
     var vpnShareOpen by remember { mutableStateOf(false) }
+    var connectionHistoryOpen by remember { mutableStateOf(false) }
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -5893,6 +5895,12 @@ private fun ToolsScreen(
             title = t("stab_title"),
             subtitle = t("stab_sub"),
             onClick = onOpenStability
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.History,
+            title = "تاریخچهٔ اتصال",
+            subtitle = "زمان و وضعیت آخرین اتصال‌ها، قطعی‌ها و خطاها",
+            onClick = { connectionHistoryOpen = true }
         )
         SettingsHubCard(
             icon = Icons.Filled.BugReport,
@@ -5954,6 +5962,7 @@ private fun ToolsScreen(
         }
     }
     if (vpnShareOpen) VpnShareDialog(store = store, onDismiss = { vpnShareOpen = false })
+    if (connectionHistoryOpen) ConnectionHistoryDialog(onDismiss = { connectionHistoryOpen = false })
 }
 
 /**
