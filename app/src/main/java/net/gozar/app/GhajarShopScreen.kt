@@ -148,6 +148,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var loadedPanelId by remember { mutableStateOf<String?>(null) }
 
     var customMode by remember { mutableStateOf(false) }
+    var comparePlans by remember { mutableStateOf(false) }
     var customTraffic by remember { mutableStateOf("") }
     var customDays by remember { mutableStateOf("") }
     var customQuote by remember { mutableStateOf<GhajarCustomQuote?>(null) }
@@ -589,12 +590,24 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     )
                 }
             } else {
+                if (products.size > 1) {
+                    item(key = "shop-block-compare") {
+                        OutlinedButton(onClick = { comparePlans = true }, modifier = Modifier.fillMaxWidth()) {
+                            Text("مقایسهٔ پلن‌ها")
+                        }
+                    }
+                }
                 items(products, key = { "product:${it.id}" }) { product ->
                     ProductCard(product, enabled = !busy && !checkoutBusy) {
                         confirmationTitle = product.name
                         confirmationPrice = product.price
                         confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
                     }
+                }
+            }
+            if (comparePlans) {
+                item(key = "shop-block-compare-dialog") {
+                    PlanComparisonDialog(products) { comparePlans = false }
                 }
             }
 
@@ -1195,3 +1208,44 @@ private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
 }
 
 private fun formatPrice(price: Long): String = NumberFormat.getIntegerInstance(Locale("fa", "IR")).format(price)
+
+/** A real side-by-side comparison built from the same GhajarProduct list the
+ * store already fetched from the panel - no separate numbers, no guessing. */
+@Composable
+private fun PlanComparisonDialog(products: List<GhajarProduct>, onDismiss: () -> Unit) {
+    val rows = remember(products) {
+        products.sortedWith(compareBy(nullsLast()) { p -> p.price?.let { price ->
+            p.trafficGb?.takeIf { it > 0 }?.let { price / it }
+        } })
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("مقایسهٔ پلن‌ها") },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                rows.forEach { p ->
+                    Column(
+                        Modifier.fillMaxWidth()
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                            .padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(p.name, fontWeight = FontWeight.Bold)
+                        Text(listOfNotNull(
+                            p.trafficGb?.let { "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ" },
+                            p.days?.let { "$it روز" }
+                        ).joinToString("  •  "), style = MaterialTheme.typography.bodySmall)
+                        Text(p.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
+                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                        val perGb = p.price?.let { price -> p.trafficGb?.takeIf { it > 0 }?.let { price / it } }
+                        perGb?.let {
+                            Text("هر گیگ: ${formatPrice(it.toLong())} تومان", style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("بستن") } }
+    )
+}
