@@ -1,0 +1,81 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Fetch the native OpenVPN engine sources (openvpn3, OpenSSL, fmt, ...) that are
+# not part of the reviewed base patch series. Everything comes from the official
+# upstream repository at one pinned commit, so every checkout rebuilds the very
+# same engines instead of depending on the author's machine.
+ICS_OPENVPN_URL="https://github.com/schwabe/ics-openvpn.git"
+ICS_OPENVPN_COMMIT="ede0aa0b334b47941407599fef3d76da8b933edf" # master 2026-07
+
+# Guard the destination argument: relative, no '..' components, no traversal.
+if [[ "${1:-}" =~ (^/|(^|/)\.\.(/|$)) ]]; then
+  echo "Unsafe destination argument: ${1}" >&2
+  exit 64
+fi
+root="${1:-.}"
+project_root="$(cd "${root}" && pwd)/.ghajarvpn-src"
+cpp_dir="${project_root}/openvpn/src/main/cpp"
+
+missing=()
+for engine_dir in asio fmt lz4 mbedtls openssl openvpn openvpn3; do
+  [[ -d "${cpp_dir}/${engine_dir}" ]] || missing+=("${engine_dir}")
+done
+
+if [[ ${#missing[@]} -eq 0 ]]; then
+  echo "Native engine sources already present in ${cpp_dir}"
+  exit 0
+fi
+
+work="$(mktemp -d)"
+# Git marks submodule checkouts read-only on some filesystems, which makes a
+# plain `rm -rf` fail with "Directory not empty" and abort the whole script
+# through the trap. Widen permissions first and never let cleanup fail the run.
+cleanup_work() {
+  chmod -R u+w "${work}" 2>/dev/null || true
+  rm -rf "${work}" 2>/dev/null || true
+}
+trap cleanup_work EXIT
+
+git init --quiet "${work}/ics-openvpn"
+git -C "${work}/ics-openvpn" remote add origin "${ICS_OPENVPN_URL}"
+# A shallow clone cannot see older commits, so the exact pinned revision is
+# fetched directly instead.
+git -C "${work}/ics-openvpn" fetch --quiet --depth 1 origin "${ICS_OPENVPN_COMMIT}"
+git -C "${work}/ics-openvpn" checkout --quiet FETCH_HEAD
+git -C "${work}/ics-openvpn" submodule update --init --checkout --depth 1
+
+# Upstream moved the library between releases ("openvpn/" -> "main/"), so the
+# engine root is detected instead of assumed.
+engine_root=""
+for candidate in \
+  "${work}/ics-openvpn/main/src/main/cpp" \
+  "${work}/ics-openvpn/openvpn/src/main/cpp"; do
+  [[ -d "${candidate}" ]] && engine_root="${candidate}" && break
+done
+if [[ -z "${engine_root}" ]]; then
+  echo "No native cpp root found in upstream ${ICS_OPENVPN_COMMIT}" >&2
+  exit 66
+fi
+
+unavailable=()
+for engine_dir in "${missing[@]}"; do
+  src="${engine_root}/${engine_dir}"
+  if [[ ! -d "${src}" ]]; then
+    unavailable+=("${engine_dir}")
+    continue
+  fi
+  mkdir -p "${cpp_dir}/${engine_dir}"
+  git -C "${src}" archive HEAD | tar -x -C "${cpp_dir}/${engine_dir}"
+done
+
+if [[ ${#unavailable[@]} -gt 0 ]]; then
+  echo "Pinned upstream ${ICS_OPENVPN_COMMIT} does not provide: ${unavailable[*]}" >&2
+  exit 65
+fi
+
+# The SWIG wrapper and the OpenSSL build glue are hard build requirements.
+test -f "${cpp_dir}/openvpn3/client/ovpncli.i"
+test -f "${cpp_dir}/openssl/openssl.cmake"
+
+echo "Fetched native engine sources into ${cpp_dir}: ${missing[*]}"

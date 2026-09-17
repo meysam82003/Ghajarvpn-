@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="royal_ice">#FF91BCC7</color>
+    <color name="royal_emerald">#FF0D503F</color>
+    <color name="royal_gold">#FFD5AD4A</color>
+    <color name="royal_navy">#FF071B2E</color>
+    <color name="royal_cream">#FFF5F0E2</color>
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+</resources>
