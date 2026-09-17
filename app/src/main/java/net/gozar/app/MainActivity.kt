@@ -1222,19 +1222,38 @@ class MainActivity : ComponentActivity() {
 
     private fun startTunnel(
         configJson: String, name: String, aether: String, tor: String?, psiphon: String? = null,
-        address: String = "", port: Int = 0
+        address: String = "", port: Int = 0, attempt: Int = 0
     ) {
-        guardedConnect { androidx.core.content.ContextCompat.startForegroundService(this,
-            Intent(this, GozarVpnService::class.java)
-                .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
-                .putExtra(GozarVpnService.EXTRA_NAME, name)
-                .putExtra(GozarVpnService.EXTRA_AETHER, aether)
-                .putExtra(GozarVpnService.EXTRA_TOR, tor)
-                .putExtra(GozarVpnService.EXTRA_PSIPHON, psiphon)
-                .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
-                .putExtra(GozarVpnService.EXTRA_ADDRESS, address)
-                .putExtra(GozarVpnService.EXTRA_PORT, port)
-        ) }
+        guardedConnect {
+            try {
+                androidx.core.content.ContextCompat.startForegroundService(this,
+                    Intent(this, GozarVpnService::class.java)
+                        .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
+                        .putExtra(GozarVpnService.EXTRA_NAME, name)
+                        .putExtra(GozarVpnService.EXTRA_AETHER, aether)
+                        .putExtra(GozarVpnService.EXTRA_TOR, tor)
+                        .putExtra(GozarVpnService.EXTRA_PSIPHON, psiphon)
+                        .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
+                        .putExtra(GozarVpnService.EXTRA_ADDRESS, address)
+                        .putExtra(GozarVpnService.EXTRA_PORT, port)
+                )
+            } catch (error: SecurityException) {
+                // MIUI/AOSP briefly refuse to start a service in a process they just
+                // flagged "bad" right after killing it (seen in exported logs as
+                // ApplicationExitInfo reason=OTHER_KILLS_BY_SYSTEM); that flag clears
+                // on its own within a second or two. Retry a few times before
+                // falling through to the same failure reporting as any other error.
+                val processBad = error.message?.contains("process is bad", ignoreCase = true) == true
+                if (processBad && attempt < 3) {
+                    lifecycleScope.launch {
+                        delay(700L * (attempt + 1))
+                        startTunnel(configJson, name, aether, tor, psiphon, address, port, attempt + 1)
+                    }
+                } else {
+                    throw error
+                }
+            }
+        }
     }
 
     private fun startBlockOnly() {

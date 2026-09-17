@@ -37,7 +37,6 @@ class GozarVpnService : VpnService() {
     private val scope = CoroutineScope(Dispatchers.IO)
     private var pollJob: Job? = null
     private var startJob: Job? = null
-    private val engineLock = kotlinx.coroutines.sync.Mutex()
     private var configName: String = "VPN"
     private var configAddress: String = ""
     private var configPort: Int = 0
@@ -182,7 +181,29 @@ class GozarVpnService : VpnService() {
                 runCatching { Gozarcore.stop() }
                 ensureActive()
                 val readyJson = if (psi != null) PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT) else configJson
-                if (pfd != null) Gozarcore.start(readyJson, pfd.detachFd().toLong())
+                if (pfd != null) {
+                    val fd = pfd.detachFd().toLong()
+                    var bindAttempt = 0
+                    while (true) {
+                        try {
+                            Gozarcore.start(readyJson, fd)
+                            break
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // engineLock now serializes this against any other instance's
+                            // teardown, but Xray-core's own socket close can still finish
+                            // a beat after Gozarcore.stop() returns. Retry a couple of
+                            // times only for that specific failure before giving up.
+                            val portBusy = e.message?.contains("address already in use", ignoreCase = true) == true
+                            if (!portBusy || bindAttempt >= 2) throw e
+                            bindAttempt++
+                            Log.w(TAG, "mixed-inbound port still held, retry $bindAttempt/2 in 400ms")
+                            runCatching { Gozarcore.stop() }
+                            delay(400)
+                        }
+                    }
+                }
                 Log.i(TAG, "Xray core started, tunnel up")
                 val tor = torSpec
                 if (tor != null) {
@@ -526,6 +547,16 @@ class GozarVpnService : VpnService() {
         private const val TAG = "GozarVpnService"
         private const val CHANNEL_ID = "gozarnet_vpn"
         private const val NOTIF_ID = 1
+        // Shared across every GozarVpnService instance in this :vpn process, not
+        // per-instance. Android creates a brand-new instance (fresh onCreate())
+        // for each startForegroundService() call once the previous one has been
+        // stopSelf()'d - a new instance's own field would be a fresh, unrelated
+        // Mutex that provides zero exclusion against a still-in-flight teardown
+        // from the instance being replaced. That gap let a reconnect/server-switch
+        // call Gozarcore.start() while the old instance's onDestroy() coroutine
+        // was still calling Gozarcore.stop(), producing the observed
+        // "bind: address already in use" on the mixed-inbound port (10626).
+        private val engineLock = kotlinx.coroutines.sync.Mutex()
         const val ACTION_AETHER_CODE = "net.gozar.app.AETHER_CODE"
         const val EXTRA_AETHER_CODE = "net.gozar.app.AETHER_EMAIL_CODE"
         const val ACTION_STOP = "net.gozar.app.STOP"
