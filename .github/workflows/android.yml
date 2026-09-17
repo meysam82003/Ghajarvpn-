@@ -31,6 +31,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y swig ninja-build
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK and NDK
         run: |
@@ -107,6 +109,8 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y swig ninja-build
 
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
 
       - name: Install Android SDK and NDK
         run: |
