@@ -5760,8 +5760,10 @@ private fun BackupRow(store: ConfigStore) {
                 if (result != null) {
                     store.restoreBackup(result.configs, result.subs, result.settings)
                     GhajarOpenVpnSettings.restore(context, result.openVpnSettings)
+                    val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, result.openVpnProfiles, merge = false)
                     status = localizeDigits(
-                        t("backup_restored").format(result.configs.size, result.subs.size),
+                        t("backup_restored").format(result.configs.size, result.subs.size) +
+                            if (result.openVpnProfiles.isNotEmpty()) " + ${ovpnOutcome.added} پروفایل OpenVPN" else "",
                         store.lang.value
                     )
                 } else status = t("import_bad_file")
@@ -5780,9 +5782,15 @@ private fun BackupRow(store: ConfigStore) {
                             "این فایل شامل ${p.configs.size} کانفیگ و ${p.subs.size} اشتراک است.",
                             style = MaterialTheme.typography.bodyMedium
                         )
-                        if (p.openVpnSettings == null) {
+                        if (p.openVpnProfiles.isEmpty()) {
                             Text(
-                                "توجه: پروفایل‌های وارد‌شدهٔ OpenVPN در بکاپ ذخیره نمی‌شوند و باید دوباره وارد شوند.",
+                                "توجه: این بکاپ پروفایل OpenVPN ندارد (بکاپ قدیمی یا بدون پروفایل ذخیره‌شده).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                "شامل ${p.openVpnProfiles.size} پروفایل OpenVPN.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -5793,9 +5801,10 @@ private fun BackupRow(store: ConfigStore) {
                             onClick = {
                                 pending = null
                                 val report = store.mergeBackup(p.configs, p.subs)
+                                val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, p.openVpnProfiles, merge = true)
                                 status = localizeDigits(
-                                    "افزوده شد: ${report.addedConfigs} کانفیگ، ${report.addedSubscriptions} اشتراک" +
-                                        " (تکراری نادیده گرفته شد: ${report.duplicateConfigs} کانفیگ، ${report.duplicateSubscriptions} اشتراک)",
+                                    "افزوده شد: ${report.addedConfigs} کانفیگ، ${report.addedSubscriptions} اشتراک، ${ovpnOutcome.added} پروفایل OpenVPN" +
+                                        " (تکراری نادیده گرفته شد: ${report.duplicateConfigs} کانفیگ، ${report.duplicateSubscriptions} اشتراک، ${ovpnOutcome.duplicates} پروفایل)",
                                     store.lang.value
                                 )
                             },

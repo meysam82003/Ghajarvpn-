@@ -56,6 +56,8 @@ data class GhajarOvpnTestResult(
     val message: String = ""
 )
 
+data class GhajarOvpnImportOutcome(val added: Int, val duplicates: Int, val failed: Int)
+
 object GhajarOpenVpnBridge {
     private val _pending = MutableStateFlow<PendingOpenVpnImport?>(null)
     val pending = _pending.asStateFlow()
@@ -292,6 +294,70 @@ object GhajarOpenVpnBridge {
     fun profiles(context: Context): List<GhajarOvpnProfile> = runCatching {
         ProfileManager.getInstance(context.applicationContext).getProfiles().map(::toUi).sortedBy { it.name }
     }.getOrDefault(emptyList())
+
+    /**
+     * Every saved profile as-is, via the exact Java serialization ProfileManager
+     * itself already uses to persist a profile to disk (VpnProfile implements
+     * Serializable). This round-trips the real object - inline certs/keys/name/
+     * credentials included - rather than trying to regenerate .ovpn text, which
+     * would lose data for profiles built from client-cert or PKCS12 auth.
+     */
+    fun exportProfiles(context: Context): List<ByteArray> = runCatching {
+        ProfileManager.getInstance(context.applicationContext).getProfiles().mapNotNull { profile ->
+            runCatching {
+                val bos = java.io.ByteArrayOutputStream()
+                java.io.ObjectOutputStream(bos).use { it.writeObject(profile) }
+                bos.toByteArray()
+            }.getOrNull()
+        }
+    }.getOrDefault(emptyList())
+
+    /**
+     * Restores profiles exported by [exportProfiles]. A profile already present
+     * (matched by UUID, or by its import hash for a profile re-imported from an
+     * .ovpn file under a new UUID) is always skipped, never overwritten, so a
+     * merge restore can never clobber local edits. When [merge] is false the
+     * caller has chosen a full replace: existing profiles are removed first
+     * (stopping any of them that is currently connecting/connected) so the
+     * restored set exactly mirrors the backup, matching how a full config/sub
+     * replace already works.
+     */
+    fun importProfiles(context: Context, blobs: List<ByteArray>, merge: Boolean): GhajarOvpnImportOutcome {
+        val app = context.applicationContext
+        val manager = ProfileManager.getInstance(app)
+        if (!merge) {
+            manager.getProfiles().toList().forEach { profile ->
+                runCatching { delete(app, profile.getUUIDString()) }
+            }
+        }
+        var added = 0
+        var duplicates = 0
+        var failed = 0
+        blobs.forEach { bytes ->
+            val profile = runCatching {
+                java.io.ObjectInputStream(java.io.ByteArrayInputStream(bytes)).use { it.readObject() as VpnProfile }
+            }.getOrNull()
+            if (profile == null) {
+                failed++
+                return@forEach
+            }
+            val existing = manager.getProfiles().firstOrNull {
+                it.getUUIDString() == profile.getUUIDString() ||
+                    (!it.importedProfileHash.isNullOrBlank() && it.importedProfileHash == profile.importedProfileHash)
+            }
+            if (existing != null) {
+                duplicates++
+                return@forEach
+            }
+            val ok = runCatching {
+                manager.addProfile(profile)
+                ProfileManager.saveProfile(app, profile)
+                manager.saveProfileList(app)
+            }.isSuccess
+            if (ok) added++ else failed++
+        }
+        return GhajarOvpnImportOutcome(added, duplicates, failed)
+    }
 
     fun findProfile(context: Context, uuid: String): VpnProfile? =
         ProfileManager.getInstance(context.applicationContext).getProfiles().firstOrNull { it.getUUIDString() == uuid }

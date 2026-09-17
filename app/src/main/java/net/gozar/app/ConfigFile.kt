@@ -59,11 +59,11 @@ object ConfigFile {
         val subs: List<Subscription>,
         val settings: JSONObject?,
         /** OpenVPN engine preferences (ConfigFile v>=3 only); null on older
-         * backups. Imported OpenVPN profile files themselves are NOT part of
-         * this backup format: ics-openvpn stores each profile with its own
-         * internal serialization unrelated to this JSON format, and safely
-         * exporting/reimporting it is out of scope here. */
-        val openVpnSettings: JSONObject?
+         * backups. */
+        val openVpnSettings: JSONObject?,
+        /** Each saved OpenVPN profile, serialized (ConfigFile v>=4 only);
+         * empty on older backups. See [GhajarOpenVpnBridge.exportProfiles]. */
+        val openVpnProfiles: List<ByteArray> = emptyList()
     )
 
     fun isPasswordProtected(bytes: ByteArray): Boolean {
@@ -101,13 +101,18 @@ object ConfigFile {
             .put("useSystemProxy", ovpn.useSystemProxy)
             .put("pauseOnScreenOff", ovpn.pauseOnScreenOff)
             .put("encryptProfiles", ovpn.encryptProfiles)
+        val profilesArr = JSONArray()
+        GhajarOpenVpnBridge.exportProfiles(context).forEach { bytes ->
+            profilesArr.put(Base64.encodeToString(bytes, Base64.NO_WRAP))
+        }
         val root = JSONObject()
-            .put("v", 3)
+            .put("v", 4)
             .put("kind", "backup")
             .put("configs", cfgArr)
             .put("subs", subArr)
             .put("settings", settings)
             .put("openVpnSettings", ovpnObj)
+            .put("openVpnProfiles", profilesArr)
         return seal(context, root, password)
     }
 
@@ -165,7 +170,13 @@ object ConfigFile {
         val subs = (0 until subArr.length()).map {
             Subscription.fromJson(subArr.getJSONObject(it))
         }
-        return Backup(configs, subs, root.optJSONObject("settings"), root.optJSONObject("openVpnSettings"))
+        val profilesArr = root.optJSONArray("openVpnProfiles") ?: JSONArray()
+        val profiles = (0 until profilesArr.length()).mapNotNull { i ->
+            runCatching { Base64.decode(profilesArr.getString(i), Base64.NO_WRAP) }.getOrNull()
+        }
+        return Backup(
+            configs, subs, root.optJSONObject("settings"), root.optJSONObject("openVpnSettings"), profiles
+        )
     }
 
     private fun open(context: Context, bytes: ByteArray, password: String?): JSONObject {
