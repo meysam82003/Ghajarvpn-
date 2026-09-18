@@ -1175,12 +1175,14 @@ private fun panelIcon(name: String): String = when {
 private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
     var details by remember(product.id) { mutableStateOf(false) }
     val c = ghajarColors
+    // A plan is one slab: filled, edgeless, light on the top edge. Sold-out
+    // or unavailable plans take the disabled tone on that edge so the state is
+    // visible before you read the price.
     Row(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(GhajarRadius.lg))
-            .background(c.card)
-            .border(1.dp, c.border, RoundedCornerShape(GhajarRadius.lg))
+            .background(c.secondaryCard)
             .then(if (enabled) Modifier.clickable { details = true } else Modifier)
             .padding(GhajarSpacing.lg),
         verticalAlignment = Alignment.CenterVertically,
@@ -1189,11 +1191,16 @@ private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> U
         Box(
             Modifier
                 .size(38.dp)
-                .clip(RoundedCornerShape(GhajarRadius.sm))
-                .background(c.primary.copy(alpha = if (c.dark) 0.14f else 0.10f)),
+                .clip(RoundedCornerShape(13.dp))
+                .background((if (enabled) c.primary else c.onDisabled).copy(alpha = 0.14f)),
             contentAlignment = Alignment.Center
         ) {
-            Icon(Icons.Filled.Shield, null, tint = c.primary, modifier = Modifier.size(20.dp))
+            Icon(
+                Icons.Filled.Shield,
+                null,
+                tint = if (enabled) c.primary else c.onDisabled,
+                modifier = Modifier.size(20.dp)
+            )
         }
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
@@ -1340,7 +1347,6 @@ private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(GhajarRadius.md))
             .background(if (error) c.errorSurface else c.secondaryCard)
-            .border(1.dp, if (error) c.error.copy(alpha = 0.45f) else c.border, RoundedCornerShape(GhajarRadius.md))
             .padding(start = GhajarSpacing.md, end = GhajarSpacing.xs, top = GhajarSpacing.sm, bottom = GhajarSpacing.sm),
         verticalAlignment = Alignment.CenterVertically
     ) {
@@ -1371,33 +1377,30 @@ private fun OrderStatusCenter(
     onOpenPending: () -> Unit,
     onOpenServices: () -> Unit
 ) {
-    Card(shape = RoundedCornerShape(18.dp), modifier = Modifier.fillMaxWidth()) {
-        Row(
-            Modifier.fillMaxWidth().padding(vertical = 14.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            StatusCenterCell("موجودی", balanceText ?: "…", onOpenWallet)
-            StatusCenterCell("در انتظار پرداخت", pendingCount.toString(), onOpenPending,
-                accent = pendingCount > 0)
-            StatusCenterCell("سرویس‌های فعال", "$activeServiceCount/$totalServiceCount", onOpenServices)
-        }
-    }
-}
-
-@Composable
-private fun StatusCenterCell(label: String, value: String, onClick: () -> Unit, accent: Boolean = false) {
-    Column(
-        Modifier.clickable(onClick = onClick).padding(horizontal = 10.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Text(
-            value,
-            style = MaterialTheme.typography.titleMedium,
-            fontWeight = FontWeight.Bold,
-            color = if (accent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    // Three readings of one account in one object - the skin's stat strip -
+    // with a row of ghost pills underneath for the three destinations, so each
+    // number stays a number and each jump stays a button.
+    val c = ghajarColors
+    Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+        StatStrip(
+            listOf(
+                StatCell("موجودی", balanceText ?: "…", c.premium),
+                StatCell(
+                    "در انتظار پرداخت",
+                    pendingCount.toString(),
+                    if (pendingCount > 0) c.warning else c.textPrimary
+                ),
+                StatCell("سرویس‌های فعال", "$activeServiceCount/$totalServiceCount", c.good)
+            )
         )
-        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+        ) {
+            GhostPill("کیف پول", onOpenWallet, Modifier.weight(1f))
+            GhostPill("پرداخت‌ها", onOpenPending, Modifier.weight(1f))
+            GhostPill("سرویس‌ها", onOpenServices, Modifier.weight(1f))
+        }
     }
 }
 

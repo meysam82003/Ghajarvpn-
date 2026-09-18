@@ -3919,25 +3919,29 @@ private fun GlassDialog(
     accentOverride: Color? = null,
     body: @Composable ColumnScope.() -> Unit
 ) {
+    // Every dialog in the app comes through here, so it is the skin's sheet:
+    // a slab raised onto the surface tone, the title carried by a rail, and
+    // the two actions as the skin's pills - confirm filled, dismiss ghost -
+    // rather than two identical outlined buttons where nothing says which one
+    // is the action you came for.
     val c = ghajarColors
     val accent = accentOverride ?: if (destructive) c.error else c.primary
     Dialog(onDismissRequest = onDismiss) {
-        Column(
+        Box(
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(GhajarRadius.xl))
                 .background(c.surface)
-                // A hairline in the accent, not a glow: the dialog should read
-                // as a raised sheet, not as a highlighted object.
-                .border(1.dp, c.borderStrong, RoundedCornerShape(GhajarRadius.xl))
-                .padding(GhajarSpacing.xl),
-            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
         ) {
+            Column(
+                Modifier.padding(GhajarSpacing.xl),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+            ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         Modifier
                             .size(width = 3.dp, height = 18.dp)
-                            .clip(RoundedCornerShape(2.dp))
+                            .clip(RoundedCornerShape(GhajarRadius.pill))
                             .background(accent)
                     )
                     Spacer(Modifier.width(GhajarSpacing.sm))
@@ -3949,30 +3953,29 @@ private fun GlassDialog(
                     )
                 }
                 body()
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (dismissLabel != null) {
-                        BounceOutlinedButton(
-                            onClick = onDismiss,
-                            minHeight = 42.dp,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(dismissLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
-                        }
-                    }
-                    BounceOutlinedButton(
-                        onClick = onConfirm,
-                        minHeight = 42.dp,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        accent = accent,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(confirmLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
-                    }
+                PillButton(
+                    text = confirmLabel,
+                    onClick = onConfirm,
+                    accent = accent
+                )
+                if (dismissLabel != null) {
+                    GhostPill(
+                        text = dismissLabel,
+                        onClick = onDismiss,
+                        accent = c.textSecondary
+                    )
                 }
+            }
+            // The same top-edge light every slab has, in the dialog's accent.
+            Canvas(Modifier.fillMaxWidth().height(1.dp)) {
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.Transparent,
+                        0.5f to accent.copy(alpha = 0.55f),
+                        1f to Color.Transparent
+                    )
+                )
+            }
         }
     }
 }
@@ -10923,17 +10926,29 @@ private fun ConfigRow(
                 }
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
-        shape = RoundedCornerShape(GhajarRadius.md),
-        colors = CardDefaults.cardColors(containerColor = containerColor ?: c.card),
-        // The active row carries a brand hairline - the one row that is doing
-        // something should be identifiable without reading it.
-        border = BorderStroke(1.dp, if (isActive) c.primary.copy(alpha = 0.55f) else c.border)
+        shape = RoundedCornerShape(GhajarRadius.lg),
+        // Server rows live in a scrolling list, not inside one slab, so each is
+        // its own small slab: filled, edgeless, on the nested card tone. The
+        // active one is marked by a leading accent bar (drawn below), not by a
+        // border - the skin has no borders.
+        colors = CardDefaults.cardColors(containerColor = containerColor ?: c.secondaryCard),
+        border = null
     ) {
         Row(
             Modifier.fillMaxWidth().background(rowTint)
-                .padding(start = 14.dp, end = 9.dp, top = 10.dp, bottom = 10.dp),
+                .padding(start = 8.dp, end = 9.dp, top = 10.dp, bottom = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // The leading accent bar: full height on the row that is connected,
+            // invisible otherwise. This is what replaced the border.
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(30.dp)
+                    .clip(RoundedCornerShape(GhajarRadius.pill))
+                    .background(if (isActive) c.primary else Color.Transparent)
+            )
+            Spacer(Modifier.width(6.dp))
             if (checked) {
                 Icon(Icons.Filled.CheckCircle, contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
