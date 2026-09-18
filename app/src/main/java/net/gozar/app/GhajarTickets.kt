@@ -102,14 +102,20 @@ fun GhajarTickets(api: GhajarStoreApi) {
         thread?.let { t ->
             Text(t.optString("subject"), style = MaterialTheme.typography.titleMedium)
             rows(t, "messages").forEach { m ->
-                Card(Modifier.fillMaxWidth()) {
-                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(if (m.optString("sender") == "admin") "پشتیبانی" else "شما", style = MaterialTheme.typography.labelLarge)
-                        m.optJSONObject("reply_to")?.let { Text("↪ ${it.optString("body")}", style = MaterialTheme.typography.bodySmall) }
-                        Text(m.optString("body"))
-                        if (m.optInt("media_count") > 0) Text("پیوست: در پنل کامل پشتیبانی مشاهده کن.")
-                        Text(m.optString("time"), style = MaterialTheme.typography.labelSmall)
-                    }
+                // Support replies take the brand hairline so the two sides of a
+                // thread are distinguishable without two card designs.
+                val fromSupport = m.optString("sender") == "admin"
+                GhajarCard(
+                    Modifier.fillMaxWidth(),
+                    accent = if (fromSupport) ghajarColors.primary.copy(alpha = 0.55f) else null,
+                    padding = 12.dp,
+                    spacing = 4.dp
+                ) {
+                    Text(if (fromSupport) "پشتیبانی" else "شما", style = MaterialTheme.typography.labelLarge)
+                    m.optJSONObject("reply_to")?.let { Text("↪ ${it.optString("body")}", style = MaterialTheme.typography.bodySmall) }
+                    Text(m.optString("body"))
+                    if (m.optInt("media_count") > 0) Text("پیوست: در پنل کامل پشتیبانی مشاهده کن.")
+                    Text(m.optString("time"), style = MaterialTheme.typography.labelSmall)
                 }
             }
             if (t.optBoolean("open")) OutlinedButton(enabled = !busy, onClick = { run {

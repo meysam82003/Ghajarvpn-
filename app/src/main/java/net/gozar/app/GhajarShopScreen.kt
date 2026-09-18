@@ -1027,10 +1027,17 @@ private fun SectionTitle(title: String, subtitle: String) {
 
 @Composable
 private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, onRenew: () -> Unit) {
-    Card(onClick = onImport, modifier = Modifier.fillMaxWidth()) {
+    val c = ghajarColors
+    Card(
+        onClick = onImport,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(GhajarRadius.md),
+        colors = CardDefaults.cardColors(containerColor = c.card),
+        border = BorderStroke(1.dp, c.border)
+    ) {
         Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text(service.productName, fontWeight = FontWeight.Bold)
+                Text(service.productName, fontWeight = FontWeight.Bold, color = c.textPrimary)
                 Text("\u2066${service.username}\u2069", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 Text(service.location, style = MaterialTheme.typography.bodySmall,
@@ -1051,22 +1058,33 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, 
 /** Store tabs: exact labels, horizontally and vertically centered, uniform metrics. */
 @Composable
 private fun StoreSectionTabs(section: Int, onSelect: (Int) -> Unit) {
+    val c = ghajarColors
     val labels = listOf("خریدها", "سرویس‌ها", "پیام‌ها", "کیف پول", "پشتیبانی", "تراکنش‌ها")
-    Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)) {
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+    // The shop's primary navigation, so it gets the same floating-pill
+    // treatment as the bottom bar: card surface, hairline, and a filled brand
+    // pill for the section you are on.
+    Surface(
+        shape = RoundedCornerShape(GhajarRadius.lg),
+        color = c.card,
+        border = BorderStroke(1.dp, c.border)
+    ) {
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(GhajarSpacing.xs),
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)
+        ) {
             labels.forEachIndexed { index, label ->
                 val selected = section == index
-                val shape = RoundedCornerShape(14.dp)
+                val shape = RoundedCornerShape(GhajarRadius.md)
                 Box(
                     Modifier.widthIn(min = 76.dp)
                         .clip(shape)
-                        .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
+                        .background(if (selected) c.primary else Color.Transparent)
                         .clickable { onSelect(index) }
                         .padding(vertical = 10.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(label, maxLines = 1, textAlign = TextAlign.Center,
-                        color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        color = if (selected) c.onPrimary else c.textSecondary,
                         style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
                 }
             }
@@ -1086,19 +1104,20 @@ private fun <T> ServiceTypeGrid(items: List<T>, selected: T?, label: (T) -> Stri
     ) {
         items.forEach { item ->
             val isSelected = item == selected
+            val c = ghajarColors
             Card(
                 onClick = { onSelect(item) },
-                shape = RoundedCornerShape(18.dp),
+                shape = RoundedCornerShape(GhajarRadius.lg),
                 colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-                    else MaterialTheme.colorScheme.surface
+                    containerColor = if (isSelected) c.primary.copy(alpha = 0.14f) else c.card
                 ),
+                // Selection is the border's job here, not elevation - the rest
+                // of the app is flat cards with hairlines.
                 border = BorderStroke(
                     width = if (isSelected) 2.dp else 1.dp,
-                    color = if (isSelected) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                    color = if (isSelected) c.primary else c.border
                 ),
-                elevation = CardDefaults.cardElevation(if (isSelected) 2.dp else 0.dp)
+                elevation = CardDefaults.cardElevation(0.dp)
             ) {
                 Column(
                     Modifier.padding(horizontal = 14.dp, vertical = 12.dp).widthIn(min = 132.dp),
@@ -1108,7 +1127,7 @@ private fun <T> ServiceTypeGrid(items: List<T>, selected: T?, label: (T) -> Stri
                     Text(icon(item), style = MaterialTheme.typography.titleLarge)
                     Text(label(item), textAlign = TextAlign.Center, maxLines = 2,
                         style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
-                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface)
+                        color = if (isSelected) c.primary else c.textPrimary)
                 }
             }
         }

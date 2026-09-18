@@ -31,20 +31,23 @@ fun GhajarPendingPaymentCard(item: GhajarPendingPayment, busy: Boolean, lang: La
         while (true) { now = System.currentTimeMillis() / 1000; delay(1000) }
     }
     val left = (item.expiresAt - now).coerceAtLeast(0)
-    Card(modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(24.dp),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = .3f))) {
-        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("پرداخت در انتظار تأیید — ${item.label}", fontWeight = FontWeight.Bold)
-            Text("کد فاکتور: ${item.orderId}")
-            Text("مبلغ: ${paymentMoney(item.amount)} تومان")
-            Text(if (item.expiresAt <= 0) "در انتظار بررسی وضعیت سرور"
-                else if (left == 0L) "زمان پرداخت تمام شده؛ وضعیت را پیگیری کن"
-                else localizeDigits("باقی‌مانده: %02d:%02d".format(left / 60, left % 60), lang))
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onResume, enabled = !busy, modifier = Modifier.weight(1f)) { Text("ادامه پیگیری") }
-                OutlinedButton(onClick = { confirmCancel = true }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("انصراف") }
-            }
+    // A pending payment is a state, not a different kind of object: same card,
+    // warning hairline.
+    GhajarCard(
+        modifier = Modifier.fillMaxWidth(),
+        accent = ghajarColors.warning,
+        padding = 18.dp,
+        spacing = 12.dp
+    ) {
+        Text("پرداخت در انتظار تأیید — ${item.label}", fontWeight = FontWeight.Bold)
+        Text("کد فاکتور: ${item.orderId}")
+        Text("مبلغ: ${paymentMoney(item.amount)} تومان")
+        Text(if (item.expiresAt <= 0) "در انتظار بررسی وضعیت سرور"
+            else if (left == 0L) "زمان پرداخت تمام شده؛ وضعیت را پیگیری کن"
+            else localizeDigits("باقی‌مانده: %02d:%02d".format(left / 60, left % 60), lang))
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = onResume, enabled = !busy, modifier = Modifier.weight(1f)) { Text("ادامه پیگیری") }
+            OutlinedButton(onClick = { confirmCancel = true }, enabled = !busy, modifier = Modifier.weight(1f)) { Text("انصراف") }
         }
     }
     if (confirmCancel) AlertDialog(onDismissRequest = { confirmCancel = false },
@@ -82,16 +85,14 @@ fun GhajarTransactionHistory(api: GhajarStoreApi, revision: Int, lang: Lang) {
         if (!busy && error == null && items.isEmpty()) Text("تراکنشی ثبت نشده است.")
         items.forEach { item ->
             val credit = item.optString("direction") == "credit"
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(BrandConfig.sanitizePublicText(item.optString("category_label")), fontWeight = FontWeight.Bold)
-                    Text("${if (credit) "+" else "−"}${paymentMoney(item.optLong("amount"))} تومان",
-                        color = if (credit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-                    if (!item.isNull("balance_after")) Text("موجودی پس از تراکنش: ${paymentMoney(item.optLong("balance_after"))} تومان")
-                    item.optString("description").takeUnless { it.isBlank() || it == "null" }?.let { Text(BrandConfig.sanitizePublicText(it)) }
-                    item.optString("order_id").takeUnless { it.isBlank() || it == "null" }?.let { Text("کد فاکتور: $it") }
-                    Text(item.optString("created_at"), style = MaterialTheme.typography.bodySmall)
-                }
+            GhajarCard(Modifier.fillMaxWidth(), spacing = 6.dp) {
+                Text(BrandConfig.sanitizePublicText(item.optString("category_label")), fontWeight = FontWeight.Bold)
+                Text("${if (credit) "+" else "−"}${paymentMoney(item.optLong("amount"))} تومان",
+                    color = if (credit) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                if (!item.isNull("balance_after")) Text("موجودی پس از تراکنش: ${paymentMoney(item.optLong("balance_after"))} تومان")
+                item.optString("description").takeUnless { it.isBlank() || it == "null" }?.let { Text(BrandConfig.sanitizePublicText(it)) }
+                item.optString("order_id").takeUnless { it.isBlank() || it == "null" }?.let { Text("کد فاکتور: $it") }
+                Text(item.optString("created_at"), style = MaterialTheme.typography.bodySmall)
             }
         }
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
