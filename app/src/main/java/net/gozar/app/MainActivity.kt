@@ -138,6 +138,7 @@ import androidx.compose.material.icons.filled.Dns
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Radar
@@ -5651,62 +5652,53 @@ private fun BackupRow(store: ConfigStore) {
         }
     }
 
-    Column(
-        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BounceOutlinedButton(
-                onClick = {
-                    if (!busy) {
-                        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
-                            .format(java.util.Date())
-                        saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
-                    }
-                },
-                enabled = !busy,
-                minHeight = 34.dp,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
-            ) {
-                Icon(
-                    Icons.Filled.FileUpload,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    t("backup_export"),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false
-                )
+    // Backup used to be two small outlined chips squeezed under the settings
+    // list. It is the feature people reach for when something has gone wrong,
+    // so it now reads as a real section: what the file contains, a full-width
+    // primary action to write one, a ghost action to read one back, and the
+    // outcome as a proper state rather than a grey caption.
+    val c = ghajarColors
+    Slab(spacing = GhajarSpacing.md) {
+        SlabRow(
+            title = t("backup_title"),
+            subtitle = t("backup_header_sub"),
+            icon = Icons.Filled.Inventory2,
+            accent = c.premium
+        )
+        // What a written file actually carries, counted from live state so the
+        // numbers are never a guess.
+        val configCount = store.configs.value.size
+        val subCount = store.subscriptions.value.size
+        StatStrip(
+            listOf(
+                StatCell(t("count_configs"), localizeDigits("$configCount", store.lang.value), c.info),
+                StatCell(t("count_subs"), localizeDigits("$subCount", store.lang.value), c.premium)
+            )
+        )
+        PillButton(
+            text = t("backup_export"),
+            icon = Icons.Filled.FileUpload,
+            enabled = !busy,
+            onClick = {
+                if (!busy) {
+                    val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                        .format(java.util.Date())
+                    saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
+                }
             }
-            BounceOutlinedButton(
-                onClick = { opener.launch(arrayOf("*/*")) },
-                minHeight = 34.dp,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
-            ) {
-                Icon(
-                    Icons.Filled.FileDownload,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    t("backup_import"),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-        }
+        )
+        GhostPill(
+            text = t("backup_import"),
+            icon = Icons.Filled.FileDownload,
+            onClick = { opener.launch(arrayOf("*/*")) }
+        )
         AnimatedVisibility(visible = status.isNotEmpty()) {
             Text(
                 mixedText(status),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+                color = c.textSecondary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }

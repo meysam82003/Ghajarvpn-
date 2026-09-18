@@ -445,6 +445,12 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 )
             }
         } else {
+            item(key = "shop-header") {
+                ScreenHeader(
+                    title = Strings.get(store.lang.value, "shop"),
+                    context = Strings.get(store.lang.value, "shop_header_sub")
+                )
+            }
             item(key = "shop-block-5") {
                 StoreSectionTabs(section = section, onSelect = { section = it })
             }
@@ -1058,37 +1064,22 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, 
 /** Store tabs: exact labels, horizontally and vertically centered, uniform metrics. */
 @Composable
 private fun StoreSectionTabs(section: Int, onSelect: (Int) -> Unit) {
-    val c = ghajarColors
+    // Six sections is too many for one row of readable Persian labels, so they
+    // are split into two sliding segmented controls of three. The indicator
+    // slides to the active cell instead of the cells repainting, which is what
+    // made the old strip feel like six separate buttons.
     val labels = listOf("خریدها", "سرویس‌ها", "پیام‌ها", "کیف پول", "پشتیبانی", "تراکنش‌ها")
-    // The shop's primary navigation, so it gets the same floating-pill
-    // treatment as the bottom bar: card surface, hairline, and a filled brand
-    // pill for the section you are on.
-    Surface(
-        shape = RoundedCornerShape(GhajarRadius.lg),
-        color = c.card,
-        border = BorderStroke(1.dp, c.border)
-    ) {
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(GhajarSpacing.xs),
-            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)
-        ) {
-            labels.forEachIndexed { index, label ->
-                val selected = section == index
-                val shape = RoundedCornerShape(GhajarRadius.md)
-                Box(
-                    Modifier.widthIn(min = 76.dp)
-                        .clip(shape)
-                        .background(if (selected) c.primary else Color.Transparent)
-                        .clickable { onSelect(index) }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(label, maxLines = 1, textAlign = TextAlign.Center,
-                        color = if (selected) c.onPrimary else c.textSecondary,
-                        style = MaterialTheme.typography.labelLarge, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
-                }
-            }
-        }
+    Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+        SlidingSegments(
+            labels = labels.subList(0, 3),
+            selected = if (section in 0..2) section else 0,
+            onSelect = { onSelect(it) }
+        )
+        SlidingSegments(
+            labels = labels.subList(3, 6),
+            selected = if (section in 3..5) section - 3 else 0,
+            onSelect = { onSelect(it + 3) }
+        )
     }
 }
 
