@@ -9730,8 +9730,8 @@ private fun GhajarOpenVpnSummaryTile(onOpen: () -> Unit) {
     Surface(
         onClick = onOpen,
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+        color = ghajarColors.card,
+        border = BorderStroke(1.dp, ghajarColors.border),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -9801,8 +9801,8 @@ private fun PsiphonHubScreen(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+            color = ghajarColors.card,
+            border = BorderStroke(1.dp, ghajarColors.border),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -10017,7 +10017,7 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
                     val isBusy = activeUuid == profile.uuid && status == GhajarOvpnState.CONNECTING
                     Surface(
                         shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        color = ghajarColors.secondaryCard
                     ) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {

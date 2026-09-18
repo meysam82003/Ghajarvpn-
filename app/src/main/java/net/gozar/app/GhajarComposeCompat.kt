@@ -25,9 +25,20 @@ internal typealias Brush = androidx.compose.ui.graphics.Brush
 internal fun Surface(
     shape: Shape,
     color: Color = MaterialTheme.colorScheme.surface,
+    /**
+     * The design system puts a hairline on every raised surface, so the alias
+     * has to be able to carry one. Null keeps the old borderless behaviour for
+     * the existing call sites.
+     */
+    border: androidx.compose.foundation.BorderStroke? = null,
     content: @Composable () -> Unit
 ) {
-    androidx.compose.material3.Surface(shape = shape, color = color, content = content)
+    androidx.compose.material3.Surface(
+        shape = shape,
+        color = color,
+        border = border,
+        content = content
+    )
 }
 
 @OptIn(ExperimentalLayoutApi::class)
