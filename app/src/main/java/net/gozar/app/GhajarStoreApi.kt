@@ -835,8 +835,13 @@ class GhajarStoreApi(context: Context) {
         }
         return try {
             readResponse(connection, allowPaymentRequired, allowLinkGate, bearer != null)
-        } finally {
+        } catch (t: Throwable) {
+            // Only a request that ended badly gives up its socket. A clean one
+            // is left to the keep-alive pool: loading the store is a handful of
+            // calls to the same host, and disconnecting after each one made
+            // every single one of them pay for a fresh TCP + TLS handshake.
             connection.disconnect()
+            throw t
         }
     }
 

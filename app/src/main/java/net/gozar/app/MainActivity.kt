@@ -262,6 +262,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -1461,6 +1462,16 @@ private fun GozarApp(
         topBar = {
             Column {
             CenterAlignedTopAppBar(
+                // The bar paints nothing of its own: the Scaffold's canvas wash
+                // shows straight through, so the header and the page under it
+                // are one continuous tone instead of two stacked panels.
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.onBackground
+                ),
                 title = {
                     if (screenKey == "connection") {
                         GhajarWordmark(Modifier.height(48.dp).width(164.dp))
@@ -1888,8 +1899,6 @@ private fun ConnectionScreen(
             verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            GhajarWordmark(Modifier.height(26.dp))
-
             ConnectOrb(
                 state = conn,
                 picking = picking,
@@ -1906,7 +1915,6 @@ private fun ConnectionScreen(
             )
 
             SessionLine(connectedAt.takeIf { it > 0L }, conn)
-            StatusLine(conn, picking, netOffline, deadTunnel)
 
             // The route: one slab, one row, one tap to the picker. Locked
             // configs never reveal their endpoint and the built-in engines have
@@ -1952,37 +1960,26 @@ private fun ConnectionScreen(
                 )
             )
 
-            // Measured facts, plus the real-delay test as a fourth row of the
-            // same slab rather than a separate control.
+            // Measured facts. The latency row doubles as the real-delay test:
+            // tapping it replaces the passive handshake reading with a measured
+            // one, so there is a single row about latency, not two.
             ConnectionFacts(
                 state = conn,
                 serverAddress = activeConfig?.address,
-                serverPort = activeConfig?.port
-            ) {
-                SlabDivider()
-                SlabRow(
-                    title = t("real_delay"),
-                    subtitle = if (conn == Connection.CONNECTED) null else t("home_ready"),
-                    icon = Icons.Filled.Speed,
-                    accent = c.highlight,
-                    value = when {
-                        delayRunning -> "…"
-                        delayResult != null -> delayResult!!
-                        else -> "—"
-                    },
-                    enabled = conn == Connection.CONNECTED && !delayRunning,
-                    onClick = {
-                        delayRunning = true
-                        delayResult = null
-                        scope.launch {
-                            val ms = SpeedTest.delay()
-                            delayResult =
-                                if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
-                            delayRunning = false
-                        }
+                serverPort = activeConfig?.port,
+                measuredDelay = delayResult,
+                delayRunning = delayRunning,
+                onMeasureDelay = {
+                    delayRunning = true
+                    delayResult = null
+                    scope.launch {
+                        val ms = SpeedTest.delay()
+                        delayResult =
+                            if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
+                        delayRunning = false
                     }
-                )
-            }
+                }
+            )
 
             error?.takeIf { it.isNotBlank() && conn != Connection.CONNECTED }?.let { msg ->
                 SkinError(msg)

@@ -214,6 +214,9 @@ fun ConnectOrb(
         }
 
         Column(
+            // The label lives inside the disc, so it is bounded by the square
+            // that fits in the circle - no string can spill past the ring.
+            Modifier.widthIn(max = 156.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
         ) {
@@ -239,8 +242,8 @@ fun ConnectOrb(
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
                 color = if (enabled || picking) c.textPrimary else c.onDisabled,
-                maxLines = 1,
-                softWrap = false,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
                 textAlign = TextAlign.Center
             )
             if (!enabled && !picking && !connectedish) {
@@ -252,48 +255,6 @@ fun ConnectOrb(
                 )
             }
         }
-    }
-}
-
-/**
- * The state sentence, under the orb. The orb's own label says what a tap will
- * *do*; this says what the tunnel *is* - including the two faults that matter
- * (no device internet, and a tunnel that is up but carrying nothing).
- */
-@Composable
-fun StatusLine(state: Connection, picking: Boolean, netOffline: Boolean, tunnelDead: Boolean) {
-    val c = ghajarColors
-    val lang = LocalLang.current
-    val t: (String) -> String = { Strings.get(lang, it) }
-    val (text, tone) = when {
-        netOffline -> t("home_offline") to c.error
-        picking -> t("finding_fastest") to c.highlight
-        state == Connection.CONNECTED && tunnelDead -> t("conn_no_data") to c.error
-        state == Connection.CONNECTED -> t("status_connected") to c.successGlow
-        state == Connection.CONNECTING -> t("status_connecting") to c.highlight
-        state == Connection.DISCONNECTING -> t("hub_disconnecting") to c.highlight
-        state == Connection.ERROR -> t("status_error") to c.error
-        else -> t("home_ready") to c.textSecondary
-    }
-    Row(
-        Modifier
-            .clip(RoundedCornerShape(GhajarRadius.pill))
-            .background(tone.copy(alpha = 0.12f))
-            .padding(horizontal = GhajarSpacing.md, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
-    ) {
-        Box(Modifier.size(7.dp).clip(CircleShape).background(tone))
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Medium,
-            color = tone,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.widthIn(max = 280.dp),
-            textAlign = TextAlign.Center
-        )
     }
 }
 
@@ -335,6 +296,12 @@ fun ConnectionFacts(
     serverAddress: String?,
     serverPort: Int?,
     modifier: Modifier = Modifier,
+    // The ping row is the only latency reading on this screen. It shows the
+    // passive TCP handshake by default and, once the user taps it, whatever the
+    // real-delay test measured - one row, not two saying the same word.
+    measuredDelay: String? = null,
+    delayRunning: Boolean = false,
+    onMeasureDelay: (() -> Unit)? = null,
     extra: @Composable ColumnScope.() -> Unit = {}
 ) {
     val c = ghajarColors
@@ -381,9 +348,17 @@ fun ConnectionFacts(
         SlabDivider()
         SlabRow(
             title = t("hub_ping"),
+            subtitle = if (connected && onMeasureDelay != null) t("ping_tap_hint") else null,
             icon = Icons.Filled.NetworkCheck,
-            value = pingMs?.let { localizeDigits("$it", lang) + " " + t("unit_ms") } ?: "—",
-            accent = c.good
+            value = when {
+                delayRunning -> "…"
+                measuredDelay != null -> measuredDelay
+                pingMs != null -> localizeDigits("$pingMs", lang) + " " + t("unit_ms")
+                else -> "—"
+            },
+            accent = c.good,
+            enabled = connected && !delayRunning,
+            onClick = onMeasureDelay
         )
         extra()
     }

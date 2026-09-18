@@ -11,8 +11,20 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -318,7 +330,10 @@ data class StatCell(
     val label: String,
     val value: String,
     val accent: Color? = null,
-    val sub: String? = null
+    val sub: String? = null,
+    /** A reading that is also a destination: the cell itself becomes the tap
+     *  target, so a strip never needs a row of buttons repeating its labels. */
+    val onClick: (() -> Unit)? = null
 )
 
 /**
@@ -336,7 +351,13 @@ fun StatStrip(cells: List<StatCell>, modifier: Modifier = Modifier) {
                     Box(Modifier.width(1.dp).height(34.dp).background(c.border))
                 }
                 Column(
-                    Modifier.weight(1f).padding(horizontal = GhajarSpacing.sm),
+                    Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(GhajarRadius.md))
+                        .then(
+                            cell.onClick?.let { go -> Modifier.clickable { go() } } ?: Modifier
+                        )
+                        .padding(horizontal = GhajarSpacing.sm, vertical = GhajarSpacing.xs),
                     verticalArrangement = Arrangement.spacedBy(3.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -450,6 +471,188 @@ fun GhostPill(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+/**
+ * The skin's text field: filled, edgeless, with the label above the box rather
+ * than floating through its outline.
+ *
+ * Material's outlined field brings a rounded stroke and a notched label, which
+ * put a second border inside every slab and made a form read as a stack of
+ * boxes inside a box. Here the field is the same tone as a nested surface, the
+ * label is a plain caption above it, and focus is a brand-tinted underline.
+ */
+@Composable
+fun SkinField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    modifier: Modifier = Modifier,
+    placeholder: String? = null,
+    helper: String? = null,
+    singleLine: Boolean = true,
+    enabled: Boolean = true,
+    isError: Boolean = false,
+    minLines: Int = 1,
+    keyboardOptions: KeyboardOptions = KeyboardOptions.Default,
+    visualTransformation: VisualTransformation = VisualTransformation.None,
+    trailing: (@Composable () -> Unit)? = null
+) {
+    val c = ghajarColors
+    var focused by remember { mutableStateOf(false) }
+    val underline = when {
+        isError -> c.error
+        focused -> c.primary
+        else -> Color.Transparent
+    }
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            color = if (isError) c.error else c.textSecondary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(GhajarRadius.md))
+                .background(if (enabled) c.secondaryCard else c.disabled.copy(alpha = 0.25f))
+                .drawBehind {
+                    if (underline != Color.Transparent) {
+                        val h = 2.dp.toPx()
+                        drawRect(
+                            color = underline,
+                            topLeft = Offset(0f, size.height - h),
+                            size = Size(size.width, h)
+                        )
+                    }
+                }
+                .padding(horizontal = GhajarSpacing.md, vertical = 4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+        ) {
+            Box(Modifier.weight(1f)) {
+                if (value.isEmpty() && !placeholder.isNullOrBlank()) {
+                    Text(
+                        placeholder,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = c.textMuted,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    enabled = enabled,
+                    singleLine = singleLine,
+                    minLines = minLines,
+                    keyboardOptions = keyboardOptions,
+                    visualTransformation = visualTransformation,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = c.textPrimary),
+                    cursorBrush = SolidColor(c.primary),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 40.dp)
+                        .onFocusChanged { focused = it.isFocused }
+                )
+            }
+            trailing?.invoke()
+        }
+        if (!helper.isNullOrBlank()) {
+            Text(
+                helper,
+                style = MaterialTheme.typography.labelSmall,
+                color = if (isError) c.error else c.textMuted
+            )
+        }
+    }
+}
+
+/** One destination in a [TabRail]. */
+@Immutable
+data class RailTab(
+    val label: String,
+    val icon: ImageVector? = null,
+    /** A number worth seeing before you open the tab - unread, pending, owned. */
+    val badge: Int? = null
+)
+
+/**
+ * A single scrolling row of destinations.
+ *
+ * Six Persian labels never fit one readable segmented control, and stacking two
+ * controls of three turned the top of a screen into two rows of chrome before
+ * any content. A rail keeps them on one line: the active tab is filled, the
+ * rest are quiet, and the rail scrolls itself so the active one is in view.
+ */
+@Composable
+fun TabRail(
+    tabs: List<RailTab>,
+    selected: Int,
+    onSelect: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val c = ghajarColors
+    val state = rememberLazyListState()
+    LaunchedEffect(selected) {
+        runCatching { state.animateScrollToItem(selected.coerceIn(0, (tabs.size - 1).coerceAtLeast(0))) }
+    }
+    LazyRow(
+        modifier.fillMaxWidth(),
+        state = state,
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+    ) {
+        itemsIndexed(tabs, key = { index, tab -> "${index}:${tab.label}" }) { index, tab ->
+            val active = index == selected
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(GhajarRadius.pill))
+                    .background(if (active) c.primary else c.secondaryCard)
+                    .clickable { onSelect(index) }
+                    .padding(horizontal = GhajarSpacing.md, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                if (tab.icon != null) {
+                    Icon(
+                        tab.icon,
+                        contentDescription = null,
+                        tint = if (active) c.onPrimary else c.textSecondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Text(
+                    tab.label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                    color = if (active) c.onPrimary else c.textSecondary,
+                    maxLines = 1
+                )
+                if (tab.badge != null && tab.badge > 0) {
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(GhajarRadius.pill))
+                            .background(
+                                if (active) c.onPrimary.copy(alpha = 0.22f)
+                                else c.warning.copy(alpha = 0.18f)
+                            )
+                            .padding(horizontal = 6.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            tab.badge.toString(),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = if (active) c.onPrimary else c.warning,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 
