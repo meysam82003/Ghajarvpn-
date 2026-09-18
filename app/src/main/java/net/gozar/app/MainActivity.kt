@@ -175,8 +175,6 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NetworkCheck
 import androidx.compose.material.icons.filled.Notifications
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Groups
@@ -256,7 +254,6 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
@@ -9600,18 +9597,25 @@ private fun FillButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    borderWidth: Dp = 1.5.dp,
+    /** A primary action carries the accent; a secondary one sits on the
+     *  nested-surface tone. They used to differ only by border width, which
+     *  meant the page never said which button it wanted you to press. */
+    filled: Boolean = false,
     minHeight: Dp = 48.dp,
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
     accent: Color = MaterialTheme.colorScheme.primary,
     content: @Composable RowScope.() -> Unit
 ) {
+    // Every Bounce*Button in the app lands here, so this is where the old
+    // "outlined, glassy, slightly raised" look lived. On the skin a secondary
+    // action is a filled capsule with no stroke and no blur; the press still
+    // floods it with the accent, which is the one part of the old button worth
+    // keeping.
+    val c = ghajarColors
     val primary = accent
-    val onPrimary = MaterialTheme.colorScheme.onPrimary
-    val disabled = primary.copy(alpha = 0.35f)
-    val shape = RoundedCornerShape(22.dp)
-    val hazeState = LocalHazeState.current
-    val surfaceColor = MaterialTheme.colorScheme.surface
+    val onPrimary = c.onPrimary
+    val disabled = c.onDisabled
+    val shape = RoundedCornerShape(GhajarRadius.pill)
 
     val interaction = remember { MutableInteractionSource() }
     var center by remember { mutableStateOf(Offset.Zero) }
@@ -9634,25 +9638,27 @@ private fun FillButton(
         label = "fillRadius"
     )
     val fillFrac = if (maxR > 0f) (radius / maxR).coerceIn(0f, 1f) else 0f
-    val contentColor = lerp(if (enabled) primary else disabled, onPrimary, fillFrac)
+    val restColor = when {
+        !enabled -> disabled
+        filled -> onPrimary
+        else -> primary
+    }
+    val contentColor = if (filled) restColor else lerp(restColor, onPrimary, fillFrac)
 
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .then(ghajarSoftSurface(shape, enabled))
             .clip(shape)
-            .then(
-                if (hazeState != null) Modifier.hazeEffect(hazeState) {
-                    blurRadius = 10.dp
-                    backgroundColor = surfaceColor
-                    tints = listOf(HazeTint(surfaceColor.copy(alpha = 0.30f)))
-                    noiseFactor = 0f
-                } else Modifier
+            .background(
+                when {
+                    !enabled -> c.disabled.copy(alpha = 0.25f)
+                    filled -> primary
+                    else -> c.secondaryCard
+                }
             )
             .drawBehind {
                 if (radius > 0.5f) drawCircle(color = primary, radius = radius, center = center)
             }
-            .border(BorderStroke(0.7.dp, if (enabled) primary.copy(alpha = 0.22f) else disabled.copy(alpha = 0.3f)), shape)
             .defaultMinSize(minWidth = 56.dp, minHeight = minHeight)
             .onSizeChanged { sz = it }
             .pointerInput(enabled) {
@@ -9685,7 +9691,7 @@ private fun BounceButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
-) = FillButton(onClick, modifier, enabled, borderWidth = 2.dp, content = content)
+) = FillButton(onClick, modifier, enabled, filled = true, content = content)
 
 @Composable
 private fun BounceOutlinedButton(
@@ -9696,7 +9702,7 @@ private fun BounceOutlinedButton(
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
     accent: Color = MaterialTheme.colorScheme.primary,
     content: @Composable RowScope.() -> Unit
-) = FillButton(onClick, modifier, enabled, borderWidth = 1.5.dp,
+) = FillButton(onClick, modifier, enabled,
     minHeight = minHeight, contentPadding = contentPadding, accent = accent, content = content)
 
 @Composable
@@ -9707,7 +9713,6 @@ private fun BounceTextButton(
     content: @Composable RowScope.() -> Unit
 ) = FillButton(
     onClick, modifier, enabled,
-    borderWidth = 1.5.dp,
     minHeight = 40.dp,
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
     content = content
@@ -9722,11 +9727,13 @@ private fun BounceIconButton(
 ) {
     val scale = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
+    // Flat: the header it mostly lives in is now one continuous tone, and a
+    // raised, gradient-filled tile in the corner of it re-drew the seam this
+    // release just removed.
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.pressBounce(scale, scope)
-            .then(ghajarSoftSurface(RoundedCornerShape(16.dp), enabled)),
+        modifier = modifier.pressBounce(scale, scope),
         content = content
     )
 }
