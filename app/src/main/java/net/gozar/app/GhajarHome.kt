@@ -13,6 +13,8 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
@@ -78,6 +80,7 @@ import kotlinx.coroutines.delay
  * in-flight auto-pick - the three behaviours the old full-width bar had, in one
  * place and one shape.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ConnectOrb(
     state: Connection,
@@ -88,7 +91,15 @@ fun ConnectOrb(
     tunnelDead: Boolean,
     netOffline: Boolean,
     onClick: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /**
+     * Long press while a tunnel is up: drop it and redial the same server.
+     *
+     * A tunnel that is connected but carrying nothing is the one fault a user
+     * cannot fix from this screen - disconnect, then find the server again,
+     * then connect. This is that, in one gesture, without leaving home.
+     */
+    onReconnect: (() -> Unit)? = null
 ) {
     val c = ghajarColors
     val lang = LocalLang.current
@@ -155,7 +166,11 @@ fun ConnectOrb(
                 }
             }
             .clip(CircleShape)
-            .clickable(enabled = enabled || picking, onClick = onClick),
+            .combinedClickable(
+                enabled = enabled || picking,
+                onClick = onClick,
+                onLongClick = onReconnect?.takeIf { state == Connection.CONNECTED }
+            ),
         contentAlignment = Alignment.Center
     ) {
         // State ring, disc and halo. Animation values are read inside the draw

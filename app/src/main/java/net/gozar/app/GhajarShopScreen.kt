@@ -321,7 +321,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         products = emptyList()
         busy = true
         try {
-            storeResult {
+            // A tunnel coming up or going down mid-request fails the whole
+            // wave once and then works. One quiet retry costs a second and
+            // removes most of the "the shop just errors" reports; only the
+            // second failure is worth telling the user about.
+            suspend fun load() = storeResult {
                 coroutineScope {
                     val categoriesDeferred = async { api.categories(panel.id) }
                     val timeRangesDeferred = async { api.timeRanges(panel.id) }
@@ -332,7 +336,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     unfilteredProducts = products
                     loadedPanelId = panel.id
                 }
-            }.onFailure { error = GhajarCommerceRules.publicMessage(it) }
+            }
+            load().onFailure {
+                delay(900)
+                load().onFailure { second -> error = GhajarCommerceRules.publicMessage(second) }
+            }
         } finally { busy = false }
     }
     LaunchedEffect(loadedPanelId, selectedCategory?.id, selectedTime?.days, customMode) {
@@ -427,7 +435,24 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         }
         if (busy || checkoutBusy) item(key = "shop-block-1") { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         message?.let { text -> item(key = "shop-block-2") { StatusCard(text, error = false, onDismiss = { message = null }) } }
-        error?.let { text -> item(key = "shop-block-3") { StatusCard(text, error = true, onDismiss = { error = null }) } }
+        error?.let { text ->
+            item(key = "shop-block-3") {
+                // A dead error message was the whole complaint: some tunnels
+                // break the call, and the page then offered nothing but the
+                // text. It offers a retry now, and says plainly when the plans
+                // underneath it are the last ones that did load rather than
+                // pretending they are fresh.
+                StatusCard(
+                    text,
+                    error = true,
+                    onDismiss = { error = null },
+                    onRetry = { error = null; refreshKey++ },
+                    footnote = if (unfilteredProducts.isNotEmpty())
+                        "پلن‌های پایین آخرین فهرستی است که دریافت شده؛ ممکن است قیمت‌ها تازه نباشد."
+                    else null
+                )
+            }
+        }
 
         if (!linked) {
             item(key = "shop-block-4") {
@@ -1597,26 +1622,53 @@ private fun PaymentMethodCard(method: GhajarPaymentMethod, amount: Long, enabled
 }
 
 @Composable
-private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
+private fun StatusCard(
+    text: String,
+    error: Boolean,
+    onDismiss: () -> Unit,
+    /** Offered on a failure, so the message is a way out and not a dead end. */
+    onRetry: (() -> Unit)? = null,
+    /** Said under the message when the content below it is stale, not fresh. */
+    footnote: String? = null
+) {
     val c = ghajarColors
     // A left rule in the state's colour instead of a fully tinted block, so a
     // long error stays readable and an info message stays quiet.
-    Row(
+    Column(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(GhajarRadius.md))
             .background(if (error) c.errorSurface else c.secondaryCard)
-            .padding(start = GhajarSpacing.md, end = GhajarSpacing.xs, top = GhajarSpacing.sm, bottom = GhajarSpacing.sm),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(start = GhajarSpacing.md, end = GhajarSpacing.xs, top = GhajarSpacing.sm, bottom = GhajarSpacing.sm)
     ) {
-        Text(
-            if (error) GhajarCommerceRules.publicMessage(text) else text,
-            modifier = Modifier.weight(1f),
-            style = MaterialTheme.typography.bodySmall,
-            color = if (error) c.error else c.textPrimary
-        )
-        TextButton(onClick = onDismiss) {
-            Text("بستن", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                if (error) GhajarCommerceRules.publicMessage(text) else text,
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.bodySmall,
+                color = if (error) c.error else c.textPrimary
+            )
+            if (onRetry != null) {
+                TextButton(onClick = onRetry) {
+                    Text(
+                        "تلاش مجدد",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = c.primary
+                    )
+                }
+            }
+            TextButton(onClick = onDismiss) {
+                Text("بستن", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+            }
+        }
+        if (!footnote.isNullOrBlank()) {
+            Text(
+                footnote,
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textSecondary,
+                modifier = Modifier.padding(end = GhajarSpacing.sm, bottom = GhajarSpacing.xs)
+            )
         }
     }
 }

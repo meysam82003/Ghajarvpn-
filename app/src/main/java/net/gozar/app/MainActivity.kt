@@ -1929,10 +1929,29 @@ private fun ConnectionScreen(
                         connected -> onDisconnect()
                         else -> selectedConfig?.let { onConnect(it) }
                     }
+                },
+                // Long press on a live tunnel redials the same server. The
+                // OpenVPN path has no ProxyConfig to hand back, so it drops the
+                // tunnel and the engine's own reconnect takes it from there.
+                onReconnect = {
+                    when {
+                        onOpenVpn -> onDisconnect()
+                        else -> activeConfig?.let { onConnect(it) } ?: onDisconnect()
+                    }
                 }
             )
 
             SessionLine(connectedAt.takeIf { it > 0L }, conn)
+
+            // A gesture nobody is told about does not exist.
+            if (conn == Connection.CONNECTED) {
+                Text(
+                    t("orb_hold_reconnect"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textMuted,
+                    textAlign = TextAlign.Center
+                )
+            }
 
             // The route: one slab, one row, one tap to the picker. Locked
             // configs never reveal their endpoint and the built-in engines have
@@ -2100,6 +2119,7 @@ private fun ConfigPickerScreen(
     var pingingSubs by remember { mutableStateOf(emptySet<String>()) }
     var query by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
+    var pickingFastest by remember { mutableStateOf(false) }
     var protocolFilter by remember { mutableStateOf<String?>(null) }
     var protocolMenu by remember { mutableStateOf(false) }
     val expandedSubs by store.expandedSubs.collectAsState()
@@ -2138,19 +2158,26 @@ private fun ConfigPickerScreen(
     val q = query.trim()
     fun matchesFilters(cfg: ProxyConfig): Boolean =
         (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter)
+    // Search used to match the name only, which is the one field a subscription
+    // controls and often truncates. Matching the host and the protocol too is
+    // what makes "arazmta" or "vless" find anything.
+    fun matchesQuery(cfg: ProxyConfig): Boolean = q.isEmpty() ||
+        cfg.name.contains(q, true) ||
+        cfg.address.contains(q, true) ||
+        cfg.protocol.contains(q, true)
     val grouped = remember(configs, subscriptions, sortMode, pingSortKey, q, favoritesOnly, protocolFilter) {
         subscriptions.map { sub ->
             val all = sortMaybe(configs.filter { it.subId == sub.id && matchesFilters(it) })
             sub to when {
                 q.isEmpty() || sub.name.contains(q, true) -> all
-                else -> all.filter { it.name.contains(q, true) }
+                else -> all.filter { matchesQuery(it) }
             }
         }.filter { (sub, list) -> q.isEmpty() || list.isNotEmpty() || sub.name.contains(q, true) }
             .sortedByDescending { (sub, _) -> WindscribeBrand.isWindscribe(sub) }
     }
     val loose = remember(configs, sortMode, pingSortKey, q, favoritesOnly, protocolFilter) {
         sortMaybe(configs.filter {
-            it.subId.isEmpty() && matchesFilters(it) && (q.isEmpty() || it.name.contains(q, true))
+            it.subId.isEmpty() && matchesFilters(it) && matchesQuery(it)
         })
     }
     fun displayedOrder(): List<String> = buildList {
@@ -2324,6 +2351,32 @@ private fun ConfigPickerScreen(
             onPsiphon = { addMenu = false; onPsiphonHub() }
         )
 
+        // What this list actually holds, from the pings already measured: how
+        // many servers there are, how many answered, and the best time seen.
+        // The screen used to make you read the whole list to learn any of it.
+        val tested = remember(configs, pings.toList()) {
+            configs.count { pings[it.id] is PingResult.Ok }
+        }
+        val bestMs = remember(configs, pings.toList()) {
+            configs.mapNotNull { (pings[it.id] as? PingResult.Ok)?.ms }.minOrNull()
+        }
+        val favouriteCount = remember(configs) { configs.count { it.favorite } }
+        StatStrip(
+            listOf(
+                StatCell(t("count_configs"), n("${configs.size}"), ghajarColors.primary),
+                StatCell(
+                    t("picker_answered"),
+                    n("$tested"),
+                    if (tested > 0) ghajarColors.good else ghajarColors.textMuted
+                ),
+                StatCell(
+                    t("picker_best"),
+                    bestMs?.let { n("$it") + " " + t("unit_ms") } ?: "—",
+                    ghajarColors.highlight
+                )
+            )
+        )
+
         // The four actions and the sub-update button used to float loose above
         // the list as five separate boxes. They are one slab now: the test is
         // the primary action on its row, the three tools are glyphs beside it,
@@ -2357,6 +2410,12 @@ private fun ConfigPickerScreen(
                             }
                             jobs.joinAll()
                             testAllState = 2
+                            // Testing every server and then leaving the list in
+                            // its old order made you re-read all of it to find
+                            // the winner. The results are in; order by them.
+                            if (snapshot.any { pings[it.id] is PingResult.Ok }) {
+                                store.setSortMode(ConfigStore.SORT_FASTEST)
+                            }
                         }
                     }
                 },
@@ -2590,6 +2649,67 @@ private fun ConfigPickerScreen(
                 Text(t("free_projects"), maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Connect to the fastest server without first reading the list.
+                // AutoSelector already measures and ranks every candidate for
+                // the auto-connect path; this is the same call, on demand.
+                BounceOutlinedButton(
+                    onClick = {
+                        if (!pickingFastest) {
+                            pickingFastest = true
+                            scope.launch {
+                                val best = runCatching {
+                                    AutoSelector(context, store).pickFastest()
+                                }.getOrNull()
+                                pickingFastest = false
+                                if (best != null) onConnect(best)
+                                else subStatus = t("picker_no_fastest")
+                            }
+                        }
+                    },
+                    enabled = configs.isNotEmpty() && !pickingFastest,
+                    minHeight = 42.dp,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1f).height(42.dp)
+                ) {
+                    if (pickingFastest) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    } else {
+                        Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (pickingFastest) t("finding_fastest") else t("picker_connect_fastest"),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // The favourites filter used to live inside the search row, so
+                // it only existed once you had opened search - which is not
+                // where anyone looks for it.
+                BounceOutlinedButton(
+                    onClick = { favoritesOnly = !favoritesOnly },
+                    enabled = favouriteCount > 0 || favoritesOnly,
+                    minHeight = 42.dp,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    accent = if (favoritesOnly) ghajarColors.highlight else ghajarColors.primary,
+                    modifier = Modifier.weight(1f).height(42.dp)
+                ) {
+                    Icon(
+                        if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        t("picker_favourites") + if (favouriteCount > 0) " (" + n("$favouriteCount") + ")" else "",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
         }
 
         AnimatedVisibility(
