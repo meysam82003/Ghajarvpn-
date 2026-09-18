@@ -1089,17 +1089,28 @@ class MainActivity : ComponentActivity() {
                         .putExtra(GozarVpnService.EXTRA_PORT, port)
                 )
             } catch (error: SecurityException) {
-                // MIUI/AOSP briefly refuse to start a service in a process they just
-                // flagged "bad" right after killing it (seen in exported logs as
-                // ApplicationExitInfo reason=OTHER_KILLS_BY_SYSTEM); that flag clears
-                // on its own within a second or two. Retry a few times before
-                // falling through to the same failure reporting as any other error.
+                // "process is bad" is ActivityManager refusing to launch a
+                // process it flagged after repeated crashes. The old code here
+                // assumed the flag clears "within a second or two" and retried
+                // three times; the 2026-09-18 log disproves that - two separate
+                // connects, eight seconds apart, both refused. The flag lives
+                // until the app is force-stopped, updated or the device
+                // reboots, so retrying cannot clear it.
+                //
+                // The service no longer runs in its own :vpn process (see the
+                // manifest), so the process being started is the one the user
+                // just launched and cannot be in that state. This branch is now
+                // only a last resort: one retry for a genuinely transient
+                // refusal, then an error that says what to actually do.
                 val processBad = error.message?.contains("process is bad", ignoreCase = true) == true
-                if (processBad && attempt < 3) {
+                GhajarLog.e("GhajarConnect", "service start refused: ${error.message}")
+                if (processBad && attempt < 1) {
                     lifecycleScope.launch {
-                        delay(700L * (attempt + 1))
+                        delay(700L)
                         startTunnel(configJson, name, aether, tor, psiphon, address, port, attempt + 1)
                     }
+                } else if (processBad) {
+                    VpnState.setError(Strings.get(store.lang.value, "err_process_bad"))
                 } else {
                     throw error
                 }

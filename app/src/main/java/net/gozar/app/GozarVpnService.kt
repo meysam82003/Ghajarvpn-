@@ -49,14 +49,31 @@ class GozarVpnService : VpnService() {
 
     override fun onCreate() {
         super.onCreate()
-        Gozarcore.setLogger(object : gozarcore.Logger {
-            override fun log(line: String?) {
-                Log.i("XrayCore", line ?: "")
-                GhajarLog.i("XrayCore", line ?: "")
-            }
-        })
-        TorLog.sink = { line -> Log.i("XrayCore", line); GhajarLog.i("Tor", line) }
+        // Nothing in here may throw. A throw from onCreate() aborts service
+        // creation, and two aborts in a row make ActivityManager flag the
+        // hosting process "bad" - after which every startForegroundService()
+        // for this service is refused with SecurityException until the app is
+        // force-stopped or the device reboots. That is exactly the state a
+        // user's phone was found in (see the 2026-09-18 log: two connects,
+        // both "Unable to launch app ...: process is bad").
+        runCatching {
+            Gozarcore.setLogger(object : gozarcore.Logger {
+                override fun log(line: String?) {
+                    Log.i("XrayCore", line ?: "")
+                    GhajarLog.i("XrayCore", line ?: "")
+                }
+            })
+        }.onFailure { GhajarLog.e(TAG, "core logger not attached: ${it.javaClass.name}") }
+        runCatching {
+            TorLog.sink = { line -> Log.i("XrayCore", line); GhajarLog.i("Tor", line) }
+        }
+        GhajarLog.i(TAG, "service created in process ${currentProcessName()}")
     }
+
+    /** Recorded on every start so an exported log proves where the tunnel ran. */
+    private fun currentProcessName(): String =
+        if (android.os.Build.VERSION.SDK_INT >= 28) android.app.Application.getProcessName()
+        else packageName
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -548,7 +565,7 @@ class GozarVpnService : VpnService() {
         private const val TAG = "GozarVpnService"
         private const val CHANNEL_ID = "gozarnet_vpn"
         private const val NOTIF_ID = 1
-        // Shared across every GozarVpnService instance in this :vpn process, not
+        // Shared across every GozarVpnService instance in the process, not
         // per-instance. Android creates a brand-new instance (fresh onCreate())
         // for each startForegroundService() call once the previous one has been
         // stopSelf()'d - a new instance's own field would be a fresh, unrelated

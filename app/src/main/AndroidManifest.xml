@@ -154,7 +154,6 @@
             android:name=".GozarVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="specialUse"
-            android:process=":vpn"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
