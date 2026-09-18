@@ -118,14 +118,6 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val requestedUrl by checkoutModel.openUrl
 
     var linked by remember { mutableStateOf(api.isLinked) }
-    // Two different accounts can see a different catalog/prices, so the
-    // offline cache is scoped per account too - never shared across a
-    // relink to a different account.
-    val storeAccountHash = remember(linked) {
-        val token = runCatching { GhajarAccountStore(context).token() }.getOrDefault("")
-        if (token.isBlank()) "anon" else java.security.MessageDigest.getInstance("SHA-256")
-            .digest(token.toByteArray()).take(12).joinToString("") { "%02x".format(it) }
-    }
     GhajarNotificationPermissionEffect(linked && active)
     var linkSession by remember { mutableStateOf(api.pendingLink()) }
     var linkGate by remember(linkSession?.sessionToken) { mutableStateOf<GhajarLinkState?>(null) }
@@ -154,9 +146,6 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var owned by remember { mutableStateOf<List<GhajarOwnedService>>(emptyList()) }
     var notices by remember { mutableStateOf<List<GhajarNotice>>(emptyList()) }
     var loadedPanelId by remember { mutableStateOf<String?>(null) }
-    var offlineProducts by remember { mutableStateOf(false) }
-    var offlineCacheAt by remember { mutableStateOf<Long?>(null) }
-    var noCacheForFilter by remember { mutableStateOf(false) }
 
     var customMode by remember { mutableStateOf(false) }
     var comparePlans by remember { mutableStateOf(false) }
@@ -279,11 +268,6 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         if (!linked) return@LaunchedEffect
         busy = true
         error = null
-        // A relink or a manual refresh must never keep showing a previous
-        // account's or a previous fetch's "offline cached" state.
-        offlineProducts = false
-        offlineCacheAt = null
-        noCacheForFilter = false
         storeResult {
             panels = api.countries()
             if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull()
@@ -300,11 +284,6 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         customMode = false
         customQuote = null
         products = emptyList()
-        // Switching panel must not leave the previous panel's offline/cache
-        // status visible while the new panel hasn't fetched anything yet.
-        offlineProducts = false
-        offlineCacheAt = null
-        noCacheForFilter = false
         storeResult {
             categories = api.categories(panel.id)
             timeRanges = api.timeRanges(panel.id)
@@ -314,32 +293,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     LaunchedEffect(loadedPanelId, selectedCategory?.id, selectedTime?.days, customMode) {
         val panel = selectedPanel ?: return@LaunchedEffect
         if (loadedPanelId != panel.id) return@LaunchedEffect
-        // Changing category/time-range must clear the *previous* filter's
-        // offline/cache display immediately, before the new filter's fetch
-        // even resolves - otherwise the old filter's banner (or its cached
-        // products, briefly) would flash under the newly selected filter.
-        offlineProducts = false
-        offlineCacheAt = null
-        noCacheForFilter = false
-        val cacheKey = GhajarStoreCacheKey.of(storeAccountHash, panel.id, selectedCategory?.id, selectedTime?.days)
         busy = true
         try {
             storeResult {
                 products = if (customMode) emptyList() else api.products(panel.id, selectedCategory?.id, selectedTime?.days)
-            }.onSuccess {
-                if (!customMode) GhajarStoreCache.saveProducts(context, cacheKey, products)
-            }.onFailure {
-                val cached = if (!customMode) GhajarStoreCache.loadProducts(context, cacheKey) else null
-                if (cached != null) {
-                    products = cached.products
-                    offlineProducts = true
-                    offlineCacheAt = cached.savedAtMs
-                } else {
-                    noCacheForFilter = !customMode
-                    error = if (!customMode) "اینترنت وصل نیست و برای این فیلتر (پنل/دسته/مدت) اطلاعات ذخیره‌شده‌ای هم موجود نیست."
-                        else GhajarCommerceRules.publicMessage(it)
-                }
-            }
+            }.onFailure { error = GhajarCommerceRules.publicMessage(it) }
         } finally { busy = false }
     }
 
@@ -648,34 +606,6 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     )
                 }
             } else {
-                if (offlineProducts) {
-                    item(key = "shop-offline-banner") {
-                        val stamp = remember(offlineCacheAt) {
-                            offlineCacheAt?.let {
-                                java.text.SimpleDateFormat("yyyy/MM/dd HH:mm", java.util.Locale.US).format(java.util.Date(it))
-                            }
-                        }
-                        Column(
-                            Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.errorContainer)
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
-                        ) {
-                            Text(
-                                "این پلن‌ها آخرین اطلاعات ذخیره‌شده هستند (بدون اینترنت)؛ خرید غیرفعال است تا اتصال برقرار شود.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onErrorContainer
-                            )
-                            if (stamp != null) {
-                                Text(
-                                    "آخرین دریافت: $stamp",
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            }
-                        }
-                    }
-                }
                 if (products.size > 1) {
                     item(key = "shop-block-compare") {
                         OutlinedButton(onClick = { comparePlans = true }, modifier = Modifier.fillMaxWidth()) {
@@ -684,7 +614,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     }
                 }
                 items(products, key = { "product:${it.id}" }) { product ->
-                    ProductCard(product, enabled = !busy && !checkoutBusy && !offlineProducts) {
+                    ProductCard(product, enabled = !busy && !checkoutBusy) {
                         confirmationTitle = product.name
                         confirmationPrice = product.price
                         confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
@@ -1303,10 +1233,6 @@ private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
 }
 
 private fun formatPrice(price: Long): String = NumberFormat.getIntegerInstance(Locale("fa", "IR")).format(price)
-
-// GhajarStoreCache / GhajarStoreCacheKey now live in GhajarStoreCache.kt,
-// keyed by account+panel+category+time so one filter's cache is never
-// shown under a different filter.
 
 /** One glance at everything the checkout/wallet tabs already track
  * separately - balance, pending payments, active services - built from
