@@ -88,7 +88,8 @@ object ReleaseNotes {
      * contain one - so it must start with a pipe, which every table in a
      * release note written for this dialog does.
      */
-    private fun isTableRow(line: String): Boolean = line.startsWith("|") && line.contains('|', 1)
+    private fun isTableRow(line: String): Boolean =
+        line.startsWith("|") && line.indexOf('|', 1) >= 0
 
     private fun cells(line: String): List<String> =
         line.trim().trim('|').split('|').map { it.trim() }
