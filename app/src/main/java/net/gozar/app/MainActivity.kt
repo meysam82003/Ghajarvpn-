@@ -251,9 +251,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -1549,44 +1546,21 @@ private fun GozarApp(
             }
         },
         bottomBar = {
-            // A floating pill bar that reads as its own surface above the
-            // canvas, with a hairline so it stays defined on the near-black
-            // Premium Green background instead of dissolving into it.
-            NavigationBar(
-                modifier = Modifier
-                    .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm)
-                    .clip(RoundedCornerShape(GhajarRadius.xl))
-                    .border(1.dp, ghajarColors.border, RoundedCornerShape(GhajarRadius.xl)),
-                containerColor = ghajarColors.card,
-                tonalElevation = 0.dp
-            ) {
-                val navColors = NavigationBarItemDefaults.colors(
-                    selectedIconColor = ghajarColors.primary,
-                    selectedTextColor = ghajarColors.textPrimary,
-                    indicatorColor = ghajarColors.primary.copy(alpha = if (ghajarColors.dark) 0.16f else 0.12f),
-                    unselectedIconColor = ghajarColors.textMuted,
-                    unselectedTextColor = ghajarColors.textMuted
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_HOME,
-                    onClick = {
-                        showPicker = false; showManual = false; showProjects = false; showTorNodes = false; showWindscribe = false; editingConfig = null
+            // A floating capsule with one filled indicator that slides between
+            // the three destinations. Same three destinations, same reset
+            // behaviour on tap.
+            SkinNavBar(
+                selected = page,
+                items = listOf(
+                    SkinNavItem(R.drawable.ic_royal_home, t("home")) {
+                        showPicker = false; showManual = false; showProjects = false
+                        showTorNodes = false; showWindscribe = false; editingConfig = null
                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
                     },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(26.dp)) },
-                    label = { Text(t("home"), maxLines = 1) },
-                    colors = navColors
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_SHOP,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_shop), contentDescription = null, modifier = Modifier.size(26.dp)) },
-                    label = { Text(t("shop"), maxLines = 1) },
-                    colors = navColors
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_SETTINGS,
-                    onClick = {
+                    SkinNavItem(R.drawable.ic_royal_shop, t("shop")) {
+                        scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
+                    },
+                    SkinNavItem(R.drawable.ic_royal_settings, t("settings")) {
                         usageDetail = false
                         perAppDetail = false
                         logsDetail = false
@@ -1603,13 +1577,11 @@ private fun GozarApp(
                         prefsDetail = false
                         sshDetail = false
                         debugDetail = false
+                        notifDetail = false
                         scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
-                    },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(26.dp)) },
-                    label = { Text(t("settings"), maxLines = 1) },
-                    colors = navColors
+                    }
                 )
-            }
+            )
         }
     ) { padding ->
         val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()

@@ -633,3 +633,92 @@ fun SkinError(
         }
     }
 }
+
+/** One destination in [SkinNavBar]. */
+@Immutable
+data class SkinNavItem(val iconRes: Int, val label: String, val onSelect: () -> Unit)
+
+/**
+ * The bottom navigation: a floating capsule with one filled indicator that
+ * slides between destinations.
+ *
+ * Built by hand rather than with NavigationBar because the Material bar cannot
+ * do this - its indicator fades in place per item, and on the near-black
+ * Premium Green canvas its surface dissolved into the background. This sits on
+ * the card tone, clears the system navigation bar itself, and keeps all three
+ * labels permanently visible so the bar never becomes a row of guesses.
+ */
+@Composable
+fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Modifier) {
+    val c = ghajarColors
+    if (items.isEmpty()) return
+    var trackWidth by remember { mutableStateOf(0) }
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val cellWidth = with(density) { (trackWidth / items.size).toDp() }
+    // padding(start = ...) is layout-direction aware, so this must not be
+    // mirrored for RTL by hand.
+    val offset by animateDpAsState(
+        cellWidth * selected,
+        tween(GhajarMotion.Base, easing = FastOutSlowInEasing),
+        label = "navSlide"
+    )
+    Box(
+        modifier
+            .fillMaxWidth()
+            .androidxNavigationBarsPadding()
+            .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm)
+    ) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(GhajarRadius.xl))
+                .background(c.card)
+                .padding(5.dp)
+        ) {
+            if (trackWidth > 0) {
+                Box(
+                    Modifier
+                        .padding(start = offset)
+                        .width(cellWidth)
+                        .height(54.dp)
+                        .clip(RoundedCornerShape(GhajarRadius.lg))
+                        .background(c.primary)
+                )
+            }
+            Row(Modifier.fillMaxWidth().onSizeChanged { trackWidth = it.width }) {
+                items.forEachIndexed { index, item ->
+                    val active = index == selected
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .height(54.dp)
+                            .clip(RoundedCornerShape(GhajarRadius.lg))
+                            .clickable { item.onSelect() },
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            androidx.compose.ui.res.painterResource(item.iconRes),
+                            contentDescription = item.label,
+                            tint = if (active) c.onPrimary else c.textMuted,
+                            modifier = Modifier.size(23.dp)
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            item.label,
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                            color = if (active) c.onPrimary else c.textMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** Kept aliased so the bar's own layout code stays readable. */
+private fun Modifier.androidxNavigationBarsPadding(): Modifier =
+    this.then(androidx.compose.foundation.layout.navigationBarsPadding())
