@@ -2781,13 +2781,8 @@ private fun ConfigPickerScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
-                            Modifier.clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
-                                    RoundedCornerShape(12.dp)
-                                )
+                            Modifier.clip(RoundedCornerShape(GhajarRadius.md))
+                                .background(ghajarColors.secondaryCard)
                                 .padding(horizontal = 14.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -3900,9 +3895,8 @@ private fun InfoBox(
             color = accent,
             textAlign = if (centered) TextAlign.Center else TextAlign.Start,
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(accent.copy(alpha = 0.08f))
-                .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(GhajarRadius.md))
+                .background(accent.copy(alpha = 0.10f))
                 .padding(horizontal = 14.dp, vertical = 9.dp)
         )
     }
@@ -4800,13 +4794,8 @@ private fun TorNodesScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                 )
                 Row(
                     Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(boxTint.copy(alpha = 0.05f + 0.09f * boxFill))
-                        .border(
-                            1.dp,
-                            boxTint.copy(alpha = 0.16f + 0.36f * boxFill),
-                            RoundedCornerShape(14.dp)
-                        )
+                        .clip(RoundedCornerShape(GhajarRadius.md))
+                        .background(ghajarColors.secondaryCard)
                         .clickable {
                             picked = if (on) picked - code else picked + code
                         }
@@ -7300,17 +7289,21 @@ private fun ThemeChoiceRow(
         Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(GhajarRadius.md))
-            .background(if (selected) c.secondaryCard else c.card)
-            .border(
-                if (selected) 2.dp else 1.dp,
-                if (selected) c.primary else c.border,
-                RoundedCornerShape(GhajarRadius.md)
-            )
+            .background(if (selected) c.primary.copy(alpha = 0.14f) else c.secondaryCard)
             .clickable { onClick() }
             .padding(GhajarSpacing.md),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
+        // Selection is a leading accent bar plus a tinted fill, the same way
+        // the connected server row is marked. No outlines anywhere in the skin.
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(28.dp)
+                .clip(RoundedCornerShape(GhajarRadius.pill))
+                .background(if (selected) c.primary else Color.Transparent)
+        )
         ThemeSwatch(preview)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(
@@ -8192,9 +8185,8 @@ private fun SpeedTile(
 
     Column(
         modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(tint.copy(alpha = 0.09f))
-            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .background(ghajarColors.secondaryCard)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -8775,13 +8767,8 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(
                     Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                            RoundedCornerShape(14.dp)
-                        ),
+                        .clip(RoundedCornerShape(GhajarRadius.md))
+                        .background(ghajarColors.secondaryCard),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RangeCell(
@@ -11453,9 +11440,8 @@ private fun AppProxyScreen(
     ) {
         Row(
             Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f), RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(GhajarRadius.pill))
+                .background(ghajarColors.secondaryCard)
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -11581,13 +11567,8 @@ private fun AppProxyScreen(
                         )
                         Row(
                             Modifier.fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(tint.copy(alpha = 0.05f + 0.09f * fill))
-                                .border(
-                                    1.dp,
-                                    tint.copy(alpha = 0.16f + 0.34f * fill),
-                                    RoundedCornerShape(16.dp)
-                                )
+                                .clip(RoundedCornerShape(GhajarRadius.md))
+                                .background(ghajarColors.secondaryCard)
                                 .clickable { store.togglePerApp(app.pkg) }
                                 .animateItem()
                                 .padding(horizontal = 12.dp, vertical = 10.dp),
