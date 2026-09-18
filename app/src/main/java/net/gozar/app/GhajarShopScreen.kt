@@ -1158,7 +1158,10 @@ private fun RenewServiceDialog(
         title = { Text("تمدید سرویس") },
         text = {
             Column(
-                Modifier.verticalScroll(rememberScrollState()).heightIn(max = 420.dp),
+                // No fixed cap: the dialog already bounds its body to the
+                // window, and a second, smaller cap here is what stopped the
+                // list scrolling all the way to its last option.
+                Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(username, style = MaterialTheme.typography.bodySmall,

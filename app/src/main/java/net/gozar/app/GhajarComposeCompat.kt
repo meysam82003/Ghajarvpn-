@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.FlowRowScope
 import androidx.compose.foundation.layout.widthIn as composeWidthIn
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -225,15 +226,19 @@ internal fun AlertDialog(
     text: (@Composable () -> Unit)? = null
 ) {
     val c = ghajarColors
-    // Some callers put a scrolling column in `text`, which needs the dialog to
-    // be bounded or it grows past the screen. Cap it at four fifths of the
-    // window and let the body take whatever is left after title and actions.
-    val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.82f
     androidx.compose.ui.window.Dialog(onDismissRequest = onDismissRequest) {
+      // Bounded by the dialog window's own constraints, not by a fraction of
+      // the screen. The screen figure ignores the platform's dialog insets, so
+      // on a tall phone the cap came out larger than the window actually was:
+      // the column overflowed, and the action row ended up drawn over the last
+      // line of the body. That is what "the renewal dialog will not scroll far
+      // enough and the buttons sit on top of each other" was.
+      BoxWithConstraints {
+        val cap = maxHeight
         Column(
             modifier
                 .fillMaxWidth()
-                .heightIn(max = maxHeight)
+                .heightIn(max = cap)
                 .clip(RoundedCornerShape(GhajarRadius.xl))
                 .background(c.card)
                 .drawBehind {
@@ -277,5 +282,6 @@ internal fun AlertDialog(
                 Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { confirmButton() }
             }
         }
+      }
     }
 }

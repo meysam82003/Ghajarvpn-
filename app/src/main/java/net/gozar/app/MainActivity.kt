@@ -2404,6 +2404,17 @@ private fun ConfigPickerScreen(
         modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // The expanded panel scrolls. This column is fixed - it holds the
+        // panel, the stats strip and the toolbar above a weighted list - so
+        // when the panel opened, the part that did not fit was simply clipped,
+        // which is why the file and QR tiles were not on screen. Bounded by
+        // what is left and scrollable inside it, nothing is cut at any height.
+        Box(
+            if (addMenu) Modifier
+                .weight(1f, fill = false)
+                .verticalScroll(rememberScrollState())
+            else Modifier
+        ) {
         AddServerPanel(
             expanded = addMenu,
             busy = addBusy,
@@ -2422,6 +2433,7 @@ private fun ConfigPickerScreen(
             onOpenVpn = { addMenu = false; onOpenVpnHub() },
             onPsiphon = { addMenu = false; onPsiphonHub() }
         )
+        }
 
         val favouriteCount = remember(configs) { configs.count { it.favorite } }
         // The ping map is read inside PickerStatsStrip, not here. Reading it in
@@ -3723,14 +3735,46 @@ private fun AddServerPanel(
                 Modifier.padding(top = GhajarSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
             ) {
-                // The four providers come first and stay visible. The four
-                // ways to paste in a config you already have are one collapsed
-                // row underneath - because with both lists open the panel is
-                // taller than a phone screen, and Psiphon, the one engine that
-                // needs no config at all, was the row that fell off the
-                // bottom. Anyone who already has a config knows to look for
-                // where to put it; nobody discovers Psiphon by scrolling.
+                // The order the app's own users asked for, top to bottom:
+                // where to put a config you already have, then the providers
+                // that hand you one - Psiphon first among them, because it is
+                // the only engine that needs no config at all and the only one
+                // nobody finds by looking for somewhere to paste something.
+                //
+                // "I have a config" is one collapsed row rather than a grid of
+                // four tiles, so all five entries are on screen at once. The
+                // panel scrolls now, so opening it shows all four tiles.
+                var haveOpen by remember { mutableStateOf(false) }
                 Rail(t("add_get_config"))
+                SlabRow(
+                    title = t("add_have_config"),
+                    subtitle = t("add_have_config_sub"),
+                    icon = Icons.Filled.ContentPaste,
+                    accent = c.highlight,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = { haveOpen = !haveOpen }
+                )
+                AnimatedVisibility(
+                    visible = haveOpen,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
+                ) {
+                    Column(
+                        Modifier.padding(top = GhajarSpacing.sm, bottom = GhajarSpacing.xs),
+                        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                            GlyphTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f), enabled = !busy)
+                            GlyphTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f), enabled = !busy)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                            GlyphTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f), enabled = !busy)
+                            GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
+                        }
+                    }
+                }
+                SlabDivider()
                 SlabRow(
                     title = "Psiphon",
                     subtitle = t("add_psiphon_sub"),
@@ -3739,6 +3783,16 @@ private fun AddServerPanel(
                     chevron = true,
                     enabled = !busy,
                     onClick = onPsiphon
+                )
+                SlabDivider()
+                SlabRow(
+                    title = "OpenVPN",
+                    subtitle = t("add_ovpn_sub"),
+                    icon = Icons.Filled.Security,
+                    accent = c.accentAlt,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onOpenVpn
                 )
                 SlabDivider()
                 SlabRow(
@@ -3760,47 +3814,6 @@ private fun AddServerPanel(
                     enabled = !busy,
                     onClick = onWindscribe
                 )
-                SlabDivider()
-                SlabRow(
-                    title = "OpenVPN",
-                    subtitle = t("add_ovpn_sub"),
-                    icon = Icons.Filled.Security,
-                    accent = c.accentAlt,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onOpenVpn
-                )
-
-                var haveOpen by remember { mutableStateOf(false) }
-                SlabDivider()
-                SlabRow(
-                    title = t("add_have_config"),
-                    subtitle = t("add_have_config_sub"),
-                    icon = Icons.Filled.ContentPaste,
-                    accent = c.textSecondary,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = { haveOpen = !haveOpen }
-                )
-                AnimatedVisibility(
-                    visible = haveOpen,
-                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
-                    exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
-                ) {
-                    Column(
-                        Modifier.padding(top = GhajarSpacing.sm),
-                        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
-                    ) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-                            GlyphTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f), enabled = !busy)
-                            GlyphTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f), enabled = !busy)
-                        }
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-                            GlyphTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f), enabled = !busy)
-                            GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
-                        }
-                    }
-                }
             }
         }
     }
@@ -4480,7 +4493,10 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
                     // three shapes a release note actually uses.
                     val blocks = remember(upd.changelog) { ReleaseNotes.parse(upd.changelog) }
                     Column(
-                        Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                        // The dialog bounds its own body now, so no second cap
+                        // here: a long release note scrolls instead of being
+                        // cut at a fixed height.
+                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
                         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
                     ) {
                         blocks.forEach { block -> ReleaseNoteBlock(block) }

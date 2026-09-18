@@ -60,7 +60,7 @@ fun GhajarTickets(api: GhajarStoreApi) {
         catch (e: Exception) { error = e.message }
         finally { busy = false }
     }
-    Column(Modifier.fillMaxWidth().heightIn(max = 650.dp).verticalScroll(rememberScrollState()),
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("پشتیبانی و تیکت", style = MaterialTheme.typography.titleLarge)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
