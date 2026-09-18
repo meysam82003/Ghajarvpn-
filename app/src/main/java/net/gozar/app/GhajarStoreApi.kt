@@ -718,13 +718,39 @@ class GhajarStoreApi(context: Context) {
         }
         val payload = if (method == "GET" || method == "HEAD") null else
             JSONObject(body?.toString() ?: "{}").put("actions", name)
-        requestJson(
+        val result = requestJson(
             url = URL("${BrandConfig.MINIAPP_API_URL}?$query"),
             method = method,
             bearer = requireToken(),
             body = payload,
             allowPaymentRequired = allowPaymentRequired
         )
+        if (name in DIAGNOSTIC_ACTIONS) logResultShape(name, params, result)
+        result
+    }
+
+    /**
+     * Catalog/wallet endpoints the shop screen's plan list depends on. Logging
+     * only the returned item count (never a row's contents, never the bearer
+     * token) lets an exported log answer "why are the plans empty" without
+     * guessing: 0 here means the server genuinely returned nothing for these
+     * exact params (a real empty catalog, or a filter combination the panel
+     * doesn't have); a non-zero count logged here but nothing shown in the UI
+     * means the bug is client-side (parsing or state), not the network or the
+     * server.
+     */
+    private val DIAGNOSTIC_ACTIONS = setOf(
+        "countries", "categories", "time_ranges", "services", "custom_price", "invoices", "payment_methods"
+    )
+
+    private fun logResultShape(name: String, params: Map<String, String>, result: JSONObject) {
+        val shape = result.payload()
+        val count = when (shape) {
+            is JSONArray -> shape.length().toString()
+            is JSONObject -> shape.optJSONArray("items")?.length()?.toString() ?: "object"
+            else -> "empty"
+        }
+        GhajarLog.d("Store", "action=$name params=$params -> $count")
     }
 
     /**

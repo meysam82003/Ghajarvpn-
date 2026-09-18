@@ -92,6 +92,8 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -165,9 +167,17 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var trialOptions by remember { mutableStateOf<GhajarTrialOptions?>(null) }
     var renewUsername by remember { mutableStateOf<String?>(null) }
 
-    suspend fun refreshOwnedAndNotices() {
-        owned = api.ownedServices()
-        notices = api.notices()
+    // ownedServices() and notices() are two independent HTTP round trips with
+    // no data dependency between them; awaiting them one after the other
+    // doubles the worst-case wait (each already pays up to CONNECT_TIMEOUT +
+    // READ_TIMEOUT on its own, twice if the direct attempt fails and the
+    // local-proxy retry kicks in) for no reason. Running them concurrently
+    // caps the wait at whichever one is slower instead of their sum.
+    suspend fun refreshOwnedAndNotices() = coroutineScope {
+        val ownedDeferred = async { api.ownedServices() }
+        val noticesDeferred = async { api.notices() }
+        owned = ownedDeferred.await()
+        notices = noticesDeferred.await()
     }
 
     val renewRequest by GhajarRenewRequest.requested.collectAsState()
@@ -268,10 +278,16 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         if (!linked) return@LaunchedEffect
         busy = true
         error = null
+        // countries() and refreshOwnedAndNotices() are independent too - the
+        // owned/notices fetch doesn't need the panel list at all.
         storeResult {
-            panels = api.countries()
-            if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull()
-            refreshOwnedAndNotices()
+            coroutineScope {
+                val panelsDeferred = async { api.countries() }
+                val ownedNoticesDeferred = async { refreshOwnedAndNotices() }
+                panels = panelsDeferred.await()
+                if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull()
+                ownedNoticesDeferred.await()
+            }
         }.onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در دریافت فروشگاه") }
         busy = false
     }
@@ -285,9 +301,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         customQuote = null
         products = emptyList()
         storeResult {
-            categories = api.categories(panel.id)
-            timeRanges = api.timeRanges(panel.id)
-            loadedPanelId = panel.id
+            coroutineScope {
+                val categoriesDeferred = async { api.categories(panel.id) }
+                val timeRangesDeferred = async { api.timeRanges(panel.id) }
+                categories = categoriesDeferred.await()
+                timeRanges = timeRangesDeferred.await()
+                loadedPanelId = panel.id
+            }
         }.onFailure { error = GhajarCommerceRules.publicMessage(it) }
     }
     LaunchedEffect(loadedPanelId, selectedCategory?.id, selectedTime?.days, customMode) {
