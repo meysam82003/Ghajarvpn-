@@ -58,6 +58,22 @@ data class GhajarOvpnTestResult(
 
 data class GhajarOvpnImportOutcome(val added: Int, val duplicates: Int, val failed: Int)
 
+/**
+ * Throughput for the OpenVPN engine, in the same units the rest of the app
+ * uses: [totalDown]/[totalUp] are cumulative bytes for this session, the two
+ * speeds are bytes per second.
+ *
+ * The engine reports cumulative totals plus a delta measured over
+ * OpenVPNManagement.mBytecountInterval seconds (2), which is why the speeds
+ * divide by it - the same arithmetic ics-openvpn's own notification does.
+ */
+data class GhajarOvpnCounters(
+    val totalDown: Long = 0L,
+    val totalUp: Long = 0L,
+    val downSpeed: Long = 0L,
+    val upSpeed: Long = 0L
+)
+
 object GhajarOpenVpnBridge {
     private val _pending = MutableStateFlow<PendingOpenVpnImport?>(null)
     val pending = _pending.asStateFlow()
@@ -74,8 +90,20 @@ object GhajarOpenVpnBridge {
     private val _tests = MutableStateFlow<Map<String, GhajarOvpnTestResult>>(emptyMap())
     val tests = _tests.asStateFlow()
 
+    /**
+     * Live throughput while OpenVPN owns the tunnel.
+     *
+     * The home screen reads VpnBridge.counters, which only ever carries the
+     * Xray service's broadcasts - OpenVPN runs in a separate engine that never
+     * sends them. That is why an OpenVPN session showed real traffic in its own
+     * notification and a flat zero on the home screen.
+     */
+    private val _counters = MutableStateFlow(GhajarOvpnCounters())
+    val counters = _counters.asStateFlow()
+
     private var statusListener: StatusListener? = null
     private var stateListener: VpnStatus.StateListener? = null
+    private var byteCountListener: VpnStatus.ByteCountListener? = null
     private var requestedUuid: String? = null
     private var connectedConfirmed = false
     private var connectedAtElapsed = 0L
@@ -93,6 +121,7 @@ object GhajarOpenVpnBridge {
             statusListener = StatusListener().also { it.init(app) }
         }
         ensureStateListener()
+        ensureByteCountListener()
         VpnStatus.addLogListener { item ->
             val level = when (item.logLevel) {
                 de.blinkt.openvpn.core.VpnStatus.LogLevel.ERROR -> GhajarLogLevel.ERROR
@@ -118,6 +147,20 @@ object GhajarOpenVpnBridge {
                 )
             )
         }
+    }
+
+    private fun ensureByteCountListener() {
+        if (byteCountListener != null) return
+        byteCountListener = VpnStatus.ByteCountListener { inBytes, outBytes, diffIn, diffOut ->
+            val interval = de.blinkt.openvpn.core.OpenVPNManagement.mBytecountInterval.coerceAtLeast(1)
+            _counters.value = GhajarOvpnCounters(
+                totalDown = inBytes,
+                totalUp = outBytes,
+                downSpeed = diffIn / interval,
+                upSpeed = diffOut / interval
+            )
+        }
+        VpnStatus.addByteCountListener(byteCountListener)
     }
 
     private fun ensureStateListener() {
@@ -178,6 +221,7 @@ object GhajarOpenVpnBridge {
                         if (_status.value == GhajarOvpnState.DISCONNECTED) {
                             connectedConfirmed = false
                             requestedUuid = null
+                            _counters.value = GhajarOvpnCounters()
                             if (ownsGlobalTunnel()) VpnState.setDisconnected()
                         }
                     }
@@ -191,6 +235,7 @@ object GhajarOpenVpnBridge {
                     ConnectionStatus.LEVEL_VPNPAUSED -> {
                         connectedConfirmed = false
                         _status.value = GhajarOvpnState.DISCONNECTED
+                        _counters.value = GhajarOvpnCounters()
                         if (ownsGlobalTunnel()) VpnState.setDisconnected()
                     }
                     ConnectionStatus.UNKNOWN_LEVEL -> {
@@ -211,6 +256,7 @@ object GhajarOpenVpnBridge {
                     if (connectedConfirmed) {
                         connectedConfirmed = false
                         _status.value = GhajarOvpnState.DISCONNECTED
+                        _counters.value = GhajarOvpnCounters()
                         if (ownsGlobalTunnel()) VpnState.setDisconnected()
                     }
                 }

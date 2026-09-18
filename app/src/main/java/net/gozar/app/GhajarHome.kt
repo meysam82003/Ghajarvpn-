@@ -296,6 +296,13 @@ fun ConnectionFacts(
     serverAddress: String?,
     serverPort: Int?,
     modifier: Modifier = Modifier,
+    /**
+     * Whether the IP/location lookup should go through the tunnel's local SOCKS
+     * inbound. True for the Xray engines, which publish one; false for OpenVPN
+     * and IKEv2, which route the whole device instead, so a plain request is
+     * already inside the tunnel and a proxied one reaches nothing.
+     */
+    throughLocalProxy: Boolean = true,
     // The ping row is the only latency reading on this screen. It shows the
     // passive TCP handshake by default and, once the user taps it, whatever the
     // real-delay test measured - one row, not two saying the same word.
@@ -312,11 +319,13 @@ fun ConnectionFacts(
     val busy = state == Connection.CONNECTING || state == Connection.DISCONNECTING
 
     var location by remember { mutableStateOf<IpLocation?>(null) }
-    LaunchedEffect(connected) {
+    LaunchedEffect(connected, throughLocalProxy) {
         if (busy) return@LaunchedEffect
         // Let a fresh tunnel's routes settle before asking who we look like.
         if (connected) delay(1200)
-        location = runCatching { LocationFetcher.fetch(throughProxy = connected) }.getOrNull()
+        location = runCatching {
+            LocationFetcher.fetch(throughProxy = connected && throughLocalProxy)
+        }.getOrNull()
     }
 
     var pingMs by remember { mutableStateOf<Int?>(null) }

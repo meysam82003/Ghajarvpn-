@@ -938,13 +938,38 @@ private fun asciiDigits(value: String): String = GhajarUiRules.asciiDigits(value
 
 @Composable
 private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
-    Row(Modifier.fillMaxWidth().padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-        Image(painterResource(R.drawable.ghajar_treasury), contentDescription = "وزیر خزانه‌داری قاجار با سبد خرید",
-            contentScale = ContentScale.Fit, modifier = Modifier.size(80.dp))
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text("خزانهٔ قاجار", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-            Text(if (linked) "حساب متصل و همگام است" else "برای خرید، حساب ربات را یک‌بار متصل کن", color = MaterialTheme.colorScheme.onSurfaceVariant)
+    // The 80dp illustration is gone: it took the first eighty pixels of the
+    // store and said nothing the two lines beside it did not already say.
+    val c = ghajarColors
+    Row(
+        Modifier.fillMaxWidth().padding(top = 14.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)) {
+            Text(
+                "خزانهٔ قاجار",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = c.textPrimary
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // A state pip instead of a picture: it says the one thing the
+                // header is actually reporting.
+                Box(
+                    Modifier
+                        .size(7.dp)
+                        .clip(CircleShape)
+                        .background(if (linked) c.good else c.warning)
+                )
+                Text(
+                    if (linked) "حساب متصل و همگام است" else "برای خرید، حساب ربات را یک‌بار متصل کن",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textSecondary
+                )
+            }
         }
         if (linked) IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, "بروزرسانی") }
     }

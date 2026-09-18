@@ -1821,6 +1821,7 @@ private fun ConnectionScreen(
     val t = stringsFn()
     val lang = LocalLang.current
     val n: (String) -> String = { localizeDigits(it, lang) }
+    val context = LocalContext.current
     val configs by store.configs.collectAsState()
     val conn by VpnState.state.collectAsState()
     val activeCfgId by VpnState.activeId.collectAsState()
@@ -1862,11 +1863,28 @@ private fun ConnectionScreen(
     var delayResult by remember { mutableStateOf<String?>(null) }
     var delayRunning by remember { mutableStateOf(false) }
 
+    // OpenVPN owns the tunnel whenever the active id carries its prefix. Its
+    // engine is a separate process that never broadcasts to VpnBridge, so a
+    // session showed live traffic in its own notification and a flat zero here.
+    val ovpnActiveUuid by GhajarOpenVpnBridge.activeUuid.collectAsState()
+    val ovpnCounters by GhajarOpenVpnBridge.counters.collectAsState()
+    val onOpenVpn = activeCfgId.orEmpty().startsWith("ovpn:")
+    val ovpnProfile = remember(ovpnActiveUuid, conn) {
+        ovpnActiveUuid?.let { uuid ->
+            runCatching { GhajarOpenVpnBridge.profiles(context).find { it.uuid == uuid } }.getOrNull()
+        }
+    }
+
     LaunchedEffect(Unit) {
         VpnBridge.counters.collect { c ->
             totalUp = c.totalUp; totalDown = c.totalDown
             upSpeed = c.upSpeed; downSpeed = c.downSpeed
         }
+    }
+    LaunchedEffect(onOpenVpn, ovpnCounters) {
+        if (!onOpenVpn) return@LaunchedEffect
+        totalUp = ovpnCounters.totalUp; totalDown = ovpnCounters.totalDown
+        upSpeed = ovpnCounters.upSpeed; downSpeed = ovpnCounters.downSpeed
     }
     LaunchedEffect(conn) {
         if (conn != Connection.CONNECTED) delayResult = null
@@ -1920,20 +1938,34 @@ private fun ConnectionScreen(
             // configs never reveal their endpoint and the built-in engines have
             // none, exactly as before.
             Slab(spacing = 0.dp) {
-                val routeSubtitle = selectedConfig?.let { cfg ->
-                    val engine = cfg.protocol.uppercase(java.util.Locale.ROOT)
-                    val endpoint = when {
-                        cfg.locked -> t("locked_endpoint")
-                        cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
-                        else -> "⁦${cfg.address}:${cfg.port}⁩"
-                    }
-                    "$engine · $endpoint"
-                } ?: t("home_openvpn_hint")
+                // While OpenVPN owns the tunnel, the route is that profile -
+                // not whichever Xray config happens to still be selected. The
+                // active id is "ovpn:<uuid>", which is never in `configs`, so
+                // this row used to fall back to the selection and name a server
+                // that was not carrying a single byte.
+                val routeSubtitle = when {
+                    onOpenVpn -> ovpnProfile?.let { p ->
+                        "OPENVPN · ⁦${p.host}:${p.port}⁩"
+                    } ?: "OPENVPN"
+                    else -> selectedConfig?.let { cfg ->
+                        val engine = cfg.protocol.uppercase(java.util.Locale.ROOT)
+                        val endpoint = when {
+                            cfg.locked -> t("locked_endpoint")
+                            cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
+                            else -> "⁦${cfg.address}:${cfg.port}⁩"
+                        }
+                        "$engine · $endpoint"
+                    } ?: t("home_openvpn_hint")
+                }
                 SlabRow(
-                    title = selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
-                        ?: t("hub_no_server"),
+                    title = when {
+                        onOpenVpn -> ovpnProfile?.name?.let(BrandConfig::sanitizePublicText)
+                            ?: "OpenVPN"
+                        else -> selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
+                            ?: t("hub_no_server")
+                    },
                     subtitle = routeSubtitle,
-                    icon = Icons.Filled.Shield,
+                    icon = if (onOpenVpn) Icons.Filled.Security else Icons.Filled.Shield,
                     accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
                     chevron = true,
                     onClick = onOpenPicker
@@ -1965,15 +1997,28 @@ private fun ConnectionScreen(
             // one, so there is a single row about latency, not two.
             ConnectionFacts(
                 state = conn,
-                serverAddress = activeConfig?.address,
-                serverPort = activeConfig?.port,
+                serverAddress = if (onOpenVpn) ovpnProfile?.host else activeConfig?.address,
+                serverPort = if (onOpenVpn) ovpnProfile?.port else activeConfig?.port,
+                // ics-openvpn routes the whole device, so a plain request is
+                // already inside the tunnel. Asking through 127.0.0.1:MixedPort
+                // would reach an inbound only the Xray engine publishes, which
+                // is why the IP and location rows sat on a dash for an OpenVPN
+                // session that was carrying traffic perfectly well.
+                throughLocalProxy = !onOpenVpn,
                 measuredDelay = delayResult,
                 delayRunning = delayRunning,
                 onMeasureDelay = {
                     delayRunning = true
                     delayResult = null
                     scope.launch {
-                        val ms = SpeedTest.delay()
+                        // SpeedTest.delay() measures through gozarcore, which
+                        // has no part in an OpenVPN session; that path gets a
+                        // real TCP handshake against the profile's endpoint.
+                        val ms: Int? = if (onOpenVpn) {
+                            ovpnProfile?.let { p ->
+                                (Pinger.ping(p.host, p.port) as? PingResult.Ok)?.ms
+                            }
+                        } else SpeedTest.delay()
                         delayResult =
                             if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
                         delayRunning = false
@@ -2279,6 +2324,13 @@ private fun ConfigPickerScreen(
             onPsiphon = { addMenu = false; onPsiphonHub() }
         )
 
+        // The four actions and the sub-update button used to float loose above
+        // the list as five separate boxes. They are one slab now: the test is
+        // the primary action on its row, the three tools are glyphs beside it,
+        // and the two list-wide jobs share the row underneath - including the
+        // free-projects entry, which was previously only reachable by first
+        // expanding "افزودن سرور" and was being missed entirely.
+        Slab(spacing = GhajarSpacing.sm) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             BounceOutlinedButton(
                 onClick = {
@@ -2471,6 +2523,7 @@ private fun ConfigPickerScreen(
             }
         }
 
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         BounceOutlinedButton(
             onClick = {
                 if (updateSubsState != 1) {
@@ -2507,7 +2560,7 @@ private fun ConfigPickerScreen(
             },
             minHeight = 42.dp,
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            modifier = Modifier.fillMaxWidth().height(42.dp)
+            modifier = Modifier.weight(1f).height(42.dp)
         ) {
             if (updateSubsState == 1) {
                 CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
@@ -2523,6 +2576,20 @@ private fun ConfigPickerScreen(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
+        }
+
+            BounceOutlinedButton(
+                onClick = onFreeProjects,
+                minHeight = 42.dp,
+                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                accent = ghajarColors.premium,
+                modifier = Modifier.weight(1f).height(42.dp)
+            ) {
+                Icon(Icons.Filled.CardGiftcard, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(t("free_projects"), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
         }
 
         AnimatedVisibility(
@@ -2654,9 +2721,10 @@ private fun ConfigPickerScreen(
                 },
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item(key = "openvpn-section") {
-                GhajarOpenVpnSummaryTile(onOpen = onOpenVpnHub)
-            }
+            // The OpenVPN summary tile used to sit here, above the servers, as a
+            // second kind of thing in a list of one kind. OpenVPN is a way of
+            // adding a server, so it is managed from "افزودن سرور" with the
+            // other providers - the same screen, one entry point instead of two.
             grouped.forEach { (sub, subConfigs) ->
                 val wsRow = if (WindscribeBrand.isWindscribe(sub)) wsRowColor else null
                 item(key = "sub-${sub.id}") {
