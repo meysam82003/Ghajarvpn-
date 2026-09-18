@@ -16,6 +16,7 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 
 /**
@@ -26,6 +27,13 @@ import androidx.core.net.toUri
  * no longer ships.
  */
 class GhajarStoreWebActivity : Activity() {
+
+    /** The active theme's canvas, resolved once in onCreate. */
+    private var chrome: Int = Color.BLACK
+
+    /** Readable foreground for that canvas - white is wrong on the light theme. */
+    private var onChrome: Int = Color.WHITE
+
     private lateinit var webView: WebView
     private var originHost: String? = null
     private var chooser: android.webkit.ValueCallback<Array<Uri>>? = null
@@ -33,11 +41,16 @@ class GhajarStoreWebActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(7, 27, 46)
-        window.navigationBarColor = Color.rgb(7, 27, 46)
+        // This window is Views, not Compose, so it resolves the stored theme
+        // directly; it used to be painted in the old fixed navy.
+        val palette = ghajarPaletteFor(this)
+        chrome = palette.background.toArgb()
+        onChrome = palette.textPrimary.toArgb()
+        window.statusBarColor = chrome
+        window.navigationBarColor = chrome
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
+            isAppearanceLightStatusBars = !palette.dark
+            isAppearanceLightNavigationBars = !palette.dark
         }
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
 
@@ -50,9 +63,9 @@ class GhajarStoreWebActivity : Activity() {
         originHost = url.host
 
         val progress = ProgressBar(this)
-        val webContainer = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 27, 46)) }
+        val webContainer = FrameLayout(this).apply { setBackgroundColor(chrome) }
         webView = WebView(this).apply {
-            setBackgroundColor(Color.rgb(7, 27, 46))
+            setBackgroundColor(chrome)
             settings.javaScriptEnabled = true
             settings.domStorageEnabled = true
             settings.allowFileAccess = false
@@ -118,12 +131,12 @@ class GhajarStoreWebActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setBackgroundColor(Color.rgb(7, 27, 46))
+            setBackgroundColor(chrome)
             setPadding(dp(12), dp(8), dp(8), dp(8))
             addView(TextView(this@GhajarStoreWebActivity).apply {
                 text = title
                 textSize = 17f
-                setTextColor(Color.WHITE)
+                setTextColor(onChrome)
                 setPadding(dp(10), 0, dp(10), 0)
             }, LinearLayout.LayoutParams(0, -2, 1f))
             addView(ImageButton(this@GhajarStoreWebActivity).apply {

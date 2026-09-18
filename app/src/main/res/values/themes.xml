@@ -1,5 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        The window background is painted by the platform before Compose runs.
+        It was the Material Light default, so every cold start flashed white
+        before the near-black Premium Green canvas appeared. Pointing it at
+        the brand canvas removes that flash. values-night/ carries the dark
+        one; this file's value covers the light case.
+    -->
+    <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/ghajar_window_light</item>
+    </style>
 </resources>

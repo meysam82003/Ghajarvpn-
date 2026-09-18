@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+        Premium Green Dark is the first-install default and three of the four
+        themes are dark, so the dark canvas is the right pre-Compose
+        background whenever the system is in dark mode.
+    -->
+    <style name="Theme.Ghajarvpn" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ghajar_window_dark</item>
+    </style>
+</resources>

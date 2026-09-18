@@ -1,10 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="royal_ice">#FF91BCC7</color>
-    <color name="royal_emerald">#FF0D503F</color>
-    <color name="royal_gold">#FFD5AD4A</color>
-    <color name="royal_navy">#FF071B2E</color>
-    <color name="royal_cream">#FFF5F0E2</color>
+    <!--
+        The design system lives in GhajarDesign.kt; these two exist only
+        because the window background is painted by the platform before any
+        Compose code runs, and a resource cannot read a CompositionLocal.
+        They mirror GhajarBrand.Background for the two cases the platform
+        can distinguish, so launching the app no longer flashes white.
+
+        The five royal_* colours from the previous identity were removed:
+        nothing in res/, java/ or the manifest referenced them.
+    -->
+    <color name="ghajar_window_dark">#FF050807</color>
+    <color name="ghajar_window_light">#FFF3F8F6</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
 </resources>

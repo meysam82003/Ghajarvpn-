@@ -326,6 +326,20 @@ internal val AppGreen: Color
     @Composable get() = LocalGhajarPalette.current.successGlow
 
 /**
+ * The active palette for windows built out of Android Views rather than
+ * Compose - the store and secure-payment WebView hosts. They cannot read a
+ * CompositionLocal, which is why they were the last two windows still painted
+ * in the old navy. This resolves the same stored theme the Compose windows
+ * use, so their chrome follows the user's choice too.
+ */
+fun ghajarPaletteFor(context: android.content.Context): GhajarPalette {
+    val dark = (context.resources.configuration.uiMode and
+        android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
+        android.content.res.Configuration.UI_MODE_NIGHT_YES
+    return ghajarPaletteFor(ConfigStore.get(context).uiTheme.value, dark)
+}
+
+/**
  * Projects the tokens onto Material 3 so existing MaterialTheme-based screens
  * inherit the active theme instead of keeping the old palette.
  */
