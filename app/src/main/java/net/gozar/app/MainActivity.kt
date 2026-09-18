@@ -374,12 +374,14 @@ private val AppAqua: Color
 
 internal val LocalLang = compositionLocalOf { Lang.EN }
 
-private const val PAGE_SHOP = 0
-private const val PAGE_SSH = 1
-private const val PAGE_HOME = 2
-private const val PAGE_DEBUG = 3
-private const val PAGE_SETTINGS = 4
-private const val PAGE_COUNT = 5
+// Three tabs only. Declared in reading order, so under RTL the bar reads
+// خانه | فروشگاه | تنظیمات from the right. Home is index 0, which also makes
+// it the launch page and the target of every "back out of everything".
+// SSH and the debugger are not tabs any more - they live in Settings.
+private const val PAGE_HOME = 0
+private const val PAGE_SHOP = 1
+private const val PAGE_SETTINGS = 2
+private const val PAGE_COUNT = 3
 
 @Composable
 private fun stringsFn(): (String) -> String {
@@ -1370,13 +1372,16 @@ private fun GozarApp(
     }
 
     var sshSubScreen by remember { mutableStateOf(false) }
+    // SSH and the debugger moved out of the tab bar into Settings; they keep
+    // their own screens and every capability, just reached from there.
+    var sshDetail by remember { mutableStateOf(false) }
+    var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_SSH && sshSubScreen) || (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail))
+    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
-        page == PAGE_SSH -> "ssh"
         page == PAGE_HOME && exportConfigs != null -> "export"
         page == PAGE_HOME && showManual -> "manual"
         page == PAGE_HOME && showTorNodes -> "tornodes"
@@ -1387,7 +1392,8 @@ private fun GozarApp(
         page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
         page == PAGE_HOME -> "connection"
-        page == PAGE_DEBUG -> "debugger"
+        onSettingsTab && sshDetail -> "ssh"
+        onSettingsTab && debugDetail -> "debugger"
         onSettingsTab && usageDetail -> "usage"
         onSettingsTab && perAppDetail -> "perapp"
         onSettingsTab && logsDetail -> "logs"
@@ -1430,7 +1436,10 @@ private fun GozarApp(
             toolsDetail -> toolsDetail = false
             connDetail -> connDetail = false
             prefsDetail -> prefsDetail = false
-            page == PAGE_SSH && sshSubScreen -> Unit
+            // SSH owns its own inner navigation; let it handle its own back.
+            sshDetail && sshSubScreen -> Unit
+            sshDetail -> sshDetail = false
+            debugDetail -> debugDetail = false
             page != PAGE_HOME -> scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
         }
     }
@@ -1560,31 +1569,19 @@ private fun GozarApp(
                 tonalElevation = 3.dp
             ) {
                 NavigationBarItem(
-                    selected = page == PAGE_SHOP,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_shop), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("shop")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_SSH,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SSH) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_tunnel), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("ssh")) }
-                )
-                NavigationBarItem(
                     selected = page == PAGE_HOME,
                     onClick = {
                         showPicker = false; showManual = false; showProjects = false; showTorNodes = false; showWindscribe = false; editingConfig = null
                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
                     },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("home")) }
+                    icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(26.dp)) },
+                    label = { Text(t("home"), maxLines = 1) }
                 )
                 NavigationBarItem(
-                    selected = page == PAGE_DEBUG,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_DEBUG) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_tools), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("debugger")) }
+                    selected = page == PAGE_SHOP,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } },
+                    icon = { Icon(painterResource(R.drawable.ic_royal_shop), contentDescription = null, modifier = Modifier.size(26.dp)) },
+                    label = { Text(t("shop"), maxLines = 1) }
                 )
                 NavigationBarItem(
                     selected = page == PAGE_SETTINGS,
@@ -1603,10 +1600,12 @@ private fun GozarApp(
                         toolsDetail = false
                         connDetail = false
                         prefsDetail = false
+                        sshDetail = false
+                        debugDetail = false
                         scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
                     },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("settings")) }
+                    icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(26.dp)) },
+                    label = { Text(t("settings"), maxLines = 1) }
                 )
             }
         }
@@ -1631,11 +1630,6 @@ private fun GozarApp(
         ) { p ->
             if (p == PAGE_SHOP) {
                 GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
-            } else if (p == PAGE_SSH) {
-                SshScreen(
-                    store = SshStore.get(LocalContext.current),
-                    onSubScreenChange = { sshSubScreen = it }
-                )
             } else if (p == PAGE_HOME) {
                 val connKey = when {
                     exportConfigs != null -> "export"
@@ -1729,14 +1723,10 @@ private fun GozarApp(
                         )
                     }
                 }
-            } else if (p == PAGE_DEBUG) {
-                ConfigDebuggerScreen(
-                    store = store,
-                    onSwitch = onSwitch,
-                    active = pagerState.settledPage == 2 && !pagerState.isScrollInProgress
-                )
             } else {
                 val setKey = when {
+                    sshDetail -> "ssh"
+                    debugDetail -> "debugger"
                     usageDetail -> "usage"
                     perAppDetail -> "perapp"
                     logsDetail -> "logs"
@@ -1767,6 +1757,15 @@ private fun GozarApp(
                     label = "setTab"
                 ) { key ->
                     when (key) {
+                        "ssh" -> SshScreen(
+                            store = SshStore.get(LocalContext.current),
+                            onSubScreenChange = { sshSubScreen = it }
+                        )
+                        "debugger" -> ConfigDebuggerScreen(
+                            store = store,
+                            onSwitch = onSwitch,
+                            active = pagerState.settledPage == PAGE_SETTINGS && !pagerState.isScrollInProgress
+                        )
                         "usage" -> DataUsageScreen()
                         "perapp" -> AppProxyScreen(store = store)
                         "logs" -> LogsScreen(store = store)
@@ -1797,6 +1796,8 @@ private fun GozarApp(
                         else -> SettingsScreen(
                             store = store,
                             scrollState = settingsScroll,
+                            onOpenSsh = { sshDetail = true },
+                            onOpenDebugger = { debugDetail = true },
                             onOpenUsage = { usageDetail = true },
                             onOpenTools = { toolsDetail = true },
                             onOpenConnection = { connDetail = true },
@@ -2070,11 +2071,17 @@ private fun ConnectionScreen(
                     }
                 }
 
-                val globeStyle by store.globeStyle.collectAsState()
-                if (globeStyle == "dots") {
-                    DotGlobeSection(Modifier.weight(1f).fillMaxWidth())
-                } else {
-                    EarthSection(Modifier.weight(1f).fillMaxWidth())
+                val connectedAt by VpnState.connectedAt.collectAsState()
+                val activeConfig = configs.find { it.id == activeCfgId } ?: selectedConfig
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    ConnectionHub(
+                        state = conn,
+                        serverName = selectedConfig?.name,
+                        serverAddress = activeConfig?.address,
+                        serverPort = activeConfig?.port,
+                        sessionStartMs = connectedAt.takeIf { it > 0L },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
         }
@@ -3966,6 +3973,8 @@ private fun settingsDepth(key: String): Int = when (key) {
     "stability", "cleanip", "perapp", "theme", "netcat" -> 2
     "checkhost" -> 3
     "netcatone" -> 3
+    // Reached directly from the Settings list, like usage or tools.
+    "ssh", "debugger" -> 1
     else -> 1
 }
 
@@ -5529,6 +5538,8 @@ private fun SettingsScreen(
     onOpenPreferences: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenNetMon: () -> Unit,
+    onOpenSsh: () -> Unit,
+    onOpenDebugger: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -5557,6 +5568,20 @@ private fun SettingsScreen(
             title = t("tools"),
             subtitle = t("tools_sub"),
             onClick = onOpenTools
+        )
+        // Both used to be top-level tabs. Same screens, same capabilities,
+        // reached from here so the bar can stay at three.
+        SettingsHubCard(
+            iconRes = R.drawable.ic_royal_tunnel,
+            title = t("ssh"),
+            subtitle = t("ssh_settings_sub"),
+            onClick = onOpenSsh
+        )
+        SettingsHubCard(
+            iconRes = R.drawable.ic_royal_tools,
+            title = t("debugger"),
+            subtitle = t("debugger_settings_sub"),
+            onClick = onOpenDebugger
         )
         SettingsHubCard(
             icon = Icons.Filled.Router,
@@ -9457,34 +9482,6 @@ private fun SettingRow(
     }
 }
 
-@Composable
-private fun GlobeStyleOption(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val border = if (selected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    else Color.Transparent
-    Box(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(bg)
-            .border(BorderStroke(if (selected) 1.5.dp else 1.dp, border), RoundedCornerShape(14.dp))
-            .clickable { onClick() }
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-        )
-    }
-}
 
 private fun Modifier.pressBounce(
     scale: Animatable<Float, AnimationVector1D>,

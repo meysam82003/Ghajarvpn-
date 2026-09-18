@@ -108,13 +108,6 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putInt(KEY_MUX_CONCURRENCY, v).apply()
     }
 
-    private val _globeStyle = MutableStateFlow(prefs.getString(KEY_GLOBE_STYLE, "filled") ?: "filled")
-    val globeStyle: StateFlow<String> = _globeStyle.asStateFlow()
-    fun setGlobeStyle(style: String) {
-        _globeStyle.value = style
-        prefs.edit().putString(KEY_GLOBE_STYLE, style).apply()
-    }
-
     private val _sniffTypes = MutableStateFlow(loadSniffTypes())
     val sniffTypes: StateFlow<Set<String>> = _sniffTypes.asStateFlow()
 
@@ -515,7 +508,6 @@ class ConfigStore private constructor(context: Context) {
         put("killSwitch", _killSwitch.value)
         put("mux", _mux.value)
         put("muxConcurrency", _muxConcurrency.value)
-        put("globeStyle", _globeStyle.value)
         put("blockWhenOff", _blockWhenOff.value)
         put("vpnShareEnabled", _vpnShareEnabled.value)
         put("onionRouting", _onionRouting.value)
@@ -549,7 +541,6 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("killSwitch")) setKillSwitch(o.getBoolean("killSwitch"))
         if (o.has("mux")) setMux(o.getBoolean("mux"))
         if (o.has("muxConcurrency")) setMuxConcurrency(o.getInt("muxConcurrency"))
-        if (o.has("globeStyle")) setGlobeStyle(o.getString("globeStyle"))
         if (o.has("blockWhenOff")) setBlockWhenOff(o.getBoolean("blockWhenOff"))
         if (o.has("vpnShareEnabled")) setVpnShareEnabled(o.getBoolean("vpnShareEnabled"))
         if (o.has("onionRouting")) setOnionRouting(o.getBoolean("onionRouting"))
@@ -766,7 +757,6 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_KILL_SWITCH = "kill_switch_enabled"
         private const val KEY_MUX = "mux_enabled"
         private const val KEY_MUX_CONCURRENCY = "mux_concurrency"
-        private const val KEY_GLOBE_STYLE = "globe_style"
         private const val KEY_SNIFF_TYPES = "sniffing_types"
         private const val KEY_AUTOSELECT = "auto_select_fastest"
         private const val KEY_SORT_SPEED = "sort_by_speed"

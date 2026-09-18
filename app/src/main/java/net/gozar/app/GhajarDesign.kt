@@ -251,6 +251,15 @@ val ghajarColors: GhajarPalette
     @Composable get() = LocalGhajarPalette.current
 
 /**
+ * The "connected / healthy" accent. It lived in DotGlobe.kt and was hardcoded
+ * to two greens; it now follows the active theme, so it reads correctly in
+ * Midnight Blue and Graphite Gold instead of staying green there. Call sites
+ * are unchanged.
+ */
+internal val AppGreen: Color
+    @Composable get() = LocalGhajarPalette.current.successGlow
+
+/**
  * Projects the tokens onto Material 3 so existing MaterialTheme-based screens
  * inherit the active theme instead of keeping the old palette.
  */
