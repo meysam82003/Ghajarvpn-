@@ -737,7 +737,7 @@ private fun SshHostEditor(
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Switch(checked = direct, onCheckedChange = { direct = it })
+                SkinSwitch(checked = direct, onCheckedChange = { direct = it })
             }
         }
 

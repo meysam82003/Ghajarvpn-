@@ -6062,6 +6062,7 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
     val shareUser by store.vpnShareUsername.collectAsState()
     val sharePass by store.vpnSharePassword.collectAsState()
     var showGuide by remember { mutableStateOf(false) }
+    var showQr by remember { mutableStateOf(false) }
     LaunchedEffect(enabled) { if (enabled) store.ensureVpnShareCredential() }
     // Only the Xray-core engine (ConfigBuilder's socks-in/http-share-in)
     // actually exposes the shared proxy - OpenVPN and IKEv2 run through
@@ -6095,7 +6096,7 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
                 Text(
                     "فعال‌سازی اشتراک‌گذاری", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
                 )
-                Switch(checked = enabled, onCheckedChange = { store.setVpnShareEnabled(it); applyLiveIfConnected() })
+                SkinSwitch(checked = enabled, onCheckedChange = { store.setVpnShareEnabled(it); applyLiveIfConnected() })
             }
             if (enabled && connected != Connection.CONNECTED) {
                 Text(
@@ -6132,6 +6133,18 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
                         TextButton(onClick = { copy("رمز", sharePass) },
                             contentPadding = PaddingValues(4.dp)) { Text("کپی") }
                     }
+                    // Typing a 24-character hex password into a second phone by
+                    // hand is how this feature stopped being used. The QR
+                    // carries the whole SOCKS5 endpoint - address, port, user
+                    // and password - in the standard URI form, so a client that
+                    // reads proxy QRs is configured in one scan. It is only
+                    // offered while sharing is genuinely live, so the code can
+                    // never encode an address that is not listening.
+                    TextButton(onClick = { showQr = true }) {
+                        Icon(Icons.Filled.QrCodeScanner, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("نمایش QR اتصال")
+                    }
                     TextButton(onClick = { store.regenerateVpnShareCredential(); applyLiveIfConnected() }) {
                         Text("تولید رمز SOCKS5 جدید")
                     }
@@ -6154,6 +6167,22 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         }
+    }
+
+    // Reuses the app's existing QR sheet rather than drawing a second one. The
+    // address is re-read here, so a hotspot that changed while the dialog was
+    // open cannot produce a code pointing at the old one.
+    // Sharing stopping while the sheet is open closes it, in an effect rather
+    // than a branch: clearing the flag during composition would write state
+    // from the composition that reads it.
+    LaunchedEffect(live) { if (!live) showQr = false }
+    val qrIp = hotspotIp
+    if (showQr && live && qrIp != null && shareUser.isNotBlank() && sharePass.isNotBlank()) {
+        QrDialog(
+            link = "socks5://$shareUser:$sharePass@$qrIp:$socksPort",
+            title = "VPN Share",
+            onDismiss = { showQr = false }
+        )
     }
 
     if (showGuide) {
@@ -10213,7 +10242,7 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
                 Text("${imports.size} فایل معتبر" + if (bulkBad > 0) "، $bulkBad فایل نامعتبر" else "")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("نام کاربری و رمز همه یکی است", modifier = Modifier.weight(1f))
-                    Switch(checked = sharedCredentials, onCheckedChange = { sharedCredentials = it })
+                    SkinSwitch(checked = sharedCredentials, onCheckedChange = { sharedCredentials = it })
                 }
                 if (sharedCredentials) {
                     OutlinedTextField(sharedUser, { sharedUser = it }, label = { Text("نام کاربری مشترک") }, singleLine = true)
