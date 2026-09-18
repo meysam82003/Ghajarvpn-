@@ -528,7 +528,6 @@ class MainActivity : ComponentActivity() {
                     LocalLayoutDirection provides direction
                 ) {
                     var showWelcome by remember { mutableStateOf(true) }
-                    var startMain by remember { mutableStateOf(false) }
                     val pendingOvpn by GhajarOpenVpnBridge.pending.collectAsState()
                     LaunchedEffect(Unit) {
                         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
@@ -538,28 +537,24 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    LaunchedEffect(Unit) {
-                        delay(1100)
-                        startMain = true
-                    }
                     Box {
-                        if (startMain) {
-                            GozarApp(
-                                store = store,
-                                onConnect = ::connectTo,
-                                onDisconnect = ::disconnect,
-                                onSwitch = ::switchTo,
-                                onCancelPick = ::cancelPick,
-                                onConnectOpenVpn = ::connectSavedOpenVpn,
-                                onDisconnectOpenVpn = ::disconnectOpenVpn,
-                                onTestOpenVpn = ::testSavedOpenVpn
-                            )
-                        }
-                        AnimatedVisibility(
-                            visible = showWelcome,
-                            exit = fadeOut(tween(400))
-                        ) {
-                            GhajarWelcomeScreen(onDone = { startMain = true; showWelcome = false })
+                        // The app composes from the first frame now. It used to
+                        // wait 1100ms behind the poster before it even started,
+                        // which made opening the app the slowest thing in it;
+                        // the intro is a 900ms overlay on a screen that is
+                        // already built and already interactive underneath.
+                        GozarApp(
+                            store = store,
+                            onConnect = ::connectTo,
+                            onDisconnect = ::disconnect,
+                            onSwitch = ::switchTo,
+                            onCancelPick = ::cancelPick,
+                            onConnectOpenVpn = ::connectSavedOpenVpn,
+                            onDisconnectOpenVpn = ::disconnectOpenVpn,
+                            onTestOpenVpn = ::testSavedOpenVpn
+                        )
+                        if (showWelcome) {
+                            GhajarIntro(onDone = { showWelcome = false })
                         }
                         pendingOvpn?.let { profile ->
                             var ovpnUser by remember(profile) { mutableStateOf(profile.embeddedUsername) }
