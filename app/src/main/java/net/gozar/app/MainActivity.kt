@@ -1041,6 +1041,7 @@ class MainActivity : ComponentActivity() {
         if (IkeController.active) IkeController.disconnect(this)
         val json = ConfigBuilder.build(config, store.fragment.value, store.splitRouting.value, store.sniffing.value, store.sniffTypes.value, mux = store.mux.value, muxConcurrency = store.muxConcurrency.value, adBlock = store.adBlock.value, fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
+            customDns = store.customDns.value,
             torBase = if (config.protocol == "tor" && config.torBaseId.isNotEmpty())
                 store.configs.value.find { it.id == config.torBaseId } else null,
             chainBase = if (config.chainId.isNotEmpty())
@@ -1124,6 +1125,7 @@ class MainActivity : ComponentActivity() {
             directOnly = true,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
+            customDns = store.customDns.value,
             coreLogLevel = store.coreLogLevel.value
         )
         startTunnel(json, Strings.get(store.lang.value, "adblock_notif"), "", null)
@@ -1221,6 +1223,7 @@ private fun GozarApp(
     var aboutDetail by remember { mutableStateOf(false) }
     var themeDetail by remember { mutableStateOf(false) }
     var cleanIpDetail by remember { mutableStateOf(false) }
+    var dnsLabDetail by remember { mutableStateOf(false) }
     var netMonDetail by remember { mutableStateOf(false) }
     var netCatDetail by remember { mutableStateOf(false) }
     var netCatIndex by remember { mutableStateOf(-1) }
@@ -1353,7 +1356,7 @@ private fun GozarApp(
     var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
+    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
@@ -1376,6 +1379,7 @@ private fun GozarApp(
         onSettingsTab && aboutDetail -> "about"
         onSettingsTab && themeDetail -> "theme"
         onSettingsTab && cleanIpDetail -> "cleanip"
+        onSettingsTab && dnsLabDetail -> "dnslab"
         onSettingsTab && checkHostDetail -> "checkhost"
         onSettingsTab && netCatIndex >= 0 -> "netcatone"
         onSettingsTab && netCatDetail -> "netcat"
@@ -1405,6 +1409,7 @@ private fun GozarApp(
             aboutDetail -> aboutDetail = false
             themeDetail -> themeDetail = false
             cleanIpDetail -> cleanIpDetail = false
+            dnsLabDetail -> dnsLabDetail = false
             checkHostDetail -> checkHostDetail = false
             netCatIndex >= 0 -> netCatIndex = -1
             netCatDetail -> netCatDetail = false
@@ -1523,6 +1528,7 @@ private fun GozarApp(
                         "about" -> BounceIconButton(onClick = { aboutDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "theme" -> BounceIconButton(onClick = { themeDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "cleanip" -> BounceIconButton(onClick = { cleanIpDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "dnslab" -> BounceIconButton(onClick = { dnsLabDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netmon" -> BounceIconButton(onClick = { netMonDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netcat" -> BounceIconButton(onClick = { netCatDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "checkhost" -> BounceIconButton(onClick = { checkHostDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1574,6 +1580,7 @@ private fun GozarApp(
                         aboutDetail = false
                         themeDetail = false
                         cleanIpDetail = false
+                        dnsLabDetail = false
                         netMonDetail = false
                         netCatDetail = false
                         netCatIndex = -1
@@ -1722,6 +1729,7 @@ private fun GozarApp(
                     aboutDetail -> "about"
                     themeDetail -> "theme"
                     cleanIpDetail -> "cleanip"
+                    dnsLabDetail -> "dnslab"
                     checkHostDetail -> "checkhost"
                     netCatIndex >= 0 -> "netcatone"
                     netCatDetail -> "netcat"
@@ -1766,11 +1774,13 @@ private fun GozarApp(
                         "netcat" -> NetCategoriesScreen(onOpen = { netCatIndex = it })
                         "checkhost" -> CheckHostScreen()
                         "netcatone" -> NetCategoryScreen(index = netCatIndex)
+                        "dnslab" -> DnsLabScreen(store = store)
                         "tools" -> ToolsScreen(
                             store = store,
                             onOpenCheckHost = { checkHostDetail = true },
                             onOpenStability = { stabilityDetail = true },
                             onOpenCleanIp = { cleanIpDetail = true },
+                            onOpenDnsLab = { dnsLabDetail = true },
                             onSwitch = onSwitch
                         )
                         "connection_settings" -> ConnectionSettingsScreen(
@@ -4217,7 +4227,7 @@ private fun LabeledDropdown(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun settingsDepth(key: String): Int = when (key) {
     "settings" -> 0
-    "stability", "cleanip", "perapp", "theme", "netcat" -> 2
+    "stability", "cleanip", "dnslab", "perapp", "theme", "netcat" -> 2
     "checkhost" -> 3
     "netcatone" -> 3
     // Reached directly from the Settings list, like usage or tools.
@@ -6222,6 +6232,7 @@ private fun ToolsScreen(
     onOpenStability: () -> Unit,
     onOpenCleanIp: () -> Unit,
     onOpenCheckHost: () -> Unit,
+    onOpenDnsLab: () -> Unit,
     onSwitch: (ProxyConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -6294,6 +6305,14 @@ private fun ToolsScreen(
                 iconRes = R.drawable.cloudflare,
                 chevron = true,
                 onClick = onOpenCleanIp
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("dnslab_title"),
+                subtitle = t("dnslab_sub"),
+                icon = Icons.Filled.Dns,
+                chevron = true,
+                onClick = onOpenDnsLab
             )
         }
 

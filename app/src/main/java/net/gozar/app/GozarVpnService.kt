@@ -288,6 +288,7 @@ class GozarVpnService : VpnService() {
             adBlock = store.adBlock.value,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
+            customDns = store.customDns.value,
             onionRouting = store.onionRouting.value,
             shareOnLan = sharing,
             shareUser = shareCredential?.first.orEmpty(),

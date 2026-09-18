@@ -307,6 +307,15 @@ object ConfigBuilder {
         directOnly: Boolean = false,
         fakeDns: Boolean = false,
         encryptedDns: Boolean = false,
+        /**
+         * A resolver chosen in the DNS lab, or blank.
+         *
+         * Added in front of the built-in servers, never instead of them: a
+         * chosen resolver that stops answering falls through to the defaults
+         * rather than taking name resolution down. Blank emits exactly the
+         * same dns block as before this parameter existed.
+         */
+        customDns: String = "",
         torBase: ProxyConfig? = null,
         chainBase: ProxyConfig? = null,
         onionRouting: Boolean = false,
@@ -334,7 +343,8 @@ object ConfigBuilder {
     ): String {
         val onion = onionRouting && config.protocol != "tor"
         val fake = fakeDns || onion
-        val dnsOn = fake || encryptedDns
+        val chosenDns = customDns.trim()
+        val dnsOn = fake || encryptedDns || chosenDns.isNotEmpty()
         val root = JSONObject()
         root.put("log", JSONObject().put("loglevel", coreLogLevel.ifBlank { "warning" }))
 
@@ -346,6 +356,8 @@ object ConfigBuilder {
         if (dnsOn) {
             val servers = JSONArray()
             if (fake) servers.put("fakedns")
+            // The chosen resolver first, the built-ins behind it.
+            if (chosenDns.isNotEmpty()) servers.put(chosenDns)
             if (encryptedDns) {
                 servers.put("https://1.1.1.1/dns-query")
                 servers.put("https://8.8.8.8/dns-query")

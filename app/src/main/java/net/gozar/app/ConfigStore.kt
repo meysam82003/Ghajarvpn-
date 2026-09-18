@@ -198,6 +198,24 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_ENC_DNS, enabled).apply()
     }
 
+    /**
+     * A resolver chosen in the DNS lab, or blank for the built-in default.
+     *
+     * Additive on purpose: blank reproduces exactly what the tunnel published
+     * before this existed (1.1.1.1 and 8.8.8.8, plus their DoH endpoints when
+     * encrypted DNS is on). Setting it prepends the chosen resolver; the
+     * defaults stay behind it as a fallback, so a resolver that stops
+     * answering degrades instead of taking DNS down with it.
+     */
+    private val _customDns = MutableStateFlow(prefs.getString(KEY_CUSTOM_DNS, "").orEmpty())
+    val customDns: StateFlow<String> = _customDns.asStateFlow()
+
+    fun setCustomDns(value: String) {
+        val clean = value.trim()
+        _customDns.value = clean
+        prefs.edit().putString(KEY_CUSTOM_DNS, clean).apply()
+    }
+
     private val _fakeDns = MutableStateFlow(prefs.getBoolean(KEY_FAKE_DNS, false))
     val fakeDns: StateFlow<Boolean> = _fakeDns.asStateFlow()
 
@@ -513,6 +531,7 @@ class ConfigStore private constructor(context: Context) {
         put("onionRouting", _onionRouting.value)
         put("encryptedDns", _encryptedDns.value)
         put("fakeDns", _fakeDns.value)
+        put("customDns", _customDns.value)
         put("adBlock", _adBlock.value)
         put("mixedPort", _mixedPort.value)
         put("sortMode", _sortMode.value)
@@ -546,6 +565,7 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("onionRouting")) setOnionRouting(o.getBoolean("onionRouting"))
         if (o.has("encryptedDns")) setEncryptedDns(o.getBoolean("encryptedDns"))
         if (o.has("fakeDns")) setFakeDns(o.getBoolean("fakeDns"))
+        if (o.has("customDns")) setCustomDns(o.optString("customDns"))
         if (o.has("adBlock")) setAdBlock(o.getBoolean("adBlock"))
         if (o.has("mixedPort")) setMixedPort(o.getInt("mixedPort"))
         if (o.has("sortMode")) setSortMode(o.getString("sortMode"))
@@ -763,6 +783,7 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_SORT_MODE = "sort_mode"
         private const val KEY_MIXED_PORT = "mixed_port"
         private const val KEY_AD_BLOCK = "ad_block"
+        private const val KEY_CUSTOM_DNS = "custom_dns"
         private const val KEY_FAKE_DNS = "fake_dns"
         private const val KEY_ENC_DNS = "encrypted_dns"
         private const val KEY_ONION = "onion_routing"

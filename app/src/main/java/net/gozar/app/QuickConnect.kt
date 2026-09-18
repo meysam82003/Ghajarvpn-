@@ -63,6 +63,7 @@ object QuickConnect {
             adBlock = store.adBlock.value,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
+            customDns = store.customDns.value,
             onionRouting = store.onionRouting.value,
             coreLogLevel = store.coreLogLevel.value
         )
