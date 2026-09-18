@@ -258,7 +258,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -5519,6 +5518,9 @@ private fun SettingsScreen(
     val lang = LocalLang.current
     val usage by UsageStore.usage.collectAsState()
     val allTime = remember(usage) { UsageStore.totalAll(usage) }
+    val configs by store.configs.collectAsState()
+    val subscriptions by store.subscriptions.collectAsState()
+    val c = ghajarColors
 
     // Rails name the categories; each category is ONE slab holding its rows.
     // The old page was eight separate outlined cards in a column, which read as
@@ -5531,6 +5533,17 @@ private fun SettingsScreen(
         ScreenHeader(
             title = t("settings"),
             context = t("settings_header_sub")
+        )
+
+        // The page used to open as nothing but a list of doors. These are the
+        // three numbers that say what this install actually holds, read from
+        // the same stores the pages behind those doors read.
+        StatStrip(
+            listOf(
+                StatCell(t("count_configs"), localizeDigits("${configs.size}", lang), c.primary),
+                StatCell(t("count_subs"), localizeDigits("${subscriptions.size}", lang), c.info),
+                StatCell(t("data_usage"), formatBytes(allTime[0] + allTime[1], lang), c.premium, onClick = onOpenUsage)
+            )
         )
 
         Rail(t("sec_connection"))

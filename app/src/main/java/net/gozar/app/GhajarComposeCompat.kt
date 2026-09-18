@@ -202,3 +202,81 @@ internal fun OutlinedTextField(
         }
     }
 }
+
+/**
+ * The app's dialog, standing in for Material's alert.
+ *
+ * Eleven dialogs were Material's: its shape, its elevation, its tonal fill and
+ * a pair of text buttons that read as links rather than as the choice the
+ * dialog exists to offer. This keeps the exact same five arguments and renders
+ * the skin instead - a raised slab with a brand light along its top edge, the
+ * title as the heading, and the two actions as a filled pill and a ghost pill.
+ *
+ * Callers pass whatever composables they already had for the buttons, so the
+ * labels, the enabled logic and the click handlers are untouched; only the
+ * surface around them changes.
+ */
+@Composable
+internal fun AlertDialog(
+    onDismissRequest: () -> Unit,
+    confirmButton: @Composable () -> Unit,
+    modifier: Modifier = Modifier,
+    dismissButton: (@Composable () -> Unit)? = null,
+    title: (@Composable () -> Unit)? = null,
+    text: (@Composable () -> Unit)? = null
+) {
+    val c = ghajarColors
+    // Some callers put a scrolling column in `text`, which needs the dialog to
+    // be bounded or it grows past the screen. Cap it at four fifths of the
+    // window and let the body take whatever is left after title and actions.
+    val maxHeight = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * 0.82f
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismissRequest) {
+        Column(
+            modifier
+                .fillMaxWidth()
+                .heightIn(max = maxHeight)
+                .clip(RoundedCornerShape(GhajarRadius.xl))
+                .background(c.card)
+                .drawBehind {
+                    // The same 1px brand light every slab carries on its top
+                    // edge, so a dialog is recognisably part of the skin.
+                    drawRect(
+                        brush = androidx.compose.ui.graphics.Brush.horizontalGradient(
+                            listOf(Color.Transparent, c.primary.copy(alpha = 0.55f), Color.Transparent)
+                        ),
+                        size = Size(size.width, 1.dp.toPx())
+                    )
+                }
+                .padding(GhajarSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+        ) {
+            if (title != null) {
+                CompositionLocalProvider(
+                    LocalTextStyle provides MaterialTheme.typography.titleLarge.copy(
+                        color = c.textPrimary,
+                        fontWeight = androidx.compose.ui.text.font.FontWeight.Bold
+                    ),
+                    LocalContentColor provides c.textPrimary
+                ) { title() }
+            }
+            if (text != null) {
+                Box(Modifier.weight(1f, fill = false)) {
+                    CompositionLocalProvider(
+                        LocalTextStyle provides MaterialTheme.typography.bodyMedium.copy(color = c.textSecondary),
+                        LocalContentColor provides c.textSecondary
+                    ) { text() }
+                }
+            }
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (dismissButton != null) {
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { dismissButton() }
+                }
+                Box(Modifier.weight(1f), contentAlignment = Alignment.Center) { confirmButton() }
+            }
+        }
+    }
+}
