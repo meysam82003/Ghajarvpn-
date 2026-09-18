@@ -475,6 +475,104 @@ fun GhostPill(
 }
 
 /**
+ * A square action: a glyph over its label, filled, no outline.
+ *
+ * For the handful of equally-weighted entry points a screen offers at once -
+ * paste, type it in, open a file, scan a code. As outlined buttons they read as
+ * a form; as tiles they read as a choice.
+ */
+@Composable
+fun GlyphTile(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    accent: Color? = null,
+    enabled: Boolean = true
+) {
+    val c = ghajarColors
+    val tint = if (enabled) (accent ?: c.primary) else c.onDisabled
+    Column(
+        modifier
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .background(c.secondaryCard)
+            .clickable(enabled = enabled) { onClick() }
+            .padding(vertical = GhajarSpacing.md, horizontal = GhajarSpacing.sm),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+    ) {
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(13.dp))
+                .background(tint.copy(alpha = if (enabled) 0.16f else 0.06f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(19.dp))
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            color = if (enabled) c.textPrimary else c.onDisabled,
+            textAlign = TextAlign.Center,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
+}
+
+/**
+ * The skin's switch.
+ *
+ * Material's Switch carries its own outline, its own thumb shadow and its own
+ * palette, so every settings page ended up looking like stock Android no matter
+ * what the rows around it did. This is a plain capsule: the track takes the
+ * brand tone when on, the thumb slides, and nothing is stroked.
+ */
+@Composable
+fun SkinSwitch(
+    checked: Boolean,
+    onCheckedChange: ((Boolean) -> Unit)?,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true
+) {
+    val c = ghajarColors
+    val track = when {
+        !enabled -> c.disabled
+        checked -> c.primary
+        else -> c.border
+    }
+    val offset by animateDpAsState(
+        if (checked) 20.dp else 2.dp,
+        tween(GhajarMotion.Fast, easing = FastOutSlowInEasing),
+        label = "switchThumb"
+    )
+    Box(
+        modifier
+            .size(width = 44.dp, height = 26.dp)
+            .clip(RoundedCornerShape(GhajarRadius.pill))
+            .background(track)
+            .then(
+                if (onCheckedChange != null && enabled) {
+                    Modifier.clickable { onCheckedChange(!checked) }
+                } else Modifier
+            )
+    ) {
+        Box(
+            Modifier
+                // padding(start=) is direction-aware, so the thumb travels the
+                // correct way under RTL without mirroring the number here.
+                .padding(start = offset)
+                .align(Alignment.CenterStart)
+                .size(22.dp)
+                .clip(CircleShape)
+                .background(if (checked) c.onPrimary else c.card)
+        )
+    }
+}
+
+/**
  * The skin's text field: filled, edgeless, with the label above the box rather
  * than floating through its outline.
  *

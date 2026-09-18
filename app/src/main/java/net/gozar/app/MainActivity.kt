@@ -135,6 +135,9 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
@@ -218,6 +221,7 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Search
@@ -3053,7 +3057,8 @@ private fun ExportConfigScreen(
                 title = t("export_lock_details"),
                 subtitle = if (lockDetails) t("export_locked_note") else t("export_unlocked_note"),
                 checked = lockDetails,
-                onCheckedChange = { lockDetails = it }
+                onCheckedChange = { lockDetails = it },
+                icon = Icons.Filled.Lock
             )
         }
 
@@ -3146,19 +3151,18 @@ private fun ManualConfigScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            OutlinedTextField(
-                name, { name = it },
-                label = { Text(t("name_optional")) },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            SkinField(
+                value = name,
+                onValueChange = { name = it },
+                label = t("name_optional")
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BounceOutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text(t("cancel")) }
-                BounceButton(
-                    onClick = { onSave(existing.copy(name = name.ifBlank { existing.name })) },
-                    modifier = Modifier.weight(1f)
-                ) { Text(t("save")) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                GhostPill(t("cancel"), onCancel, Modifier.weight(1f))
+                PillButton(
+                    t("save"),
+                    { onSave(existing.copy(name = name.ifBlank { existing.name })) },
+                    Modifier.weight(1f)
+                )
             }
         }
         return
@@ -3200,74 +3204,128 @@ private fun ManualConfigScreen(
     var hyDown by remember { mutableStateOf(if ((existing?.hyDownMbps ?: 0) > 0) "${existing?.hyDownMbps}" else "") }
     var error by remember { mutableStateOf("") }
 
+    // The form used to be twenty identical outlined fields in one flat column:
+    // the name of the server, the cryptography and the transport all looked
+    // equally important and equally unrelated. It is now grouped - identity,
+    // endpoint, credentials, transport, security - each group one slab under
+    // its own rail, and each field the skin's own filled box.
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        OutlinedTextField(name, { name = it }, label = { Text(t("name_optional")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = scriptFont(name)), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        LabeledDropdown(t("protocol"), listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "wireguard", "ikev2", "socks", "http"), protocol) { protocol = it }
-        OutlinedTextField(address, { address = it }, label = { Text(t("address")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = monoFont()), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol != "ikev2") OutlinedTextField(
-            port, { port = it.filter { c -> c.isDigit() } },
-            label = { Text(t("port")) }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
+        Rail(t("manual_sec_identity"))
+        Slab {
+            SkinField(
+                value = name,
+                onValueChange = { name = it },
+                label = t("name_optional"),
+                placeholder = t("manual_name_hint")
+            )
+            LabeledDropdown(t("protocol"), listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "wireguard", "ikev2", "socks", "http"), protocol) { protocol = it }
+        }
 
-        if (protocol == "vless" || protocol == "vmess")
-            OutlinedTextField(uuid, { uuid = it }, label = { Text(t("uuid")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol == "ikev2") {
-            OutlinedTextField(uuid, { uuid = it }, label = { Text(t("ikev2_user")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(password, { password = it }, label = { Text(t("password")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(sni, { sni = it }, label = { Text(t("ikev2_remote_id")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            Text(
-                t("ikev2_note"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        Rail(t("manual_sec_endpoint"))
+        Slab {
+            SkinField(
+                value = address,
+                onValueChange = { address = it },
+                label = t("address"),
+                placeholder = "example.com"
+            )
+            if (protocol != "ikev2") SkinField(
+                value = port,
+                onValueChange = { port = it.filter { c -> c.isDigit() } },
+                label = t("port"),
+                placeholder = "443",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
         }
-        if (protocol == "trojan" || protocol == "shadowsocks" || protocol == "hysteria2")
-            OutlinedTextField(password, { password = it }, label = { Text(t("password")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol == "hysteria2") {
-            OutlinedTextField(hyObfsPassword, { hyObfsPassword = it }, label = { Text(t("hy_obfs")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    hyUp, { hyUp = it.filter { c -> c.isDigit() } },
-                    label = { Text(t("hy_up")) }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    hyDown, { hyDown = it.filter { c -> c.isDigit() } },
-                    label = { Text(t("hy_down")) }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)
-                )
+
+        val needsCredentials = protocol in setOf("vless", "vmess", "ikev2", "trojan", "shadowsocks", "hysteria2")
+        if (needsCredentials) {
+            Rail(t("manual_sec_credentials"))
+            Slab {
+                if (protocol == "vless" || protocol == "vmess")
+                    SkinField(value = uuid, onValueChange = { uuid = it }, label = t("uuid"))
+                if (protocol == "ikev2") {
+                    SkinField(value = uuid, onValueChange = { uuid = it }, label = t("ikev2_user"))
+                    SkinField(value = password, onValueChange = { password = it }, label = t("password"))
+                    SkinField(
+                        value = sni,
+                        onValueChange = { sni = it },
+                        label = t("ikev2_remote_id"),
+                        helper = t("ikev2_note")
+                    )
+                }
+                if (protocol == "trojan" || protocol == "shadowsocks" || protocol == "hysteria2")
+                    SkinField(value = password, onValueChange = { password = it }, label = t("password"))
+                if (protocol == "shadowsocks")
+                    LabeledDropdown(t("enc_method"),
+                        listOf("aes-256-gcm", "aes-128-gcm", "chacha20-ietf-poly1305", "2022-blake3-aes-256-gcm"), method) { method = it }
+                if (protocol == "vless")
+                    SkinField(value = flow, onValueChange = { flow = it }, label = t("flow_optional"))
             }
         }
-        if (protocol == "shadowsocks")
-            LabeledDropdown(t("enc_method"),
-                listOf("aes-256-gcm", "aes-128-gcm", "chacha20-ietf-poly1305", "2022-blake3-aes-256-gcm"), method) { method = it }
-        if (protocol == "vless")
-            OutlinedTextField(flow, { flow = it }, label = { Text(t("flow_optional")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
 
         if (protocol == "hysteria2") {
-            OutlinedTextField(sni, { sni = it }, label = { Text(t("sni")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(alpn, { alpn = it }, label = { Text(t("alpn")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+            Rail(t("manual_sec_tuning"))
+            Slab {
+                SkinField(value = hyObfsPassword, onValueChange = { hyObfsPassword = it }, label = t("hy_obfs"))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+                    SkinField(
+                        value = hyUp,
+                        onValueChange = { hyUp = it.filter { c -> c.isDigit() } },
+                        label = t("hy_up"),
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    SkinField(
+                        value = hyDown,
+                        onValueChange = { hyDown = it.filter { c -> c.isDigit() } },
+                        label = t("hy_down"),
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+            }
+            Rail(t("manual_sec_security"))
+            Slab {
+                SkinField(value = sni, onValueChange = { sni = it }, label = t("sni"))
+                SkinField(value = alpn, onValueChange = { alpn = it }, label = t("alpn"))
+            }
         }
 
         if (protocol !in setOf("shadowsocks", "hysteria2", "wireguard", "ikev2")) {
+            Rail(t("manual_sec_transport"))
+            Slab {
             LabeledDropdown(t("network"), listOf("tcp", "ws", "grpc", "http", "httpupgrade", "xhttp"), network) { network = it }
+            if (network == "ws" || network == "httpupgrade" || network == "http" || network == "xhttp") {
+                SkinField(value = path, onValueChange = { path = it }, label = t("ws_path"), placeholder = "/")
+                SkinField(value = host, onValueChange = { host = it }, label = t("ws_host"))
+            }
+            if (network == "xhttp")
+                LabeledDropdown(t("mode"), listOf("auto", "packet-up", "stream-up", "stream-one"), mode.ifEmpty { "auto" }) { mode = it }
+            if (network == "grpc") {
+                SkinField(value = serviceName, onValueChange = { serviceName = it }, label = t("service_name"))
+                LabeledDropdown(t("mode"), listOf("gun", "multi"), mode.ifEmpty { "gun" }) { mode = it }
+            }
+            }
+
+            Rail(t("manual_sec_security"))
+            Slab {
             LabeledDropdown(t("security"), listOf("none", "tls", "reality"), security) { security = it }
             if (security == "tls" || security == "reality") {
-                OutlinedTextField(sni, { sni = it }, label = { Text(t("sni")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = monoFont()), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+                SkinField(value = sni, onValueChange = { sni = it }, label = t("sni"))
                 LabeledDropdown(t("fingerprint"), listOf("chrome", "firefox", "safari", "ios", "android", "edge", "random"), fingerprint.ifEmpty { "chrome" }) { fingerprint = it }
             }
             if (security == "tls")
-                OutlinedTextField(alpn, { alpn = it }, label = { Text(t("alpn")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+                SkinField(value = alpn, onValueChange = { alpn = it }, label = t("alpn"))
+            if (security == "reality") {
+                SkinField(value = publicKey, onValueChange = { publicKey = it }, label = t("public_key"))
+                SkinField(value = shortId, onValueChange = { shortId = it }, label = t("short_id"))
+            }
             if (security == "tls") {
-                SettingsGroup {
                     SettingRow(
                         title = t("allow_insecure"),
                         subtitle = when {
@@ -3293,33 +3351,20 @@ private fun ManualConfigScreen(
                                     pinning = false
                                 }
                             }
-                        }
+                        },
+                        icon = Icons.Filled.Warning
                     )
                 }
             }
-            if (security == "reality") {
-                OutlinedTextField(publicKey, { publicKey = it }, label = { Text(t("public_key")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(shortId, { shortId = it }, label = { Text(t("short_id")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            }
-            if (network == "ws" || network == "httpupgrade" || network == "http" || network == "xhttp") {
-                OutlinedTextField(path, { path = it }, label = { Text(t("ws_path")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(host, { host = it }, label = { Text(t("ws_host")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            }
-            if (network == "xhttp")
-                LabeledDropdown(t("mode"), listOf("auto", "packet-up", "stream-up", "stream-one"), mode.ifEmpty { "auto" }) { mode = it }
-            if (network == "grpc") {
-                OutlinedTextField(serviceName, { serviceName = it }, label = { Text(t("service_name")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                LabeledDropdown(t("mode"), listOf("gun", "multi"), mode.ifEmpty { "gun" }) { mode = it }
-            }
         }
 
-        if (error.isNotEmpty())
-            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        if (error.isNotEmpty()) SkinError(error)
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BounceOutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text(t("cancel")) }
-            BounceButton(
-                onClick = {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+            GhostPill(t("cancel"), onCancel, Modifier.weight(1f))
+            PillButton(
+                t("save"),
+                {
                     val p = if (protocol == "ikev2") 500 else port.toIntOrNull()
                     when {
                         address.isBlank() -> error = t("err_address")
@@ -3370,8 +3415,9 @@ private fun ManualConfigScreen(
                         )
                     }
                 },
-                modifier = Modifier.weight(1f)
-            ) { Text(t("save")) }
+                Modifier.weight(1f),
+                icon = Icons.Filled.Save
+            )
         }
     }
 }
@@ -3398,118 +3444,116 @@ private fun AddServerPanel(
         label = "addRot"
     )
 
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-        modifier = modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.fillMaxWidth().padding(10.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    monoText(t("add_server")),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                    letterSpacing = (-0.5).sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(start = 6.dp)
-                )
-                BounceOutlinedButton(
-                    onClick = onToggle,
-                    enabled = !busy,
-                    minHeight = 44.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = t("add_server"),
-                        modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = rot }
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+    // Two kinds of thing were stacked as seven identical outlined buttons: four
+    // ways to bring in a config you already have, and four providers that fetch
+    // one for you. They are now told apart - the four inputs are a grid of
+    // tiles, the four providers are rows of one slab - inside a single
+    // borderless slab instead of a bordered card full of bordered buttons.
+    val c = ghajarColors
+    Slab(modifier, spacing = 0.dp) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(GhajarRadius.md))
+                .clickable(enabled = !busy) { onToggle() }
+                .padding(vertical = GhajarSpacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+        ) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(c.primary.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    Modifier.padding(top = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AddTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f))
-                        AddTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f))
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AddTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f))
-                        AddTile(
-                            Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f)
-                        )
-                    }
-                    AddTile(
-                        Icons.Filled.Shield, t("ws_title"), onWindscribe, Modifier.fillMaxWidth()
-                    )
-                    AddTile(
-                        Icons.Filled.Security, "OpenVPN", onOpenVpn, Modifier.fillMaxWidth()
-                    )
-                    AddTile(
-                        Icons.Filled.Public, "Psiphon", onPsiphon, Modifier.fillMaxWidth()
-                    )
-                    AddTile(
-                        Icons.Filled.CardGiftcard, t("free_projects"), onProjects, Modifier.fillMaxWidth(),
-                        accent = MaterialTheme.colorScheme.tertiary
-                    )
-                }
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = t("add_server"),
+                    tint = c.primary,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = rot }
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    mixedText(t("add_server")),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = c.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    t("add_server_sub"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
-    }
-}
 
-@Composable
-private fun AddTile(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    accent: Color = MaterialTheme.colorScheme.primary
-) {
-    val density = LocalDensity.current
-    var textW by remember(label) { mutableStateOf<Dp?>(null) }
-
-    BounceOutlinedButton(
-        onClick = onClick,
-        minHeight = 60.dp,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-        accent = accent,
-        modifier = modifier.height(60.dp)
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(7.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            onTextLayout = { r ->
-                var widest = 0f
-                for (i in 0 until r.lineCount) {
-                    val lw = r.getLineRight(i) - r.getLineLeft(i)
-                    if (lw > widest) widest = lw
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+        ) {
+            Column(
+                Modifier.padding(top = GhajarSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                Rail(t("add_have_config"))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                    GlyphTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f), enabled = !busy)
+                    GlyphTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f), enabled = !busy)
                 }
-                val want = with(density) { widest.toDp() } + 1.dp
-                val have = textW
-                if (have == null || want.value > have.value + 0.5f) textW = want
-            },
-            modifier = textW?.let { Modifier.width(it) } ?: Modifier.weight(1f, fill = false)
-        )
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                    GlyphTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f), enabled = !busy)
+                    GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
+                }
+
+                Rail(t("add_get_config"))
+                SlabRow(
+                    title = t("ws_title"),
+                    subtitle = t("add_ws_sub"),
+                    icon = Icons.Filled.Shield,
+                    accent = c.info,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onWindscribe
+                )
+                SlabDivider()
+                SlabRow(
+                    title = "OpenVPN",
+                    subtitle = t("add_ovpn_sub"),
+                    icon = Icons.Filled.Security,
+                    accent = c.accentAlt,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onOpenVpn
+                )
+                SlabDivider()
+                SlabRow(
+                    title = "Psiphon",
+                    subtitle = t("add_psiphon_sub"),
+                    icon = Icons.Filled.Public,
+                    accent = c.good,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onPsiphon
+                )
+                SlabDivider()
+                SlabRow(
+                    title = t("free_projects"),
+                    subtitle = t("add_free_sub"),
+                    icon = Icons.Filled.CardGiftcard,
+                    accent = c.premium,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onProjects
+                )
+            }
+        }
     }
 }
 
@@ -3632,7 +3676,8 @@ private fun FreeProjectsScreen(
                 subtitle = t("proj_aether_h2_sub"),
                 checked = aetherH2 && aetherMode == "masque",
                 onCheckedChange = { aetherH2 = it },
-                enabled = aetherMode == "masque"
+                enabled = aetherMode == "masque",
+                icon = Icons.Filled.Bolt
             )
             BounceButton(
                 onClick = {
@@ -3803,59 +3848,104 @@ private fun LabeledDropdown(
     selected: String,
     onSelect: (String) -> Unit
 ) {
+    // Every choice in every form comes through here. A handful of options is a
+    // row of chips - you see them all and pick in one tap; a long list stays a
+    // menu, but on the skin's filled box instead of Material's outlined button,
+    // so a form is no longer a column of strokes.
+    val c = ghajarColors
     var open by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)) {
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            fontWeight = FontWeight.Medium,
+            color = c.textSecondary
         )
-        Box {
-            OutlinedButton(
-                onClick = { open = true },
-                shape = RoundedCornerShape(14.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    selected,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = scriptFont(selected),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-            }
-            DropdownMenu(
-                expanded = open,
-                onDismissRequest = { open = false },
-                offset = DpOffset(0.dp, 8.dp),
-                shape = RoundedCornerShape(16.dp),
-                containerColor = ghajarColors.surface,
-                border = BorderStroke(1.dp, ghajarColors.border)
+        if (options.size <= 4) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
             ) {
                 options.forEach { opt ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                opt,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = scriptFont(opt)
-                            )
-                        },
-                        trailingIcon = {
-                            if (opt == selected) Icon(
-                                Icons.Filled.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { onSelect(opt); open = false }
+                    val on = opt == selected
+                    Text(
+                        opt,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontFamily = scriptFont(opt),
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        color = if (on) c.onPrimary else c.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(GhajarRadius.pill))
+                            .background(if (on) c.primary else c.secondaryCard)
+                            .clickable { onSelect(opt) }
+                            .padding(vertical = 10.dp)
                     )
+                }
+            }
+        } else {
+            Box {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(GhajarRadius.md))
+                        .background(c.secondaryCard)
+                        .clickable { open = true }
+                        .padding(horizontal = GhajarSpacing.md, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+                ) {
+                    Text(
+                        selected,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = scriptFont(selected),
+                        color = c.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        tint = c.textMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = open,
+                    onDismissRequest = { open = false },
+                    offset = DpOffset(0.dp, 8.dp),
+                    shape = RoundedCornerShape(GhajarRadius.lg),
+                    containerColor = c.card,
+                    border = null
+                ) {
+                    options.forEach { opt ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    opt,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontFamily = scriptFont(opt),
+                                    fontWeight = if (opt == selected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (opt == selected) c.primary else c.textPrimary
+                                )
+                            },
+                            trailingIcon = {
+                                if (opt == selected) Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = c.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                            modifier = Modifier.height(42.dp),
+                            onClick = { onSelect(opt); open = false }
+                        )
+                    }
                 }
             }
         }
@@ -4763,7 +4853,8 @@ private fun TorNodesScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                 title = t("tor_through_vpn"),
                 subtitle = t("tor_through_vpn_sub"),
                 checked = throughVpn,
-                onCheckedChange = { throughVpn = it }
+                onCheckedChange = { throughVpn = it },
+                icon = Icons.Filled.Hub
             )
             if (throughVpn) {
                 Text(
@@ -5860,7 +5951,8 @@ private fun ToolsScreen(
                 title = t("adblock_title"),
                 subtitle = t("adblock_sub"),
                 checked = adBlock,
-                onCheckedChange = { store.setAdBlock(it) }
+                onCheckedChange = { store.setAdBlock(it) },
+                icon = Icons.Filled.Shield
             )
             AnimatedVisibility(visible = adBlock) {
                 // A dependent sub-setting, so it sits on the nested card tone
@@ -5876,7 +5968,8 @@ private fun ToolsScreen(
                         title = t("adblock_always_title"),
                         subtitle = t("adblock_always_sub"),
                         checked = blockWhenOff,
-                        onCheckedChange = { store.setBlockWhenOff(it) }
+                        onCheckedChange = { store.setBlockWhenOff(it) },
+                        icon = Icons.Filled.Shield
                     )
                 }
             }
@@ -5884,13 +5977,15 @@ private fun ToolsScreen(
                 title = t("onion_title"),
                 subtitle = t("onion_sub"),
                 checked = onionRouting,
-                onCheckedChange = { store.setOnionRouting(it) }
+                onCheckedChange = { store.setOnionRouting(it) },
+                icon = Icons.Filled.Hub
             )
             SettingRow(
                 title = t("smart_connect"),
                 subtitle = t("smart_connect_sub"),
                 checked = autoSelect,
-                onCheckedChange = { store.setAutoSelect(it) }
+                onCheckedChange = { store.setAutoSelect(it) },
+                icon = Icons.Filled.Bolt
             )
         }
     }
@@ -6748,31 +6843,36 @@ private fun ConnectionSettingsScreen(
                 title = t("fakedns_title"),
                 subtitle = t("fakedns_sub"),
                 checked = fakeDns,
-                onCheckedChange = { store.setFakeDns(it) }
+                onCheckedChange = { store.setFakeDns(it) },
+                icon = Icons.Filled.Dns
             )
             SettingRow(
                 title = t("encdns_title"),
                 subtitle = t("encdns_sub"),
                 checked = encryptedDns,
-                onCheckedChange = { store.setEncryptedDns(it) }
+                onCheckedChange = { store.setEncryptedDns(it) },
+                icon = Icons.Filled.Lock
             )
             SettingRow(
                 title = t("split_title"),
                 subtitle = t("split_sub"),
                 checked = splitRouting,
-                onCheckedChange = { store.setSplitRouting(it) }
+                onCheckedChange = { store.setSplitRouting(it) },
+                icon = Icons.Filled.CallSplit
             )
             SettingRow(
                 title = t("fragment_title"),
                 subtitle = t("fragment_sub"),
                 checked = fragment,
-                onCheckedChange = { store.setFragment(it) }
+                onCheckedChange = { store.setFragment(it) },
+                icon = Icons.Filled.Shuffle
             )
             SettingRow(
                 title = t("sniffing_title"),
                 subtitle = t("sniffing_sub"),
                 checked = sniffing,
-                onCheckedChange = { store.setSniffing(it) }
+                onCheckedChange = { store.setSniffing(it) },
+                icon = Icons.Filled.TravelExplore
             )
             AnimatedVisibility(visible = sniffing) {
                 Column {
@@ -6793,7 +6893,8 @@ private fun ConnectionSettingsScreen(
                 title = t("mux_title"),
                 subtitle = t("mux_sub"),
                 checked = mux,
-                onCheckedChange = { store.setMux(it) }
+                onCheckedChange = { store.setMux(it) },
+                icon = Icons.Filled.Layers
             )
             AnimatedVisibility(visible = mux) {
                 Row(
@@ -6817,7 +6918,8 @@ private fun ConnectionSettingsScreen(
                 title = t("kill_switch_title"),
                 subtitle = t("kill_switch_sub"),
                 checked = killSwitch,
-                onCheckedChange = { store.setKillSwitch(it) }
+                onCheckedChange = { store.setKillSwitch(it) },
+                icon = Icons.Filled.Block
             )
             AnimatedVisibility(visible = killSwitch) {
                 Card(
@@ -9419,19 +9521,55 @@ private fun SettingRow(
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    icon: ImageVector? = null
 ) {
+    // Every toggle in the app comes through here. It is the skin's row, not a
+    // label next to a Material switch: a state pip that takes the brand tone
+    // when the option is on, and the whole row as the tap target so the switch
+    // is confirmation rather than the only thing you are allowed to hit.
+    val c = ghajarColors
     Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.md))
+            .then(if (enabled) Modifier.clickable { onCheckedChange(!checked) } else Modifier)
+            .padding(vertical = GhajarSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(mixedText(title), style = MaterialTheme.typography.bodyLarge)
-            Text(mixedText(subtitle), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (icon != null) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background((if (checked) c.primary else c.textMuted).copy(alpha = if (enabled) 0.14f else 0.06f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = if (!enabled) c.onDisabled else if (checked) c.primary else c.textMuted,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
         }
-        Spacer(Modifier.width(16.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                mixedText(title),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) c.textPrimary else c.onDisabled
+            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    mixedText(subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textSecondary
+                )
+            }
+        }
+        SkinSwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
