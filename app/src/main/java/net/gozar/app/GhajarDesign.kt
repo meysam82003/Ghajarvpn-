@@ -60,7 +60,26 @@ data class GhajarPalette(
     val warning: Color,
     val disabled: Color,
     val onDisabled: Color,
-    val scrim: Color
+    val scrim: Color,
+    /**
+     * A measured result that is good: a fast ping, a check that passed. Kept
+     * apart from [primary] so a screen can say "this measurement is healthy"
+     * without claiming the brand accent, and apart from [successGlow] which is
+     * the connected-state halo only.
+     */
+    val good: Color,
+    /** Informational accent for throughput, addresses and measured metadata. */
+    val info: Color,
+    /** A second accent for a series that must not read as the brand. */
+    val accentAlt: Color,
+    /**
+     * Series colours for charts and per-app bars, in draw order. Defined per
+     * theme so a chart never keeps the old identity's colours; components index
+     * into this instead of carrying their own array.
+     */
+    val chart: List<Color>,
+    /** "Direct, not through the tunnel" - deliberately colourless. */
+    val neutralBar: Color
 )
 
 /**
@@ -122,7 +141,15 @@ private val PremiumGreenDark = GhajarPalette(
     warning = Color(0xFFF2B23E),
     disabled = Color(0xFF1E2C28),
     onDisabled = Color(0xFF5B6E68),
-    scrim = Color(0xE6000000)
+    scrim = Color(0xE6000000),
+    good = Color(0xFF2ED47A),
+    info = Color(0xFF35E0FF),
+    accentAlt = Color(0xFFB86BFF),
+    chart = listOf(
+        Color(0xFFFFA94D), Color(0xFFFF6BC1), Color(0xFF6D9BEE),
+        Color(0xFFFFD24D), Color(0xFFFF7A6B), Color(0xFF9BE85B)
+    ),
+    neutralBar = Color(0xFF8A94A6)
 )
 
 private val PremiumGreenLight = GhajarPalette(
@@ -149,7 +176,17 @@ private val PremiumGreenLight = GhajarPalette(
     warning = Color(0xFF8A5A00),
     disabled = Color(0xFFE2EAE7),
     onDisabled = Color(0xFF93A29C),
-    scrim = Color(0x99000000)
+    scrim = Color(0x99000000),
+    // Darkened across the board: these sit on white, where the dark theme's
+    // neons wash out completely.
+    good = Color(0xFF1B7F4B),
+    info = Color(0xFF0A7C99),
+    accentAlt = Color(0xFF7A3BD6),
+    chart = listOf(
+        Color(0xFFC2721A), Color(0xFFC43C8E), Color(0xFF2F5FC4),
+        Color(0xFFB08800), Color(0xFFC7453A), Color(0xFF4E8A22)
+    ),
+    neutralBar = Color(0xFF6B7484)
 )
 
 private val MidnightBlue = GhajarPalette(
@@ -175,7 +212,15 @@ private val MidnightBlue = GhajarPalette(
     warning = Color(0xFFE8B44A),
     disabled = Color(0xFF1A2335),
     onDisabled = Color(0xFF5D6C86),
-    scrim = Color(0xE6000000)
+    scrim = Color(0xE6000000),
+    good = Color(0xFF3ED9A3),
+    info = Color(0xFF4DD6FF),
+    accentAlt = Color(0xFF9B8CFF),
+    chart = listOf(
+        Color(0xFFFFB259), Color(0xFFFF7ECB), Color(0xFF7FA6FF),
+        Color(0xFFFFD96B), Color(0xFFFF8F84), Color(0xFFA5E86B)
+    ),
+    neutralBar = Color(0xFF6B7B94)
 )
 
 private val GraphiteGold = GhajarPalette(
@@ -201,7 +246,15 @@ private val GraphiteGold = GhajarPalette(
     warning = Color(0xFFE0A94B),
     disabled = Color(0xFF1D1C21),
     onDisabled = Color(0xFF6E6961),
-    scrim = Color(0xE6000000)
+    scrim = Color(0xE6000000),
+    good = Color(0xFF7FD6A8),
+    info = Color(0xFF6FD3E8),
+    accentAlt = Color(0xFFC99CF0),
+    chart = listOf(
+        Color(0xFFE0A94B), Color(0xFFE38BB8), Color(0xFF8FAEE0),
+        Color(0xFFF0D394), Color(0xFFE8917F), Color(0xFFAFD98A)
+    ),
+    neutralBar = Color(0xFF7B766C)
 )
 
 /** Every selectable palette, in the order the picker shows them. */
@@ -218,6 +271,19 @@ fun ghajarPaletteFor(theme: GhajarThemeId, systemDark: Boolean): GhajarPalette =
     GhajarThemeId.MIDNIGHT_BLUE -> MidnightBlue
     GhajarThemeId.GRAPHITE_GOLD -> GraphiteGold
     GhajarThemeId.SYSTEM -> if (systemDark) PremiumGreenDark else PremiumGreenLight
+}
+
+/**
+ * The one documented exception to "no literal colours in components".
+ *
+ * A QR code is read by a camera, not by a person, so it needs a fixed
+ * high-contrast pair. Following the theme would make it unscannable in the
+ * light palette (near-white modules on a white sheet). Defined here so the
+ * exception is visible and central rather than buried in a dialog.
+ */
+object GhajarFixed {
+    val QrBackground = Color(0xFF0B0F14)
+    val QrForeground = Color(0xFFF7FAFC)
 }
 
 object GhajarSpacing {

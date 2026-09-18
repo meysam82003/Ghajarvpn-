@@ -782,15 +782,33 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
 private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, state: GhajarLinkState, verification: Boolean,
     checking: Boolean, remainingSeconds: Int, onBegin: () -> Unit, onOpenBot: () -> Unit,
     onCheck: () -> Unit, onCancel: () -> Unit, onCopyCommand: () -> Unit) {
+    val c = ghajarColors
     Card(
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = Color(0xFF0B211C)),
-        border = BorderStroke(1.dp, Color(0x66D6B45F))
+        shape = RoundedCornerShape(GhajarRadius.lg),
+        colors = CardDefaults.cardColors(containerColor = c.card),
+        border = BorderStroke(1.dp, c.border)
     ) {
-        Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(Icons.Filled.Security, null, tint = Color(0xFFD6B45F), modifier = Modifier.size(40.dp))
-            Text("اتصال امن حساب", color = Color(0xFFF7F2E8), fontWeight = FontWeight.Bold)
-            Text("ورود با ربات؛ اطلاعات اتصال در گوشی رمزگذاری می‌شود.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
+        Column(
+            Modifier.fillMaxWidth().padding(GhajarSpacing.xl),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            // The accent square is the shared "section icon" shape used by the
+            // settings cards, so this reads as the same design system.
+            Box(
+                Modifier
+                    .clip(RoundedCornerShape(GhajarRadius.sm))
+                    .background(c.primary.copy(alpha = 0.14f))
+                    .padding(GhajarSpacing.md)
+            ) {
+                Icon(Icons.Filled.Security, null, tint = c.primary, modifier = Modifier.size(26.dp))
+            }
+            Spacer(Modifier.height(GhajarSpacing.md))
+            Text("اتصال امن حساب", color = c.textPrimary, fontWeight = FontWeight.Bold)
+            Text(
+                "ورود با ربات؛ اطلاعات اتصال در گوشی رمزگذاری می‌شود.",
+                color = c.textSecondary,
+                textAlign = TextAlign.Center
+            )
             Spacer(Modifier.height(14.dp))
             if (session == null) {
                 Button(onClick = onBegin, enabled = !busy) { Icon(Icons.Filled.Link, null); Spacer(Modifier.width(7.dp)); Text("اتصال با تلگرام") }
@@ -798,15 +816,15 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, state: G
                 if (!verification) {
                     TextButton(onClick = onOpenBot, enabled = remainingSeconds > 0) {
                         Text(session.code, style = MaterialTheme.typography.headlineMedium,
-                            color = Color(0xFFD6B45F), fontWeight = FontWeight.Black)
+                            color = c.highlight, fontWeight = FontWeight.Black)
                     }
                     Text("۱. «تأیید اتصال در تلگرام» را بزن.\n۲. پایین چت ربات، «شروع / Start» را بزن.\n۳. به قاجار برگرد؛ حساب خودکار متصل می‌شود.",
-                        color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
-                    Text("کد از قبل داخل لینک است؛ آن را تایپ یا اصلاح نکن.", color = Color(0xFF91BCC7), textAlign = TextAlign.Center)
+                        color = c.textPrimary, textAlign = TextAlign.Center)
+                    Text("کد از قبل داخل لینک است؛ آن را تایپ یا اصلاح نکن.", color = c.textSecondary, textAlign = TextAlign.Center)
                 }
                 Text("زمان باقی‌مانده: ${remainingSeconds / 60}:${(remainingSeconds % 60).toString().padStart(2, '0')}",
-                    color = Color(0xFFD6B45F), modifier = Modifier.padding(vertical = 8.dp))
-                Text(GhajarLinkFlow.message(state), color = Color(0xFFF7F2E8), textAlign = TextAlign.Center)
+                    color = c.textSecondary, modifier = Modifier.padding(vertical = 8.dp))
+                Text(GhajarLinkFlow.message(state), color = c.textPrimary, textAlign = TextAlign.Center)
                 if (checking) LinearProgressIndicator(Modifier.fillMaxWidth().padding(vertical = 8.dp))
                 Button(onClick = onOpenBot, enabled = remainingSeconds > 0,
                     modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
@@ -824,23 +842,31 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, state: G
 
 @Composable
 private fun NoticeCard(notice: GhajarNotice) {
+    val c = ghajarColors
+    // An important notice takes the error surface and accent; an ordinary one
+    // stays on the secondary card, so urgency is a colour decision and not a
+    // different card design.
+    val accent = if (notice.important) c.error else c.primary
     Card(
-        colors = CardDefaults.cardColors(containerColor = if (notice.important) Color(0xFF4B211B) else Color(0xFF143A32)),
-        border = BorderStroke(1.dp, if (notice.important) Color(0xFFE57373) else Color(0xFF91BCC7))
+        shape = RoundedCornerShape(GhajarRadius.md),
+        colors = CardDefaults.cardColors(
+            containerColor = if (notice.important) c.errorSurface else c.secondaryCard
+        ),
+        border = BorderStroke(1.dp, accent.copy(alpha = 0.40f))
     ) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.Top) {
-            Icon(Icons.Filled.Notifications, null, tint = Color(0xFFD6B45F))
+            Icon(Icons.Filled.Notifications, null, tint = accent)
             Spacer(Modifier.width(10.dp))
             Column {
-                Text(notice.title, color = Color(0xFFF7F2E8), fontWeight = FontWeight.Bold)
-                Text(notice.message, color = Color(0xFFE6E0D4))
+                Text(notice.title, color = c.textPrimary, fontWeight = FontWeight.Bold)
+                Text(notice.message, color = c.textSecondary)
                 notice.meta?.let { meta ->
                     val remainingGb = meta.remainingBytes?.div(1024.0 * 1024 * 1024)
                     val details = listOfNotNull(
                         remainingGb?.let { "باقی‌مانده ${"%.2f".format(Locale.US, it)} گیگ" },
                         meta.daysRemaining?.let { "$it روز باقی‌مانده" }
                     ).joinToString(" · ")
-                    if (details.isNotBlank()) Text(details, color = Color(0xFFD6B45F), fontWeight = FontWeight.Bold)
+                    if (details.isNotBlank()) Text(details, color = accent, fontWeight = FontWeight.Bold)
                 }
             }
         }
@@ -1221,7 +1247,8 @@ private fun CustomServiceCard(
             quote?.let {
                 Text(
                     if (it.price != null) "قیمت لحظه‌ای: ${formatPrice(it.price)} تومان" else "سرویس سفارشی برای این پنل فعال نیست",
-                    color = Color(0xFFD6B45F), fontWeight = FontWeight.Bold
+                    color = if (it.price != null) ghajarColors.highlight else ghajarColors.textSecondary,
+                    fontWeight = FontWeight.Bold
                 )
                 Text("حجم ${it.trafficMin} تا ${it.trafficMax} گیگ · زمان ${it.timeMin} تا ${it.timeMax} روز", style = MaterialTheme.typography.bodySmall)
             }
@@ -1253,12 +1280,27 @@ private fun PurchaseExtras(
 
 @Composable
 private fun PaymentSummary(purchase: GhajarPurchaseResult, walletTopUp: Boolean, exactCardAmount: Long?) {
-    Card(colors = CardDefaults.cardColors(containerColor = Color(0xFF143A32))) {
+    val c = ghajarColors
+    Card(
+        shape = RoundedCornerShape(GhajarRadius.md),
+        colors = CardDefaults.cardColors(containerColor = c.secondaryCard),
+        border = BorderStroke(1.dp, c.border)
+    ) {
         Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-            Text(if (walletTopUp) "شارژ کیف پول" else "پرداخت مبلغ کسری", color = Color(0xFFD6B45F), fontWeight = FontWeight.ExtraBold)
-            Text("موجودی: ${formatPrice(purchase.balance)} تومان", color = Color.White)
-            if (!walletTopUp) Text("قیمت سرویس: ${formatPrice(purchase.price)} تومان", color = Color.White)
-            Text("قابل پرداخت: ${formatPrice(exactCardAmount ?: purchase.amountDue)} تومان", color = Color.White, fontWeight = FontWeight.Bold)
+            Text(
+                if (walletTopUp) "شارژ کیف پول" else "پرداخت مبلغ کسری",
+                color = c.textPrimary,
+                fontWeight = FontWeight.ExtraBold
+            )
+            Text("موجودی: ${formatPrice(purchase.balance)} تومان", color = c.textSecondary)
+            if (!walletTopUp) Text("قیمت سرویس: ${formatPrice(purchase.price)} تومان", color = c.textSecondary)
+            // The amount actually owed is the one number that must not be
+            // missed, so it gets the highlight tone and the extra weight.
+            Text(
+                "قابل پرداخت: ${formatPrice(exactCardAmount ?: purchase.amountDue)} تومان",
+                color = c.highlight,
+                fontWeight = FontWeight.Bold
+            )
         }
     }
 }
@@ -1268,13 +1310,13 @@ private fun PaymentMethodCard(method: GhajarPaymentMethod, amount: Long, enabled
     val allowed = amount >= method.minimum && (method.maximum <= 0 || amount <= method.maximum)
     Card(onClick = onClick, enabled = allowed && enabled, modifier = Modifier.fillMaxWidth()) {
         Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Filled.CreditCard, null, tint = Color(0xFFD6B45F))
+            Icon(Icons.Filled.CreditCard, null, tint = if (allowed) ghajarColors.primary else ghajarColors.onDisabled)
             Spacer(Modifier.width(10.dp))
             Column(Modifier.weight(1f)) {
                 Text(method.label, fontWeight = FontWeight.Bold)
                 Text("محدوده ${formatPrice(method.minimum)} تا ${if (method.maximum > 0) formatPrice(method.maximum) else "نامحدود"} تومان", style = MaterialTheme.typography.bodySmall)
             }
-            Text(if (allowed) "انتخاب" else "نامعتبر", color = if (allowed) Color(0xFF0E8067) else MaterialTheme.colorScheme.error)
+            Text(if (allowed) "انتخاب" else "نامعتبر", color = if (allowed) ghajarColors.primary else ghajarColors.error)
         }
     }
 }

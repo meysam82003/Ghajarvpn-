@@ -397,11 +397,10 @@ private fun SshHostCard(
     val routed = SshManager.willUseTunnel(host)
 
     val accent = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val stateColor = when {
-        up -> Color(0xFF2E9E44)
+        up -> ghajarColors.good
         busy -> MaterialTheme.colorScheme.primary
-        else -> if (dark) Color(0xFFBFBFBF) else Color(0xFF6B6B6B)
+        else -> ghajarColors.textMuted
     }
     val scale = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()

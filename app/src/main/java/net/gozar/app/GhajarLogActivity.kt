@@ -131,9 +131,9 @@ private fun LogRow(entry: GhajarLogEntry) {
     val color = when (entry.level) {
         GhajarLogLevel.DEBUG -> MaterialTheme.colorScheme.onSurfaceVariant
         GhajarLogLevel.INFO -> MaterialTheme.colorScheme.onBackground
-        GhajarLogLevel.WARN -> Color(0xFFE0B84A)
+        GhajarLogLevel.WARN -> ghajarColors.warning
         GhajarLogLevel.ERROR -> MaterialTheme.colorScheme.error
-        GhajarLogLevel.CRASH -> Color(0xFFFF4D4D)
+        GhajarLogLevel.CRASH -> ghajarColors.error
     }
     Text(
         text = entry.formatted(),

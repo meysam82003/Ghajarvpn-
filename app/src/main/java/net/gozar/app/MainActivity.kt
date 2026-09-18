@@ -361,19 +361,14 @@ import kotlin.math.round
 import kotlin.math.sqrt
 import kotlin.math.roundToInt
 
-private val BrandBlue = Color(0xFF91BCC7)
-private val SplashBackground = Color(0xFF071B2E)
-
-
+// The two measurement accents. They were a pair of hardcoded cyans chosen by a
+// luminance test; each palette now defines its own, so they read correctly on
+// white and in Graphite Gold instead of staying cyan everywhere.
 private val AppCyan: Color
-    @Composable get() =
-        if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF35E0FF)
-        else Color(0xFF0A7C99)
+    @Composable get() = ghajarColors.info
 
 private val AppAqua: Color
-    @Composable get() =
-        if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF2AE6FF)
-        else Color(0xFF067E9B)
+    @Composable get() = ghajarColors.highlight
 
 internal val LocalLang = compositionLocalOf { Lang.EN }
 
@@ -409,53 +404,20 @@ object WindscribeBrand {
     fun displayName(sub: Subscription, lang: Lang): String =
         if (lang == Lang.FA && isWindscribe(sub)) Strings.get(lang, "ws_title") else sub.name
 
-    internal val LightStops = listOf(
-        Color(0xFFC3D9F2),
-        Color(0xFFBFE2F5),
-        Color(0xFFC6EDF8)
-    )
+}
 
-    internal val DarkStops = listOf(
-        Color(0xFF1B2E4A),
-        Color(0xFF1B3D5C),
-        Color(0xFF1C4E6B)
-    )
-
-    internal val AmoledStops = listOf(
-        Color(0xFF0B1521),
-        Color(0xFF0C1F2E),
-        Color(0xFF0D2839)
-    )
-
-    internal val LightRow = Color(0xFFA9D2F4)
-    internal val DarkRow = Color(0xFF0C2138)
-    internal val AmoledRow = Color(0xFF0C2A48)
-
+// The Windscribe surfaces used to carry three hand-picked blue ramps chosen by
+// a luminance test on the old palette. They now derive from the active theme's
+// own card tones, so that screen belongs to the same design system as the rest
+// of the app instead of being the one page still wearing blue.
+@Composable
+private fun windscribeCardBrush(): Brush {
+    val c = ghajarColors
+    return Brush.linearGradient(listOf(c.card, c.secondaryCard, c.card))
 }
 
 @Composable
-private fun windscribeDark(): Boolean =
-    MaterialTheme.colorScheme.surface.luminance() < 0.5f
-
-@Composable
-private fun windscribeAmoled(): Boolean =
-    MaterialTheme.colorScheme.surface == Color(0xFF000000)
-
-@Composable
-private fun windscribeCardBrush(): Brush = Brush.linearGradient(
-    when {
-        windscribeAmoled() -> WindscribeBrand.AmoledStops
-        windscribeDark() -> WindscribeBrand.DarkStops
-        else -> WindscribeBrand.LightStops
-    }
-)
-
-@Composable
-private fun windscribeRowColor(): Color = when {
-    windscribeAmoled() -> WindscribeBrand.AmoledRow
-    windscribeDark() -> WindscribeBrand.DarkRow
-    else -> WindscribeBrand.LightRow
-}
+private fun windscribeRowColor(): Color = ghajarColors.secondaryCard
 
 
 object ImportBus {
@@ -1464,11 +1426,14 @@ private fun GozarApp(
     val contentAlpha = 1f - backProgress * 0.25f
 
     val gradBg = MaterialTheme.colorScheme.background
+    // The canvas wash follows the theme's brand tone; it used to be a fixed
+    // blue, which is why every theme still had a blue cast at the top.
+    val gradAccent = ghajarColors.primary
     val gradDark = gradBg.luminance() < 0.5f
-    val gradient = remember(gradBg, gradDark) {
+    val gradient = remember(gradBg, gradAccent, gradDark) {
         if (gradDark) Brush.verticalGradient(
-            0f to lerp(gradBg, Color(0xFF6D9BEE), 0.12f),
-            0.45f to lerp(gradBg, Color(0xFF6D9BEE), 0.05f),
+            0f to lerp(gradBg, gradAccent, 0.12f),
+            0.45f to lerp(gradBg, gradAccent, 0.05f),
             1f to gradBg
         ) else SolidColor(gradBg)
     }
@@ -5122,7 +5087,7 @@ private fun CheckHostScreen(modifier: Modifier = Modifier) {
                     val res = results[node.id] ?: CheckHost.NodeResult.Pending
                     val tint = when (res) {
                         is CheckHost.NodeResult.Ok -> AppGreen
-                        is CheckHost.NodeResult.Failed -> Color(0xFFE0413C)
+                        is CheckHost.NodeResult.Failed -> ghajarColors.error
                         else -> MaterialTheme.colorScheme.primary
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -5195,8 +5160,8 @@ private fun NetRadarRow(site: NetMonitor.Site, st: NetMonitor.State) {
     val lang = LocalLang.current
     val target = when (st) {
         is NetMonitor.State.Reachable -> AppGreen
-        is NetMonitor.State.Sanctioned -> Color(0xFFFFA94D)
-        is NetMonitor.State.Unreachable -> Color(0xFFE0413C)
+        is NetMonitor.State.Sanctioned -> ghajarColors.warning
+        is NetMonitor.State.Unreachable -> ghajarColors.error
         is NetMonitor.State.Testing -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -6216,9 +6181,9 @@ private fun ConfigDebuggerScreen(
     val stateColor = when {
         testing || result == null -> MaterialTheme.colorScheme.primary
         state == DebugState.HEALTHY -> AppGreen
-        state == DebugState.TIMEOUT -> if (dark) Color(0xFFFFC24D) else Color(0xFF9A6B00)
-        state == DebugState.BLOCKED -> if (dark) Color(0xFFFF8A3D) else Color(0xFFD2620F)
-        state == DebugState.OFFLINE -> if (dark) Color(0xFF8A93A5) else Color(0xFF6B7484)
+        state == DebugState.TIMEOUT -> ghajarColors.warning
+        state == DebugState.BLOCKED -> ghajarColors.error
+        state == DebugState.OFFLINE -> ghajarColors.textMuted
         else -> MaterialTheme.colorScheme.error
     }
     val stateLabel = when {
@@ -6363,7 +6328,7 @@ private fun ConfigDebuggerScreen(
                         when {
                             info.reputation < 0 -> null
                             info.reputation >= 60 -> AppGreen
-                            info.reputation >= 40 -> Color(0xFFFF8A3D)
+                            info.reputation >= 40 -> ghajarColors.warning
                             else -> MaterialTheme.colorScheme.error
                         }
                     )
@@ -6389,7 +6354,7 @@ private fun ConfigDebuggerScreen(
             problems.forEach { check ->
                 val color = when (check.level) {
                     DebugLevel.OK -> AppGreen
-                    DebugLevel.WARN -> Color(0xFFFFA94D)
+                    DebugLevel.WARN -> ghajarColors.warning
                     DebugLevel.BAD -> MaterialTheme.colorScheme.error
                 }
                 val icon = when (check.level) {
@@ -6498,7 +6463,7 @@ private fun ProbeCheckRow(check: DebugCheck, index: Int, stamp: Any?) {
     val t = stringsFn()
     val color = when (check.level) {
         DebugLevel.OK -> AppGreen
-        DebugLevel.WARN -> Color(0xFFFFA94D)
+        DebugLevel.WARN -> ghajarColors.warning
         DebugLevel.BAD -> MaterialTheme.colorScheme.error
     }
     val icon = when (check.level) {
@@ -7918,7 +7883,7 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
             }
             val phaseTint = when (phase) {
                 StabilityTest.Phase.PING -> AppCyan
-                StabilityTest.Phase.DOWNLOAD -> Color(0xFFC23BFF)
+                StabilityTest.Phase.DOWNLOAD -> ghajarColors.accentAlt
                 else -> AppAqua
             }
             Crossfade(targetState = phase, animationSpec = tween(300), label = "phaseText") { ph ->
@@ -7979,7 +7944,7 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
                     label = t("download"),
                     mbps = dlLive,
                     active = running && phase == StabilityTest.Phase.DOWNLOAD,
-                    tint = Color(0xFFC23BFF),
+                    tint = ghajarColors.accentAlt,
                     modifier = Modifier.weight(1f)
                 )
                 SpeedTile(
@@ -8133,8 +8098,8 @@ private fun qualityLabelKey(score: Double): String = when {
 private fun qualityColor(score: Double): Color = when {
     score >= 80 -> AppGreen
     score >= 60 -> AppCyan
-    score >= 40 -> Color(0xFFFFA94D)
-    else -> Color(0xFFE0413C)
+    score >= 40 -> ghajarColors.warning
+    else -> ghajarColors.error
 }
 
 private fun formatTestTime(millis: Long, lang: Lang): String {
@@ -8247,7 +8212,7 @@ private fun SpeedBar(
     val t = stringsFn()
     val lang = LocalLang.current
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val track = if (isDark) Color(0xFF111A2F) else MaterialTheme.colorScheme.surfaceVariant
+    val track = ghajarColors.secondaryCard
 
     val targetFrac = sqrt((mbps / 100.0).coerceIn(0.0, 1.0)).toFloat()
     val frac by animateFloatAsState(targetFrac, tween(600), label = "speedBar")
@@ -8267,7 +8232,7 @@ private fun SpeedBar(
     val accentBrush = Brush.horizontalGradient(
         if (isDark) accent else accent.map { lerp(it, Color.Black, 0.34f) }
     )
-    val chip = if (isDark) Color(0xFF1B2440) else MaterialTheme.colorScheme.surfaceVariant
+    val chip = ghajarColors.secondaryCard
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -8369,7 +8334,7 @@ private fun MetricRow(label: String, value: String) {
 private fun QualityStartButton(running: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val t = stringsFn()
     val tint by animateColorAsState(
-        targetValue = if (running) Color(0xFFFFA94D) else MaterialTheme.colorScheme.primary,
+        targetValue = if (running) ghajarColors.warning else MaterialTheme.colorScheme.primary,
         animationSpec = tween(420),
         label = "qualityBtnTint"
     )
@@ -8853,7 +8818,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                         icon = Icons.Filled.ArrowDownward,
                         label = t("download"),
                         bytes = total[1],
-                        tint = Color(0xFF35E0FF),
+                        tint = ghajarColors.info,
                         lang = lang,
                         modifier = Modifier.weight(1f)
                     )
@@ -8861,7 +8826,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                         icon = Icons.Filled.ArrowUpward,
                         label = t("upload"),
                         bytes = total[0],
-                        tint = Color(0xFFB86BFF),
+                        tint = ghajarColors.accentAlt,
                         lang = lang,
                         modifier = Modifier.weight(1f)
                     )
@@ -8975,12 +8940,14 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
     }
 }
 
-private val DirectBarColor = Color(0xFF8A94A6)
+// Per-app and per-server series colours. They were a fixed six-colour array
+// plus a fixed grey; both now come from the active theme, so the charts belong
+// to the same palette as everything else.
+private val DirectBarColor: Color
+    @Composable get() = ghajarColors.neutralBar
 
-private val ServerPalette = listOf(
-    Color(0xFFFFA94D), Color(0xFFFF6BC1), Color(0xFF6D9BEE),
-    Color(0xFFFFD24D), Color(0xFFFF7A6B), Color(0xFF9BE85B)
-)
+private val ServerPalette: List<Color>
+    @Composable get() = ghajarColors.chart
 
 @Composable
 private fun TransferTile(
@@ -10338,8 +10305,8 @@ private fun quotaChips(sub: Subscription, lang: Lang): List<Pair<String, Int>> {
 @Composable
 private fun QuotaChip(label: String, level: Int) {
     val accent = when (level) {
-        2 -> Color(0xFFE53935)
-        1 -> Color(0xFFF59E0B)
+        2 -> ghajarColors.error
+        1 -> ghajarColors.warning
         else -> MaterialTheme.colorScheme.primary
     }
     Text(
@@ -10360,8 +10327,8 @@ private fun UsageBar(used: Long, total: Long) {
     val remaining = (total - used).coerceAtLeast(0L)
     val frac = if (total > 0) (remaining.toFloat() / total).coerceIn(0f, 1f) else 0f
     val barColor = when {
-        frac <= 0.10f -> Color(0xFFE53935)
-        frac <= 0.30f -> Color(0xFFF59E0B)
+        frac <= 0.10f -> ghajarColors.error
+        frac <= 0.30f -> ghajarColors.warning
         else -> MaterialTheme.colorScheme.primary
     }
     Box(
@@ -10513,8 +10480,10 @@ private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
     val t = stringsFn()
     val context = LocalContext.current
     val accent = MaterialTheme.colorScheme.primary
-    val qrBg = Color(0xFF0E1422)
-    val qrFg = lerp(Color.White, accent, 0.06f)
+    // Fixed on purpose - a camera has to read this, so it must not follow the
+    // theme. See GhajarFixed for why this is the one documented exception.
+    val qrBg = GhajarFixed.QrBackground
+    val qrFg = lerp(GhajarFixed.QrForeground, accent, 0.06f)
     val bmp = remember(link, qrBg, qrFg) {
         ConfigShare.qrBitmap(link, darkColor = qrFg.toArgb(), lightColor = qrBg.toArgb())
     }
@@ -10861,7 +10830,7 @@ private fun ConfigRow(
         label = "rowHighlight"
     )
 
-    val swipeRed = Color(0xFFE0413C)
+    val swipeRed = ghajarColors.error
     var rowWidth by remember { mutableStateOf(1) }
     var dragX by remember { mutableStateOf(0f) }
     val dragEnabled = !selectionMode && !checked
@@ -11352,12 +11321,11 @@ private fun PingChip(ping: PingResult?) {
 @Composable
 private fun pingColor(ping: PingResult?): Color = when (ping) {
     is PingResult.Ok -> when {
-        ping.ms <= 250 -> Color(0xFF2E9E44)
-        ping.ms <= 600 -> Color(0xFFF59E0B)
-        else -> Color(0xFFE53935)
+        ping.ms <= 250 -> ghajarColors.good
+        ping.ms <= 600 -> ghajarColors.warning
+        else -> ghajarColors.error
     }
-    PingResult.Failed -> if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
-        Color(0xFFBFBFBF) else Color(0xFF4A4A4A)
+    PingResult.Failed -> ghajarColors.textMuted
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 

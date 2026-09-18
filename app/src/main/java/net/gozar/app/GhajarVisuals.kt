@@ -126,8 +126,10 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
             finish()
         }
     }
-    // The navy info card is part of the brand and must always frame the poster.
-    val backdrop = Color(0xFF061226)
+    // The poster frame follows the active theme: it used to be a fixed navy,
+    // which made the welcome screen the one page that never changed colour.
+    val c = ghajarColors
+    val backdrop = c.background
     Column(
         Modifier.fillMaxSize().background(backdrop).safeDrawingPadding().clickable(onClick = { finish() }),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -135,14 +137,14 @@ internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
         Image(painterResource(posters[selectedPoster]), contentDescription = "خوش آمدی به قاجار VPN",
             contentScale = ContentScale.Crop,
             modifier = Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = reveal })
-        Surface(color = Color(0xFF0B1F3A), shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
+        Surface(color = c.surface, shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
             modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
                 horizontalAlignment = Alignment.CenterHorizontally) {
                 Text("💡 نکتهٔ قاجار", style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFFD6B45F), fontWeight = FontWeight.Bold)
+                    color = c.primary, fontWeight = FontWeight.Bold)
                 Text(selectedTip, style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFF2F6FC), textAlign = TextAlign.Center,
+                    color = c.textPrimary, textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 6.dp))
             }
         }

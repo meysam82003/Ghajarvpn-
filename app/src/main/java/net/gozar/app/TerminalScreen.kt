@@ -75,20 +75,25 @@ import kotlinx.coroutines.delay
 
 private val TermFontSize = 12.sp
 private val TermLineHeight = 16.sp
-private val TermBlue = Color(0xFF6D9BEE)
+
 private val IpPattern = Regex(
     "\\b(?:\\d{1,3}\\.){3}\\d{1,3}(?::\\d{1,5})?\\b" +
         "|(?:[0-9a-fA-F]{1,4}:){7}[0-9a-fA-F]{1,4}" +
         "|[0-9a-fA-F]{0,4}(?::[0-9a-fA-F]{1,4})*::(?:[0-9a-fA-F]{1,4}:)*[0-9a-fA-F]{0,4}"
 )
 
-private fun highlightIps(text: String, base: Color): AnnotatedString = buildAnnotatedString {
+/**
+ * [accent] is passed in rather than read from a constant so the highlight
+ * follows the active theme; this is a plain function, so it cannot read the
+ * palette itself.
+ */
+private fun highlightIps(text: String, base: Color, accent: Color): AnnotatedString = buildAnnotatedString {
     var last = 0
     for (m in IpPattern.findAll(text)) {
         if (m.range.first > last) {
             withStyle(SpanStyle(color = base)) { append(text.substring(last, m.range.first)) }
         }
-        withStyle(SpanStyle(color = TermBlue)) { append(m.value) }
+        withStyle(SpanStyle(color = accent)) { append(m.value) }
         last = m.range.last + 1
     }
     if (last < text.length) {
@@ -187,7 +192,7 @@ fun TerminalScreen(
                         else -> MaterialTheme.colorScheme.onSurface
                     }
                     Text(
-                        highlightIps(line.text, lineColor),
+                        highlightIps(line.text, lineColor, ghajarColors.info),
                         fontFamily = monoFont(),
                         fontSize = TermFontSize,
                         lineHeight = TermLineHeight,
@@ -200,7 +205,7 @@ fun TerminalScreen(
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             if (partial.isNotEmpty()) {
                 Text(
-                    highlightIps(partial, MaterialTheme.colorScheme.onSurface),
+                    highlightIps(partial, MaterialTheme.colorScheme.onSurface, ghajarColors.info),
                     fontFamily = monoFont(),
                     fontSize = TermFontSize,
                     lineHeight = TermLineHeight,
@@ -271,7 +276,7 @@ fun TerminalScreen(
             }
             TermKey(
                 icon = Icons.Filled.PlayArrow,
-                accent = Color(0xFF2E9E44),
+                accent = ghajarColors.good,
                 enabled = !running
             ) { shell.reconnect() }
             TermKey(icon = Icons.Filled.Keyboard) {
