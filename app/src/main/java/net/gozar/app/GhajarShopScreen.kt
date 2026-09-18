@@ -490,23 +490,24 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
             if (section == 3) {
                 item(key = "shop-block-9") {
-                    Card(shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("کیف پول قاجار", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
-                            Text(paymentOptions?.let { "${formatPrice(it.balance)} ${it.currency}" } ?: "در حال دریافت موجودی…",
-                                style = MaterialTheme.typography.headlineSmall, color = MaterialTheme.colorScheme.primary)
-                            OutlinedTextField(walletAmount, { walletAmount = asciiDigits(it).filter(Char::isDigit).take(12) },
-                                label = { Text("مبلغ شارژ به تومان") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                singleLine = true, modifier = Modifier.fillMaxWidth())
-                            Button(onClick = { checkoutModel.topUp(walletAmount.toLongOrNull() ?: 0); section = 0 },
-                                enabled = !checkoutBusy && (walletAmount.toLongOrNull() ?: 0) > 0,
-                                modifier = Modifier.fillMaxWidth()) { Text("شارژ کیف پول") }
-                            OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
-                                modifier = Modifier.fillMaxWidth()) { Text("بروزرسانی موجودی") }
-                            Text("شارژ پس از تأیید پنل به موجودی اضافه می‌شود. برای شارژ، سرویس جدید ساخته نمی‌شود.",
-                                style = MaterialTheme.typography.bodySmall)
-                        }
+                    Slab(padding = 18.dp, spacing = GhajarSpacing.md) {
+                        Text("کیف پول قاجار", style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold, color = ghajarColors.textPrimary)
+                        // The balance is the one number this page exists for,
+                        // so it takes the brightest brand tone.
+                        Text(paymentOptions?.let { "${formatPrice(it.balance)} ${it.currency}" } ?: "در حال دریافت موجودی…",
+                            style = MaterialTheme.typography.headlineSmall, color = ghajarColors.highlight)
+                        OutlinedTextField(walletAmount, { walletAmount = asciiDigits(it).filter(Char::isDigit).take(12) },
+                            label = { Text("مبلغ شارژ به تومان") },
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            singleLine = true, modifier = Modifier.fillMaxWidth())
+                        Button(onClick = { checkoutModel.topUp(walletAmount.toLongOrNull() ?: 0); section = 0 },
+                            enabled = !checkoutBusy && (walletAmount.toLongOrNull() ?: 0) > 0,
+                            modifier = Modifier.fillMaxWidth()) { Text("شارژ کیف پول") }
+                        OutlinedButton(onClick = checkoutModel::refreshMethods, enabled = !checkoutBusy,
+                            modifier = Modifier.fillMaxWidth()) { Text("بروزرسانی موجودی") }
+                        Text("شارژ پس از تأیید پنل به موجودی اضافه می‌شود. برای شارژ، سرویس جدید ساخته نمی‌شود.",
+                            style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }
@@ -1253,23 +1254,21 @@ private fun CustomServiceCard(
     onDaysChange: (String) -> Unit,
     onQuote: () -> Unit
 ) {
-    Card(shape = RoundedCornerShape(20.dp)) {
-        Column(Modifier.fillMaxWidth().padding(15.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("سرویس سفارشی", fontWeight = FontWeight.Bold)
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                OutlinedTextField(traffic, onTrafficChange, label = { Text("حجم (گیگ)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-                OutlinedTextField(days, onDaysChange, label = { Text("مدت (روز)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
-            }
-            quote?.let {
-                Text(
-                    if (it.price != null) "قیمت لحظه‌ای: ${formatPrice(it.price)} تومان" else "سرویس سفارشی برای این پنل فعال نیست",
-                    color = if (it.price != null) ghajarColors.highlight else ghajarColors.textSecondary,
-                    fontWeight = FontWeight.Bold
-                )
-                Text("حجم ${it.trafficMin} تا ${it.trafficMax} گیگ · زمان ${it.timeMin} تا ${it.timeMax} روز", style = MaterialTheme.typography.bodySmall)
-            }
-            OutlinedButton(onClick = onQuote, modifier = Modifier.fillMaxWidth()) { Text("محاسبه قیمت از پنل") }
+    Slab(padding = 15.dp, spacing = GhajarSpacing.sm) {
+        Text("سرویس سفارشی", fontWeight = FontWeight.Bold, color = ghajarColors.textPrimary)
+        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedTextField(traffic, onTrafficChange, label = { Text("حجم (گیگ)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+            OutlinedTextField(days, onDaysChange, label = { Text("مدت (روز)") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
         }
+        quote?.let {
+            Text(
+                if (it.price != null) "قیمت لحظه‌ای: ${formatPrice(it.price)} تومان" else "سرویس سفارشی برای این پنل فعال نیست",
+                color = if (it.price != null) ghajarColors.highlight else ghajarColors.textSecondary,
+                fontWeight = FontWeight.Bold
+            )
+            Text("حجم ${it.trafficMin} تا ${it.trafficMax} گیگ · زمان ${it.timeMin} تا ${it.timeMax} روز", style = MaterialTheme.typography.bodySmall)
+        }
+        OutlinedButton(onClick = onQuote, modifier = Modifier.fillMaxWidth()) { Text("محاسبه قیمت از پنل") }
     }
 }
 
@@ -1285,12 +1284,10 @@ private fun PurchaseExtras(
     onNote: (String) -> Unit,
     onDiscount: (String) -> Unit
 ) {
-    Card {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
-            if (showUsername) OutlinedTextField(username, onUsername, label = { Text(if (usernameRequired) "نام کاربری دلخواه (ضروری)" else "نام کاربری دلخواه") }, modifier = Modifier.fillMaxWidth())
-            if (showNote) OutlinedTextField(note, onNote, label = { Text("یادداشت اختیاری") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(discount, onDiscount, label = { Text("کد تخفیف اختیاری") }, modifier = Modifier.fillMaxWidth())
-        }
+    Slab(padding = 14.dp, spacing = GhajarSpacing.sm) {
+        if (showUsername) OutlinedTextField(username, onUsername, label = { Text(if (usernameRequired) "نام کاربری دلخواه (ضروری)" else "نام کاربری دلخواه") }, modifier = Modifier.fillMaxWidth())
+        if (showNote) OutlinedTextField(note, onNote, label = { Text("یادداشت اختیاری") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(discount, onDiscount, label = { Text("کد تخفیف اختیاری") }, modifier = Modifier.fillMaxWidth())
     }
 }
 
