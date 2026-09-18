@@ -2047,6 +2047,50 @@ private fun ConnectionScreen(
     }
 }
 
+/**
+ * The three readings above the server list: how many configs there are, how
+ * many answered their ping, and the best time seen.
+ *
+ * It is its own composable for one reason: `pings` is a SnapshotStateMap, and
+ * whichever composition reads its entries is subscribed to all of them. Read
+ * from the screen body, a single ping result recomposed the whole picker; read
+ * here, it recomposes three cells. derivedStateOf narrows it further - the
+ * numbers only change a handful of times during a full test, so most of the
+ * writes invalidate nothing at all.
+ */
+@Composable
+private fun PickerStatsStrip(
+    configs: List<ProxyConfig>,
+    pings: SnapshotStateMap<String, PingResult>
+) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val c = ghajarColors
+    val answered by remember(configs) {
+        derivedStateOf { configs.count { pings[it.id] is PingResult.Ok } }
+    }
+    val bestMs by remember(configs) {
+        derivedStateOf {
+            configs.mapNotNull { (pings[it.id] as? PingResult.Ok)?.ms }.minOrNull()
+        }
+    }
+    StatStrip(
+        listOf(
+            StatCell(t("count_configs"), localizeDigits("${configs.size}", lang), c.primary),
+            StatCell(
+                t("picker_answered"),
+                localizeDigits("$answered", lang),
+                if (answered > 0) c.good else c.textMuted
+            ),
+            StatCell(
+                t("picker_best"),
+                bestMs?.let { localizeDigits("$it", lang) + " " + t("unit_ms") } ?: "—",
+                c.highlight
+            )
+        )
+    )
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConfigPickerScreen(
@@ -2346,31 +2390,12 @@ private fun ConfigPickerScreen(
             onPsiphon = { addMenu = false; onPsiphonHub() }
         )
 
-        // What this list actually holds, from the pings already measured: how
-        // many servers there are, how many answered, and the best time seen.
-        // The screen used to make you read the whole list to learn any of it.
-        val tested = remember(configs, pings.toList()) {
-            configs.count { pings[it.id] is PingResult.Ok }
-        }
-        val bestMs = remember(configs, pings.toList()) {
-            configs.mapNotNull { (pings[it.id] as? PingResult.Ok)?.ms }.minOrNull()
-        }
         val favouriteCount = remember(configs) { configs.count { it.favorite } }
-        StatStrip(
-            listOf(
-                StatCell(t("count_configs"), n("${configs.size}"), ghajarColors.primary),
-                StatCell(
-                    t("picker_answered"),
-                    n("$tested"),
-                    if (tested > 0) ghajarColors.good else ghajarColors.textMuted
-                ),
-                StatCell(
-                    t("picker_best"),
-                    bestMs?.let { n("$it") + " " + t("unit_ms") } ?: "—",
-                    ghajarColors.highlight
-                )
-            )
-        )
+        // The ping map is read inside PickerStatsStrip, not here. Reading it in
+        // this body subscribed the whole screen to every entry, so each result
+        // arriving during "test all" recomposed the entire picker - and built
+        // two throwaway lists of the map while doing it. That is the jank.
+        PickerStatsStrip(configs = configs, pings = pings)
 
         // The four actions and the sub-update button used to float loose above
         // the list as five separate boxes. They are one slab now: the test is
@@ -2583,32 +2608,24 @@ private fun ConfigPickerScreen(
                 if (updateSubsState != 1) {
                     updateSubsState = 1
                     scope.launch {
-                        val subs = store.subscriptions.value
-                            .filter { it.url.startsWith("https://") || it.url.startsWith("http://") }
-                        var updated = 0
-                        subs.forEach { sub ->
-                            storeResult {
-                                val result = SubscriptionFetcher.fetchFull(sub.url)
-                                if (result.configs.isNotEmpty()) {
-                                    val info = result.userInfo
-                                    store.upsertSubscription(
-                                        sub.copy(
-                                            used = info?.used ?: sub.used,
-                                            total = info?.total ?: sub.total,
-                                            expire = info?.expire ?: sub.expire,
-                                            lastUpdated = System.currentTimeMillis()
-                                        ),
-                                        result.configs
-                                    )
-                                    updated++
-                                }
-                            }
-                        }
+                        // The same refresher the app-entry path uses, forced and
+                        // with no floor: a button press means refresh now. It
+                        // handles the free-configs source and a dead URL per
+                        // subscription, which the copy that used to live here
+                        // did not.
+                        val before = store.subscriptions.value
+                            .associate { it.id to it.lastUpdated }
+                        SubscriptionRefresher.refreshStale(store, force = true)
                         updateSubsState = 0
-                        if (subs.isEmpty()) subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
-                        else if (updated == subs.size) addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
-                        else if (updated > 0) addDone = n("$updated از ${subs.size} ساب بروزرسانی شد")
-                        else subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
+                        val after = store.subscriptions.value
+                        val refreshable = after.count { SubscriptionRefresher.refreshable(it) }
+                        val updated = after.count { (before[it.id] ?: 0L) < it.lastUpdated }
+                        when {
+                            refreshable == 0 -> subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
+                            updated >= refreshable -> addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
+                            updated > 0 -> addDone = n("$updated از $refreshable ساب بروزرسانی شد")
+                            else -> subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
+                        }
                     }
                 }
             },
@@ -2632,17 +2649,6 @@ private fun ConfigPickerScreen(
             )
         }
 
-            BounceOutlinedButton(
-                onClick = onFreeProjects,
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                accent = ghajarColors.premium,
-                modifier = Modifier.weight(1f).height(42.dp)
-            ) {
-                Icon(Icons.Filled.CardGiftcard, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(t("free_projects"), maxLines = 1, overflow = TextOverflow.Ellipsis)
-            }
         }
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -2845,6 +2851,7 @@ private fun ConfigPickerScreen(
                 item(key = "sub-${sub.id}") {
                     SubscriptionHeader(
                         sub = sub,
+                        configCount = subConfigs.size,
                         isOpen = sub.id in expandedSubs || q.isNotEmpty(),
                         onToggle = { store.toggleSubExpanded(sub.id) },
                         onRefresh = {
@@ -10497,6 +10504,8 @@ private fun SubscriptionHeader(
     timedOutCount: Int,
     onPing: () -> Unit,
     pinging: Boolean,
+    /** How many configs this subscription holds, shown under its name. */
+    configCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -10532,130 +10541,175 @@ private fun SubscriptionHeader(
     val ws = WindscribeBrand.isWindscribe(sub)
     val brandBrush = if (ws) windscribeCardBrush() else null
 
-    Card(
-        modifier = modifier.appearOnce().fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onToggle() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (ws) Color.Transparent
-            else MaterialTheme.colorScheme.secondaryContainer
-        )
+    // Was a Material card with six 21dp icon buttons crowded into one row -
+    // share, speed, edit, refresh, delete and the chevron - which is most of
+    // why this block read as unfinished. Three glyphs now carry what is used
+    // often; the rest moved into one overflow menu. The entrance animation is
+    // gone too: this is a LazyColumn item, so it re-ran every time the header
+    // scrolled back into view.
+    val c = ghajarColors
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .then(
+                if (brandBrush != null) Modifier.background(brandBrush)
+                else Modifier.background(c.secondaryCard)
+            )
+            .clickable { onToggle() }
+            .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
     ) {
-        Column(
-            Modifier.fillMaxWidth()
-                .then(if (brandBrush != null) Modifier.background(brandBrush) else Modifier)
-                .padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val chevron by animateFloatAsState(
-                    targetValue = if (!isOpen) 0f else if (ws) 180f else 90f,
-                    animationSpec = tween(360, easing = FastOutSlowInEasing),
-                    label = "subChevron"
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val chevron by animateFloatAsState(
+                targetValue = if (!isOpen) 0f else if (ws) 180f else 90f,
+                animationSpec = tween(360, easing = FastOutSlowInEasing),
+                label = "subChevron"
+            )
+            if (ws) {
+                Image(
+                    painter = painterResource(R.drawable.windscribe),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.padding(end = 8.dp).size(24.dp)
+                        .graphicsLayer { rotationZ = chevron }
                 )
-                if (ws) {
-                    Image(
-                        painter = painterResource(R.drawable.windscribe),
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.padding(end = 7.dp).size(24.dp)
-                            .graphicsLayer { rotationZ = chevron }
-                    )
-                } else {
+            } else {
+                // The chevron sits in its own tinted tile, like every other
+                // leading glyph in the skin, instead of floating bare.
+                Box(
+                    Modifier
+                        .padding(end = GhajarSpacing.sm)
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(c.primary.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
-                        modifier = Modifier.padding(end = 7.dp).graphicsLayer { rotationZ = chevron }
+                        tint = c.primary,
+                        modifier = Modifier.size(19.dp).graphicsLayer { rotationZ = chevron }
                     )
-                }
-                Box(Modifier.weight(1f)) {
-                    MarqueeName(
-                        GhajarUiRules.brandedSubscriptionTitle(sub.total, WindscribeBrand.displayName(sub, lang)),
-                        MaterialTheme.typography.titleSmall
-                    )
-                }
-                Box {
-                    Icon(Icons.Filled.Share, contentDescription = t("share"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { shareMenu = true }.padding(7.dp).size(21.dp))
-                    DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
-                        CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
-                            shareMenu = false
-                            clipboard.setText(AnnotatedString(sub.url))
-                            android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        CompactMenuItem(Icons.Filled.Share, t("share_app")) {
-                            shareMenu = false
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, sub.url)
-                            }
-                            context.startActivity(Intent.createChooser(send, sub.name))
-                        }
-                    }
-                }
-                if (pinging) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(7.dp).size(21.dp)
-                    )
-                } else {
-                    Icon(Icons.Filled.Speed, contentDescription = t("test_all"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onPing() }.padding(7.dp).size(21.dp))
-                }
-                Icon(Icons.Filled.Edit, contentDescription = t("edit_sub_name"), tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { draftName = sub.name; renaming = true }.padding(7.dp).size(21.dp))
-                Icon(Icons.Filled.Refresh, contentDescription = t("refresh"), tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onRefresh() }.padding(7.dp).size(21.dp))
-                Box {
-                    var subPurgeMenu by remember { mutableStateOf(false) }
-                    Icon(Icons.Filled.Delete, contentDescription = t("remove"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50))
-                            .clickable { subPurgeMenu = true }.padding(7.dp).size(21.dp))
-                    DropdownMenu(
-                        expanded = subPurgeMenu,
-                        onDismissRequest = { subPurgeMenu = false },
-                        offset = DpOffset(0.dp, 4.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        containerColor = ghajarColors.surface,
-                        border = BorderStroke(1.dp, ghajarColors.border)
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(t("delete_all_configs"), style = MaterialTheme.typography.bodyMedium) },
-                            leadingIcon = {
-                                Icon(Icons.Filled.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { subPurgeMenu = false; onRemove() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(t("delete_timed_out"), style = MaterialTheme.typography.bodyMedium) },
-                            leadingIcon = {
-                                Icon(Icons.Filled.TimerOff, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            enabled = timedOutCount > 0,
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { subPurgeMenu = false; onRemoveTimedOut() }
-                        )
-                    }
                 }
             }
-            if (sub.total > 0) {
-                Spacer(Modifier.height(6.dp))
-                UsageBar(used = sub.used, total = sub.total)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                MarqueeName(
+                    GhajarUiRules.brandedSubscriptionTitle(sub.total, WindscribeBrand.displayName(sub, lang)),
+                    MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    localizeDigits("$configCount", lang) + " " + t("count_configs"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textSecondary,
+                    maxLines = 1
+                )
             }
-            val quota = quotaChips(sub, lang)
-            if (quota.isNotEmpty()) {
-                Spacer(Modifier.height(7.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    quota.forEach { (label, level) ->
-                        QuotaChip(label, level)
+
+            // The two actions anyone actually uses on a subscription.
+            if (pinging) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    color = c.primary,
+                    modifier = Modifier.padding(6.dp).size(20.dp)
+                )
+            } else {
+                SubHeaderGlyph(Icons.Filled.Speed, t("test_all")) { onPing() }
+            }
+            SubHeaderGlyph(Icons.Filled.Refresh, t("refresh")) { onRefresh() }
+
+            Box {
+                SubHeaderGlyph(Icons.Filled.MoreVert, t("more")) { shareMenu = true }
+                DropdownMenu(
+                    expanded = shareMenu,
+                    onDismissRequest = { shareMenu = false },
+                    offset = DpOffset(0.dp, 4.dp),
+                    shape = RoundedCornerShape(GhajarRadius.lg),
+                    containerColor = c.card,
+                    border = null
+                ) {
+                    CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
+                        shareMenu = false
+                        clipboard.setText(AnnotatedString(sub.url))
+                        android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
                     }
+                    CompactMenuItem(Icons.Filled.Share, t("share_app")) {
+                        shareMenu = false
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, sub.url)
+                        }
+                        context.startActivity(Intent.createChooser(send, sub.name))
+                    }
+                    CompactMenuItem(Icons.Filled.Edit, t("edit_sub_name")) {
+                        shareMenu = false
+                        draftName = sub.name
+                        renaming = true
+                    }
+                    HorizontalDivider(color = c.border)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                t("delete_all_configs"),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = c.error
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.DeleteForever,
+                                contentDescription = null,
+                                tint = c.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        modifier = Modifier.height(40.dp),
+                        onClick = { shareMenu = false; onRemove() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(t("delete_timed_out"), style = MaterialTheme.typography.bodyMedium) },
+                        leadingIcon = {
+                            Icon(Icons.Filled.TimerOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                        },
+                        enabled = timedOutCount > 0,
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        modifier = Modifier.height(40.dp),
+                        onClick = { shareMenu = false; onRemoveTimedOut() }
+                    )
                 }
             }
         }
+
+        if (sub.total > 0) {
+            UsageBar(used = sub.used, total = sub.total)
+        }
+        val quota = quotaChips(sub, lang)
+        if (quota.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                quota.forEach { (label, level) -> QuotaChip(label, level) }
+            }
+        }
+    }
+}
+
+/** One action glyph in a subscription header: tinted tile, no outline. */
+@Composable
+private fun SubHeaderGlyph(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    val c = ghajarColors
+    Box(
+        Modifier
+            .size(34.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.primary.copy(alpha = 0.10f))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -11192,7 +11246,17 @@ private fun ConfigRow(
     actionsOpen: Boolean,
     onToggleActions: () -> Unit,
     modifier: Modifier = Modifier,
-    appear: Boolean = true,
+    /**
+     * The entrance animation. Off by default on purpose.
+     *
+     * In a LazyColumn an item is composed when it scrolls in and disposed when
+     * it scrolls out, so `remember` is lost and the animation fires again every
+     * time a row comes back. That is three concurrent float animations plus a
+     * graphicsLayer per visible row for the whole of every scroll - rows fading
+     * and sliding while you drag, which reads as exactly the stutter it is.
+     * A screen entering can ask for it; a recycled list item should not.
+     */
+    appear: Boolean = false,
     containerColor: Color? = null,
     conn: Connection = Connection.DISCONNECTED,
     onToggleConnection: (() -> Unit)? = null,

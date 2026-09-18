@@ -44,7 +44,18 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
                 if (enteringApp) scope.launch {
                     val configStore = ConfigStore.get(this@GozarApplication)
                     configStore.awaitReady()
-                    SubscriptionRefresher.refreshStale(configStore, force = false)
+                    // Entering the app refreshes every subscription, not just
+                    // the ones older than the auto-refresh interval. That
+                    // interval defaults to an hour, so re-opening the app
+                    // inside it used to refresh nothing at all - which is the
+                    // opposite of what this call site was documented to do.
+                    // The one-minute floor keeps a quick app switch from
+                    // refetching everything again.
+                    SubscriptionRefresher.refreshStale(
+                        configStore,
+                        force = true,
+                        minIntervalMs = SubscriptionRefresher.ENTRY_MIN_INTERVAL_MS
+                    )
                 }
             }
 
