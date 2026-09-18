@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -665,7 +666,7 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
     Box(
         modifier
             .fillMaxWidth()
-            .androidxNavigationBarsPadding()
+            .navigationBarsPadding()
             .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm)
     ) {
         Box(
@@ -719,6 +720,3 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
     }
 }
 
-/** Kept aliased so the bar's own layout code stays readable. */
-private fun Modifier.androidxNavigationBarsPadding(): Modifier =
-    this.then(androidx.compose.foundation.layout.navigationBarsPadding())
