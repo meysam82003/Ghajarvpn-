@@ -1901,9 +1901,9 @@ private fun ConnectionScreen(
     val canAct = conn != Connection.DISCONNECTING && (connected || selectedConfig != null)
     val c = ghajarColors
 
-    // The whole screen is one column centred on the connect button. It scrolls
-    // only when it must - a short screen, or a large system font - so the orb
-    // stays centred everywhere else and nothing is ever clipped.
+    // One column centred on the connect control. It scrolls only when it must
+    // - a short screen, or a large system font - so the orb stays centred
+    // everywhere else and nothing is ever clipped.
     BoxWithConstraints(modifier.fillMaxSize()) {
         val floor = maxHeight
         Column(
@@ -1911,13 +1911,11 @@ private fun ConnectionScreen(
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
                 .heightIn(min = floor)
-                .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.xl),
-            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.lg, Alignment.CenterVertically),
+                .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            GhajarWordmark(Modifier.height(30.dp))
-
-            StatusLine(conn, picking, netOffline, deadTunnel)
+            GhajarWordmark(Modifier.height(26.dp))
 
             ConnectOrb(
                 state = conn,
@@ -1935,96 +1933,86 @@ private fun ConnectionScreen(
             )
 
             SessionLine(connectedAt.takeIf { it > 0L }, conn)
+            StatusLine(conn, picking, netOffline, deadTunnel)
 
-            // Locked configs never reveal their endpoint, and the built-in
-            // engines have none - exactly as the old route card behaved.
-            val pillSubtitle = selectedConfig?.let { cfg ->
-                val engine = cfg.protocol.uppercase(java.util.Locale.ROOT)
-                val endpoint = when {
-                    cfg.locked -> t("locked_endpoint")
-                    cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
-                    else -> "⁦${cfg.address}:${cfg.port}⁩"
-                }
-                "$engine · $endpoint"
+            // The route: one slab, one row, one tap to the picker. Locked
+            // configs never reveal their endpoint and the built-in engines have
+            // none, exactly as before.
+            Slab(spacing = 0.dp) {
+                val routeSubtitle = selectedConfig?.let { cfg ->
+                    val engine = cfg.protocol.uppercase(java.util.Locale.ROOT)
+                    val endpoint = when {
+                        cfg.locked -> t("locked_endpoint")
+                        cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
+                        else -> "⁦${cfg.address}:${cfg.port}⁩"
+                    }
+                    "$engine · $endpoint"
+                } ?: t("home_openvpn_hint")
+                SlabRow(
+                    title = selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
+                        ?: t("hub_no_server"),
+                    subtitle = routeSubtitle,
+                    icon = Icons.Filled.Shield,
+                    accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
+                    chevron = true,
+                    onClick = onOpenPicker
+                )
             }
-            ServerPill(
-                name = selectedConfig?.name?.let(BrandConfig::sanitizePublicText),
-                subtitle = pillSubtitle,
-                state = conn,
-                onClick = onOpenPicker
+
+            // Throughput: one object, two readings, totals underneath.
+            val downParts = formatBytesParts(downSpeed, lang)
+            val upParts = formatBytesParts(upSpeed, lang)
+            StatStrip(
+                listOf(
+                    StatCell(
+                        label = t("download"),
+                        value = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
+                        accent = c.info,
+                        sub = t("home_total").format(formatBytes(totalDown, lang))
+                    ),
+                    StatCell(
+                        label = t("upload"),
+                        value = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
+                        accent = c.premium,
+                        sub = t("home_total").format(formatBytes(totalUp, lang))
+                    )
+                )
             )
-            if (selectedConfig == null && !connected) {
-                // OpenVPN profiles are never selectable here by design, so say
-                // where they live instead of leaving a dead end.
-                Text(
-                    t("home_openvpn_hint"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = c.textMuted,
-                    textAlign = TextAlign.Center
-                )
-            }
 
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            // Measured facts, plus the real-delay test as a fourth row of the
+            // same slab rather than a separate control.
+            ConnectionFacts(
+                state = conn,
+                serverAddress = activeConfig?.address,
+                serverPort = activeConfig?.port
             ) {
-                val downParts = formatBytesParts(downSpeed, lang)
-                val upParts = formatBytesParts(upSpeed, lang)
-                MetricTile(
-                    icon = Icons.Filled.ArrowDownward,
-                    label = t("download"),
-                    value = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
-                    sub = t("home_total").format(formatBytes(totalDown, lang)),
+                SlabDivider()
+                SlabRow(
+                    title = t("real_delay"),
+                    subtitle = if (conn == Connection.CONNECTED) null else t("home_ready"),
+                    icon = Icons.Filled.Speed,
                     accent = c.highlight,
-                    modifier = Modifier.weight(1f)
-                )
-                MetricTile(
-                    icon = Icons.Filled.ArrowUpward,
-                    label = t("upload"),
-                    value = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
-                    sub = t("home_total").format(formatBytes(totalUp, lang)),
-                    accent = c.premium,
-                    modifier = Modifier.weight(1f)
-                )
-                MetricTile(
-                    icon = Icons.Filled.NetworkCheck,
-                    label = t("real_delay"),
                     value = when {
                         delayRunning -> "…"
                         delayResult != null -> delayResult!!
                         else -> "—"
                     },
-                    accent = c.primary,
-                    modifier = Modifier.weight(1f),
-                    onClick = if (conn == Connection.CONNECTED && !delayRunning) {
-                        {
-                            delayRunning = true
-                            delayResult = null
-                            scope.launch {
-                                val ms = SpeedTest.delay()
-                                delayResult =
-                                    if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
-                                delayRunning = false
-                            }
+                    enabled = conn == Connection.CONNECTED && !delayRunning,
+                    onClick = {
+                        delayRunning = true
+                        delayResult = null
+                        scope.launch {
+                            val ms = SpeedTest.delay()
+                            delayResult =
+                                if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
+                            delayRunning = false
                         }
-                    } else null
+                    }
                 )
             }
 
-            ConnectionFacts(
-                state = conn,
-                serverAddress = activeConfig?.address,
-                serverPort = activeConfig?.port
-            )
-
             error?.takeIf { it.isNotBlank() && conn != Connection.CONNECTED }?.let { msg ->
-                Text(
-                    msg,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = c.error,
-                    textAlign = TextAlign.Center,
-                    maxLines = 3
-                )
+                SkinError(msg)
             }
         }
     }
@@ -5428,59 +5416,38 @@ private fun SettingsHubCard(
     iconRes: Int? = null,
     accents: List<String> = emptyList()
 ) {
+    // Kept as one entry point so the screens that still call it adopt the new
+    // skin with no edit: a hub card is now a one-row slab. The accents overload
+    // (highlighted words inside the subtitle) is preserved.
     val c = ghajarColors
     val accent = tint ?: c.primary
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(GhajarRadius.lg))
-            .background(c.card)
-            .border(1.dp, c.border, RoundedCornerShape(GhajarRadius.lg))
-            .clickable { onClick() }
-            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.md),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // A tinted square, not a filled pill: the accent marks the row without
-        // competing with the content for attention.
-        Box(
-            Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(GhajarRadius.sm))
-                .background(accent.copy(alpha = if (c.dark) 0.14f else 0.10f)),
-            contentAlignment = Alignment.Center
-        ) {
-            if (iconRes != null) {
-                Icon(
-                    painter = painterResource(iconRes),
-                    contentDescription = null,
-                    tint = accent,
-                    modifier = Modifier.size(20.dp)
-                )
-            } else if (icon != null) {
-                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
-            }
-        }
-        Spacer(Modifier.width(GhajarSpacing.md))
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                mixedText(title),
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = c.textPrimary
+    Slab(spacing = 0.dp, padding = GhajarSpacing.md) {
+        if (accents.isEmpty()) {
+            SlabRow(
+                title = title,
+                subtitle = subtitle,
+                icon = icon,
+                iconRes = iconRes,
+                accent = accent,
+                chevron = true,
+                onClick = onClick
+            )
+        } else {
+            SlabRow(
+                title = title,
+                icon = icon,
+                iconRes = iconRes,
+                accent = accent,
+                chevron = true,
+                onClick = onClick
             )
             Text(
-                if (accents.isEmpty()) mixedText(subtitle)
-                else accentText(subtitle, *accents.toTypedArray()),
+                accentText(subtitle, *accents.toTypedArray()),
                 style = MaterialTheme.typography.bodySmall,
-                color = c.textSecondary
+                color = c.textSecondary,
+                modifier = Modifier.padding(start = 50.dp, bottom = GhajarSpacing.sm)
             )
         }
-        Icon(
-            Icons.AutoMirrored.Filled.KeyboardArrowRight,
-            contentDescription = null,
-            tint = c.textMuted,
-            modifier = Modifier.size(20.dp)
-        )
     }
 }
 
@@ -5503,101 +5470,99 @@ private fun SettingsScreen(
     val usage by UsageStore.usage.collectAsState()
     val allTime = remember(usage) { UsageStore.totalAll(usage) }
 
-    // Eight identical cards in one undifferentiated stack made this the
-    // hardest page to scan in the app. Same entries, same destinations, now
-    // grouped so you look for a category rather than reading all eight.
+    // Rails name the categories; each category is ONE slab holding its rows.
+    // The old page was eight separate outlined cards in a column, which read as
+    // eight equally important things.
     Column(
         modifier.fillMaxSize().verticalScroll(scrollState)
             .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        SettingsSectionTitle(t("sec_connection"))
-        SettingsHubCard(
-            icon = Icons.Filled.Router,
-            title = t("connection_settings"),
-            subtitle = t("connection_settings_sub"),
-            onClick = onOpenConnection
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Build,
-            title = t("tools"),
-            subtitle = t("tools_sub"),
-            onClick = onOpenTools
+        ScreenHeader(
+            title = t("settings"),
+            context = t("settings_header_sub")
         )
 
-        SettingsSectionTitle(t("sec_diagnostics"))
+        Rail(t("sec_connection"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("connection_settings"),
+                subtitle = t("connection_settings_sub"),
+                icon = Icons.Filled.Router,
+                chevron = true,
+                onClick = onOpenConnection
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("tools"),
+                subtitle = t("tools_sub"),
+                icon = Icons.Filled.Build,
+                chevron = true,
+                onClick = onOpenTools
+            )
+        }
+
+        Rail(t("sec_diagnostics"))
         // The debugger and SSH used to be top-level tabs. Same screens, same
         // capabilities, reached from here so the bar can stay at three.
-        SettingsHubCard(
-            iconRes = R.drawable.ic_royal_tools,
-            title = t("debugger"),
-            subtitle = t("debugger_settings_sub"),
-            onClick = onOpenDebugger
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.TravelExplore,
-            title = t("netmon_title"),
-            subtitle = t("netmon_sub"),
-            onClick = onOpenNetMon
-        )
-        SettingsHubCard(
-            iconRes = R.drawable.ic_royal_tunnel,
-            title = t("ssh"),
-            subtitle = t("ssh_settings_sub"),
-            onClick = onOpenSsh
-        )
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("debugger"),
+                subtitle = t("debugger_settings_sub"),
+                iconRes = R.drawable.ic_royal_tools,
+                chevron = true,
+                onClick = onOpenDebugger
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("netmon_title"),
+                subtitle = t("netmon_sub"),
+                icon = Icons.Filled.TravelExplore,
+                chevron = true,
+                onClick = onOpenNetMon
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("ssh"),
+                subtitle = t("ssh_settings_sub"),
+                iconRes = R.drawable.ic_royal_tunnel,
+                chevron = true,
+                onClick = onOpenSsh
+            )
+        }
 
-        SettingsSectionTitle(t("sec_usage"))
-        SettingsHubCard(
-            icon = Icons.Filled.DataUsage,
-            title = t("data_usage"),
-            subtitle = formatBytes(allTime[0] + allTime[1], lang),
-            onClick = onOpenUsage
-        )
+        Rail(t("sec_usage"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("data_usage"),
+                subtitle = formatBytes(allTime[0] + allTime[1], lang),
+                icon = Icons.Filled.DataUsage,
+                chevron = true,
+                onClick = onOpenUsage
+            )
+        }
 
-        SettingsSectionTitle(t("sec_app"))
-        SettingsHubCard(
-            icon = Icons.Filled.Tune,
-            title = t("preferences"),
-            subtitle = t("preferences_sub"),
-            onClick = onOpenPreferences
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Info,
-            title = t("about"),
-            subtitle = t("about_sub"),
-            onClick = onOpenAbout
-        )
+        Rail(t("sec_app"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("preferences"),
+                subtitle = t("preferences_sub"),
+                icon = Icons.Filled.Tune,
+                chevron = true,
+                onClick = onOpenPreferences
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("about"),
+                subtitle = t("about_sub"),
+                icon = Icons.Filled.Info,
+                chevron = true,
+                onClick = onOpenAbout
+            )
+        }
 
-        SettingsSectionTitle(t("sec_data"))
+        Rail(t("sec_data"))
         BackupRow(store)
-    }
-}
-
-/**
- * A category heading inside a settings list. Secondary text with a short
- * brand rule, so it separates without competing with the cards under it.
- */
-@Composable
-private fun SettingsSectionTitle(text: String) {
-    val c = ghajarColors
-    Row(
-        Modifier.fillMaxWidth().padding(top = GhajarSpacing.sm, bottom = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
-    ) {
-        Box(
-            Modifier
-                .size(width = 3.dp, height = 12.dp)
-                .clip(RoundedCornerShape(GhajarRadius.pill))
-                .background(c.primary)
-        )
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            fontWeight = FontWeight.Bold,
-            color = c.textSecondary
-        )
     }
 }
 
@@ -5880,47 +5845,63 @@ private fun ToolsScreen(
             .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        SettingsSectionTitle(t("sec_sharing"))
-        SettingsHubCard(
-            icon = Icons.Filled.Wifi,
-            title = "اشتراک‌گذاری VPN",
-            subtitle = "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی",
-            onClick = { vpnShareOpen = true }
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.History,
-            title = "تاریخچهٔ اتصال",
-            subtitle = "زمان و وضعیت آخرین اتصال‌ها، قطعی‌ها و خطاها",
-            onClick = { connectionHistoryOpen = true }
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.BugReport,
-            title = "لاگ و اشکال‌زدایی",
-            subtitle = "مشاهده و دانلود گزارش کامل رویدادها و خطاها",
-            onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
-        )
+        ScreenHeader(title = t("tools"), context = t("tools_header_sub"))
 
-        SettingsSectionTitle(t("sec_measure"))
-        SettingsHubCard(
-            icon = Icons.Filled.NetworkCheck,
-            title = t("stab_title"),
-            subtitle = t("stab_sub"),
-            onClick = onOpenStability
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Dns,
-            title = t("chk_title"),
-            subtitle = t("chk_sub"),
-            onClick = onOpenCheckHost
-        )
-        SettingsHubCard(
-            iconRes = R.drawable.cloudflare,
-            title = t("scan_warp"),
-            subtitle = t("scan_sub"),
-            onClick = onOpenCleanIp
-        )
+        Rail(t("sec_sharing"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = "اشتراک‌گذاری VPN",
+                subtitle = "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی",
+                icon = Icons.Filled.Wifi,
+                chevron = true,
+                onClick = { vpnShareOpen = true }
+            )
+            SlabDivider()
+            SlabRow(
+                title = "تاریخچهٔ اتصال",
+                subtitle = "زمان و وضعیت آخرین اتصال‌ها، قطعی‌ها و خطاها",
+                icon = Icons.Filled.History,
+                chevron = true,
+                onClick = { connectionHistoryOpen = true }
+            )
+            SlabDivider()
+            SlabRow(
+                title = "لاگ و اشکال‌زدایی",
+                subtitle = "مشاهده و دانلود گزارش کامل رویدادها و خطاها",
+                icon = Icons.Filled.BugReport,
+                chevron = true,
+                onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
+            )
+        }
 
-        SettingsSectionTitle(t("sec_privacy"))
+        Rail(t("sec_measure"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("stab_title"),
+                subtitle = t("stab_sub"),
+                icon = Icons.Filled.NetworkCheck,
+                chevron = true,
+                onClick = onOpenStability
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("chk_title"),
+                subtitle = t("chk_sub"),
+                icon = Icons.Filled.Dns,
+                chevron = true,
+                onClick = onOpenCheckHost
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("scan_warp"),
+                subtitle = t("scan_sub"),
+                iconRes = R.drawable.cloudflare,
+                chevron = true,
+                onClick = onOpenCleanIp
+            )
+        }
+
+        Rail(t("sec_privacy"))
         SettingsGroup {
             SettingRow(
                 title = t("adblock_title"),
@@ -6761,16 +6742,10 @@ private fun SettingsGroup(
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
+    // Every grouped control in the app comes through here, so this one change
+    // puts all of them on the slab skin.
     val c = ghajarColors
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(GhajarRadius.lg))
-            .background(c.card)
-            .border(1.dp, c.border, RoundedCornerShape(GhajarRadius.lg))
-            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-    ) {
+    Slab {
         if (title != null) {
             Text(
                 mixedText(title),
