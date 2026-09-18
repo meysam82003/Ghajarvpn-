@@ -169,6 +169,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Notifications
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
@@ -1222,6 +1223,10 @@ private fun GozarApp(
     var toolsDetail by remember { mutableStateOf(false) }
     var connDetail by remember { mutableStateOf(false) }
     var prefsDetail by remember { mutableStateOf(false) }
+    // Notification settings used to be buried inside the shop's third
+    // section. The brief puts notifications in categorized Settings, so they
+    // get a page of their own here.
+    var notifDetail by remember { mutableStateOf(false) }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
     val sortMode by store.sortMode.collectAsState()
     val selectedId by store.selectedId.collectAsState()
@@ -1372,6 +1377,7 @@ private fun GozarApp(
         onSettingsTab && netMonDetail -> "netmon"
         onSettingsTab && toolsDetail -> "tools"
         onSettingsTab && connDetail -> "connection_settings"
+        onSettingsTab && notifDetail -> "notifications"
         onSettingsTab && prefsDetail -> "preferences"
         else -> "settings"
     }
@@ -1400,6 +1406,7 @@ private fun GozarApp(
             netMonDetail -> netMonDetail = false
             toolsDetail -> toolsDetail = false
             connDetail -> connDetail = false
+            notifDetail -> notifDetail = false
             prefsDetail -> prefsDetail = false
             // SSH owns its own inner navigation; let it handle its own back.
             sshDetail && sshSubScreen -> Unit
@@ -1723,6 +1730,7 @@ private fun GozarApp(
                     netMonDetail -> "netmon"
                     toolsDetail -> "tools"
                     connDetail -> "connection_settings"
+                    notifDetail -> "notifications"
                     prefsDetail -> "preferences"
                     else -> "settings"
                 }
@@ -1774,8 +1782,10 @@ private fun GozarApp(
                         )
                         "preferences" -> PreferencesScreen(
                             store = store,
-                            onOpenTheme = { themeDetail = true }
+                            onOpenTheme = { themeDetail = true },
+                            onOpenNotifications = { notifDetail = true }
                         )
+                        "notifications" -> NotificationSettingsScreen()
                         else -> SettingsScreen(
                             store = store,
                             scrollState = settingsScroll,
@@ -3896,6 +3906,8 @@ private fun settingsDepth(key: String): Int = when (key) {
     "netcatone" -> 3
     // Reached directly from the Settings list, like usage or tools.
     "ssh", "debugger" -> 1
+    // One level below preferences, like the theme picker.
+    "notifications" -> 2
     else -> 1
 }
 
@@ -5480,15 +5492,36 @@ private fun SettingsScreen(
     val usage by UsageStore.usage.collectAsState()
     val allTime = remember(usage) { UsageStore.totalAll(usage) }
 
+    // Eight identical cards in one undifferentiated stack made this the
+    // hardest page to scan in the app. Same entries, same destinations, now
+    // grouped so you look for a category rather than reading all eight.
     Column(
-        modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.fillMaxSize().verticalScroll(scrollState)
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
+        SettingsSectionTitle(t("sec_connection"))
         SettingsHubCard(
-            icon = Icons.Filled.DataUsage,
-            title = t("data_usage"),
-            subtitle = formatBytes(allTime[0] + allTime[1], lang),
-            onClick = onOpenUsage
+            icon = Icons.Filled.Router,
+            title = t("connection_settings"),
+            subtitle = t("connection_settings_sub"),
+            onClick = onOpenConnection
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.Build,
+            title = t("tools"),
+            subtitle = t("tools_sub"),
+            onClick = onOpenTools
+        )
+
+        SettingsSectionTitle(t("sec_diagnostics"))
+        // The debugger and SSH used to be top-level tabs. Same screens, same
+        // capabilities, reached from here so the bar can stay at three.
+        SettingsHubCard(
+            iconRes = R.drawable.ic_royal_tools,
+            title = t("debugger"),
+            subtitle = t("debugger_settings_sub"),
+            onClick = onOpenDebugger
         )
         SettingsHubCard(
             icon = Icons.Filled.TravelExplore,
@@ -5497,31 +5530,21 @@ private fun SettingsScreen(
             onClick = onOpenNetMon
         )
         SettingsHubCard(
-            icon = Icons.Filled.Build,
-            title = t("tools"),
-            subtitle = t("tools_sub"),
-            onClick = onOpenTools
-        )
-        // Both used to be top-level tabs. Same screens, same capabilities,
-        // reached from here so the bar can stay at three.
-        SettingsHubCard(
             iconRes = R.drawable.ic_royal_tunnel,
             title = t("ssh"),
             subtitle = t("ssh_settings_sub"),
             onClick = onOpenSsh
         )
+
+        SettingsSectionTitle(t("sec_usage"))
         SettingsHubCard(
-            iconRes = R.drawable.ic_royal_tools,
-            title = t("debugger"),
-            subtitle = t("debugger_settings_sub"),
-            onClick = onOpenDebugger
+            icon = Icons.Filled.DataUsage,
+            title = t("data_usage"),
+            subtitle = formatBytes(allTime[0] + allTime[1], lang),
+            onClick = onOpenUsage
         )
-        SettingsHubCard(
-            icon = Icons.Filled.Router,
-            title = t("connection_settings"),
-            subtitle = t("connection_settings_sub"),
-            onClick = onOpenConnection
-        )
+
+        SettingsSectionTitle(t("sec_app"))
         SettingsHubCard(
             icon = Icons.Filled.Tune,
             title = t("preferences"),
@@ -5535,7 +5558,35 @@ private fun SettingsScreen(
             onClick = onOpenAbout
         )
 
+        SettingsSectionTitle(t("sec_data"))
         BackupRow(store)
+    }
+}
+
+/**
+ * A category heading inside a settings list. Secondary text with a short
+ * brand rule, so it separates without competing with the cards under it.
+ */
+@Composable
+private fun SettingsSectionTitle(text: String) {
+    val c = ghajarColors
+    Row(
+        Modifier.fillMaxWidth().padding(top = GhajarSpacing.sm, bottom = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+    ) {
+        Box(
+            Modifier
+                .size(width = 3.dp, height = 12.dp)
+                .clip(RoundedCornerShape(GhajarRadius.pill))
+                .background(c.primary)
+        )
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = c.textSecondary
+        )
     }
 }
 
@@ -5810,21 +5861,20 @@ private fun ToolsScreen(
     val blockWhenOff by store.blockWhenOff.collectAsState()
     var vpnShareOpen by remember { mutableStateOf(false) }
     var connectionHistoryOpen by remember { mutableStateOf(false) }
+    // Nine unrelated entries in one flat stack: sharing next to ad-blocking
+    // next to a Cloudflare scanner. Grouped by what they are for, same
+    // entries and same destinations.
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
+        SettingsSectionTitle(t("sec_sharing"))
         SettingsHubCard(
             icon = Icons.Filled.Wifi,
             title = "اشتراک‌گذاری VPN",
             subtitle = "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی",
             onClick = { vpnShareOpen = true }
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.NetworkCheck,
-            title = t("stab_title"),
-            subtitle = t("stab_sub"),
-            onClick = onOpenStability
         )
         SettingsHubCard(
             icon = Icons.Filled.History,
@@ -5838,6 +5888,14 @@ private fun ToolsScreen(
             subtitle = "مشاهده و دانلود گزارش کامل رویدادها و خطاها",
             onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
         )
+
+        SettingsSectionTitle(t("sec_measure"))
+        SettingsHubCard(
+            icon = Icons.Filled.NetworkCheck,
+            title = t("stab_title"),
+            subtitle = t("stab_sub"),
+            onClick = onOpenStability
+        )
         SettingsHubCard(
             icon = Icons.Filled.Dns,
             title = t("chk_title"),
@@ -5850,6 +5908,8 @@ private fun ToolsScreen(
             subtitle = t("scan_sub"),
             onClick = onOpenCleanIp
         )
+
+        SettingsSectionTitle(t("sec_privacy"))
         SettingsGroup {
             SettingRow(
                 title = t("adblock_title"),
@@ -5858,16 +5918,14 @@ private fun ToolsScreen(
                 onCheckedChange = { store.setAdBlock(it) }
             )
             AnimatedVisibility(visible = adBlock) {
+                // A dependent sub-setting, so it sits on the nested card tone
+                // with the brand hairline rather than a tinted block.
                 Box(
                     Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                            RoundedCornerShape(14.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .clip(RoundedCornerShape(GhajarRadius.sm))
+                        .background(ghajarColors.secondaryCard)
+                        .border(1.dp, ghajarColors.primary.copy(alpha = 0.30f), RoundedCornerShape(GhajarRadius.sm))
+                        .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm)
                 ) {
                     SettingRow(
                         title = t("adblock_always_title"),
@@ -7026,6 +7084,7 @@ private fun ConnectionSettingsScreen(
 private fun PreferencesScreen(
     store: ConfigStore,
     onOpenTheme: () -> Unit,
+    onOpenNotifications: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -7051,6 +7110,12 @@ private fun PreferencesScreen(
             title = t("theme_settings"),
             subtitle = t("theme_settings_sub"),
             onClick = onOpenTheme
+        )
+        SettingsHubCard(
+            icon = Icons.Filled.Notifications,
+            title = t("notif_settings"),
+            subtitle = t("notif_settings_sub"),
+            onClick = onOpenNotifications
         )
 
         SettingsGroup {
@@ -7200,6 +7265,23 @@ private val TelegramIcon: ImageVector =
         )
         build()
     }
+
+/**
+ * Notification settings as a settings page rather than a block inside the
+ * shop's third section, where they were effectively unfindable. The controls
+ * themselves are unchanged - same permission request, same channel entry
+ * points, same per-category toggles.
+ */
+@Composable
+private fun NotificationSettingsScreen(modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        SettingsGroup { GhajarNotificationSettings() }
+    }
+}
 
 @Composable
 private fun ThemeSettingsScreen(store: ConfigStore, modifier: Modifier = Modifier) {

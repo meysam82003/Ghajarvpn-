@@ -462,7 +462,6 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             if (section == 4) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
-            if (section == 2) item(key = "notification-settings") { GhajarNotificationSettings() }
             if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, store.lang.value) }
             if (section in setOf(0, 3)) {
                 val entries = serverPending.toMutableList()
