@@ -71,7 +71,7 @@ fun ConnectionHistoryDialog(onDismiss: () -> Unit) {
                             Text(timeFormat.format(Date(event.timeMs)), style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f))
+                        HorizontalDivider(color = ghajarColors.border)
                     }
                 }
             }

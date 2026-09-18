@@ -91,7 +91,7 @@ private fun LogScreen(onBack: () -> Unit) {
                     Icon(Icons.Filled.DeleteOutline, contentDescription = "پاک کردن لاگ", tint = MaterialTheme.colorScheme.error)
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.surface)
+            HorizontalDivider(color = ghajarColors.border)
 
             if (entries.isEmpty()) {
                 Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {

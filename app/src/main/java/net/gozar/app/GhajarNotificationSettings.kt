@@ -45,7 +45,7 @@ fun GhajarNotificationSettings() {
         }, modifier = Modifier.fillMaxWidth()) { Text(if (enabled) "تنظیمات اعلان گوشی" else "فعال‌سازی اعلان گوشی") }
 
         if (enabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            HorizontalDivider()
+            HorizontalDivider(color = ghajarColors.border)
             Text("دسته‌های اعلان", style = MaterialTheme.typography.labelLarge)
             Text(
                 "اندروید اجازه نمی‌دهد اپ‌ها به‌صورت مستقیم دسته‌ای از اعلان را خاموش کنند؛ روی هرکدام بزن تا تنظیمات همان دسته در گوشی باز شود.",

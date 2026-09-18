@@ -5822,7 +5822,7 @@ private fun BackupRow(store: ConfigStore) {
                             )
                         }
                         Text(mixedText(t("backup_restore_q")), style = MaterialTheme.typography.bodySmall)
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
+                        HorizontalDivider(color = ghajarColors.border)
                         BounceOutlinedButton(
                             onClick = {
                                 pending = null
@@ -6036,8 +6036,9 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
             Text("اشتراک‌گذاری اتصال VPN با دستگاه دیگر", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp))
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(GhajarRadius.sm))
+                    .background(ghajarColors.secondaryCard)
+                    .border(1.dp, ghajarColors.border, RoundedCornerShape(GhajarRadius.sm))
                     .padding(horizontal = 14.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -6068,7 +6069,7 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
                         "بدون رمز؛ هر دستگاهی در همین شبکه می‌تواند از این آدرس استفاده کند.",
                         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error
                     )
-                    HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.12f))
+                    HorizontalDivider(color = ghajarColors.border)
                     ShareAddressRow("آدرس SOCKS5 (امن‌تر؛ برای اپ/مرورگری که SOCKS را پشتیبانی کند)",
                         ip, socksPort.toString(), ::copy)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -6096,7 +6097,7 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
                     ) { Text("توقف اشتراک‌گذاری") }
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
+            HorizontalDivider(color = ghajarColors.border)
             Text(
                 "این پراکسی فقط ترافیکی را که خودت به آن دستگاه اجازه می‌دهی از VPN رد می‌کند، نه کل دستگاه دوم را؛ بستگی به این دارد که خود آن دستگاه یا برنامه‌اش پراکسی را رعایت کند. اشتراک‌گذاری کامل ترافیک دستگاه دوم بدون دسترسی روت روی اندروید ممکن نیست.",
                 style = MaterialTheme.typography.bodySmall,
@@ -9246,7 +9247,7 @@ private fun ConfigUsageDetailDialog(
                     Text(formatBytes(upBytes + downBytes, lang), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                 }
             }
-            HorizontalDivider(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.15f))
+            HorizontalDivider(color = ghajarColors.border)
             Text("مصرف به تفکیک برنامه", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
             when {
                 longRange -> Text(
