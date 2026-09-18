@@ -125,6 +125,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Apps
@@ -249,6 +250,7 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -1562,12 +1564,24 @@ private fun GozarApp(
             }
         },
         bottomBar = {
+            // A floating pill bar that reads as its own surface above the
+            // canvas, with a hairline so it stays defined on the near-black
+            // Premium Green background instead of dissolving into it.
             NavigationBar(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(28.dp)),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp
+                modifier = Modifier
+                    .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm)
+                    .clip(RoundedCornerShape(GhajarRadius.xl))
+                    .border(1.dp, ghajarColors.border, RoundedCornerShape(GhajarRadius.xl)),
+                containerColor = ghajarColors.card,
+                tonalElevation = 0.dp
             ) {
+                val navColors = NavigationBarItemDefaults.colors(
+                    selectedIconColor = ghajarColors.primary,
+                    selectedTextColor = ghajarColors.textPrimary,
+                    indicatorColor = ghajarColors.primary.copy(alpha = if (ghajarColors.dark) 0.16f else 0.12f),
+                    unselectedIconColor = ghajarColors.textMuted,
+                    unselectedTextColor = ghajarColors.textMuted
+                )
                 NavigationBarItem(
                     selected = page == PAGE_HOME,
                     onClick = {
@@ -1575,13 +1589,15 @@ private fun GozarApp(
                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
                     },
                     icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(26.dp)) },
-                    label = { Text(t("home"), maxLines = 1) }
+                    label = { Text(t("home"), maxLines = 1) },
+                    colors = navColors
                 )
                 NavigationBarItem(
                     selected = page == PAGE_SHOP,
                     onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } },
                     icon = { Icon(painterResource(R.drawable.ic_royal_shop), contentDescription = null, modifier = Modifier.size(26.dp)) },
-                    label = { Text(t("shop"), maxLines = 1) }
+                    label = { Text(t("shop"), maxLines = 1) },
+                    colors = navColors
                 )
                 NavigationBarItem(
                     selected = page == PAGE_SETTINGS,
@@ -1605,7 +1621,8 @@ private fun GozarApp(
                         scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
                     },
                     icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(26.dp)) },
-                    label = { Text(t("settings"), maxLines = 1) }
+                    label = { Text(t("settings"), maxLines = 1) },
+                    colors = navColors
                 )
             }
         }
@@ -4014,27 +4031,35 @@ private fun GlassDialog(
     accentOverride: Color? = null,
     body: @Composable ColumnScope.() -> Unit
 ) {
-    val accent = accentOverride
-        ?: if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val c = ghajarColors
+    val accent = accentOverride ?: if (destructive) c.error else c.primary
     Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            ),
-            border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(GhajarRadius.xl))
+                .background(c.surface)
+                // A hairline in the accent, not a glow: the dialog should read
+                // as a raised sheet, not as a highlighted object.
+                .border(1.dp, c.borderStrong, RoundedCornerShape(GhajarRadius.xl))
+                .padding(GhajarSpacing.xl),
+            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
         ) {
-            Column(
-                Modifier.fillMaxWidth().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = accent
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(width = 3.dp, height = 18.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(accent)
+                    )
+                    Spacer(Modifier.width(GhajarSpacing.sm))
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = c.textPrimary
+                    )
+                }
                 body()
                 Row(
                     Modifier.fillMaxWidth(),
@@ -4060,7 +4085,6 @@ private fun GlassDialog(
                         Text(confirmLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
                     }
                 }
-            }
         }
     }
 }
@@ -5477,54 +5501,59 @@ private fun SettingsHubCard(
     iconRes: Int? = null,
     accents: List<String> = emptyList()
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, (tint ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.30f))
+    val c = ghajarColors
+    val accent = tint ?: c.primary
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .background(c.card)
+            .border(1.dp, c.border, RoundedCornerShape(GhajarRadius.lg))
+            .clickable { onClick() }
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.md),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // A tinted square, not a filled pill: the accent marks the row without
+        // competing with the content for attention.
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(GhajarRadius.sm))
+                .background(accent.copy(alpha = if (c.dark) 0.14f else 0.10f)),
+            contentAlignment = Alignment.Center
         ) {
-            Box(
-                Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
-                    .background((tint ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                val iconTint = tint ?: MaterialTheme.colorScheme.primary
-                if (iconRes != null) {
-                    Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        tint = iconTint,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else if (icon != null) {
-                    Icon(icon, contentDescription = null, tint = iconTint,
-                        modifier = Modifier.size(20.dp))
-                }
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(mixedText(title), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    if (accents.isEmpty()) mixedText(subtitle)
-                    else accentText(subtitle, *accents.toTypedArray()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+            if (iconRes != null) {
+                Icon(
+                    painter = painterResource(iconRes),
+                    contentDescription = null,
+                    tint = accent,
+                    modifier = Modifier.size(20.dp)
                 )
+            } else if (icon != null) {
+                Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(20.dp))
             }
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+        Spacer(Modifier.width(GhajarSpacing.md))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                mixedText(title),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = c.textPrimary
+            )
+            Text(
+                if (accents.isEmpty()) mixedText(subtitle)
+                else accentText(subtitle, *accents.toTypedArray()),
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textSecondary
             )
         }
+        Icon(
+            Icons.AutoMirrored.Filled.KeyboardArrowRight,
+            contentDescription = null,
+            tint = c.textMuted,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }
 
@@ -6758,27 +6787,25 @@ private fun SettingsGroup(
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
+    val c = ghajarColors
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .background(c.card)
+            .border(1.dp, c.border, RoundedCornerShape(GhajarRadius.lg))
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (title != null) {
-                Text(
-                    mixedText(title),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            content()
+        if (title != null) {
+            Text(
+                mixedText(title),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = c.textSecondary
+            )
         }
+        content()
     }
 }
 

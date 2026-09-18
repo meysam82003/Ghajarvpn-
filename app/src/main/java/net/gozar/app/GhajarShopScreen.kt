@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -1138,22 +1139,58 @@ private fun panelIcon(name: String): String = when {
 @Composable
 private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
     var details by remember(product.id) { mutableStateOf(false) }
-    Card(onClick = { details = true }, enabled = enabled,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        shape = RoundedCornerShape(22.dp), elevation = CardDefaults.cardElevation(1.dp),
-        modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Icon(Icons.Filled.Shield, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(product.name, fontWeight = FontWeight.Bold, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(listOfNotNull(product.trafficGb?.let { "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ" },
-                    product.days?.let { "$it روز" }).joinToString("  •  "),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
-                    color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-            }
-            Icon(Icons.Filled.OpenInNew, "مشاهدهٔ محصول", modifier = Modifier.size(20.dp))
+    val c = ghajarColors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .background(c.card)
+            .border(1.dp, c.border, RoundedCornerShape(GhajarRadius.lg))
+            .then(if (enabled) Modifier.clickable { details = true } else Modifier)
+            .padding(GhajarSpacing.lg),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        Box(
+            Modifier
+                .size(38.dp)
+                .clip(RoundedCornerShape(GhajarRadius.sm))
+                .background(c.primary.copy(alpha = if (c.dark) 0.14f else 0.10f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(Icons.Filled.Shield, null, tint = c.primary, modifier = Modifier.size(20.dp))
         }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                product.name,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = if (enabled) c.textPrimary else c.onDisabled,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                listOfNotNull(
+                    product.trafficGb?.let { "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ" },
+                    product.days?.let { "$it روز" }
+                ).joinToString("  •  "),
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textSecondary
+            )
+            Text(
+                product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" }
+                    ?: "قیمت در دسترس نیست",
+                style = MaterialTheme.typography.bodyLarge,
+                color = if (enabled) c.highlight else c.onDisabled,
+                fontWeight = FontWeight.Bold
+            )
+        }
+        Icon(
+            Icons.Filled.OpenInNew,
+            "مشاهدهٔ محصول",
+            tint = c.textMuted,
+            modifier = Modifier.size(18.dp)
+        )
     }
     if (details) AlertDialog(onDismissRequest = { details = false },
         title = { Text(product.name) },
@@ -1244,10 +1281,26 @@ private fun PaymentMethodCard(method: GhajarPaymentMethod, amount: Long, enabled
 
 @Composable
 private fun StatusCard(text: String, error: Boolean, onDismiss: () -> Unit) {
-    Card(colors = CardDefaults.cardColors(containerColor = if (error) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer)) {
-        Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(if (error) GhajarCommerceRules.publicMessage(text) else text, modifier = Modifier.weight(1f), color = if (error) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer)
-            TextButton(onClick = onDismiss) { Text("بستن") }
+    val c = ghajarColors
+    // A left rule in the state's colour instead of a fully tinted block, so a
+    // long error stays readable and an info message stays quiet.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.md))
+            .background(if (error) c.errorSurface else c.secondaryCard)
+            .border(1.dp, if (error) c.error.copy(alpha = 0.45f) else c.border, RoundedCornerShape(GhajarRadius.md))
+            .padding(start = GhajarSpacing.md, end = GhajarSpacing.xs, top = GhajarSpacing.sm, bottom = GhajarSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            if (error) GhajarCommerceRules.publicMessage(text) else text,
+            modifier = Modifier.weight(1f),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (error) c.error else c.textPrimary
+        )
+        TextButton(onClick = onDismiss) {
+            Text("بستن", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
         }
     }
 }
