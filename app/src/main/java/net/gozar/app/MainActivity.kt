@@ -2364,8 +2364,8 @@ private fun ConfigPickerScreen(
                     onDismissRequest = { purgeMenu = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     DropdownMenuItem(
                         text = { Text(t("delete_manual_configs"), style = MaterialTheme.typography.bodyMedium) },
@@ -2448,8 +2448,8 @@ private fun ConfigPickerScreen(
                     onDismissRequest = { sortMenu = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     listOf(
                         ConfigStore.SORT_ALPHA to t("sort_alpha"),
@@ -3858,8 +3858,8 @@ private fun LabeledDropdown(
                 onDismissRequest = { open = false },
                 offset = DpOffset(0.dp, 8.dp),
                 shape = RoundedCornerShape(16.dp),
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                containerColor = ghajarColors.surface,
+                border = BorderStroke(1.dp, ghajarColors.border)
             ) {
                 options.forEach { opt ->
                     DropdownMenuItem(
@@ -7075,8 +7075,8 @@ private fun PreferencesScreen(
                     onDismissRequest = { langOpen = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     DropdownMenuItem(
                         text = {
@@ -7122,8 +7122,8 @@ private fun PreferencesScreen(
                     onDismissRequest = { autoRefreshOpen = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     listOf(0, 1, 6, 12, 24).forEach { h ->
                         DropdownMenuItem(
@@ -7157,8 +7157,8 @@ private fun PreferencesScreen(
                     onDismissRequest = { coreLogOpen = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     listOf("none", "error", "warning", "info", "debug").forEach { level ->
                         DropdownMenuItem(
@@ -8706,8 +8706,8 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                     onDismissRequest = { menuOpen = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     RangeMode.values().forEach { m ->
                         DropdownMenuItem(
@@ -9045,8 +9045,8 @@ private fun RangeCell(
                     onDismissRequest = { open = false },
                     offset = DpOffset(0.dp, 4.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     (0..23).forEach { h ->
                         DropdownMenuItem(
@@ -10227,8 +10227,8 @@ private fun SubscriptionHeader(
                         onDismissRequest = { subPurgeMenu = false },
                         offset = DpOffset(0.dp, 4.dp),
                         shape = RoundedCornerShape(16.dp),
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                        containerColor = ghajarColors.surface,
+                        border = BorderStroke(1.dp, ghajarColors.border)
                     ) {
                         DropdownMenuItem(
                             text = { Text(t("delete_all_configs"), style = MaterialTheme.typography.bodyMedium) },
@@ -10820,9 +10820,13 @@ private fun ConfigRow(
         QrDialog(link = link, title = GhajarUiRules.brandedConfigName(config.name), onDismiss = { qrFor = null })
     }
 
+    val c = ghajarColors
+    // Selection is a low-alpha brand wash rather than a filled container, so a
+    // long list of selected rows stays readable instead of turning into a block
+    // of solid colour.
     val highlight by animateColorAsState(
         targetValue = when {
-            checked || isSelected -> MaterialTheme.colorScheme.primaryContainer
+            checked || isSelected -> c.primary.copy(alpha = 0.16f)
             containerColor != null -> containerColor
             else -> Color.Transparent
         },
@@ -10830,7 +10834,7 @@ private fun ConfigRow(
         label = "rowHighlight"
     )
 
-    val swipeRed = ghajarColors.error
+    val swipeRed = c.error
     var rowWidth by remember { mutableStateOf(1) }
     var dragX by remember { mutableStateOf(0f) }
     val dragEnabled = !selectionMode && !checked
@@ -10859,7 +10863,7 @@ private fun ConfigRow(
             .fillMaxWidth()
             .onSizeChanged { rowWidth = it.width }
             .offset { IntOffset(dragX.roundToInt(), 0) }
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(GhajarRadius.md))
             .draggable(
                 orientation = Orientation.Horizontal,
                 enabled = dragEnabled,
@@ -10886,10 +10890,11 @@ private fun ConfigRow(
                 }
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
-        shape = RoundedCornerShape(14.dp),
-        colors = if (containerColor != null)
-            CardDefaults.cardColors(containerColor = containerColor)
-        else CardDefaults.cardColors()
+        shape = RoundedCornerShape(GhajarRadius.md),
+        colors = CardDefaults.cardColors(containerColor = containerColor ?: c.card),
+        // The active row carries a brand hairline - the one row that is doing
+        // something should be identifiable without reading it.
+        border = BorderStroke(1.dp, if (isActive) c.primary.copy(alpha = 0.55f) else c.border)
     ) {
         Row(
             Modifier.fillMaxWidth().background(rowTint)
