@@ -69,7 +69,9 @@ fun ConnectionHub(
 ) {
     val c = ghajarColors
     val lang = LocalLang.current
-    val t = stringsFn()
+    // MainActivity's stringsFn() is file-private; resolve through Strings
+    // directly, like every other screen outside that file.
+    val t: (String) -> String = { Strings.get(lang, it) }
 
     val connected = state == Connection.CONNECTED
     val busy = state == Connection.CONNECTING || state == Connection.DISCONNECTING
