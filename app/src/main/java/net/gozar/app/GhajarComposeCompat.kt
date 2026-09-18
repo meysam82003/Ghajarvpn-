@@ -89,7 +89,6 @@ internal fun Modifier.widthIn(
     min: Dp = Dp.Unspecified,
     max: Dp = Dp.Unspecified
 ): Modifier = this.composeWidthIn(min = min, max = max)
-\n
 
 /**
  * The app's text field, standing in for Material's outlined one.
