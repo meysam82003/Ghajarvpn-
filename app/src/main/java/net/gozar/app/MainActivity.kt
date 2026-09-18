@@ -5719,6 +5719,13 @@ private fun BackupRow(store: ConfigStore) {
     var statusOwner by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<ByteArray?>(null) }
+    // A password-protected backup can't be told apart from "not a backup at
+    // all" without the password first - isBackup()/decodeBackup() both throw
+    // NeedsPassword() for it. That used to be swallowed as a flat, wrong
+    // "این فایل کانفیگ اشتراکی است، نه بکاپ" regardless of the real cause.
+    var needsPassword by remember { mutableStateOf(false) }
+    var backupPassword by remember { mutableStateOf("") }
+    var backupPasswordError by remember { mutableStateOf("") }
 
     LaunchedEffect(status) {
         if (status.isNotEmpty()) { delay(3500); status = "" }
@@ -5761,8 +5768,14 @@ private fun BackupRow(store: ConfigStore) {
                 }
                 when {
                     bytes == null || bytes.isEmpty() -> status = t("import_bad_file")
+                    runCatching { ConfigFile.isPasswordProtected(bytes) }.getOrDefault(false) -> {
+                        needsPassword = true
+                        backupPassword = ""
+                        backupPasswordError = ""
+                        pending = bytes
+                    }
                     runCatching { ConfigFile.isBackup(context, bytes, null) }
-                        .getOrDefault(false) -> pending = bytes
+                        .getOrDefault(false) -> { needsPassword = false; pending = bytes }
                     else -> status = t("backup_not_backup")
                 }
             }
@@ -5832,35 +5845,65 @@ private fun BackupRow(store: ConfigStore) {
     pending?.let { bytes ->
         var preview by remember(bytes) { mutableStateOf<ConfigFile.Backup?>(null) }
         var previewFailed by remember(bytes) { mutableStateOf(false) }
-        LaunchedEffect(bytes) {
+        var passwordSubmitted by remember(bytes) { mutableStateOf(false) }
+        LaunchedEffect(bytes, passwordSubmitted) {
+            if (needsPassword && !passwordSubmitted) return@LaunchedEffect
+            val pw = if (needsPassword) backupPassword else null
             val result = withContext(Dispatchers.IO) {
-                runCatching { ConfigFile.decodeBackup(context, bytes, null) }.getOrNull()
+                runCatching { ConfigFile.decodeBackup(context, bytes, pw) }
             }
-            if (result == null) previewFailed = true else preview = result
+            result.onSuccess { preview = it }.onFailure { e ->
+                if (needsPassword && e is ConfigFile.WrongPassword) {
+                    backupPasswordError = t("import_wrong_password")
+                    passwordSubmitted = false
+                } else {
+                    previewFailed = true
+                }
+            }
         }
+        val awaitingPassword = needsPassword && preview == null && !previewFailed
         GlassDialog(
-            onDismiss = { pending = null },
+            onDismiss = { pending = null; needsPassword = false },
             title = t("backup_import"),
-            confirmLabel = "جایگزینی کامل",
+            confirmLabel = if (awaitingPassword) t("import_button") else "جایگزینی کامل",
             dismissLabel = t("cancel"),
             accentOverride = AppGreen,
             onConfirm = {
-                val result = preview
-                pending = null
-                if (result != null) {
-                    store.restoreBackup(result.configs, result.subs, result.settings)
-                    GhajarOpenVpnSettings.restore(context, result.openVpnSettings)
-                    val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, result.openVpnProfiles, merge = false)
-                    status = localizeDigits(
-                        t("backup_restored").format(result.configs.size, result.subs.size) +
-                            if (result.openVpnProfiles.isNotEmpty()) " + ${ovpnOutcome.added} پروفایل OpenVPN" else "",
-                        store.lang.value
-                    )
-                } else status = t("import_bad_file")
+                if (awaitingPassword) {
+                    if (backupPassword.isNotEmpty()) { backupPasswordError = ""; passwordSubmitted = true }
+                } else {
+                    val result = preview
+                    pending = null
+                    needsPassword = false
+                    if (result != null) {
+                        store.restoreBackup(result.configs, result.subs, result.settings)
+                        GhajarOpenVpnSettings.restore(context, result.openVpnSettings)
+                        val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, result.openVpnProfiles, merge = false)
+                        status = localizeDigits(
+                            t("backup_restored").format(result.configs.size, result.subs.size) +
+                                if (result.openVpnProfiles.isNotEmpty()) " + ${ovpnOutcome.added} پروفایل OpenVPN" else "",
+                            store.lang.value
+                        )
+                    } else status = t("import_bad_file")
+                }
             }
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 when {
+                    awaitingPassword -> {
+                        Text(t("import_needs_password"), style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(
+                            backupPassword, { backupPassword = it; backupPasswordError = "" },
+                            label = { Text(t("import_password")) },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (backupPasswordError.isNotEmpty()) {
+                            Text(backupPasswordError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
                     previewFailed -> Text(t("import_bad_file"), color = MaterialTheme.colorScheme.error)
                     preview == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
