@@ -6014,6 +6014,7 @@ private fun BackupRow(store: ConfigStore) {
                     if (result != null) {
                         store.restoreBackup(result.configs, result.subs, result.settings)
                         GhajarOpenVpnSettings.restore(context, result.openVpnSettings)
+                        NetworkRules.restore(context, result.networkRules)
                         val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, result.openVpnProfiles, merge = false)
                         status = localizeDigits(
                             t("backup_restored").format(result.configs.size, result.subs.size) +
@@ -7085,6 +7086,12 @@ private fun ConnectionSettingsScreen(
     var ovpnUseSystemProxy by remember { mutableStateOf(openVpnDefaults.useSystemProxy) }
     var ovpnPauseOnScreenOff by remember { mutableStateOf(openVpnDefaults.pauseOnScreenOff) }
     var ovpnEncryptProfiles by remember { mutableStateOf(openVpnDefaults.encryptProfiles) }
+    val netRuleDefaults = remember(settingsContext) { NetworkRules.read(settingsContext) }
+    var netRulesOn by remember { mutableStateOf(netRuleDefaults.enabled) }
+    var netRuleWifi by remember { mutableStateOf(netRuleDefaults.wifi) }
+    var netRuleCellular by remember { mutableStateOf(netRuleDefaults.cellular) }
+    var netRuleOther by remember { mutableStateOf(netRuleDefaults.other) }
+    var netRuleRecover by remember { mutableStateOf(netRuleDefaults.recoverOnChange) }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -7260,6 +7267,52 @@ private fun ConnectionSettingsScreen(
                     }
                 )
             }
+        }
+
+        SettingsGroup(t("netrule_title")) {
+            Text(
+                t("netrule_sub"),
+                style = MaterialTheme.typography.bodySmall,
+                color = ghajarColors.textSecondary
+            )
+            SettingRow(
+                title = t("netrule_enabled"),
+                subtitle = t("netrule_enabled_sub"),
+                checked = netRulesOn,
+                onCheckedChange = { value ->
+                    netRulesOn = value
+                    NetworkRules.setEnabled(settingsContext, value)
+                }
+            )
+            // Three states, so a tap cycles rather than opening a menu for what
+            // is effectively one of three words.
+            NetRuleRow(t("netrule_wifi"), netRuleWifi, enabled = netRulesOn) { next ->
+                netRuleWifi = next
+                NetworkRules.setAction(settingsContext, NetKind.WIFI, next)
+            }
+            NetRuleRow(t("netrule_cellular"), netRuleCellular, enabled = netRulesOn) { next ->
+                netRuleCellular = next
+                NetworkRules.setAction(settingsContext, NetKind.CELLULAR, next)
+            }
+            NetRuleRow(t("netrule_other"), netRuleOther, enabled = netRulesOn) { next ->
+                netRuleOther = next
+                NetworkRules.setAction(settingsContext, NetKind.OTHER, next)
+            }
+            SettingRow(
+                title = t("netrule_recover"),
+                subtitle = t("netrule_recover_sub"),
+                checked = netRuleRecover,
+                onCheckedChange = { value ->
+                    netRuleRecover = value
+                    NetworkRules.setRecoverOnChange(settingsContext, value)
+                },
+                enabled = netRulesOn
+            )
+            Text(
+                t("netrule_note"),
+                style = MaterialTheme.typography.bodySmall,
+                color = ghajarColors.textMuted
+            )
         }
 
         SettingsGroup("OpenVPN") {
@@ -9765,6 +9818,45 @@ private fun SniffTypeSelector(selected: Set<String>, onToggle: (String) -> Unit)
             }
         }
     }
+}
+
+/**
+ * One network's rule, as a row whose value cycles on tap.
+ *
+ * There are exactly three choices and each is a short phrase, so a dropdown
+ * would add a menu to read one of three words.
+ */
+@Composable
+private fun NetRuleRow(
+    title: String,
+    action: NetRuleAction,
+    enabled: Boolean,
+    onChange: (NetRuleAction) -> Unit
+) {
+    val lang = LocalLang.current
+    val t: (String) -> String = { Strings.get(lang, it) }
+    val c = ghajarColors
+    val label = when (action) {
+        NetRuleAction.OFF -> t("netrule_off")
+        NetRuleAction.LAST -> t("netrule_last")
+        NetRuleAction.FASTEST -> t("netrule_fastest")
+    }
+    SlabRow(
+        title = title,
+        subtitle = label,
+        icon = when (action) {
+            NetRuleAction.OFF -> Icons.Filled.Block
+            NetRuleAction.LAST -> Icons.Filled.History
+            NetRuleAction.FASTEST -> Icons.Filled.Speed
+        },
+        accent = if (action == NetRuleAction.OFF) c.textMuted else c.primary,
+        enabled = enabled,
+        chevron = true,
+        onClick = {
+            val all = NetRuleAction.values()
+            onChange(all[(action.ordinal + 1) % all.size])
+        }
+    )
 }
 
 @Composable

@@ -46,6 +46,7 @@ class GozarVpnService : VpnService() {
     @Volatile private var tearingDown = false
     private var autoSelector: AutoSelector? = null
     private var autoJob: Job? = null
+    private var underlyingListener: ((NetKind?, android.net.Network?) -> Unit)? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -160,6 +161,7 @@ class GozarVpnService : VpnService() {
             }
             tunFd = pfd
             if (pfd != null) { runCatching { blockFd?.close() }; blockFd = null }
+            if (pfd != null) trackUnderlyingNetwork()
 
                 setupGeoAssets()
                 val spec = aetherSpec
@@ -406,6 +408,7 @@ class GozarVpnService : VpnService() {
         tearingDown = true
         enginesReady = false
         startJob?.cancel()
+        untrackUnderlyingNetwork()
         scope.launch {
             engineLock.withLock {
                 stopAutoSelect()
@@ -428,6 +431,41 @@ class GozarVpnService : VpnService() {
                 }
             }
         }
+    }
+
+    /**
+     * Keeps the tunnel pointed at the network that actually carries it.
+     *
+     * A VpnService that never calls setUnderlyingNetworks leaves the framework
+     * to guess, and its guess is the network that was default when the tunnel
+     * was built. So when Wi-Fi dropped and the SIM took over, the tun's
+     * accounting, its connectivity reporting and its socket binding all still
+     * referred to a network that no longer existed - the tunnel looked up and
+     * carried nothing, which is what "the app does not recover when Wi-Fi
+     * drops" actually was.
+     *
+     * Registered once per established tunnel and removed on teardown. Null
+     * means "no opinion, use the default", which is the right answer while the
+     * device is between networks.
+     */
+    private fun trackUnderlyingNetwork() {
+        if (underlyingListener != null) return
+        val listener: (NetKind?, android.net.Network?) -> Unit = { kind, network ->
+            runCatching {
+                setUnderlyingNetworks(network?.let { arrayOf(it) })
+                GhajarLog.i(TAG, "tunnel now rides $kind")
+            }.onFailure { GhajarLog.e(TAG, "underlying network not set: ${it.javaClass.simpleName}") }
+        }
+        underlyingListener = listener
+        NetworkWatcher.initialize(applicationContext)
+        NetworkWatcher.addListener(listener)
+        // Apply whatever is current right now, not only the next change.
+        listener(NetworkWatcher.kind.value, NetworkWatcher.currentNetwork())
+    }
+
+    private fun untrackUnderlyingNetwork() {
+        underlyingListener?.let { NetworkWatcher.removeListener(it) }
+        underlyingListener = null
     }
 
     private fun enterKillSwitch(reason: String) {
@@ -455,6 +493,7 @@ class GozarVpnService : VpnService() {
         startJob?.cancel()
         pollJob?.cancel()
         stopAutoSelect()
+        untrackUnderlyingNetwork()
         // Report completion only after native teardown. A new UI retry cannot
         // start a tunnel that this older service instance is still stopping.
         scope.launch {

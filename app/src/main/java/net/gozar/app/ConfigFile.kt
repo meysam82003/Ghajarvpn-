@@ -73,7 +73,10 @@ object ConfigFile {
         val openVpnSettings: JSONObject?,
         /** Each saved OpenVPN profile, serialized (ConfigFile v>=4 only);
          * empty on older backups. See [GhajarOpenVpnBridge.exportProfiles]. */
-        val openVpnProfiles: List<ByteArray> = emptyList()
+        val openVpnProfiles: List<ByteArray> = emptyList(),
+        /** Per-network auto-connect rules (ConfigFile v>=5 only); null on
+         * older backups, which leaves the installed rules untouched. */
+        val networkRules: JSONObject? = null
     )
 
     fun isPasswordProtected(bytes: ByteArray): Boolean {
@@ -116,13 +119,14 @@ object ConfigFile {
             profilesArr.put(Base64.encodeToString(bytes, Base64.NO_WRAP))
         }
         val root = JSONObject()
-            .put("v", 4)
+            .put("v", 5)
             .put("kind", "backup")
             .put("configs", cfgArr)
             .put("subs", subArr)
             .put("settings", settings)
             .put("openVpnSettings", ovpnObj)
             .put("openVpnProfiles", profilesArr)
+            .put("networkRules", NetworkRules.toJson(context))
         return seal(root, password)
     }
 
@@ -203,7 +207,8 @@ object ConfigFile {
             runCatching { Base64.decode(profilesArr.getString(i), Base64.NO_WRAP) }.getOrNull()
         }
         return Backup(
-            configs, subs, root.optJSONObject("settings"), root.optJSONObject("openVpnSettings"), profiles
+            configs, subs, root.optJSONObject("settings"), root.optJSONObject("openVpnSettings"), profiles,
+            root.optJSONObject("networkRules")
         )
     }
 

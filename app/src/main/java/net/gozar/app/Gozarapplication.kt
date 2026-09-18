@@ -35,6 +35,12 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         GhajarLog.i("Startup", "phase: notification monitor ready")
         GhajarOpenVpnBridge.initialize(this)
         GhajarLog.i("Startup", "phase: openvpn bridge ready")
+        // Main process only, like the notification monitor above: the
+        // ":openvpn" process must not also decide to start tunnels. The VPN
+        // service registers its own connectivity listener for the tun's
+        // underlying network, which is a separate concern from the rules.
+        if (processName == packageName) NetworkAutoConnect.initialize(this)
+        GhajarLog.i("Startup", "phase: network rules ready")
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {

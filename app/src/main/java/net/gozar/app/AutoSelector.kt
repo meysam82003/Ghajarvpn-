@@ -1,9 +1,6 @@
 package net.gozar.app
 
 import android.content.Context
-import android.content.Intent
-import android.net.VpnService
-import androidx.core.content.ContextCompat
 import gozarcore.Gozarcore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -13,7 +10,6 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -142,43 +138,13 @@ class AutoSelector(
         }
     }
 
+    /**
+     * The launch itself lives in VpnLauncher, which the per-network rules use
+     * too - one connect path outside the UI, not two that drift apart.
+     */
     private suspend fun reconnectIfConnected(config: ProxyConfig) {
         if (VpnState.state.value != Connection.CONNECTED) return
-        if (VpnService.prepare(appContext) != null) return
-
-        runCatching {
-            appContext.startService(
-                Intent(appContext, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP)
-            )
-        }
-        withTimeoutOrNull(6000) {
-            VpnState.state.first { it == Connection.DISCONNECTED || it == Connection.ERROR }
-        }
-        delay(400)
-
-        val json = ConfigBuilder.build(
-            config, store.fragment.value, store.splitRouting.value,
-            store.sniffing.value, store.sniffTypes.value,
-            adBlock = store.adBlock.value,
-            fakeDns = store.fakeDns.value,
-            encryptedDns = store.encryptedDns.value,
-            onionRouting = store.onionRouting.value
-        )
-        VpnState.setConnecting(config.id)
-        val intent = Intent(appContext, GozarVpnService::class.java)
-            .putExtra(GozarVpnService.EXTRA_CONFIG, json)
-            .putExtra(GozarVpnService.EXTRA_AETHER, AetherSpec.from(config)?.toJson())
-            .putExtra(
-                GozarVpnService.EXTRA_TOR,
-                if (config.protocol == "tor")
-                    config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
-            )
-            .putExtra(GozarVpnService.EXTRA_NAME, config.name)
-            .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
-            .putExtra(GozarVpnService.EXTRA_ADDRESS, config.address)
-            .putExtra(GozarVpnService.EXTRA_PORT, config.port)
-        runCatching { ContextCompat.startForegroundService(appContext, intent) }
-            .onFailure { VpnState.setDisconnected() }
+        VpnLauncher.relaunch(appContext, store, config)
     }
 
     private companion object {
