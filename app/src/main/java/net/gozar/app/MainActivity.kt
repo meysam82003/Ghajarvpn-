@@ -5774,9 +5774,21 @@ private fun BackupRow(store: ConfigStore) {
                         backupPasswordError = ""
                         pending = bytes
                     }
-                    runCatching { ConfigFile.isBackup(context, bytes, null) }
-                        .getOrDefault(false) -> { needsPassword = false; pending = bytes }
-                    else -> status = t("backup_not_backup")
+                    else -> {
+                        // Every failure used to collapse into "this is a shared
+                        // config, not a backup", which was wrong for every cause
+                        // except one. The real ones are distinguishable.
+                        val outcome = runCatching { ConfigFile.isBackup(context, bytes, null) }
+                        when (outcome.getOrNull()) {
+                            true -> { needsPassword = false; pending = bytes }
+                            false -> status = t("backup_not_backup")
+                            else -> status = when (outcome.exceptionOrNull()) {
+                                is ConfigFile.ForeignBuild -> t("backup_foreign_build")
+                                is ConfigFile.ForeignApp -> t("import_foreign_app")
+                                else -> t("import_bad_file")
+                            }
+                        }
+                    }
                 }
             }
         }

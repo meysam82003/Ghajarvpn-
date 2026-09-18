@@ -675,6 +675,7 @@ object Strings {
         "backup_restored" to "Restored %s configs and %s subscriptions",
         "backup_restore_q" to "Restoring replaces all current servers, subscriptions and settings. Continue?",
         "backup_not_backup" to "That file is a shared config, not a backup",
+        "backup_foreign_build" to "This backup belongs to an older build of the app and cannot be opened here. Export a fresh backup from the build that holds your data.",
         "backup_failed" to "Backup could not be created",
         "loading_apps" to "Loading apps…"
     )
@@ -1342,6 +1343,7 @@ object Strings {
         "backup_restored" to "%s کانفیگ و %s اشتراک اضافه شد شد",
         "backup_restore_q" to "وارد کردن فایل بکاپ، همه سرورها، اشتراک‌ها و تنظیمات فعلی را جایگزین می‌کند. ادامه می‌دهید؟",
         "backup_not_backup" to "این فایل کانفیگ اشتراکی است، نه بکاپ",
+        "backup_foreign_build" to "این بکاپ مربوط به نسخهٔ قبلی برنامه است و با این نسخه باز نمی‌شود. از همان نسخه‌ای که داده‌هایت در آن است یک بکاپ تازه بگیر.",
         "backup_failed" to "فایل بکاپ ساخته نشد",
         "loading_apps" to "در حال بارگذاری برنامه‌ها…",
     )

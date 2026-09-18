@@ -54,6 +54,16 @@ object ConfigFile {
     class ForeignApp : Exception()
     class NotABackup : Exception()
 
+    /**
+     * An old, certificate-bound backup (FLAG_CERT) that this install cannot
+     * decrypt because it was written by a differently-signed build. Debug
+     * builds are signed with an auto-generated debug keystore that differs
+     * per machine/CI run, so every such build produced backups only it could
+     * ever read. New backups are never certificate-bound (see [seal]), so
+     * this can only surface for files written before that change.
+     */
+    class ForeignBuild : Exception()
+
     class Backup(
         val configs: List<ProxyConfig>,
         val subs: List<Subscription>,
@@ -81,7 +91,7 @@ object ConfigFile {
         val arr = JSONArray()
         configs.forEach { arr.put(it.toJson()) }
         val root = JSONObject().put("v", 1).put("locked", locked).put("configs", arr)
-        return seal(signingHash(context), root, password)
+        return seal(root, password)
     }
 
     fun encodeBackup(
@@ -113,31 +123,38 @@ object ConfigFile {
             .put("settings", settings)
             .put("openVpnSettings", ovpnObj)
             .put("openVpnProfiles", profilesArr)
-        return seal(signingHash(context), root, password)
+        return seal(root, password)
     }
 
     /**
-     * @param cert the installing APK's signing-certificate hash (from
-     * [signingHash]), or null if unavailable. Only actually applied to
-     * password-less backups: a password-protected backup must be restorable
-     * on a different phone/build, so binding it to this specific APK's
-     * signature on top of the password would silently break that (it used
-     * to - every backup was cert-bound regardless of password, which made
-     * a password-protected .grt file undecryptable once moved to a device
-     * running a differently-signed build). A password-less backup keeps the
-     * cert binding: it is the only protection it has against being opened by
-     * some other, unrelated app that also implements this format.
+     * A backup is never bound to the installing APK's signing certificate.
+     *
+     * It used to be: every backup mixed [signingHash] into the key, so the
+     * derived key only existed on that exact signed build. Debug builds are
+     * signed with an auto-generated debug keystore (a fresh one per machine,
+     * and per CI run on an ephemeral runner), and this screen exports without
+     * a password, so in practice *every* exported backup was readable only by
+     * the single build that wrote it - installing the next build silently
+     * turned every existing backup into an unrecoverable file, reported by
+     * the import picker as "this is a shared config, not a backup".
+     *
+     * The binding also bought nothing: the static secret mixed into the key
+     * lives in the APK, so anyone holding the APK can derive the key with or
+     * without the certificate. All it did was break the one thing a backup
+     * exists for - restoring onto another build or another phone.
+     *
+     * Confidentiality now comes from [password] when the caller supplies one.
+     * Old certificate-bound files are still read (see [open]).
      */
-    internal fun seal(cert: String?, root: JSONObject, password: String?): ByteArray {
+    internal fun seal(root: JSONObject, password: String?): ByteArray {
         val plain = root.toString().toByteArray(Charsets.UTF_8)
 
         val rnd = SecureRandom()
         val salt = ByteArray(SALT_LEN).also { rnd.nextBytes(it) }
         val iv = ByteArray(IV_LEN).also { rnd.nextBytes(it) }
         val hasPw = !password.isNullOrEmpty()
-        val effectiveCert = if (hasPw) null else cert
 
-        val key = deriveKey(password, salt, effectiveCert)
+        val key = deriveKey(password, salt, null)
 
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, iv))
@@ -145,7 +162,6 @@ object ConfigFile {
 
         var flags = 0
         if (hasPw) flags = flags or FLAG_PW
-        if (effectiveCert != null) flags = flags or FLAG_CERT
 
         val header = ByteArray(5)
         MAGIC.toByteArray(Charsets.US_ASCII).copyInto(header, 0)
@@ -200,10 +216,9 @@ object ConfigFile {
         val hasCert = (flags and FLAG_CERT) != 0
         if (hasPw && password.isNullOrEmpty()) throw NeedsPassword()
 
-        // Only ever set on password-less backups (see seal()); a password-
-        // protected backup made after this fix never has FLAG_CERT, so an
-        // old, still cert-bound password backup keeps requiring the original
-        // signing certificate - unchanged, existing behavior for old files.
+        // seal() never sets FLAG_CERT any more, so this only runs for files
+        // written before that change: they stay readable on the build that
+        // wrote them, and fail as ForeignBuild anywhere else.
         val cert = if (hasCert) (certProvider() ?: throw ForeignApp()) else null
 
         var off = 5
@@ -217,7 +232,15 @@ object ConfigFile {
         val plain = try {
             cipher.doFinal(ct)
         } catch (e: Exception) {
-            if (hasPw) throw WrongPassword() else throw BadFile()
+            // GCM rejected the key. Which input was wrong is knowable from the
+            // flags, and saying so matters: a certificate-bound file that fails
+            // here is not corrupt and not "not a backup" - it was written by a
+            // differently-signed build and no password can open it.
+            when {
+                hasCert && !hasPw -> throw ForeignBuild()
+                hasPw -> throw WrongPassword()
+                else -> throw BadFile()
+            }
         }
 
         return try {
