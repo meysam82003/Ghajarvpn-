@@ -792,16 +792,37 @@ class GhajarStoreApi(context: Context) {
         allowPaymentRequired: Boolean = false,
         allowLinkGate: Boolean = false
     ): JSONObject {
+        fun viaProxy() = performRequest(
+            url, method, bearer, body, allowPaymentRequired, allowLinkGate,
+            proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value))
+        )
+
+        // Opening the store is several requests to the same host. When the
+        // direct route is being blocked, each one used to spend its own full
+        // connect timeout discovering that again before falling back, so the
+        // shop took timeout x requests to appear. One failure is remembered for
+        // a minute and the tunnel is tried first during it; any success there
+        // is no slower than before, and the memo is dropped the moment a direct
+        // request works again, so a route that comes back is picked up at once.
+        if (System.currentTimeMillis() < directBlockedUntil) {
+            try {
+                return viaProxy()
+            } catch (throughTunnel: IOException) {
+                GhajarLog.w("Store", "tunnel-first attempt for ${url.host} failed " +
+                    "(${throughTunnel.javaClass.simpleName}); trying direct again")
+                directBlockedUntil = 0L
+            }
+        }
+
         return try {
             performRequest(url, method, bearer, body, allowPaymentRequired, allowLinkGate, proxy = null)
+                .also { directBlockedUntil = 0L }
         } catch (direct: IOException) {
             GhajarLog.w("Store", "direct request to ${url.host} failed " +
                 "(${direct.javaClass.simpleName}: ${direct.message}); retrying via local tunnel proxy")
+            directBlockedUntil = System.currentTimeMillis() + DIRECT_BLOCK_MEMO_MS
             try {
-                performRequest(
-                    url, method, bearer, body, allowPaymentRequired, allowLinkGate,
-                    proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value))
-                )
+                viaProxy()
             } catch (viaProxy: IOException) {
                 GhajarLog.e("Store", "local-proxy retry for ${url.host} also failed: " +
                     "${viaProxy.javaClass.simpleName}: ${viaProxy.message}")
@@ -809,6 +830,14 @@ class GhajarStoreApi(context: Context) {
             }
         }
     }
+
+    /**
+     * When the direct route last failed at the network level, in wall-clock
+     * millis. Zero means "no reason to doubt it". Plain volatile rather than a
+     * lock: a stale read costs one redundant attempt, never correctness.
+     */
+    @Volatile
+    private var directBlockedUntil: Long = 0L
 
     private fun performRequest(
         url: URL,
@@ -971,6 +1000,10 @@ class GhajarStoreApi(context: Context) {
 
     companion object {
         private val deliveryMutex = Mutex()
+        /** How long one direct-route failure steers later requests to the
+         *  tunnel first. Short enough that a route which comes back is used
+         *  again quickly, long enough to cover one page load. */
+        private const val DIRECT_BLOCK_MEMO_MS = 60_000L
         private const val CONNECT_TIMEOUT = 12_000
         private const val READ_TIMEOUT = 20_000
         private const val UPLOAD_TIMEOUT = 60_000
