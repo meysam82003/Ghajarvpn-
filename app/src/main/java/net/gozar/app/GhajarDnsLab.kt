@@ -245,7 +245,11 @@ object GhajarDnsLab {
         plain.connect(InetSocketAddress(server, port), timeoutMs)
         plain.soTimeout = timeoutMs
         val socket = if (!tls) plain else {
-            (SSLSocketFactory.getDefault().createSocket(plain, server, port, true) as SSLSocket)
+            // getDefault() is declared as SocketFactory, which has no overload
+            // for layering TLS over an existing socket - the cast is what makes
+            // createSocket(Socket, host, port, autoClose) visible.
+            val factory = SSLSocketFactory.getDefault() as SSLSocketFactory
+            (factory.createSocket(plain, server, port, true) as SSLSocket)
                 .also { it.startHandshake() }
         }
         return socket.use { s ->
