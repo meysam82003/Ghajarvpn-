@@ -877,10 +877,23 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 GhostPill(
                     if (section == 4) "پنل کامل پشتیبانی و پیوست‌ها" else "پنل کامل خدمات حساب",
                     {
-                        StoreLinkRouter.browserIntent(
-                            context,
-                            BrandConfig.STORE_URL + if (section == 4) "#/tickets" else "#/account"
-                        )?.let { context.startActivity(it) }
+                        // The panel authenticates with Telegram's initData,
+                        // which a browser never has, so this used to open a
+                        // page that did not know whose account it was. A
+                        // one-time ticket is fetched first and carried in the
+                        // URL; the page exchanges it for this same session and
+                        // strips it from the address bar. If the server has not
+                        // been updated yet the ticket is null and the plain URL
+                        // opens exactly as before.
+                        scope.launch {
+                            val ticket = api.webPanelTicket()
+                            val fragment = if (section == 4) "#/tickets" else "#/account"
+                            val url = if (ticket != null) {
+                                BrandConfig.STORE_URL + "?ticket=" + ticket + fragment
+                            } else BrandConfig.STORE_URL + fragment
+                            StoreLinkRouter.browserIntent(context, url)
+                                ?.let { context.startActivity(it) }
+                        }
                     },
                     Modifier.fillMaxWidth()
                 )

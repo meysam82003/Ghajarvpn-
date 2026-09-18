@@ -252,6 +252,60 @@ $jsUrl       = htmlspecialchars($assetPrefix . 'assets/v1.0.0/app.js?v=' . fx_as
 </script>
 
     <script>
+    /*
+     * Browser hand-off.
+     *
+     * This page authenticates with Telegram's initData, which a plain browser
+     * tab never has - so opening the panel outside Telegram showed an
+     * unauthenticated page regardless of who opened it. The app now appends a
+     * one-time ticket, which is exchanged here for the same session token the
+     * Telegram path issues, written to the same sessionStorage key the bundle
+     * reads, and then removed from the address bar so it is not left in
+     * history or handed to any later referrer.
+     *
+     * Inside Telegram there is no ticket, so none of this runs and the normal
+     * initData flow is untouched.
+     */
+    window.__FAOXIMA_TICKET_READY__ = (function () {
+        var TOKEN_KEY = 'faoxima.token';
+        var ticket = '';
+        try {
+            ticket = new URLSearchParams(window.location.search).get('ticket') || '';
+        } catch (e) { ticket = ''; }
+        if (!/^[0-9a-f]{64}$/.test(ticket)) return Promise.resolve(false);
+
+        function scrub() {
+            try {
+                var url = new URL(window.location.href);
+                url.searchParams.delete('ticket');
+                window.history.replaceState(null, '', url.pathname + (url.search || '') + (url.hash || ''));
+            } catch (e) {}
+        }
+
+        var cfg = window.__APP_CONFIG__ || {};
+        var api = (cfg.apiUrl || '') + '/weblink.php?action=redeem';
+        var body = new URLSearchParams();
+        body.set('ticket', ticket);
+
+        return fetch(api, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'Accept': 'application/json' },
+            body: body.toString(),
+            cache: 'no-store'
+        }).then(function (r) { return r.json().catch(function () { return null; }); })
+          .then(function (data) {
+              scrub();
+              if (data && data.status === true && data.token) {
+                  try { sessionStorage.setItem(TOKEN_KEY, data.token); } catch (e) {}
+                  return true;
+              }
+              return false;
+          })
+          .catch(function () { scrub(); return false; });
+    })();
+</script>
+
+    <script>
     (function () {
         function escapeHtml(s) {
             var d = document.createElement('div');
@@ -430,6 +484,153 @@ $jsUrl       = htmlspecialchars($assetPrefix . 'assets/v1.0.0/app.js?v=' . fx_as
 
         <div id="toast-host" class="toast-host" aria-live="polite" aria-atomic="true"></div>
     </div>
+
+    <script>
+    /*
+     * Code login, for a plain browser tab with no ticket.
+     *
+     * The bundle can only authenticate two ways: Telegram's initData, or a
+     * bearer already in sessionStorage. A URL typed or pasted into a browser
+     * has neither, so it used to dead-end on "open this page from Telegram".
+     *
+     * The server has had the pieces for this all along - weblink.php's
+     * generate/status pair, the same one the Android app uses - and nothing in
+     * the front end ever called them. This asks for a code, tells the person
+     * to send it to the bot, polls until the bot claims it, then stores the
+     * issued session and reloads so the bundle boots signed in.
+     *
+     * Identity is still only ever established inside Telegram: a code on its
+     * own proves nothing until someone with a real account sends it to the bot.
+     */
+    (function () {
+        var TOKEN_KEY = 'faoxima.token';
+
+        function hasTelegram() {
+            return !!(window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.initData);
+        }
+        function hasToken() {
+            try { return !!sessionStorage.getItem(TOKEN_KEY); } catch (e) { return false; }
+        }
+        function esc(v) {
+            var d = document.createElement('div');
+            d.textContent = String(v == null ? '' : v);
+            return d.innerHTML;
+        }
+
+        var cfg = window.__APP_CONFIG__ || {};
+        var api = (cfg.apiUrl || '') + '/weblink.php';
+        var pollTimer = null;
+        var deadline = 0;
+
+        function render(body) {
+            var view = document.getElementById('view');
+            if (view) view.innerHTML = body;
+        }
+
+        function panel(code, bot, note) {
+            var cmd = '/link ' + code;
+            var link = bot ? ('https://t.me/' + encodeURIComponent(bot) + '?start=link_' + encodeURIComponent(code)) : '';
+            return '<article class="card"><div class="card-body">' +
+                '<h3 style="margin:0 0 6px">ورود با کد</h3>' +
+                '<p class="muted" style="margin:0 0 14px">این صفحه بیرون از تلگرام باز شده، پس باید یک‌بار حساب را وصل کنی.</p>' +
+                '<pre class="codeblock" style="direction:ltr;text-align:center;font-size:20px;letter-spacing:3px;margin:0 0 12px">' + esc(code) + '</pre>' +
+                '<p class="muted" style="margin:0 0 12px">این فرمان را در ربات بفرست:</p>' +
+                '<pre class="codeblock" style="direction:ltr;text-align:start;margin:0 0 12px">' + esc(cmd) + '</pre>' +
+                '<div style="display:flex;gap:8px;flex-wrap:wrap">' +
+                (link ? '<a class="btn btn-primary" href="' + esc(link) + '" target="_blank" rel="noopener">باز کردن ربات</a>' : '') +
+                '<button class="btn" id="fx-copy-cmd">کپی فرمان</button>' +
+                '<button class="btn" id="fx-restart">کد تازه</button>' +
+                '</div>' +
+                '<p class="muted mono mt-md" style="font-size:11px" id="fx-link-note">' + esc(note || 'در انتظار تایید در ربات…') + '</p>' +
+                '</div></article>';
+        }
+
+        function note(text) {
+            var el = document.getElementById('fx-link-note');
+            if (el) el.textContent = text;
+        }
+
+        function wire(code, bot) {
+            var copy = document.getElementById('fx-copy-cmd');
+            if (copy) copy.onclick = function () {
+                var cmd = '/link ' + code;
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    navigator.clipboard.writeText(cmd).then(function () { note('فرمان کپی شد.'); },
+                        function () { note('کپی نشد؛ دستی بنویس.'); });
+                } else note('کپی پشتیبانی نمی‌شود؛ دستی بنویس.');
+            };
+            var again = document.getElementById('fx-restart');
+            if (again) again.onclick = function () { start(); };
+        }
+
+        function poll(sessionToken) {
+            if (Date.now() > deadline) {
+                note('کد منقضی شد؛ «کد تازه» را بزن.');
+                return;
+            }
+            fetch(api + '?action=status&session_token=' + encodeURIComponent(sessionToken), { cache: 'no-store' })
+                .then(function (r) { return r.json().catch(function () { return null; }); })
+                .then(function (d) {
+                    if (d && d.status === true && d.token) {
+                        try { sessionStorage.setItem(TOKEN_KEY, d.token); } catch (e) {}
+                        note('وصل شد؛ در حال بازکردن حساب…');
+                        window.location.reload();
+                        return;
+                    }
+                    if (d && d.gate) {
+                        note('ربات یک مرحلهٔ دیگر می‌خواهد (عضویت یا شماره). آن را در ربات کامل کن.');
+                    }
+                    pollTimer = setTimeout(function () { poll(sessionToken); }, 2500);
+                })
+                .catch(function () {
+                    pollTimer = setTimeout(function () { poll(sessionToken); }, 4000);
+                });
+        }
+
+        function start() {
+            if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+            render('<article class="card"><div class="card-body">' +
+                '<p class="muted center mono">در حال گرفتن کد…</p></div></article>');
+            fetch(api + '?action=generate', { method: 'POST', cache: 'no-store' })
+                .then(function (r) { return r.json().catch(function () { return null; }); })
+                .then(function (d) {
+                    if (!d || d.status !== true || !d.code || !d.session_token) {
+                        render('<article class="card"><div class="card-body">' +
+                            '<h3 style="margin:0 0 8px">کد گرفته نشد</h3>' +
+                            '<p class="muted">سرور کد اتصال صادر نکرد. کمی بعد دوباره تلاش کن.</p>' +
+                            '<button class="btn btn-primary mt-md" onclick="location.reload()">تلاش مجدد</button>' +
+                            '</div></article>');
+                        return;
+                    }
+                    deadline = Date.now() + (Number(d.expires_in || 300) * 1000);
+                    render(panel(d.code, d.bot_username || '', null));
+                    wire(d.code, d.bot_username || '');
+                    poll(d.session_token);
+                })
+                .catch(function () {
+                    render('<article class="card"><div class="card-body">' +
+                        '<h3 style="margin:0 0 8px">سرور در دسترس نیست</h3>' +
+                        '<p class="muted">اتصال به سرور برقرار نشد.</p>' +
+                        '<button class="btn btn-primary mt-md" onclick="location.reload()">تلاش مجدد</button>' +
+                        '</div></article>');
+                });
+        }
+
+        function maybeStart() {
+            if (hasTelegram() || hasToken()) return;      // normal paths win
+            if (window.__FAOXIMA_APP_STARTED__) return;   // bundle already running
+            window.__FAOXIMA_CODE_LOGIN__ = true;
+            start();
+        }
+
+        // Give the ticket exchange and the Telegram SDK a moment to win first.
+        var ready = window.__FAOXIMA_TICKET_READY__ || Promise.resolve(false);
+        ready.then(function (ok) {
+            if (ok) return;
+            setTimeout(maybeStart, 1200);
+        }).catch(function () { setTimeout(maybeStart, 1200); });
+    })();
+</script>
 
     <script type="module" src="<?php echo $jsUrl; ?>
 ">

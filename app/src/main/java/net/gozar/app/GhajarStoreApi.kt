@@ -247,6 +247,27 @@ class GhajarStoreApi(context: Context) {
 
     fun unlink() = account.clear()
 
+    /**
+     * A one-time ticket for opening the web panel as this same account.
+     *
+     * The panel authenticates with Telegram's initData, which a browser never
+     * has, so "the full account panel" used to open a page that did not know
+     * who had tapped it. This asks the server - authenticated with the bearer
+     * this app already holds - for a ticket the browser can exchange for the
+     * same session. Null when the server is too old to know the action, in
+     * which case the caller opens the plain URL exactly as before.
+     */
+    suspend fun webPanelTicket(): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            requestJson(
+                url = URL("${BrandConfig.WEBLINK_API_URL}?action=web_ticket"),
+                method = "POST",
+                bearer = requireToken(),
+                body = null
+            ).optString("ticket").takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
     suspend fun countries(): List<GhajarPanel> = action("countries").payloadArray().objects().mapNotNull { row ->
         val id = row.optString("id")
         if (id.isBlank()) return@mapNotNull null
