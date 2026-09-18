@@ -3722,6 +3722,21 @@ private fun AddServerPanel(
                 }
 
                 Rail(t("add_get_config"))
+                // Free projects leads this list on purpose. It was last of
+                // four, which put it under the fold on a phone - present, and
+                // reported as missing twice, which for a user is the same
+                // thing. It is also the only entry that costs nothing, so it
+                // is the one worth seeing first.
+                SlabRow(
+                    title = t("free_projects"),
+                    subtitle = t("add_free_sub"),
+                    icon = Icons.Filled.CardGiftcard,
+                    accent = c.premium,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onProjects
+                )
+                SlabDivider()
                 SlabRow(
                     title = t("ws_title"),
                     subtitle = t("add_ws_sub"),
@@ -3750,16 +3765,6 @@ private fun AddServerPanel(
                     chevron = true,
                     enabled = !busy,
                     onClick = onPsiphon
-                )
-                SlabDivider()
-                SlabRow(
-                    title = t("free_projects"),
-                    subtitle = t("add_free_sub"),
-                    icon = Icons.Filled.CardGiftcard,
-                    accent = c.premium,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onProjects
                 )
             }
         }
@@ -4270,6 +4275,78 @@ private fun GlassDialog(
     }
 }
 
+/** One parsed block of a release note, in the skin's own type and colours. */
+@Composable
+private fun ReleaseNoteBlock(block: NoteBlock) {
+    val c = ghajarColors
+    when (block) {
+        is NoteBlock.Heading -> Text(
+            mixedText(block.text),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = c.primary,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        is NoteBlock.Bullet -> Row(verticalAlignment = Alignment.Top) {
+            Text("•", color = c.primary, modifier = Modifier.padding(end = 6.dp))
+            Text(mixedText(block.text), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+        }
+
+        is NoteBlock.Paragraph -> Text(
+            mixedText(block.text),
+            style = MaterialTheme.typography.bodySmall,
+            color = c.textSecondary
+        )
+
+        // A real table: one clipped surface, the header on the brand tone, and
+        // every row the same column widths so the columns line up.
+        is NoteBlock.Table -> Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(GhajarRadius.md))
+                .background(c.secondaryCard)
+        ) {
+            val columns = maxOf(
+                block.header?.size ?: 0,
+                block.rows.maxOfOrNull { it.size } ?: 0
+            ).coerceAtLeast(1)
+            block.header?.let { header ->
+                ReleaseNoteRow(header, columns, header = true)
+                HorizontalDivider(color = c.border)
+            }
+            block.rows.forEachIndexed { index, row ->
+                if (index > 0) HorizontalDivider(color = c.border.copy(alpha = 0.5f))
+                ReleaseNoteRow(row, columns, header = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReleaseNoteRow(cells: List<String>, columns: Int, header: Boolean) {
+    val c = ghajarColors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (header) Modifier.background(c.primary.copy(alpha = 0.12f)) else Modifier)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Ragged rows are padded out here, in the layout, rather than in the
+        // parser - the note said what it said.
+        repeat(columns) { i ->
+            Text(
+                mixedText(cells.getOrElse(i) { "" }),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (header) FontWeight.Bold else FontWeight.Normal,
+                color = if (header) c.textPrimary else c.textSecondary,
+                modifier = Modifier.weight(1f).padding(end = 6.dp)
+            )
+        }
+    }
+}
+
 /** Full update flow (changelog, download+progress+cancel, checksum + signature
  * verification, install) for a release UpdateChecker found, reached from both
  * the periodic background check and the manual "check for updates" button.
@@ -4362,16 +4439,16 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
             0 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (upd.changelog.isNotBlank()) {
                     Text("تغییرات این نسخه:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    // The release body is Markdown. Rendering it as one flat
+                    // bulleted list turned headings into bullets and a table
+                    // into a row of pipe characters; ReleaseNotes parses the
+                    // three shapes a release note actually uses.
+                    val blocks = remember(upd.changelog) { ReleaseNotes.parse(upd.changelog) }
                     Column(
-                        Modifier.fillMaxWidth().heightIn(max = 260.dp).verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                        Modifier.fillMaxWidth().heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
                     ) {
-                        upd.changelog.lineSequence().map { it.trim() }.filter { it.isNotBlank() }.forEach { line ->
-                            Row(verticalAlignment = Alignment.Top) {
-                                Text("•", color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(end = 6.dp))
-                                Text(line.trimStart('-', '*', '•', ' '), style = MaterialTheme.typography.bodySmall)
-                            }
-                        }
+                        blocks.forEach { block -> ReleaseNoteBlock(block) }
                     }
                 }
                 if (upd.apk == null) {

@@ -2,14 +2,16 @@
 <resources>
 
     <!--
-        The window background is painted by the platform before Compose runs.
-        It was the Material Light default, so every cold start flashed white
-        before the near-black Premium Green canvas appeared. Pointing it at
-        the brand canvas removes that flash. values-night/ carries the dark
-        one; this file's value covers the light case.
+        The window background is painted by the platform before Compose runs,
+        which is exactly the blank pause a user sees on a cold launch: the app
+        has not started, so there is nothing else on screen yet. A flat fill
+        made that read as "the app is stuck"; launch_window puts the brand
+        canvas and the gold wordmark there instead, positioned to match the
+        one GhajarIntro draws, so the intro continues from it rather than
+        replacing it. See drawable/launch_window.xml.
     -->
     <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar">
-        <item name="android:windowBackground">@color/ghajar_window_light</item>
+        <item name="android:windowBackground">@drawable/launch_window</item>
     </style>
 
     <!--

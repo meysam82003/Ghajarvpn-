@@ -115,6 +115,13 @@ internal fun GhajarIntro(onDone: () -> Unit) {
             ) { finish() },
         contentAlignment = Alignment.Center
     ) {
+      // The mark under the animation, not instead of it: the rings, ring and
+      // shield are unchanged above, and the wordmark fades and lifts in once
+      // the shield is in place.
+      Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(6.dp)
+      ) {
         Canvas(Modifier.size(220.dp)) {
             val p = progress.value
             val mid = Offset(size.width / 2f, size.height / 2f)
@@ -203,5 +210,21 @@ internal fun GhajarIntro(onDone: () -> Unit) {
                 }
             }
         }
+
+        // Read only inside graphicsLayer's lambda, like every other value the
+        // intro animates: this places the wordmark without ever recomposing it.
+        Image(
+            painter = painterResource(R.drawable.ghajar_wordmark),
+            contentDescription = BrandConfig.APP_NAME_FA,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .width(200.dp)
+                .graphicsLayer {
+                    val markIn = ((progress.value - 0.52f) / 0.40f).coerceIn(0f, 1f)
+                    alpha = markIn
+                    translationY = (1f - markIn) * 14.dp.toPx()
+                }
+        )
+      }
     }
 }

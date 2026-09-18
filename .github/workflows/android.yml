@@ -187,6 +187,25 @@ jobs:
           path: dist/*
           if-no-files-found: error
 
+      # The in-app updater reads this repository's releases/latest and picks
+      # the asset matching the device's ABI, verifying it against the
+      # SHA256SUMS.txt asset. Uploading the APKs as workflow artifacts alone
+      # left nothing for it to find, so every tag built a release that the app
+      # could never offer. This publishes them as release assets, which is
+      # what UpdateChecker actually looks at.
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.version.outputs.name }}"
+          NOTES=docs/release-notes/v$V.md
+          if [ -f "$NOTES" ]; then
+            gh release create "v$V" dist/* --title "v$V" --notes-file "$NOTES"
+          else
+            echo "::warning::No release notes at $NOTES; publishing with generated notes."
+            gh release create "v$V" dist/* --title "v$V" --generate-notes
+          fi
+
       - name: Clean up secrets from runner
         if: always()
         run: rm -f "$RUNNER_TEMP/release.jks"

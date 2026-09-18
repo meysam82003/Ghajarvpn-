@@ -4,9 +4,10 @@
     <!--
         Premium Green Dark is the first-install default and three of the four
         themes are dark, so the dark canvas is the right pre-Compose
-        background whenever the system is in dark mode.
+        background whenever the system is in dark mode. The wordmark on it
+        comes from drawable-night/launch_window.xml.
     -->
     <style name="Theme.Ghajarvpn" parent="android:Theme.Material.NoActionBar">
-        <item name="android:windowBackground">@color/ghajar_window_dark</item>
+        <item name="android:windowBackground">@drawable/launch_window</item>
     </style>
 </resources>
