@@ -52,7 +52,6 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -146,6 +145,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var timeRanges by remember { mutableStateOf<List<GhajarTimeRange>>(emptyList()) }
     var selectedTime by remember { mutableStateOf<GhajarTimeRange?>(null) }
     var products by remember { mutableStateOf<List<GhajarProduct>>(emptyList()) }
+    // The panel's plan list with no category/duration filter, kept so
+    // returning to "all plans" does not re-hit the server.
+    var unfilteredProducts by remember { mutableStateOf<List<GhajarProduct>>(emptyList()) }
     var owned by remember { mutableStateOf<List<GhajarOwnedService>>(emptyList()) }
     var notices by remember { mutableStateOf<List<GhajarNotice>>(emptyList()) }
     var loadedPanelId by remember { mutableStateOf<String?>(null) }
@@ -293,6 +295,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         busy = false
     }
 
+    // Loading the store used to take three sequential server round-trips
+    // before a single plan appeared: countries, then categories+timeRanges,
+    // then products. The third wave waited on the second for no reason - the
+    // view opens with no category and no duration selected, so the product
+    // list it needs is the unfiltered one, which only depends on the panel.
+    // Fetching it alongside the filters removes a whole round-trip from the
+    // critical path.
     LaunchedEffect(selectedPanel?.id) {
         val panel = selectedPanel ?: return@LaunchedEffect
         loadedPanelId = null
@@ -301,19 +310,32 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         customMode = false
         customQuote = null
         products = emptyList()
-        storeResult {
-            coroutineScope {
-                val categoriesDeferred = async { api.categories(panel.id) }
-                val timeRangesDeferred = async { api.timeRanges(panel.id) }
-                categories = categoriesDeferred.await()
-                timeRanges = timeRangesDeferred.await()
-                loadedPanelId = panel.id
-            }
-        }.onFailure { error = GhajarCommerceRules.publicMessage(it) }
+        busy = true
+        try {
+            storeResult {
+                coroutineScope {
+                    val categoriesDeferred = async { api.categories(panel.id) }
+                    val timeRangesDeferred = async { api.timeRanges(panel.id) }
+                    val productsDeferred = async { api.products(panel.id, null, null) }
+                    categories = categoriesDeferred.await()
+                    timeRanges = timeRangesDeferred.await()
+                    products = productsDeferred.await()
+                    unfilteredProducts = products
+                    loadedPanelId = panel.id
+                }
+            }.onFailure { error = GhajarCommerceRules.publicMessage(it) }
+        } finally { busy = false }
     }
     LaunchedEffect(loadedPanelId, selectedCategory?.id, selectedTime?.days, customMode) {
         val panel = selectedPanel ?: return@LaunchedEffect
         if (loadedPanelId != panel.id) return@LaunchedEffect
+        // The unfiltered list was already fetched with the filters above, so
+        // the opening view costs no extra request; only an actual filter
+        // choice goes back to the server.
+        if (!customMode && selectedCategory == null && selectedTime == null) {
+            products = unfilteredProducts
+            return@LaunchedEffect
+        }
         busy = true
         try {
             storeResult {
@@ -561,8 +583,15 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
             item(key = "shop-block-15") { SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل دریافت می‌شود") }
             if (panels.isEmpty() && !busy) {
-                item(key = "shop-block-16") { Text("دستهٔ سرویسی از پنل دریافت نشده است؛ چند لحظه بعد دوباره بررسی کن.",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall) }
+                item(key = "shop-block-16") {
+                    SkinEmpty(
+                        title = "هیچ سرویسی از پنل دریافت نشد",
+                        hint = "چند لحظه بعد دوباره بررسی کن؛ اگر ادامه داشت، از پشتیبانی بپرس.",
+                        icon = Icons.Filled.ShoppingCart,
+                        actionText = "تلاش دوباره",
+                        onAction = { refreshKey++ }
+                    )
+                }
             }
             if (panels.isNotEmpty()) {
                 item(key = "shop-block-17") {
@@ -600,10 +629,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
             selectedPanel?.takeIf { it.custom }?.let {
                 item(key = "shop-block-20") {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        FilterChip(selected = !customMode, onClick = { customMode = false }, label = { Text("پلن‌های آماده") })
-                        FilterChip(selected = customMode, onClick = { customMode = true }, label = { Text("سرویس سفارشی") })
-                    }
+                    // Two mutually exclusive modes, so the skin's sliding
+                    // segmented control rather than two independent chips.
+                    SlidingSegments(
+                        labels = listOf("پلن‌های آماده", "سرویس سفارشی"),
+                        selected = if (customMode) 1 else 0,
+                        onSelect = { customMode = it == 1 }
+                    )
                 }
             }
 
@@ -635,13 +667,43 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             } else {
                 if (products.size > 1) {
                     item(key = "shop-block-compare") {
-                        OutlinedButton(onClick = { comparePlans = true }, modifier = Modifier.fillMaxWidth()) {
-                            Text("مقایسهٔ پلن‌ها")
-                        }
+                        GhostPill("مقایسهٔ پلن‌ها", { comparePlans = true })
                     }
                 }
+                // The cheapest gigabyte in the visible list, computed here so
+                // the badge on the card is a fact about these plans rather
+                // than a label from the panel.
+                val bestValueId = products
+                    .mapNotNull { p ->
+                        val price = p.price ?: return@mapNotNull null
+                        val gb = p.trafficGb ?: return@mapNotNull null
+                        if (price <= 0L || gb <= 0.0) null else p.id to (price / gb)
+                    }
+                    .minByOrNull { it.second }
+                    ?.first
+                    ?.takeIf { products.size > 1 }
+                if (products.isEmpty() && !busy) {
+                    item(key = "shop-plans-empty") {
+                        SkinEmpty(
+                            title = "پلنی با این فیلترها پیدا نشد",
+                            hint = "دستهٔ دیگری انتخاب کن یا فیلتر مدت را بردار.",
+                            icon = Icons.Filled.ShoppingCart,
+                            actionText = if (selectedCategory != null || selectedTime != null) "برداشتن فیلترها" else null,
+                            onAction = if (selectedCategory != null || selectedTime != null) {
+                                { selectedCategory = null; selectedTime = null }
+                            } else null
+                        )
+                    }
+                }
+                if (products.isEmpty() && busy) {
+                    item(key = "shop-plans-loading") { SkinLoading("در حال دریافت پلن‌ها از پنل…") }
+                }
                 items(products, key = { "product:${it.id}" }) { product ->
-                    ProductCard(product, enabled = !busy && !checkoutBusy) {
+                    ProductCard(
+                        product,
+                        enabled = !busy && !checkoutBusy,
+                        bestValue = product.id == bestValueId
+                    ) {
                         confirmationTitle = product.name
                         confirmationPrice = product.price
                         confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
@@ -1029,7 +1091,16 @@ private fun RenewServiceDialog(
 
 @Composable
 private fun SectionTitle(title: String, subtitle: String) {
-    Column { Text(title, fontWeight = FontWeight.ExtraBold); Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    // The skin's heading: a brand rail for the step, the explanation under it
+    // as secondary text rather than a second bold line competing with it.
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Rail(title)
+        Text(
+            subtitle,
+            style = MaterialTheme.typography.labelMedium,
+            color = ghajarColors.textSecondary
+        )
+    }
 }
 
 @Composable
@@ -1089,38 +1160,36 @@ private fun StoreSectionTabs(section: Int, onSelect: (Int) -> Unit) {
 @Composable
 private fun <T> ServiceTypeGrid(items: List<T>, selected: T?, label: (T) -> String,
     icon: (T) -> String, onSelect: (T) -> Unit) {
+    // Was a grid of 132dp-wide outlined cards, which pushed the plans below
+    // the fold on a phone before you had chosen anything. A service family is
+    // one choice out of a handful, so it is a chip: glyph, name, and a filled
+    // brand pill for the one you are on.
+    val c = ghajarColors
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
     ) {
         items.forEach { item ->
             val isSelected = item == selected
-            val c = ghajarColors
-            Card(
-                onClick = { onSelect(item) },
-                shape = RoundedCornerShape(GhajarRadius.lg),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (isSelected) c.primary.copy(alpha = 0.14f) else c.card
-                ),
-                // Selection is the border's job here, not elevation - the rest
-                // of the app is flat cards with hairlines.
-                border = BorderStroke(
-                    width = if (isSelected) 2.dp else 1.dp,
-                    color = if (isSelected) c.primary else c.border
-                ),
-                elevation = CardDefaults.cardElevation(0.dp)
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(GhajarRadius.pill))
+                    .background(if (isSelected) c.primary else c.secondaryCard)
+                    .clickable { onSelect(item) }
+                    .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
-                Column(
-                    Modifier.padding(horizontal = 14.dp, vertical = 12.dp).widthIn(min = 132.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Text(icon(item), style = MaterialTheme.typography.titleLarge)
-                    Text(label(item), textAlign = TextAlign.Center, maxLines = 2,
-                        style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
-                        color = if (isSelected) c.primary else c.textPrimary)
-                }
+                Text(icon(item), style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    label(item),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                    color = if (isSelected) c.onPrimary else c.textPrimary
+                )
             }
         }
     }
@@ -1130,19 +1199,33 @@ private fun <T> ServiceTypeGrid(items: List<T>, selected: T?, label: (T) -> Stri
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
 private fun <T> ChipFlowRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
+    // Material's FilterChip brought its own outline and check mark; the skin
+    // says a chosen chip is filled and nothing else needs marking.
+    val c = ghajarColors
     FlowRow(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
     ) {
-        val anySelected = selected != null
-        FilterChip(selected = !anySelected, onClick = { onSelect(null) }, label = {
-            Text(allLabel, textAlign = TextAlign.Center, maxLines = 1)
-        })
+        @Composable
+        fun chip(text: String, active: Boolean, onClick: () -> Unit) {
+            Text(
+                text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                color = if (active) c.onPrimary else c.textSecondary,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(GhajarRadius.pill))
+                    .background(if (active) c.primary else c.secondaryCard)
+                    .clickable { onClick() }
+                    .padding(horizontal = GhajarSpacing.md, vertical = 7.dp)
+            )
+        }
+        chip(allLabel, selected == null) { onSelect(null) }
         items.forEach { item ->
-            FilterChip(selected = item == selected, onClick = { onSelect(item) }, label = {
-                Text(label(item), textAlign = TextAlign.Center, maxLines = 1)
-            })
+            chip(label(item), item == selected) { onSelect(item) }
         }
     }
 }
@@ -1173,66 +1256,98 @@ private fun panelIcon(name: String): String = when {
 }
 
 @Composable
-private fun ProductCard(product: GhajarProduct, enabled: Boolean, onBuy: () -> Unit) {
+private fun ProductCard(
+    product: GhajarProduct,
+    enabled: Boolean,
+    bestValue: Boolean = false,
+    onBuy: () -> Unit
+) {
     var details by remember(product.id) { mutableStateOf(false) }
     val c = ghajarColors
-    // A plan is one slab: filled, edgeless, light on the top edge. Sold-out
-    // or unavailable plans take the disabled tone on that edge so the state is
-    // visible before you read the price.
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(GhajarRadius.lg))
-            .background(c.secondaryCard)
-            .then(if (enabled) Modifier.clickable { details = true } else Modifier)
-            .padding(GhajarSpacing.lg),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-    ) {
-        Box(
-            Modifier
-                .size(38.dp)
-                .clip(RoundedCornerShape(13.dp))
-                .background((if (enabled) c.primary else c.onDisabled).copy(alpha = 0.14f)),
-            contentAlignment = Alignment.Center
+    // A plan is the thing this screen exists to sell, so it gets a real card:
+    // the name, what you actually get as a two-cell strip, the price large
+    // enough to read at a glance, and its own buy action. The old version was
+    // a single row where the price was the same size as the name and the only
+    // affordance was a tiny "open" glyph.
+    Slab(accent = if (bestValue) c.highlight else null, spacing = GhajarSpacing.md) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
         ) {
-            Icon(
-                Icons.Filled.Shield,
-                null,
-                tint = if (enabled) c.primary else c.onDisabled,
-                modifier = Modifier.size(20.dp)
-            )
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background((if (enabled) c.primary else c.onDisabled).copy(alpha = 0.14f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Filled.Shield,
+                    null,
+                    tint = if (enabled) c.primary else c.onDisabled,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(
+                    product.name,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = if (enabled) c.textPrimary else c.onDisabled,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                if (bestValue) {
+                    // Computed from the visible list's price per gigabyte, not
+                    // a label anyone typed in.
+                    Text(
+                        "بهترین ارزش در این فهرست",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.highlight,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+            }
+            if (product.description.isNotBlank()) {
+                Icon(
+                    Icons.Filled.OpenInNew,
+                    "توضیح این پلن",
+                    tint = c.textMuted,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(GhajarRadius.sm))
+                        .clickable(enabled = enabled) { details = true }
+                        .padding(6.dp)
+                        .size(18.dp)
+                )
+            }
         }
-        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                product.name,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Bold,
-                color = if (enabled) c.textPrimary else c.onDisabled,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
+
+        StatStrip(
+            listOfNotNull(
+                product.trafficGb?.let {
+                    StatCell(
+                        "حجم",
+                        "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ",
+                        c.info
+                    )
+                },
+                product.days?.let { StatCell("مدت", "$it روز", c.premium) },
+                product.price?.let {
+                    StatCell(
+                        "قیمت",
+                        if (it == 0L) "رایگان" else "${formatPrice(it)} تومان",
+                        if (enabled) c.highlight else c.onDisabled
+                    )
+                }
             )
-            Text(
-                listOfNotNull(
-                    product.trafficGb?.let { "${it.toBigDecimal().stripTrailingZeros().toPlainString()} گیگ" },
-                    product.days?.let { "$it روز" }
-                ).joinToString("  •  "),
-                style = MaterialTheme.typography.bodySmall,
-                color = c.textSecondary
-            )
-            Text(
-                product.price?.let { if (it == 0L) "رایگان" else "${formatPrice(it)} تومان" }
-                    ?: "قیمت در دسترس نیست",
-                style = MaterialTheme.typography.bodyLarge,
-                color = if (enabled) c.highlight else c.onDisabled,
-                fontWeight = FontWeight.Bold
-            )
-        }
-        Icon(
-            Icons.Filled.OpenInNew,
-            "مشاهدهٔ محصول",
-            tint = c.textMuted,
-            modifier = Modifier.size(18.dp)
+        )
+
+        PillButton(
+            text = if (product.price == null) "قیمت در دسترس نیست" else "خرید این پلن",
+            onClick = onBuy,
+            enabled = enabled && product.price != null,
+            icon = Icons.Filled.ShoppingCart
         )
     }
     if (details) AlertDialog(onDismissRequest = { details = false },
