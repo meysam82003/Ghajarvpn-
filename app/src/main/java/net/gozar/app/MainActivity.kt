@@ -1857,6 +1857,7 @@ private fun ConnectionScreen(
     var downSpeed by remember { mutableStateOf(0L) }
     var delayResult by remember { mutableStateOf<String?>(null) }
     var delayRunning by remember { mutableStateOf(false) }
+    var showDoctor by remember { mutableStateOf(false) }
 
     // OpenVPN owns the tunnel whenever the active id carries its prefix. Its
     // engine is a separate process that never broadcasts to VpnBridge, so a
@@ -2040,10 +2041,32 @@ private fun ConnectionScreen(
                 }
             )
 
-            error?.takeIf { it.isNotBlank() && conn != Connection.CONNECTED }?.let { msg ->
-                SkinError(msg)
+            // A failure the user can act on. The engine's message is whatever it
+            // happened to produce; the diagnose button is how that becomes a
+            // cause and a remedy instead of a sentence to screenshot.
+            val faulted = error?.takeIf { it.isNotBlank() && conn != Connection.CONNECTED }
+            if (faulted != null) {
+                SkinError(
+                    faulted,
+                    retryText = t("doc_action"),
+                    onRetry = { showDoctor = true }
+                )
+            } else if (deadTunnel) {
+                // Connected, carrying nothing, and no error string exists to
+                // explain it - the case the diagnosis is most useful for.
+                GhostPill(t("doc_action"), onClick = { showDoctor = true })
             }
         }
+    }
+
+    if (showDoctor) {
+        ConnectDoctorDialog(
+            config = activeConfig,
+            ovpnProfile = if (onOpenVpn) ovpnProfile else null,
+            engineError = error,
+            tunnelUp = conn == Connection.CONNECTED,
+            onDismiss = { showDoctor = false }
+        )
     }
 }
 
