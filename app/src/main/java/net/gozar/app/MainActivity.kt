@@ -82,6 +82,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -1829,8 +1830,6 @@ private fun GozarApp(
     }
 }
 
-private const val PICKING_LABEL = "__picking__"
-
 @Composable
 fun SecureWhile(active: Boolean, key: String) {
     DisposableEffect(active, key) {
@@ -1906,200 +1905,140 @@ private fun ConnectionScreen(
     val selectedConfig = configs.find { it.id == selectedId }
     val connected = conn == Connection.CONNECTED || conn == Connection.CONNECTING
 
-    val hazeState = remember { HazeState() }
-    Box(modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalHazeState provides hazeState) {
-            Column(
-                Modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                GhajarSelectedServerCard(selectedConfig, conn, onOpenPicker)
+    val connectedAt by VpnState.connectedAt.collectAsState()
+    val activeConfig = configs.find { it.id == activeCfgId } ?: selectedConfig
+    val netOffline = rememberInternetOffline()
+    val alive by TunnelHealth.alive.collectAsState()
+    val deadTunnel = conn == Connection.CONNECTED && alive == false
+    // A tap does something when a tunnel is up (disconnect) or when a server is
+    // selected (connect); cancelling an auto-pick is handled on its own.
+    val canAct = conn != Connection.DISCONNECTING && (connected || selectedConfig != null)
+    val c = ghajarColors
 
-                var btnPressed by remember { mutableStateOf(false) }
-                val glowActive = !connected && selectedConfig != null && !btnPressed
-                val glowAlpha by animateFloatAsState(
-                    targetValue = if (glowActive) 1f else 0f,
-                    animationSpec = tween(300),
-                    label = "glowAlpha"
+    // The whole screen is one column centred on the connect button. It scrolls
+    // only when it must - a short screen, or a large system font - so the orb
+    // stays centred everywhere else and nothing is ever clipped.
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val floor = maxHeight
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = floor)
+                .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.xl),
+            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.lg, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            GhajarWordmark(Modifier.height(30.dp))
+
+            StatusLine(conn, picking, netOffline, deadTunnel)
+
+            ConnectOrb(
+                state = conn,
+                picking = picking,
+                enabled = canAct,
+                tunnelDead = deadTunnel,
+                netOffline = netOffline,
+                onClick = {
+                    when {
+                        picking -> onCancelPick()
+                        connected -> onDisconnect()
+                        else -> selectedConfig?.let { onConnect(it) }
+                    }
+                }
+            )
+
+            SessionLine(connectedAt.takeIf { it > 0L }, conn)
+
+            // Locked configs never reveal their endpoint, and the built-in
+            // engines have none - exactly as the old route card behaved.
+            val pillSubtitle = selectedConfig?.let { cfg ->
+                val engine = cfg.protocol.uppercase(java.util.Locale.ROOT)
+                val endpoint = when {
+                    cfg.locked -> t("locked_endpoint")
+                    cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
+                    else -> "⁦${cfg.address}:${cfg.port}⁩"
+                }
+                "$engine · $endpoint"
+            }
+            ServerPill(
+                name = selectedConfig?.name?.let(BrandConfig::sanitizePublicText),
+                subtitle = pillSubtitle,
+                state = conn,
+                onClick = onOpenPicker
+            )
+            if (selectedConfig == null && !connected) {
+                // OpenVPN profiles are never selectable here by design, so say
+                // where they live instead of leaving a dead end.
+                Text(
+                    t("home_openvpn_hint"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textMuted,
+                    textAlign = TextAlign.Center
                 )
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(64.dp)
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
-                                btnPressed = true
-                                waitForUpOrCancellation()
-                                btnPressed = false
-                            }
-                        }
-                ) {
-                    val netOffline = rememberInternetOffline()
-                    val alive by TunnelHealth.alive.collectAsState()
-                    val deadTunnel = conn == Connection.CONNECTED && alive == false
-                    val stateTint by animateColorAsState(
-                        when {
-                            netOffline || deadTunnel -> Color(0xFFE0413C)
-                            conn == Connection.CONNECTING -> Color(0xFFFFA94D)
-                            connected -> AppGreen
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        tween(450),
-                        label = "connTint"
-                    )
-                    val enabled = conn != Connection.DISCONNECTING && (connected || selectedConfig != null)
-                    val press by animateFloatAsState(
-                        if (btnPressed && enabled) 0.97f else 1f,
-                        tween(140, easing = FastOutSlowInEasing),
-                        label = "connPress"
-                    )
-                    Box(
-                        Modifier.matchParentSize()
-                            .graphicsLayer { scaleX = press; scaleY = press }
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        stateTint.copy(alpha = 0.18f),
-                                        stateTint.copy(alpha = 0.30f),
-                                        stateTint.copy(alpha = 0.18f)
-                                    )
-                                )
-                            )
-                            .border(1.6.dp, stateTint.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
-                            .clickable(enabled = enabled || picking) {
-                                when {
-                                    picking -> onCancelPick()
-                                    connected -> onDisconnect()
-                                    else -> selectedConfig?.let { onConnect(it) }
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ConnectSweep(
-                            color = stateTint,
-                            active = conn == Connection.CONNECTING,
-                            modifier = Modifier.matchParentSize()
-                        )
-                        AnimatedContent(
-                            targetState = if (picking) PICKING_LABEL else conn.name,
-                            transitionSpec = {
-                                (slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it / 2 } +
-                                        fadeIn(tween(340))) togetherWith
-                                        (slideOutVertically(tween(340, easing = FastOutSlowInEasing)) { -it / 2 } +
-                                                fadeOut(tween(200)))
-                            },
-                            label = "connLabel",
-                            modifier = Modifier.fillMaxSize()
-                        ) { key ->
-                            val isPicking = key == PICKING_LABEL
-                            val spinning = isPicking || key == Connection.CONNECTING.name
-                            val spin by rememberInfiniteTransition(label = "connSpin")
-                                .animateFloat(
-                                    initialValue = 0f,
-                                    targetValue = 360f,
-                                    animationSpec = infiniteRepeatable(
-                                        tween(900, easing = LinearEasing),
-                                        RepeatMode.Restart
-                                    ),
-                                    label = "connSpinAngle"
-                                )
-                            Row(
-                                Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    when {
-                                        isPicking -> Icons.Filled.Autorenew
-                                        key == Connection.CONNECTING.name -> Icons.Filled.Autorenew
-                                        key == Connection.CONNECTED.name -> Icons.Filled.PowerSettingsNew
-                                        else -> Icons.Filled.Bolt
-                                    },
-                                    contentDescription = null,
-                                    tint = stateTint,
-                                    modifier = Modifier
-                                        .size(22.dp)
-                                        .graphicsLayer { rotationZ = if (spinning) spin else 0f }
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    when {
-                                        isPicking -> t("finding_fastest")
-                                        key == Connection.CONNECTING.name -> t("connecting_cancel")
-                                        key == Connection.CONNECTED.name -> t("disconnect")
-                                        else -> t("connect")
-                                    },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = stateTint,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
-                            }
-                        }
-                    }
-                }
+            }
 
-                AnimatedVisibility(
-                    visible = conn == Connection.CONNECTED,
-                    enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-                    exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        StatBox(
-                            speed = downSpeed,
-                            total = totalDown,
-                            icon = Icons.Filled.ArrowDownward,
-                            color = Color(0xFF35E0FF),
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatBox(
-                            speed = upSpeed,
-                            total = totalUp,
-                            icon = Icons.Filled.ArrowUpward,
-                            color = Color(0xFFD6B25E),
-                            modifier = Modifier.weight(1f)
-                        )
-                        BounceOutlinedButton(
-                            onClick = {
-                                delayRunning = true; delayResult = null
-                                scope.launch {
-                                    val ms = SpeedTest.delay()
-                                    delayResult = if (ms != null) "${localizeDigits("$ms", lang)} ${t("unit_ms")}" else t("delay_failed")
-                                    delayRunning = false
-                                }
-                            },
-                            enabled = !delayRunning,
-                            minHeight = 44.dp,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            when {
-                                delayRunning -> Text("…", style = MaterialTheme.typography.labelLarge)
-                                delayResult != null -> Text(delayResult!!, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                else -> Icon(Icons.Filled.NetworkCheck, contentDescription = t("real_delay"), modifier = Modifier.size(20.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                val downParts = formatBytesParts(downSpeed, lang)
+                val upParts = formatBytesParts(upSpeed, lang)
+                MetricTile(
+                    icon = Icons.Filled.ArrowDownward,
+                    label = t("download"),
+                    value = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
+                    sub = t("home_total").format(formatBytes(totalDown, lang)),
+                    accent = c.highlight,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricTile(
+                    icon = Icons.Filled.ArrowUpward,
+                    label = t("upload"),
+                    value = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
+                    sub = t("home_total").format(formatBytes(totalUp, lang)),
+                    accent = c.premium,
+                    modifier = Modifier.weight(1f)
+                )
+                MetricTile(
+                    icon = Icons.Filled.NetworkCheck,
+                    label = t("real_delay"),
+                    value = when {
+                        delayRunning -> "…"
+                        delayResult != null -> delayResult!!
+                        else -> "—"
+                    },
+                    accent = c.primary,
+                    modifier = Modifier.weight(1f),
+                    onClick = if (conn == Connection.CONNECTED && !delayRunning) {
+                        {
+                            delayRunning = true
+                            delayResult = null
+                            scope.launch {
+                                val ms = SpeedTest.delay()
+                                delayResult =
+                                    if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
+                                delayRunning = false
                             }
                         }
-                    }
-                }
+                    } else null
+                )
+            }
 
-                val connectedAt by VpnState.connectedAt.collectAsState()
-                val activeConfig = configs.find { it.id == activeCfgId } ?: selectedConfig
-                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
-                    ConnectionHub(
-                        state = conn,
-                        serverName = selectedConfig?.name,
-                        serverAddress = activeConfig?.address,
-                        serverPort = activeConfig?.port,
-                        sessionStartMs = connectedAt.takeIf { it > 0L },
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+            ConnectionFacts(
+                state = conn,
+                serverAddress = activeConfig?.address,
+                serverPort = activeConfig?.port
+            )
+
+            error?.takeIf { it.isNotBlank() && conn != Connection.CONNECTED }?.let { msg ->
+                Text(
+                    msg,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.error,
+                    textAlign = TextAlign.Center,
+                    maxLines = 3
+                )
             }
         }
     }
@@ -9709,56 +9648,6 @@ private fun SpeedText(bytes: Long) {
         style = MaterialTheme.typography.titleMedium,
         maxLines = 1
     )
-}
-
-@Composable
-private fun StatBox(
-    speed: Long,
-    total: Long,
-    icon: ImageVector,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val parts = formatBytesParts(speed, lang)
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val accent = if (isDark) color else lerp(color, Color.Black, 0.42f)
-    val hazeState = LocalHazeState.current
-    Column(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .then(
-                if (hazeState != null) Modifier.hazeEffect(hazeState) {
-                    blurRadius = 10.dp
-                    backgroundColor = surfaceColor
-                    tints = listOf(HazeTint(surfaceColor.copy(alpha = 0.30f)))
-                    noiseFactor = 0f
-                } else Modifier.background(surfaceColor.copy(alpha = if (isDark) 0.55f else 0.75f))
-            )
-            .background(accent.copy(alpha = if (isDark) 0.12f else 0.10f))
-            .border(BorderStroke(1.dp, accent.copy(alpha = if (isDark) 0.75f else 0.55f)), RoundedCornerShape(14.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(
-                "\u202A${parts.first}\u202C ${parts.second}${t("unit_per_sec")}",
-                style = MaterialTheme.typography.bodySmall,
-                color = accent,
-                maxLines = 1
-            )
-        }
-        Text(
-            formatBytes(total, lang),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-    }
 }
 
 private fun formatBytesParts(bytes: Long, lang: Lang): Pair<String, String> {
