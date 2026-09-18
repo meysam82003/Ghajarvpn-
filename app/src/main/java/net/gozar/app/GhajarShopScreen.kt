@@ -1130,6 +1130,13 @@ private fun RenewServiceDialog(
     var customVolume by remember(username) { mutableStateOf("") }
     var customTime by remember(username) { mutableStateOf("") }
 
+    // What the service currently is, alongside what it can be renewed to. The
+    // dialog used to open on a bare username and a price list, which is the
+    // one place a user needs to be told what they are renewing: how big the
+    // plan is, how much of it is left, and when it runs out. A failure here
+    // never blocks the renewal - the summary is simply not shown.
+    var current by remember(username) { mutableStateOf<GhajarServiceDetails?>(null) }
+
     LaunchedEffect(username) {
         loading = true; loadError = null
         runCatching { api.renewOptions(username) }
@@ -1142,6 +1149,10 @@ private fun RenewServiceDialog(
         loading = false
     }
 
+    LaunchedEffect(username) {
+        current = runCatching { api.service(username) }.getOrNull()
+    }
+
     AlertDialog(
         onDismissRequest = { if (!busy) onDismiss() },
         title = { Text("تمدید سرویس") },
@@ -1152,6 +1163,7 @@ private fun RenewServiceDialog(
             ) {
                 Text(username, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                current?.let { CurrentServiceSummary(it) }
                 when {
                     loading -> Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator()
@@ -1254,6 +1266,63 @@ private fun RenewServiceDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("بازگشت") } }
     )
+}
+
+/**
+ * What the service being renewed currently is.
+ *
+ * Only values the panel actually returned are shown - a plan with no declared
+ * volume simply has no volume row, rather than a zero that reads as "you have
+ * nothing left". The remaining figure is the panel's own; nothing here
+ * recomputes it from the other two.
+ */
+@Composable
+private fun CurrentServiceSummary(service: GhajarServiceDetails) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    fun gb(value: Double) = localizeDigits("%.2f".format(java.util.Locale.US, value), lang) + " گیگابایت"
+
+    val rows = buildList {
+        service.productName.takeIf { it.isNotBlank() }?.let { add("پلن فعلی" to it) }
+        service.totalGb?.takeIf { it > 0 }?.let { add("حجم پلن" to gb(it)) }
+        service.usedGb?.let { add("مصرف‌شده" to gb(it)) }
+        service.remainingGb?.let { add("باقی‌مانده" to gb(it)) }
+        service.expiresAt.takeIf { it.isNotBlank() }?.let { add("انقضا" to localizeDigits(it, lang)) }
+        service.status.takeIf { it.isNotBlank() }?.let { add("وضعیت" to it) }
+    }
+    if (rows.isEmpty()) return
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.md))
+            .background(c.secondaryCard)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(
+            "این سرویس الان چیست",
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = c.textSecondary
+        )
+        rows.forEach { (label, value) ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textMuted,
+                    modifier = Modifier.weight(1f)
+                )
+                Text(
+                    mixedText(value),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium,
+                    color = c.textPrimary
+                )
+            }
+        }
+    }
 }
 
 @Composable

@@ -704,7 +704,11 @@ class GhajarStoreApi(context: Context) {
                     used = info?.used ?: subscription.used,
                     total = info?.total ?: subscription.total,
                     expire = info?.expire ?: subscription.expire,
-                    lastUpdated = System.currentTimeMillis()
+                    lastUpdated = System.currentTimeMillis(),
+                    // Recorded here and nowhere else: this is the only moment
+                    // the app knows which panel service a subscription is,
+                    // and it is what makes one-tap renewal possible later.
+                    serviceUsername = service.username
                 ), fetched.configs)
                 fetched.configs.size
             }

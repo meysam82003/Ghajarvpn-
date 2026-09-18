@@ -1669,7 +1669,15 @@ private fun GozarApp(
                             onDisconnectOpenVpn = onDisconnectOpenVpn,
                             onTestOpenVpn = onTestOpenVpn,
                             onConnect = onConnect,
-                            onDisconnect = onDisconnect
+                            onDisconnect = onDisconnect,
+                            // A subscription delivered by the shop or the bot
+                            // can be renewed; the shop already listens for the
+                            // request, the servers list just never made one.
+                            onRenewService = { username ->
+                                GhajarRenewRequest.request(username)
+                                showPicker = false
+                                scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
+                            }
                         )
                         "openvpnhub" -> OpenVpnHubScreen(
                             onConnect = onConnectOpenVpn,
@@ -2135,6 +2143,8 @@ private fun ConfigPickerScreen(
     onTestOpenVpn: (String) -> Unit = {},
     onConnect: (ProxyConfig) -> Unit = {},
     onDisconnect: () -> Unit = {},
+    /** Opens the shop on this panel service's renewal. */
+    onRenewService: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -2919,6 +2929,8 @@ private fun ConfigPickerScreen(
                             dead.forEach { pings.remove(it); selected.remove(it) }
                             addDone = n(t("deleted_n").format(dead.size))
                         },
+                        onRenew = sub.serviceUsername.takeIf { it.isNotBlank() }
+                            ?.let { username -> { onRenewService(username) } },
                         pinging = sub.id in pingingSubs,
                         onPing = {
                             if (sub.id !in pingingSubs && subConfigs.isNotEmpty()) {
@@ -3711,22 +3723,24 @@ private fun AddServerPanel(
                 Modifier.padding(top = GhajarSpacing.md),
                 verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
             ) {
-                Rail(t("add_have_config"))
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-                    GlyphTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f), enabled = !busy)
-                    GlyphTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f), enabled = !busy)
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-                    GlyphTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f), enabled = !busy)
-                    GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
-                }
-
+                // The four providers come first and stay visible. The four
+                // ways to paste in a config you already have are one collapsed
+                // row underneath - because with both lists open the panel is
+                // taller than a phone screen, and Psiphon, the one engine that
+                // needs no config at all, was the row that fell off the
+                // bottom. Anyone who already has a config knows to look for
+                // where to put it; nobody discovers Psiphon by scrolling.
                 Rail(t("add_get_config"))
-                // Free projects leads this list on purpose. It was last of
-                // four, which put it under the fold on a phone - present, and
-                // reported as missing twice, which for a user is the same
-                // thing. It is also the only entry that costs nothing, so it
-                // is the one worth seeing first.
+                SlabRow(
+                    title = "Psiphon",
+                    subtitle = t("add_psiphon_sub"),
+                    icon = Icons.Filled.Public,
+                    accent = c.good,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onPsiphon
+                )
+                SlabDivider()
                 SlabRow(
                     title = t("free_projects"),
                     subtitle = t("add_free_sub"),
@@ -3756,16 +3770,37 @@ private fun AddServerPanel(
                     enabled = !busy,
                     onClick = onOpenVpn
                 )
+
+                var haveOpen by remember { mutableStateOf(false) }
                 SlabDivider()
                 SlabRow(
-                    title = "Psiphon",
-                    subtitle = t("add_psiphon_sub"),
-                    icon = Icons.Filled.Public,
-                    accent = c.good,
+                    title = t("add_have_config"),
+                    subtitle = t("add_have_config_sub"),
+                    icon = Icons.Filled.ContentPaste,
+                    accent = c.textSecondary,
                     chevron = true,
                     enabled = !busy,
-                    onClick = onPsiphon
+                    onClick = { haveOpen = !haveOpen }
                 )
+                AnimatedVisibility(
+                    visible = haveOpen,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
+                ) {
+                    Column(
+                        Modifier.padding(top = GhajarSpacing.sm),
+                        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                            GlyphTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f), enabled = !busy)
+                            GlyphTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f), enabled = !busy)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                            GlyphTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f), enabled = !busy)
+                            GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
+                        }
+                    }
+                }
             }
         }
     }
@@ -10882,6 +10917,14 @@ private fun SubscriptionHeader(
     timedOutCount: Int,
     onPing: () -> Unit,
     pinging: Boolean,
+    /**
+     * Renew this service, or null when there is nothing to renew.
+     *
+     * Only a subscription delivered for a panel account carries a service
+     * username, so a hand-pasted link never shows the action - the button
+     * exists exactly where it would work.
+     */
+    onRenew: (() -> Unit)? = null,
     /** How many configs this subscription holds, shown under its name. */
     configCount: Int = 0,
     modifier: Modifier = Modifier
@@ -11059,8 +11102,25 @@ private fun SubscriptionHeader(
             }
         }
 
+        // The bar had no number on it, so "how much is left" meant reading
+        // two byte counts and dividing. The percentage sits on the bar's own
+        // row, in the bar's own colour, so the warning colour and the number
+        // say the same thing.
         if (sub.total > 0) {
-            UsageBar(used = sub.used, total = sub.total)
+            val remaining = (sub.total - sub.used).coerceAtLeast(0L)
+            val percent = ((remaining.toDouble() / sub.total) * 100).roundToInt().coerceIn(0, 100)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                Box(Modifier.weight(1f)) { UsageBar(used = sub.used, total = sub.total) }
+                Text(
+                    localizeDigits("$percent", lang) + "٪",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = usageLevelColor(remaining, sub.total)
+                )
+            }
         }
         val quota = quotaChips(sub, lang)
         if (quota.isNotEmpty()) {
@@ -11068,7 +11128,59 @@ private fun SubscriptionHeader(
                 quota.forEach { (label, level) -> QuotaChip(label, level) }
             }
         }
+        // A service bought from the shop or the bot can be renewed without
+        // leaving this list. It only appears on subscriptions that carry a
+        // panel username, so it is never a button that leads nowhere. It is
+        // emphasised once the quota or the clock is nearly out, which is the
+        // moment it exists for.
+        onRenew?.let { renew ->
+            val nearlyOut = (sub.total > 0 &&
+                (sub.total - sub.used).toFloat() / sub.total <= 0.15f) ||
+                (sub.expire > 0 &&
+                    (sub.expire * 1000 - System.currentTimeMillis()) / 86_400_000L <= 3L)
+            if (nearlyOut) {
+                PillButton(t("sub_renew"), onClick = renew, icon = Icons.Filled.Autorenew)
+            } else {
+                GhostPill(t("sub_renew"), onClick = renew, icon = Icons.Filled.Autorenew)
+            }
+        }
+
+        // When the link was last fetched, to the second. A subscription that
+        // silently stopped updating looks exactly like one whose numbers have
+        // not changed, and this is the only thing that tells them apart.
+        Text(
+            if (sub.lastUpdated > 0)
+                t("sub_updated_at").format(formatStamp(sub.lastUpdated, lang))
+            else t("sub_never_updated"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textMuted,
+            maxLines = 1
+        )
     }
+}
+
+/** The colour the usage bar is drawing itself in, so a number beside it agrees. */
+@Composable
+private fun usageLevelColor(remaining: Long, total: Long): Color {
+    val frac = if (total > 0) (remaining.toFloat() / total).coerceIn(0f, 1f) else 0f
+    return when {
+        frac <= 0.10f -> ghajarColors.error
+        frac <= 0.30f -> ghajarColors.warning
+        else -> ghajarColors.primary
+    }
+}
+
+/**
+ * A local timestamp as date and clock, digits localised.
+ *
+ * Deliberately not a "2 hours ago" - the question this answers is whether the
+ * refresh that just ran actually ran, and a relative label cannot say that.
+ */
+private fun formatStamp(millis: Long, lang: Lang): String {
+    val date = java.util.Date(millis)
+    val pattern = if (lang == Lang.FA) "yyyy/MM/dd - HH:mm:ss" else "yyyy-MM-dd HH:mm:ss"
+    val text = java.text.SimpleDateFormat(pattern, java.util.Locale.US).format(date)
+    return localizeDigits(text, lang)
 }
 
 /** One action glyph in a subscription header: tinted tile, no outline. */
@@ -11659,6 +11771,10 @@ private fun ConfigRow(
     val highlight by animateColorAsState(
         targetValue = when {
             checked || isSelected -> c.primary.copy(alpha = 0.16f)
+            // The row actually carrying traffic. A 3dp accent bar is easy to
+            // miss in a long list; the wash is the same signal at a glance,
+            // and lighter than the selected one so the two stay distinct.
+            isActive -> c.primary.copy(alpha = 0.09f)
             containerColor != null -> containerColor
             else -> Color.Transparent
         },
@@ -11762,14 +11878,23 @@ private fun ConfigRow(
                 } else {
                     MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface)
                 }
-                Text(
-                    if (config.locked) AnnotatedString(t("locked_config"))
-                    else scriptRuns("${config.address}:${config.port}", LexendFont),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isActive) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
+                // Protocol and endpoint on one line: the tag first, because it
+                // is the shorter, fixed-width half and a long hostname should
+                // not be what pushes it off the row.
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    ProtocolTag(config.protocol, isActive)
+                    Text(
+                        if (config.locked) AnnotatedString(t("locked_config"))
+                        else scriptRuns("${config.address}:${config.port}", LexendFont),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isActive) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
             Spacer(Modifier.width(3.dp))
             PingChip(ping)
@@ -12095,24 +12220,32 @@ private fun MarqueeName(text: String, style: TextStyle? = null, color: Color = C
 @Composable
 private fun LivePingDot(ping: PingResult?) {
     val color = pingColor(ping)
-    val transition = rememberInfiniteTransition(label = "pingDot")
-    val ripple by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
-        label = "ripple"
-    )
+    // The ripple only runs while a measurement is actually running. It used to
+    // run on every row forever: an infinite transition per visible item, each
+    // driving a graphicsLayer every frame, for a number that had already
+    // settled. A pulse that never stops also stops meaning anything - now it
+    // is exactly the "this one is being tested" signal.
+    val measuring = ping == PingResult.Testing
     Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .size(24.dp)
-                .graphicsLayer {
-                    val sc = 0.40f + ripple * 0.60f
-                    scaleX = sc; scaleY = sc
-                    alpha = (1f - ripple) * 0.6f
-                }
-                .background(Brush.radialGradient(listOf(color, Color.Transparent)), CircleShape)
-        )
+        if (measuring) {
+            val transition = rememberInfiniteTransition(label = "pingDot")
+            val ripple by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
+                label = "ripple"
+            )
+            Box(
+                Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        val sc = 0.40f + ripple * 0.60f
+                        scaleX = sc; scaleY = sc
+                        alpha = (1f - ripple) * 0.6f
+                    }
+                    .background(Brush.radialGradient(listOf(color, Color.Transparent)), CircleShape)
+            )
+        }
         Box(
             Modifier
                 .size(16.dp)
@@ -12120,6 +12253,30 @@ private fun LivePingDot(ping: PingResult?) {
         )
         Box(Modifier.size(9.dp).clip(CircleShape).background(color))
     }
+}
+
+/**
+ * The protocol, as a quiet tag beside the endpoint.
+ *
+ * A server list where every row reads "name / host:port" hides the one field
+ * that decides whether a row will work at all on a given network. Built-in
+ * engines say so instead of naming a transport they do not have.
+ */
+@Composable
+private fun ProtocolTag(protocol: String, active: Boolean) {
+    val c = ghajarColors
+    val label = protocol.trim().uppercase(java.util.Locale.ROOT).ifBlank { return }
+    val tint = if (active) c.primary else c.textMuted
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = tint,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(tint.copy(alpha = 0.12f))
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+    )
 }
 
 @Composable
