@@ -41,6 +41,13 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         // underlying network, which is a separate concern from the rules.
         if (processName == packageName) NetworkAutoConnect.initialize(this)
         GhajarLog.i("Startup", "phase: network rules ready")
+        // The widget is pushed rather than polled: the platform's own update
+        // period cannot be shorter than thirty minutes, which is useless for a
+        // connection state. This costs nothing when no widget is placed -
+        // refresh() returns immediately on an empty id list.
+        if (processName == packageName) scope.launch {
+            VpnState.state.collect { GhajarWidget.refresh(this@GozarApplication) }
+        }
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {

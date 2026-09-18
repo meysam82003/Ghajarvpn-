@@ -309,6 +309,7 @@ class GozarVpnService : VpnService() {
         configAddress = config.address
         configPort = config.port
         lastPingMs = null
+        GhajarWidget.lastPingMs = null
         VpnState.setConnecting(config.id)
         startTunnel(json)
     }
@@ -323,6 +324,11 @@ class GozarVpnService : VpnService() {
         scope.launch {
             val result = Pinger.ping(configAddress, configPort)
             lastPingMs = (result as? PingResult.Ok)?.ms
+            // The widget shows a ping only when one was actually measured, so
+            // it is fed from here rather than measuring on its own - a
+            // RemoteViews update has no business doing network work.
+            GhajarWidget.lastPingMs = lastPingMs
+            GhajarWidget.refresh(applicationContext)
             pinging = false
             if (!tearingDown) {
                 runCatching {

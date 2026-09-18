@@ -1,15 +1,12 @@
 package net.gozar.app
 
-import android.app.ActivityManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.drawable.Icon
-import android.net.VpnService
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
-import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -63,6 +60,10 @@ class QsTileService : TileService() {
                 livePingMs = if (config != null && config.address.isNotBlank() && config.port > 0) {
                     (Pinger.ping(config.address, config.port, timeoutMs = 4000) as? PingResult.Ok)?.ms
                 } else null
+                // The tile and the widget report the same measurement; the
+                // tile is simply the one that has a loop to take it in.
+                GhajarWidget.lastPingMs = livePingMs
+                GhajarWidget.refresh(applicationContext)
                 render()
                 kotlinx.coroutines.delay(8000)
             } else {
@@ -111,61 +112,25 @@ class QsTileService : TileService() {
         tile.updateTile()
     }
 
+    /**
+     * The connect itself lives in QuickConnect, shared with the home-screen
+     * widget. Only the tile-specific reactions stay here.
+     */
     private fun startTunnel() {
-        val store = ConfigStore.get(applicationContext)
-        val selectedId = store.selectedId.value
-        val config = store.configs.value.firstOrNull { it.id == selectedId } ?: store.configs.value.firstOrNull()
-        if (config == null) {
-            android.widget.Toast.makeText(this, "ابتدا یک کانفیگ اضافه کن؛ برای بازکردن اپ آیکون را نگه دار.", android.widget.Toast.LENGTH_LONG).show()
-            return
+        when (QuickConnect.start(this)) {
+            QuickConnectResult.NO_CONFIG -> android.widget.Toast.makeText(
+                this, "ابتدا یک کانفیگ اضافه کن؛ برای بازکردن اپ آیکون را نگه دار.",
+                android.widget.Toast.LENGTH_LONG
+            ).show()
+            // Only first-time Android VPN consent requires an Activity.
+            QuickConnectResult.NEEDS_CONSENT -> openApp()
+            QuickConnectResult.STARTED, QuickConnectResult.FAILED -> Unit
         }
-        if (config.id != selectedId) store.setSelectedId(config.id)
-        if (VpnService.prepare(this) != null) { openApp(); return }
-        if (config.protocol == "ikev2") {
-            IkeController.claim(config)
-            if (!IkeController.connect(this, config)) VpnState.setError("اتصال IKEv2 انجام نشد")
-            return
-        }
-        val json = ConfigBuilder.build(
-            config, store.fragment.value, store.splitRouting.value,
-            store.sniffing.value, store.sniffTypes.value,
-            mux = store.mux.value, muxConcurrency = store.muxConcurrency.value,
-            torBase = store.configs.value.firstOrNull { it.id == config.torBaseId },
-            chainBase = store.configs.value.firstOrNull { it.id == config.chainId },
-            adBlock = store.adBlock.value,
-            fakeDns = store.fakeDns.value,
-            encryptedDns = store.encryptedDns.value,
-            onionRouting = store.onionRouting.value,
-            coreLogLevel = store.coreLogLevel.value
-        )
-        VpnCommandCoordinator.onConnectRequested(config.id, if (config.protocol == "psiphon") 290_000L else if (config.protocol == "aether") 200_000L else 45_000L) { VpnState.setConnecting(config.id) }
-        val intent = Intent(this, GozarVpnService::class.java)
-            .putExtra(GozarVpnService.EXTRA_CONFIG, json)
-            .putExtra(GozarVpnService.EXTRA_AETHER, AetherController.spec(config))
-            .putExtra(GozarVpnService.EXTRA_PSIPHON, PsiphonSpec.from(config)?.toJson())
-            .putExtra(
-                GozarVpnService.EXTRA_TOR,
-                if (config.protocol == "tor")
-                    config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else if (store.onionRouting.value) "|1" else null
-            )
-            .putExtra(GozarVpnService.EXTRA_NAME, config.name)
-            .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
-            .putExtra(GozarVpnService.EXTRA_ADDRESS, config.address)
-            .putExtra(GozarVpnService.EXTRA_PORT, config.port)
-        runCatching { ContextCompat.startForegroundService(this, intent) }
-            .onFailure { VpnState.setError("شروع سرویس VPN ناموفق بود") }
     }
 
     private fun stopTunnel() {
-        VpnCommandCoordinator.onDisconnectRequested {
-            if (IkeController.active) { IkeController.disconnect(this); return@onDisconnectRequested }
-            if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") || GhajarOpenVpnBridge.status.value != GhajarOvpnState.DISCONNECTED) {
-                scope?.launch { GhajarOpenVpnBridge.disconnect(this@QsTileService) }
-                return@onDisconnectRequested
-            }
-            runCatching {
-                startService(Intent(this, GozarVpnService::class.java).setAction(GozarVpnService.ACTION_STOP))
-            }
+        QuickConnect.stop(this) {
+            scope?.launch { GhajarOpenVpnBridge.disconnect(this@QsTileService) }
         }
     }
 

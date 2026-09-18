@@ -11,4 +11,18 @@
     <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar">
         <item name="android:windowBackground">@color/ghajar_window_light</item>
     </style>
+
+    <!--
+        The widget's connect trampoline. It has no UI at all - it exists only
+        because Android will not let a broadcast receiver start a foreground
+        service - so it must not draw a window, dim what is behind it, or
+        animate. Without this the home screen would visibly flash.
+    -->
+    <style name="Theme.Ghajarvpn.Invisible" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

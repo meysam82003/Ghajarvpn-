@@ -6400,21 +6400,192 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
     }
 
     if (showGuide) {
-        AlertDialog(
-            onDismissRequest = { showGuide = false },
-            title = { Text("راهنمای اتصال") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("۱. دستگاه دوم را به همان Wi-Fi یا هات‌اسپات این گوشی وصل کن.")
-                    Text("۲. تنظیمات شبکهٔ Wi-Fi را باز کن.")
-                    Text("۳. بخش Proxy را روی Manual بگذار.")
-                    Text("۴. آدرس و پورت HTTP بالا را وارد کن (این تنظیم رمز را نمی‌پذیرد).")
-                    Text("۵. برای اتصال امن‌تر با رمز، به‌جای تنظیمات Wi-Fi از پراکسی SOCKS5 داخل خود مرورگر یا برنامه استفاده کن.")
-                    Text("۶. تنظیمات را ذخیره کن و یک اتصال واقعی را امتحان کن.")
-                }
-            },
-            confirmButton = { TextButton(onClick = { showGuide = false }) { Text("متوجه شدم") } }
+        VpnShareSetupDialog(
+            sharingOn = enabled,
+            tunnelUp = connected == Connection.CONNECTED,
+            engineSupported = xraySupported,
+            hotspotIp = hotspotIp,
+            socksPort = socksPort,
+            httpPort = httpPort,
+            shareUser = shareUser,
+            sharePass = sharePass,
+            onCopy = ::copy,
+            onDismiss = { showGuide = false }
         )
+    }
+}
+
+/**
+ * VPN Share, checked rather than described.
+ *
+ * The old guide was six sentences with no values in them and no idea whether
+ * any of it was true. This runs [ShareDoctor] first - is sharing on, is a
+ * tunnel up, does this engine even publish the inbound, is the hotspot's own
+ * interface up, and is anything actually accepting a connection on the address
+ * the user is about to type into a second phone - and only then lays out the
+ * steps, with that device's real address, port and credential in them.
+ */
+@Composable
+private fun VpnShareSetupDialog(
+    sharingOn: Boolean,
+    tunnelUp: Boolean,
+    engineSupported: Boolean,
+    hotspotIp: String?,
+    socksPort: Int,
+    httpPort: Int,
+    shareUser: String,
+    sharePass: String,
+    onCopy: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    val t: (String) -> String = { Strings.get(lang, it) }
+    var report by remember { mutableStateOf<DoctorReport?>(null) }
+    var run by remember { mutableStateOf(0) }
+
+    LaunchedEffect(run, sharingOn, tunnelUp, hotspotIp) {
+        report = null
+        report = ShareDoctor.run(
+            sharingOn = sharingOn,
+            tunnelUp = tunnelUp,
+            engineSupported = engineSupported,
+            hotspotIp = hotspotIp,
+            socksPort = socksPort,
+            httpPort = httpPort,
+            credentialSet = shareUser.isNotBlank() && sharePass.isNotBlank()
+        )
+    }
+
+    val current = report
+    // The steps are only worth showing once there is something for the second
+    // device to connect to; otherwise they would send the user to type an
+    // address that nothing is listening on.
+    val usable = current != null && current.worst != DoctorVerdict.FAIL && hotspotIp != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t("share_setup_title")) },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+            ) {
+                DoctorBody(current, allOkKey = "share_all_ok")
+                if (usable && hotspotIp != null) {
+                    HorizontalDivider(color = c.border)
+                    Text(
+                        t("share_steps_title"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c.textSecondary
+                    )
+                    ShareStep("1", t("share_step_join"))
+                    ShareStep("2", t("share_step_wifi"))
+                    ShareStep("3", t("share_step_manual"))
+                    ShareStep("4", t("share_step_host").format(hotspotIp))
+                    ShareStep("5", t("share_step_port").format(httpPort.toString()))
+                    ShareStep("6", t("share_step_save"))
+                    HorizontalDivider(color = c.border)
+                    Text(
+                        t("share_step_socks_title"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c.textSecondary
+                    )
+                    ShareStep("1", t("share_step_socks_addr").format("$hotspotIp:$socksPort"))
+                    ShareStep("2", t("share_step_socks_cred"))
+                    GhostPill(
+                        t("share_copy_socks"),
+                        onClick = {
+                            onCopy(
+                                t("share_setup_title"),
+                                "socks5://$shareUser:$sharePass@$hotspotIp:$socksPort"
+                            )
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = { PillButton(t("doc_close"), onDismiss) },
+        dismissButton = {
+            GhostPill(t("doc_again"), onClick = { run++ }, enabled = current != null)
+        }
+    )
+}
+
+/**
+ * The leak-protection report.
+ *
+ * Two of the five findings are Android's to grant, not this app's, so the
+ * dialog's own action is the shortcut to the screen where the user grants
+ * them - always-on VPN and "block connections without VPN".
+ */
+@Composable
+private fun LeakGuardDialog(store: ConfigStore, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val lang = LocalLang.current
+    val t: (String) -> String = { Strings.get(lang, it) }
+    var report by remember { mutableStateOf<DoctorReport?>(null) }
+    var run by remember { mutableStateOf(0) }
+
+    LaunchedEffect(run) {
+        report = null
+        report = LeakGuard.run(context, store)
+    }
+
+    val current = report
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t("leak_title")) },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+            ) {
+                DoctorBody(current, allOkKey = "leak_all_ok")
+                Text(
+                    t("leak_note"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ghajarColors.textMuted
+                )
+            }
+        },
+        confirmButton = {
+            PillButton(t("leak_open_settings"), onClick = {
+                // The OEM-specific screen first, the generic one as a
+                // fallback - the same pair the kill-switch card already uses.
+                runCatching {
+                    context.startActivity(
+                        Intent("android.net.vpn.SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }.onFailure {
+                    runCatching {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }
+            })
+        },
+        dismissButton = {
+            GhostPill(t("doc_again"), onClick = { run++ }, enabled = current != null)
+        }
+    )
+}
+
+@Composable
+private fun ShareStep(number: String, text: String) {
+    val c = ghajarColors
+    Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+        Text(
+            localizeDigits(number, LocalLang.current),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = c.primary
+        )
+        Text(mixedText(text), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
     }
 }
 
@@ -7092,6 +7263,11 @@ private fun ConnectionSettingsScreen(
     var netRuleCellular by remember { mutableStateOf(netRuleDefaults.cellular) }
     var netRuleOther by remember { mutableStateOf(netRuleDefaults.other) }
     var netRuleRecover by remember { mutableStateOf(netRuleDefaults.recoverOnChange) }
+    var showLeakGuard by remember { mutableStateOf(false) }
+
+    if (showLeakGuard) {
+        LeakGuardDialog(store = store, onDismiss = { showLeakGuard = false })
+    }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -7179,6 +7355,16 @@ private fun ConnectionSettingsScreen(
                 checked = killSwitch,
                 onCheckedChange = { store.setKillSwitch(it) },
                 icon = Icons.Filled.Block
+            )
+            // The toggles above say what this app was asked to do. This says
+            // what would actually happen to traffic if the tunnel dropped,
+            // including the two halves of it that only Android can grant.
+            SlabRow(
+                title = t("leak_title"),
+                subtitle = t("leak_sub"),
+                icon = Icons.Filled.Shield,
+                chevron = true,
+                onClick = { showLeakGuard = true }
             )
             AnimatedVisibility(visible = killSwitch) {
                 Card(

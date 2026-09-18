@@ -14,4 +14,17 @@
     <color name="ghajar_window_light">#FFF3F8F6</color>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <!--
+        The home-screen widget is RemoteViews, drawn by the launcher's process,
+        so it cannot read GhajarDesign.kt's tokens either. These mirror the
+        Premium Green palette's surface, brand and state colours.
+    -->
+    <color name="ghajar_widget_surface">#FF0D1411</color>
+    <color name="ghajar_widget_action">#FF1B2A24</color>
+    <color name="ghajar_widget_text">#FFEAF3EF</color>
+    <color name="ghajar_widget_muted">#FF8AA39A</color>
+    <color name="ghajar_widget_on">#FF35D07F</color>
+    <color name="ghajar_widget_off">#FF5A6B65</color>
+    <color name="ghajar_widget_busy">#FFE8B341</color>
+    <color name="ghajar_widget_error">#FFE05A5A</color>
 </resources>

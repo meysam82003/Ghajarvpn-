@@ -1,3 +1,11 @@
 <resources>
     <string name="app_name">قاجار وی پی ان</string>
+    <!--
+        The widget picker is drawn by the launcher before this app runs, so its
+        label and description have to be resources. Everything inside the
+        widget itself is set from Strings.kt at render time, in whichever
+        language the user chose.
+    -->
+    <string name="widget_label">قاجار وی پی ان</string>
+    <string name="widget_description">وضعیت اتصال، سرور و پینگ، با دکمهٔ وصل و قطع — بدون باز کردن برنامه</string>
 </resources>

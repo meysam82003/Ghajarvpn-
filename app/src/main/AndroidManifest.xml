@@ -154,6 +154,32 @@
             android:launchMode="singleTop"
             android:label="اتصال به کانفیگ"
             android:theme="@style/Theme.Ghajarvpn" />
+        <!--
+            The home-screen widget. Its toggle is a broadcast to the provider;
+            the connect itself is handed to the invisible activity below,
+            because Android 12+ refuses a foreground-service start from a
+            receiver and the tunnel would otherwise never start.
+        -->
+        <receiver
+            android:name=".GhajarWidget"
+            android:label="@string/widget_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="net.gozar.app.WIDGET_TOGGLE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/ghajar_widget_info" />
+        </receiver>
+        <activity
+            android:name=".GhajarWidgetConnectActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Ghajarvpn.Invisible" />
         <service
             android:name=".GozarVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"

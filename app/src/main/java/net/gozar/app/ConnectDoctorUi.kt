@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -73,69 +74,7 @@ fun ConnectDoctorDialog(
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-            ) {
-                if (current == null) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-                    ) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
-                            color = c.primary,
-                            strokeWidth = 2.dp
-                        )
-                        Text(t("doc_running"), color = c.textSecondary)
-                    }
-                } else {
-                    current.findings.forEach { f -> DoctorRow(f, t) }
-
-                    // The answer the user came for: one cause, one remedy.
-                    val cause = current.causeKey
-                        ?.let { key -> current.findings.firstOrNull { it.titleKey == key } }
-                    if (cause == null) {
-                        Text(
-                            t("doc_all_ok"),
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = c.textSecondary
-                        )
-                    } else {
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(GhajarRadius.lg))
-                                .background(verdictColor(cause.verdict, c).copy(alpha = 0.10f))
-                                .padding(GhajarSpacing.md),
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                t("doc_cause"),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = c.textMuted
-                            )
-                            Text(
-                                t(cause.titleKey),
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.Bold,
-                                color = verdictColor(cause.verdict, c)
-                            )
-                            cause.remedyKey?.let { key ->
-                                Text(
-                                    t("doc_remedy"),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    color = c.textMuted,
-                                    modifier = Modifier.padding(top = GhajarSpacing.sm)
-                                )
-                                Text(
-                                    t(key),
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = c.textPrimary
-                                )
-                            }
-                        }
-                    }
-                }
-            }
+            ) { DoctorBody(current, allOkKey = "doc_all_ok") }
         },
         confirmButton = { PillButton(t("doc_close"), onDismiss) },
         dismissButton = {
@@ -146,6 +85,74 @@ fun ConnectDoctorDialog(
             )
         }
     )
+}
+
+/**
+ * A report's findings and its one cause, shared by every diagnosis in the app.
+ *
+ * A null [report] is the running state, so a caller never has to render the
+ * spinner itself.
+ */
+@Composable
+fun ColumnScope.DoctorBody(report: DoctorReport?, allOkKey: String) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    val t: (String) -> String = { Strings.get(lang, it) }
+
+    if (report == null) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+        ) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(18.dp),
+                color = c.primary,
+                strokeWidth = 2.dp
+            )
+            Text(t("doc_running"), color = c.textSecondary)
+        }
+        return
+    }
+
+    report.findings.forEach { f -> DoctorRow(f, t) }
+
+    // The answer the user came for: one cause, one remedy.
+    val cause = report.causeKey
+        ?.let { key -> report.findings.firstOrNull { it.titleKey == key } }
+    if (cause == null) {
+        Text(
+            t(allOkKey),
+            style = MaterialTheme.typography.bodyMedium,
+            color = c.textSecondary
+        )
+        return
+    }
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .background(verdictColor(cause.verdict, c).copy(alpha = 0.10f))
+            .padding(GhajarSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Text(t("doc_cause"), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        Text(
+            t(cause.titleKey),
+            style = MaterialTheme.typography.bodyLarge,
+            fontWeight = FontWeight.Bold,
+            color = verdictColor(cause.verdict, c)
+        )
+        cause.remedyKey?.let { key ->
+            Text(
+                t("doc_remedy"),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted,
+                modifier = Modifier.padding(top = GhajarSpacing.sm)
+            )
+            Text(t(key), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+        }
+    }
 }
 
 /** One check: its glyph, its name, and whatever it measured. */
