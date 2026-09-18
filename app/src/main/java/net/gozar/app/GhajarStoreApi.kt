@@ -278,8 +278,10 @@ class GhajarStoreApi(context: Context) {
     ): List<GhajarProduct> {
         val params = linkedMapOf("country_id" to countryId)
         categoryId?.takeIf { it.isNotBlank() }?.let { params["category_id"] = it }
-        timeDays?.let { params["time_range_day"] = it.toString() }
-        return action("services", params = params).payloadArray().objects().mapNotNull { row ->
+        // time_range_day is deliberately not sent: the server's own range
+        // buckets don't line up with the exact-match filter it applies to
+        // them, so the range is applied here instead. See GhajarTimeBuckets.
+        val all = action("services", params = params).payloadArray().objects().mapNotNull { row ->
             val id = row.optString("id")
             if (id.isBlank()) return@mapNotNull null
             GhajarProduct(
@@ -292,6 +294,10 @@ class GhajarStoreApi(context: Context) {
                 countryId = row.optString("country_id", countryId)
             )
         }
+        if (timeDays == null) return all
+        val inRange = all.filter { GhajarTimeBuckets.matches(timeDays, it.days) }
+        GhajarLog.d("Store", "time range $timeDays: ${inRange.size} of ${all.size} plan(s) in bucket")
+        return inRange
     }
 
     suspend fun customQuote(countryId: String, trafficGb: Int, timeDays: Int): GhajarCustomQuote {
