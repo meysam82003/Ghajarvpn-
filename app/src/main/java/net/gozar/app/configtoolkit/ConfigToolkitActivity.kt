@@ -193,7 +193,7 @@ class ConfigToolkitActivity : ComponentActivity() {
         val model = ViewModelProvider(this)[ConfigToolkitViewModel::class.java]
         initialUris(intent).takeIf(List<Uri>::isNotEmpty)?.let(model::enqueue)
         setContent {
-            MaterialTheme(colorScheme = darkColorScheme(primary = Color(0xFFC9A54B), secondary = Color(0xFF62D5B1))) {
+            net.gozar.app.GhajarAppTheme {
                 ToolkitScreen(model, onBack = ::finish)
             }
         }

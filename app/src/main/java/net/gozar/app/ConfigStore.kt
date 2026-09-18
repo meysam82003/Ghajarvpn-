@@ -275,6 +275,38 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putString(KEY_THEME, mode.name).apply()
     }
 
+    private val _uiTheme = MutableStateFlow(loadUiTheme())
+    val uiTheme: StateFlow<GhajarThemeId> = _uiTheme.asStateFlow()
+
+    /**
+     * Stored under its own key, so the older light/dark/amoled preference (and
+     * everything else already saved) is left untouched. A fresh install has no
+     * value and lands on Premium Green Dark; an existing install is carried
+     * over from whatever it had chosen rather than being reset.
+     */
+    private fun loadUiTheme(): GhajarThemeId {
+        prefs.getString(KEY_UI_THEME, null)?.let { return GhajarThemeId.parse(it) }
+        return when (_themeMode.value) {
+            ThemeMode.LIGHT -> GhajarThemeId.PREMIUM_GREEN_LIGHT
+            ThemeMode.SYSTEM -> GhajarThemeId.SYSTEM
+            else -> GhajarThemeId.PREMIUM_GREEN_DARK
+        }
+    }
+
+    fun setUiTheme(theme: GhajarThemeId) {
+        _uiTheme.value = theme
+        prefs.edit().putString(KEY_UI_THEME, theme.name).apply()
+        // Keep the legacy flag coherent for anything still reading it (and for
+        // backups written by older builds).
+        setThemeMode(
+            when (theme) {
+                GhajarThemeId.PREMIUM_GREEN_LIGHT -> ThemeMode.LIGHT
+                GhajarThemeId.SYSTEM -> ThemeMode.SYSTEM
+                else -> ThemeMode.DARK
+            }
+        )
+    }
+
     private val _selectedId = MutableStateFlow(prefs.getString(KEY_SELECTED, null))
     val selectedId: StateFlow<String?> = _selectedId.asStateFlow()
 
@@ -495,6 +527,7 @@ class ConfigStore private constructor(context: Context) {
         put("autoSelect", _autoSelect.value)
         put("autoRefreshHours", _autoRefreshHours.value)
         put("themeMode", _themeMode.value.name)
+        put("uiTheme", _uiTheme.value.name)
         put("lang", _lang.value.name)
         put("perAppMode", _perAppMode.value.name)
         put("perAppList", JSONArray(_perAppList.value.toList()))
@@ -529,6 +562,11 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("autoRefreshHours")) setAutoRefreshHours(o.getInt("autoRefreshHours"))
         o.optString("themeMode").takeIf { it.isNotEmpty() }?.let { v ->
             runCatching { setThemeMode(ThemeMode.valueOf(v)) }
+        }
+        // Restored after themeMode so the newer setting wins; a backup from an
+        // older build carries no uiTheme and keeps the migrated value.
+        o.optString("uiTheme").takeIf { it.isNotEmpty() }?.let { v ->
+            runCatching { setUiTheme(GhajarThemeId.parse(v)) }
         }
         o.optString("lang").takeIf { it.isNotEmpty() }?.let { v ->
             runCatching { setLang(Lang.valueOf(v)) }
@@ -746,6 +784,7 @@ class ConfigStore private constructor(context: Context) {
         const val SORT_ALPHA = "alpha"
         const val SORT_FASTEST = "fastest"
         private const val KEY_THEME = "theme_mode"
+        private const val KEY_UI_THEME = "ui_theme"
         private const val KEY_AETHER_SEED_CLEANED = "aether_seed_cleaned_v1"
         private const val KEY_AUTOREFRESH = "auto_refresh_hours"
         private const val DEFAULT_AUTOREFRESH = 1

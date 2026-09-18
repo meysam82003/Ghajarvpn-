@@ -34,18 +34,7 @@ class GhajarLogActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
-            MaterialTheme(
-                colorScheme = darkColorScheme(
-                    primary = Color(0xFFD9B15C),
-                    secondary = Color(0xFFB48B32),
-                    background = Color(0xFF071B2E),
-                    onBackground = Color(0xFFF6F1E4),
-                    surface = Color(0xFF0E2C49),
-                    onSurface = Color(0xFFF6F1E4),
-                    onSurfaceVariant = Color(0xFF9DB0C2),
-                    error = Color(0xFFE0654A)
-                )
-            ) {
+            GhajarAppTheme {
                 LogScreen(onBack = { finish() })
             }
         }

@@ -361,122 +361,6 @@ import kotlin.math.roundToInt
 private val BrandBlue = Color(0xFF91BCC7)
 private val SplashBackground = Color(0xFF071B2E)
 
-private val GnetLightColors = lightColorScheme(
-    primary = Color(0xFF0D6853),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD9EEE8),
-    onPrimaryContainer = Color(0xFF08214F),
-    inversePrimary = Color(0xFF91BCC7),
-    secondary = Color(0xFF987018),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFF2E4B5),
-    onSecondaryContainer = Color(0xFF17212F),
-    tertiary = Color(0xFF0A7C99),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFC9EDF7),
-    onTertiaryContainer = Color(0xFF04333F),
-    background = Color(0xFFEEF3FA),
-    onBackground = Color(0xFF131720),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF131720),
-    surfaceVariant = Color(0xFFE1E8F4),
-    onSurfaceVariant = Color(0xFF566276),
-    surfaceTint = Color(0xFF0D6853),
-    surfaceBright = Color(0xFFFFFFFF),
-    surfaceDim = Color(0xFFD7DFEC),
-    surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFFFFFFF),
-    surfaceContainer = Color(0xFFFDFEFF),
-    surfaceContainerHigh = Color(0xFFF7FAFE),
-    surfaceContainerHighest = Color(0xFFFFFFFF),
-    inverseSurface = Color(0xFF272E3C),
-    inverseOnSurface = Color(0xFFEBF0F8),
-    error = Color(0xFFC02B26),
-    onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFFFDAD6),
-    onErrorContainer = Color(0xFF410002),
-    outline = Color(0xFFB6C1D2),
-    outlineVariant = Color(0xFFD7DFEC),
-    scrim = Color(0xFF000000)
-)
-
-private val GnetDarkColors = darkColorScheme(
-    primary = Color(0xFF91BCC7),
-    onPrimary = Color(0xFF071226),
-    primaryContainer = Color(0xFF103F39),
-    onPrimaryContainer = Color(0xFFD6E3FF),
-    secondary = Color(0xFFD5AD4A),
-    onSecondary = Color(0xFF0E1626),
-    secondaryContainer = Color(0xFF1C2740),
-    onSecondaryContainer = Color(0xFFD9E2F2),
-    background = Color(0xFF071B2E),
-    onBackground = Color(0xFFE6EAF2),
-    surface = Color(0xFF102637),
-    onSurface = Color(0xFFE6EAF2),
-    surfaceVariant = Color(0xFF232C40),
-    onSurfaceVariant = Color(0xFFA2B0C8),
-    surfaceBright = Color(0xFF2A3348),
-    surfaceDim = Color(0xFF0B101B),
-    surfaceContainerLowest = Color(0xFF0A0F1A),
-    surfaceContainerLow = Color(0xFF131A29),
-    surfaceContainer = Color(0xFF161D2E),
-    surfaceContainerHigh = Color(0xFF1D2537),
-    surfaceContainerHighest = Color(0xFF232C40),
-    tertiary = Color(0xFF0F8C70),
-    onTertiary = Color(0xFF042430),
-    tertiaryContainer = Color(0xFF10394A),
-    onTertiaryContainer = Color(0xFFC5F1FD),
-    inversePrimary = Color(0xFF2557D6),
-    surfaceTint = Color(0xFF6CA0FF),
-    inverseSurface = Color(0xFFE6EAF2),
-    inverseOnSurface = Color(0xFF161D2E),
-    error = Color(0xFFFF7A7A),
-    onError = Color(0xFF2A0A0A),
-    errorContainer = Color(0xFF5A1A1A),
-    onErrorContainer = Color(0xFFFFDAD6),
-    outline = Color(0xFF38445C),
-    outlineVariant = Color(0xFF283244),
-    scrim = Color(0xFF000000)
-)
-
-private val GnetAmoledColors = darkColorScheme(
-    primary = Color(0xFF6CA0FF),
-    onPrimary = Color(0xFF071226),
-    primaryContainer = Color(0xFF1B2944),
-    onPrimaryContainer = Color(0xFFD6E3FF),
-    secondary = Color(0xFF93A7C9),
-    onSecondary = Color(0xFF0E1626),
-    secondaryContainer = Color(0xFF11161F),
-    onSecondaryContainer = Color(0xFFD9E2F2),
-    background = Color(0xFF000000),
-    onBackground = Color(0xFFE6EAF2),
-    surface = Color(0xFF000000),
-    onSurface = Color(0xFFE6EAF2),
-    surfaceVariant = Color(0xFF12161F),
-    onSurfaceVariant = Color(0xFFA2B0C8),
-    surfaceBright = Color(0xFF1A1F2A),
-    surfaceDim = Color(0xFF000000),
-    surfaceContainerLowest = Color(0xFF000000),
-    surfaceContainerLow = Color(0xFF07090D),
-    surfaceContainer = Color(0xFF0B0E14),
-    surfaceContainerHigh = Color(0xFF0F131B),
-    surfaceContainerHighest = Color(0xFF12161F),
-    tertiary = Color(0xFF35E0FF),
-    onTertiary = Color(0xFF042430),
-    tertiaryContainer = Color(0xFF0A2733),
-    onTertiaryContainer = Color(0xFFC5F1FD),
-    inversePrimary = Color(0xFF2557D6),
-    surfaceTint = Color(0xFF6CA0FF),
-    inverseSurface = Color(0xFFE6EAF2),
-    inverseOnSurface = Color(0xFF0B0E14),
-    error = Color(0xFFFF7A7A),
-    onError = Color(0xFF2A0A0A),
-    errorContainer = Color(0xFF3A1010),
-    onErrorContainer = Color(0xFFFFDAD6),
-    outline = Color(0xFF2A3344),
-    outlineVariant = Color(0xFF1B2130),
-    scrim = Color(0xFF000000)
-)
 
 private val AppCyan: Color
     @Composable get() =
@@ -650,27 +534,25 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            val themeMode by store.themeMode.collectAsState()
-            val dark = when (themeMode) {
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK, ThemeMode.AMOLED -> true
-                else -> isSystemInDarkTheme()
-            }
+            val uiTheme by store.uiTheme.collectAsState()
+            val systemDark = isSystemInDarkTheme()
+            val palette = ghajarPaletteFor(uiTheme, systemDark)
+            val dark = palette.dark
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             androidx.compose.runtime.SideEffect {
                 controller.isAppearanceLightStatusBars = !dark
                 controller.isAppearanceLightNavigationBars = !dark
+                // Driven by the active theme instead of two hardcoded colours,
+                // so the system bars match every palette, not just the old one.
                 @Suppress("DEPRECATION")
-                window.navigationBarColor = if (dark) 0xFF071B2E.toInt() else 0xFFEEF3FA.toInt()
+                window.navigationBarColor = palette.background.toArgb()
                 if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
             }
             val lang by store.lang.collectAsState()
             val direction = if (lang == Lang.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
 
-            MaterialTheme(
-                colorScheme = if (!dark) GnetLightColors
-                else if (themeMode == ThemeMode.AMOLED) GnetAmoledColors
-                else GnetDarkColors,
+            GhajarTheme(
+                theme = uiTheme,
                 typography = if (lang == Lang.FA) VazirTypography else LexendTypography,
                 shapes = GhajarSoftShapes
             ) {
@@ -1333,12 +1215,7 @@ private fun GozarApp(
 ) {
     val t = stringsFn()
     val scope = rememberCoroutineScope()
-    val themeMode by store.themeMode.collectAsState()
-    val effectiveDark = when (themeMode) {
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK, ThemeMode.AMOLED -> true
-        else -> isSystemInDarkTheme()
-    }
+    val effectiveDark = ghajarColors.dark
     val pagerState = rememberPagerState(initialPage = PAGE_HOME, pageCount = { PAGE_COUNT })
     val settingsScroll = rememberScrollState()
 
@@ -1658,20 +1535,15 @@ private fun GozarApp(
                 },
                 actions = {
                     BounceIconButton(onClick = {
-                        store.setThemeMode(when (themeMode) {
-                            ThemeMode.LIGHT -> ThemeMode.DARK
-                            ThemeMode.DARK -> ThemeMode.AMOLED
-                            ThemeMode.AMOLED -> ThemeMode.LIGHT
-                            else -> if (effectiveDark) ThemeMode.LIGHT else ThemeMode.DARK
-                        })
+                        // Quick light/dark flip within the brand identity; the
+                        // full theme list lives in Settings -> Appearance.
+                        store.setUiTheme(
+                            if (effectiveDark) GhajarThemeId.PREMIUM_GREEN_LIGHT
+                            else GhajarThemeId.PREMIUM_GREEN_DARK
+                        )
                     }) {
                         Icon(
-                            when (themeMode) {
-                                ThemeMode.LIGHT -> Icons.Filled.LightMode
-                                ThemeMode.AMOLED -> Icons.Filled.Contrast
-                                ThemeMode.DARK -> Icons.Filled.DarkMode
-                                else -> if (effectiveDark) Icons.Filled.DarkMode else Icons.Filled.LightMode
-                            },
+                            if (effectiveDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
                             contentDescription = "Toggle theme"
                         )
                     }
@@ -7376,84 +7248,136 @@ private val TelegramIcon: ImageVector =
 @Composable
 private fun ThemeSettingsScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     val t = stringsFn()
-    val themeMode by store.themeMode.collectAsState()
-    val globeStyle by store.globeStyle.collectAsState()
+    val selected by store.uiTheme.collectAsState()
+    val c = ghajarColors
 
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Text(t("theme_mode"), style = MaterialTheme.typography.titleMedium)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeModeRow(
-                icon = Icons.Filled.LightMode,
-                label = t("theme_light"),
-                selected = themeMode == ThemeMode.LIGHT,
-                onClick = { store.setThemeMode(ThemeMode.LIGHT) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.DarkMode,
-                label = t("theme_dark"),
-                selected = themeMode == ThemeMode.DARK,
-                onClick = { store.setThemeMode(ThemeMode.DARK) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.Contrast,
-                label = t("theme_amoled"),
-                selected = themeMode == ThemeMode.AMOLED,
-                onClick = { store.setThemeMode(ThemeMode.AMOLED) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.Contrast,
-                label = t("theme_system"),
-                selected = themeMode == ThemeMode.SYSTEM,
-                onClick = { store.setThemeMode(ThemeMode.SYSTEM) }
+        Text(t("appearance_title"), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Text(
+            t("appearance_sub"),
+            style = MaterialTheme.typography.bodySmall,
+            color = c.textSecondary
+        )
+        Spacer(Modifier.height(GhajarSpacing.xs))
+
+        GhajarPalettes.forEach { palette ->
+            val (label, sub) = when (palette.id) {
+                GhajarThemeId.PREMIUM_GREEN_DARK -> t("theme_green_dark") to t("theme_green_dark_sub")
+                GhajarThemeId.PREMIUM_GREEN_LIGHT -> t("theme_green_light") to t("theme_green_light_sub")
+                GhajarThemeId.MIDNIGHT_BLUE -> t("theme_midnight") to t("theme_midnight_sub")
+                GhajarThemeId.GRAPHITE_GOLD -> t("theme_graphite") to t("theme_graphite_sub")
+                GhajarThemeId.SYSTEM -> t("theme_system") to t("theme_system_sub")
+            }
+            ThemeChoiceRow(
+                label = label,
+                subtitle = sub,
+                preview = palette,
+                selected = selected == palette.id,
+                onClick = { store.setUiTheme(palette.id) }
             )
         }
 
-        Text(t("globe_style_title"), style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlobeStyleOption(
-                label = t("globe_style_filled"),
-                selected = globeStyle == "filled",
-                onClick = { store.setGlobeStyle("filled") },
-                modifier = Modifier.weight(1f)
+        ThemeChoiceRow(
+            label = t("theme_system"),
+            subtitle = t("theme_system_sub"),
+            // Shows whichever Premium Green palette the phone would pick.
+            preview = ghajarPaletteFor(GhajarThemeId.SYSTEM, isSystemInDarkTheme()),
+            selected = selected == GhajarThemeId.SYSTEM,
+            onClick = { store.setUiTheme(GhajarThemeId.SYSTEM) }
+        )
+    }
+}
+
+/**
+ * A theme row previews the theme with its own colours, so the choice is made
+ * by looking rather than by reading a name.
+ */
+@Composable
+private fun ThemeChoiceRow(
+    label: String,
+    subtitle: String,
+    preview: GhajarPalette,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    val c = ghajarColors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.md))
+            .background(if (selected) c.secondaryCard else c.card)
+            .border(
+                if (selected) 2.dp else 1.dp,
+                if (selected) c.primary else c.border,
+                RoundedCornerShape(GhajarRadius.md)
             )
-            GlobeStyleOption(
-                label = t("globe_style_dots"),
-                selected = globeStyle == "dots",
-                onClick = { store.setGlobeStyle("dots") },
-                modifier = Modifier.weight(1f)
+            .clickable { onClick() }
+            .padding(GhajarSpacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ThemeSwatch(preview)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                mixedText(label),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = c.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
             )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textSecondary,
+                maxLines = 2
+            )
+        }
+        if (selected) {
+            Icon(Icons.Filled.Check, contentDescription = null, tint = c.primary, modifier = Modifier.size(20.dp))
         }
     }
 }
 
+/** Background, card and the brand tone of one theme, drawn in that theme. */
 @Composable
-private fun ThemeModeRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit
-) {
-    val border = if (selected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    Card(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-            else MaterialTheme.colorScheme.surface
-        )
+private fun ThemeSwatch(palette: GhajarPalette) {
+    Box(
+        Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(GhajarRadius.sm))
+            .background(palette.background)
+            .border(1.dp, palette.border, RoundedCornerShape(GhajarRadius.sm)),
+        contentAlignment = Alignment.Center
     ) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(mixedText(label), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        Column(
+            Modifier.fillMaxSize().padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(palette.card)
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(0.72f)
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(palette.primary)
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(0.45f)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(palette.highlight)
+            )
         }
     }
 }
