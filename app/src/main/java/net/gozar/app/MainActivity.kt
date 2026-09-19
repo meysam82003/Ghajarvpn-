@@ -1694,6 +1694,22 @@ private fun GozarApp(
                             onShareFile = { exportConfigs = it },
                             onOpenVpnHub = { showOpenVpnHub = true },
                             onPsiphonHub = { showPsiphonHub = true },
+                            onTor = { showPicker = false; showTorNodes = true },
+                            // SSH and the DNS laboratory are screens on the
+                            // settings tab. Adding a server is the moment
+                            // somebody wants them, so the entry points are in
+                            // the add panel and the navigation crosses tabs
+                            // rather than duplicating either screen.
+                            onSsh = {
+                                showPicker = false
+                                sshDetail = true
+                                scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
+                            },
+                            onDnsLab = {
+                                showPicker = false
+                                dnsLabDetail = true
+                                scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
+                            },
                             onConnectOpenVpn = onConnectOpenVpn,
                             onDisconnectOpenVpn = onDisconnectOpenVpn,
                             onTestOpenVpn = onTestOpenVpn,
@@ -2292,6 +2308,9 @@ private fun ConfigPickerScreen(
     onShareFile: (List<ProxyConfig>) -> Unit,
     onOpenVpnHub: () -> Unit = {},
     onPsiphonHub: () -> Unit = {},
+    onTor: () -> Unit = {},
+    onSsh: () -> Unit = {},
+    onDnsLab: () -> Unit = {},
     onConnectOpenVpn: (String) -> Unit = {},
     onDisconnectOpenVpn: () -> Unit = {},
     onTestOpenVpn: (String) -> Unit = {},
@@ -2390,6 +2409,12 @@ private fun ConfigPickerScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var chainFor by remember { mutableStateOf<ProxyConfig?>(null) }
     var openActionsId by remember { mutableStateOf<String?>(null) }
+    // Adding a subscription by its link. The clipboard path already handled a
+    // URL, but only if you had first put one on the clipboard and knew the app
+    // would treat it as a subscription rather than a config - which is not a
+    // thing the panel said anywhere.
+    var subDialog by remember { mutableStateOf(false) }
+    var subDraftUrl by remember { mutableStateOf("") }
 
     val allIds = remember(configs) { configs.map { it.id }.toSet() }
 
@@ -2405,11 +2430,30 @@ private fun ConfigPickerScreen(
         ConfigStore.SORT_ALPHA -> list.sortedBy { it.name.lowercase() }
         else -> if (newestFirst) list.asReversed() else list
     }
-    val pingSortKey = if (sortMode == ConfigStore.SORT_FASTEST) {
-        remember(configs, pings.toList()) {
-            configs.joinToString(",") { "${it.id}:${pingRank(pings[it.id])}" }
+    // The single worst thing this screen did per frame.
+    //
+    // It was `remember(configs, pings.toList()) { configs.joinToString(...) }`,
+    // and every part of that was expensive in a different way. `pings.toList()`
+    // ran on every composition of the picker - a full copy of the map, which on
+    // an imported list is nine hundred entries - purely to serve as a remember
+    // key. Building it read every entry, which subscribed *the whole screen* to
+    // the whole map, so one ping result arriving invalidated the picker rather
+    // than the row it belonged to. Then the body built a comma-joined string of
+    // nine hundred "id:rank" pairs, about twenty kilobytes, and threw it away.
+    // Test-all fires a few hundred of those results in a couple of seconds, and
+    // each one bought a map copy, a 20KB string, two re-sorts and two
+    // re-groupings of the entire list. That is the twenty-four-frames feel.
+    //
+    // The same job is an Int hash computed inside derivedStateOf: the map reads
+    // happen in the derived scope, so a ping invalidates that and nothing else,
+    // and the screen only recomposes when the ordering key actually changes
+    // value - which is the amount of work the sort genuinely needs.
+    val pingSortKey by remember(sortMode) {
+        derivedStateOf {
+            if (sortMode != ConfigStore.SORT_FASTEST) 0
+            else configs.fold(7) { acc, cfg -> acc * 31 + pingRank(pings[cfg.id]) }
         }
-    } else 0
+    }
     val q = query.trim()
     fun matchesFilters(cfg: ProxyConfig): Boolean =
         (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter)
@@ -2624,7 +2668,11 @@ private fun ConfigPickerScreen(
             onScanQr = { addMenu = false; onScanQr() },
             onQrFromImage = { addMenu = false; qrImagePicker.launch("image/*") },
             onOpenVpn = { addMenu = false; onOpenVpnHub() },
-            onPsiphon = { addMenu = false; onPsiphonHub() }
+            onPsiphon = { addMenu = false; onPsiphonHub() },
+            onTor = { addMenu = false; onTor() },
+            onSsh = { addMenu = false; onSsh() },
+            onDnsLab = { addMenu = false; onDnsLab() },
+            onSubscription = { addMenu = false; subDialog = true }
         )
         }
 
@@ -3269,6 +3317,42 @@ private fun ConfigPickerScreen(
         }
     }
 
+    if (subDialog) {
+        GlassDialog(
+            onDismiss = { subDialog = false },
+            title = t("add_sub_row"),
+            confirmLabel = t("add"),
+            dismissLabel = t("cancel"),
+            onConfirm = {
+                val url = subDraftUrl.trim()
+                subDialog = false
+                if (url.isNotEmpty()) {
+                    subDraftUrl = ""
+                    // The same import path the clipboard uses, so a link
+                    // behaves identically however it arrived - including the
+                    // per-error messages for an HTTP failure, an empty list
+                    // and a Clash file.
+                    doAdd(url)
+                }
+            }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                Text(
+                    t("add_sub_row_sub"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ghajarColors.textSecondary
+                )
+                SkinField(
+                    value = subDraftUrl,
+                    onValueChange = { subDraftUrl = it },
+                    label = t("add_sub_url"),
+                    placeholder = "https://",
+                    singleLine = true
+                )
+            }
+        }
+    }
+
     chainFor?.let { target ->
         ChainPickerDialog(
             store = store,
@@ -3868,6 +3952,10 @@ private fun AddServerPanel(
     onQrFromImage: () -> Unit = {},
     onOpenVpn: () -> Unit = {},
     onPsiphon: () -> Unit = {},
+    onTor: () -> Unit = {},
+    onSsh: () -> Unit = {},
+    onDnsLab: () -> Unit = {},
+    onSubscription: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -3994,7 +4082,10 @@ private fun AddServerPanel(
                     }
                 }
 
-                Rail(t("add_group_engines"))
+                // Engines that carry traffic without a config of their own.
+                // Psiphon first because nobody finds it by looking for
+                // somewhere to paste something.
+                Rail(t("add_group_tunnels"))
                 SlabRow(
                     title = "Psiphon",
                     subtitle = t("add_psiphon_sub"),
@@ -4006,6 +4097,44 @@ private fun AddServerPanel(
                 )
                 SlabDivider()
                 SlabRow(
+                    title = "Tor",
+                    subtitle = t("add_tor_sub"),
+                    iconRes = R.drawable.tor,
+                    accent = c.premium,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onTor
+                )
+                SlabDivider()
+                SlabRow(
+                    title = "SSH",
+                    subtitle = t("add_ssh_sub"),
+                    icon = Icons.Filled.Terminal,
+                    accent = c.highlight,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onSsh
+                )
+
+                // DNS is its own kind of thing: the laboratory measures
+                // resolvers and the tunnel rides on one, and neither is a
+                // server you paste in.
+                Rail(t("add_group_dns"))
+                SlabRow(
+                    title = t("dnslab_title"),
+                    subtitle = t("add_dnslab_sub"),
+                    icon = Icons.Filled.Dns,
+                    accent = c.info,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onDnsLab
+                )
+
+                // The two full VPN protocols. OpenVPN reads a profile file;
+                // IKEv2 is typed in, and the manual form already has it in its
+                // protocol list - this is the entry point that says so.
+                Rail(t("add_group_vpn"))
+                SlabRow(
                     title = "OpenVPN",
                     subtitle = t("add_ovpn_sub"),
                     icon = Icons.Filled.Security,
@@ -4013,6 +4142,30 @@ private fun AddServerPanel(
                     chevron = true,
                     enabled = !busy,
                     onClick = onOpenVpn
+                )
+                SlabDivider()
+                SlabRow(
+                    title = "IKEv2 / IPsec",
+                    subtitle = t("add_ikev2_sub"),
+                    icon = Icons.Filled.Lock,
+                    accent = c.warning,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onManual
+                )
+
+                // A link that maintains its own list. It was only reachable by
+                // pasting one into the clipboard path and hoping the app
+                // recognised it as a subscription rather than a config.
+                Rail(t("add_group_sub"))
+                SlabRow(
+                    title = t("add_sub_row"),
+                    subtitle = t("add_sub_row_sub"),
+                    icon = Icons.Filled.Hub,
+                    accent = c.primary,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onSubscription
                 )
 
                 Rail(t("add_group_providers"))
@@ -5858,12 +6011,15 @@ private fun NetRadarRow(site: NetMonitor.Site, st: NetMonitor.State) {
 
 @Composable
 private fun RadarDot(tint: Color, pulsing: Boolean) {
-    val transition = rememberInfiniteTransition(label = "radarDot")
-    val ripple by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = ghajarEndless(infiniteRepeatable(tween(1700, easing = LinearEasing))),
-        label = "radarRipple"
+    // The ripple was created whether or not this dot was pulsing, and these
+    // dots sit in lists - the site monitor draws one per row. That was a frame
+    // callback per visible row, forever, for a ripple most of them were not
+    // drawing. Now the animation exists only while the row is actually being
+    // tested.
+    val ripple by ghajarPulse(
+        active = pulsing,
+        durationMillis = 1700,
+        reverse = false
     )
     Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
         if (pulsing) {
@@ -9735,11 +9891,10 @@ private fun QualityStartButton(running: Boolean, onClick: () -> Unit, modifier: 
 
 @Composable
 private fun ConnectSweep(color: Color, active: Boolean, modifier: Modifier = Modifier) {
-    val phase = rememberInfiniteTransition(label = "connSweep").animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = ghajarEndless(infiniteRepeatable(tween(1500, easing = LinearEasing))),
-        label = "connSweepV"
-    )
+    // It already knew whether it was wanted - `active` - and animated anyway,
+    // returning early from the draw once the fade reached zero. The band was
+    // invisible; the frame callback was not.
+    val phase = ghajarPulse(active = active, durationMillis = 1500, reverse = false)
     val fade by animateFloatAsState(
         targetValue = if (active) 1f else 0f,
         animationSpec = tween(260, easing = FastOutSlowInEasing),
