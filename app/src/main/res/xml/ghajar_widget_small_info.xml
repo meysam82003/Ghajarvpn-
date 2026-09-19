@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    One cell, pushed rather than polled, exactly like the full widget: the
+    platform's thirty-minute minimum period is meaningless for a connection
+    state, so GhajarWidgetSmall.refresh() drives it on every change.
+-->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="60dp"
+    android:minHeight="60dp"
+    android:targetCellWidth="1"
+    android:targetCellHeight="1"
+    android:updatePeriodMillis="0"
+    android:initialLayout="@layout/widget_ghajar_small"
+    android:previewLayout="@layout/widget_ghajar_small"
+    android:resizeMode="none"
+    android:description="@string/widget_small_description"
+    android:widgetCategory="home_screen" />

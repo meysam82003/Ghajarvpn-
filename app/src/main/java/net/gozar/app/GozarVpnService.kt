@@ -380,6 +380,8 @@ class GozarVpnService : VpnService() {
         configPort = config.port
         lastPingMs = null
         GhajarWidget.lastPingMs = null
+        GhajarWidget.sessionDownBytes = 0L
+        GhajarWidget.sessionUpBytes = 0L
         VpnState.setConnecting(config.id)
         startTunnel(json)
     }
@@ -469,10 +471,22 @@ class GozarVpnService : VpnService() {
 
                 VpnBridge.sendCounters(applicationContext, up, down, upSpeed, downSpeed)
 
+                // The widget's session totals come from here, where they are
+                // already measured. It is fed rather than measuring for itself
+                // because the only figure a RemoteViews update could reach on
+                // its own is TrafficStats, which is device-wide - every other
+                // app's traffic reported as this tunnel's.
+                GhajarWidget.sessionDownBytes = down
+                GhajarWidget.sessionUpBytes = up
+
                 if (!tearingDown) {
                     getSystemService(NotificationManager::class.java)
                         ?.notify(NOTIF_ID, buildNotification(down, up, downSpeed, upSpeed))
                 }
+                // Once every ten seconds, not every one: a widget update is an
+                // IPC to the launcher, and sixty of them a minute for a number
+                // nobody is watching is a real battery cost.
+                if (widgetTick++ % 10 == 0) GhajarWidget.refresh(applicationContext)
 
                 delay(1000)
             }
@@ -594,6 +608,9 @@ class GozarVpnService : VpnService() {
         }
         super.onDestroy()
     }
+
+    /** Counts the one-second ticks, so the widget is refreshed on every tenth. */
+    private var widgetTick = 0
 
     private fun buildNotification(
         totalDown: Long = 0, totalUp: Long = 0,

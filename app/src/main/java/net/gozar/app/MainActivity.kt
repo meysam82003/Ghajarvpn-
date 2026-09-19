@@ -450,11 +450,56 @@ class MainActivity : ComponentActivity() {
 
     private var pendingConnect: (() -> Unit)? = null
 
+    /**
+     * The notification permission, and what happens the moment it is granted.
+     *
+     * Two things run here rather than one. The connect that was waiting for it
+     * carries on as before - but a grant is also the first moment this app is
+     * *allowed* to put anything in the shade, and there is usually something
+     * waiting: an expiry warning that arrived while the permission was still
+     * missing was fetched, stored, and silently not posted. So a grant kicks
+     * the monitor immediately instead of leaving those until the next
+     * fifteen-minute pass, which is what made the first notification after
+     * granting take a quarter of an hour to show up.
+     */
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             pendingConnect?.invoke()
             pendingConnect = null
+            if (granted) {
+                lifecycleScope.launch {
+                    GhajarNotificationMonitor.refresh(applicationContext)
+                }
+            }
         }
+
+    /**
+     * Asks for the notification permission when the app is first opened.
+     *
+     * It used to be asked only on the first connect, which is the wrong
+     * moment twice over: a user who opens the app to look at the shop is
+     * never asked at all, and the one thing that most needs the permission -
+     * being told a service is about to expire - has nothing to do with
+     * connecting.
+     *
+     * Asked once. Android stops showing the dialog after two refusals and
+     * returns "denied" instantly from then on, so re-launching it on every
+     * cold start would be an invisible no-op that still costs a frame; and a
+     * user who said no should be asked again from Settings, on purpose, not
+     * by the app repeating itself. The Settings screen already has that row.
+     */
+    private fun requestNotificationPermissionOnce() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        val prefs = getSharedPreferences("ghajarvpn_perm", MODE_PRIVATE)
+        if (prefs.getBoolean("asked_post_notifications", false)) return
+        prefs.edit().putBoolean("asked_post_notifications", true).apply()
+        runCatching {
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }.onFailure { GhajarLog.e("Startup", "notification permission request failed: ${it.javaClass.simpleName}") }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -470,6 +515,10 @@ class MainActivity : ComponentActivity() {
         handleRenewIntent(intent)
         IkeController.bind(this)
         watchTunnel()
+        // At first launch, not at first connect. The warning this app most
+        // needs to deliver - "your service ends tomorrow" - has nothing to do
+        // with connecting, and a user who only opens the shop was never asked.
+        requestNotificationPermissionOnce()
         GhajarLog.i("Startup", "phase: services bound")
         lifecycleScope.launch {
             VpnState.state.collect { s ->
@@ -1221,8 +1270,26 @@ private fun GozarApp(
     var showPsiphonHub by remember { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
     val updateCtx = LocalContext.current
+    /**
+     * The update check, on opening the app rather than once a day.
+     *
+     * It used to be gated to twenty-four hours, which meant a user could open
+     * the app repeatedly on the day a release went out and never be told - the
+     * owner's complaint exactly. The floor is fifteen minutes now, which is
+     * "every time you open it" for anybody who is not re-opening it in a loop,
+     * and still keeps a phone well inside GitHub's unauthenticated rate limit
+     * of sixty requests an hour per address.
+     *
+     * A note on what "automatic" can mean here: an app that is not the device
+     * owner cannot install a package without the system installer's own
+     * confirmation. So the automatic part is everything up to that - finding
+     * the release, downloading it, checking its SHA-256 and that its signature
+     * matches the installed app - and the last step is one tap on a button
+     * that says نصب. Claiming a silent install would be claiming something
+     * Android does not allow.
+     */
     LaunchedEffect(Unit) {
-        if (System.currentTimeMillis() - store.lastUpdateCheck() >= 24L * 60 * 60 * 1000L) {
+        if (System.currentTimeMillis() - store.lastUpdateCheck() >= 15L * 60 * 1000L) {
             val ver = runCatching {
                 updateCtx.packageManager.getPackageInfo(updateCtx.packageName, 0).versionName
             }.getOrNull() ?: ""
@@ -2247,51 +2314,6 @@ private fun SubscriptionQuotaCard(sub: Subscription) {
     }
 }
 
-/**
- * The three readings above the server list: how many configs there are, how
- * many answered their ping, and the best time seen.
- *
- * It is its own composable for one reason: `pings` is a SnapshotStateMap, and
- * whichever composition reads its entries is subscribed to all of them. Read
- * from the screen body, a single ping result recomposed the whole picker; read
- * here, it recomposes three cells. derivedStateOf narrows it further - the
- * numbers only change a handful of times during a full test, so most of the
- * writes invalidate nothing at all.
- */
-@Composable
-private fun PickerStatsStrip(
-    configs: List<ProxyConfig>,
-    pings: SnapshotStateMap<String, PingResult>
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val c = ghajarColors
-    val answered by remember(configs) {
-        derivedStateOf { configs.count { pings[it.id] is PingResult.Ok } }
-    }
-    val bestMs by remember(configs) {
-        derivedStateOf {
-            configs.mapNotNull { (pings[it.id] as? PingResult.Ok)?.ms }.minOrNull()
-        }
-    }
-    StatStrip(
-        listOf(
-            StatCell(t("count_configs"), localizeDigits("${configs.size}", lang), c.primary),
-            StatCell(
-                t("picker_answered"),
-                localizeDigits("$answered", lang),
-                if (answered > 0) c.good else c.textMuted
-            ),
-            StatCell(
-                t("picker_best"),
-                bestMs?.let { localizeDigits("$it", lang) + " " + t("unit_ms") } ?: "—",
-                c.highlight
-            )
-        )
-    )
-}
-
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConfigPickerScreen(
@@ -2677,19 +2699,14 @@ private fun ConfigPickerScreen(
         }
 
         val favouriteCount = remember(configs) { configs.count { it.favorite } }
-        // The strip and the toolbar collapse to nothing while the add panel is
-        // open, so the panel above can have the whole column. Both are behind
-        // the panel and unreachable anyway, and their height is part of what
-        // was starving it.
-        AnimatedVisibility(visible = !addMenu) {
-            // The ping map is read inside PickerStatsStrip, not here. Reading
-            // it in this body subscribed the whole screen to every entry, so
-            // each result arriving during "test all" recomposed the entire
-            // picker - and built two throwaway lists of the map while doing
-            // it. That is the jank.
-            PickerStatsStrip(configs = configs, pings = pings)
-        }
-
+        // The toolbar collapses to nothing while the add panel is open, so the
+        // panel above can have the whole column. It is behind the panel and
+        // unreachable anyway, and its height is part of what was starving it.
+        //
+        // The three-reading strip that used to sit here (config count, how many
+        // answered, best time) is gone at the owner's request. Nothing else
+        // read it, and the numbers it showed are all still on the rows.
+        //
         // The toolbar, rebuilt around what fits.
         //
         // It was three rows of mixed-width outlined buttons: a labelled button
@@ -2701,7 +2718,10 @@ private fun ConfigPickerScreen(
         // list tools as one evenly spread glyph rail - so nothing is truncated
         // and every glyph is the same size.
         AnimatedVisibility(visible = !addMenu) {
-        Slab(spacing = GhajarSpacing.sm) {
+        // Thinner than it was, at the owner's request: the slab's own padding
+        // and the gaps between its three rows were most of its height, not the
+        // controls. Every touch target here is still at or above 38dp.
+        Slab(padding = GhajarSpacing.md, spacing = GhajarSpacing.xs) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
             BounceOutlinedButton(
                 onClick = {
@@ -2737,9 +2757,9 @@ private fun ConfigPickerScreen(
                         }
                     }
                 },
-                minHeight = 46.dp,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                modifier = Modifier.weight(1f).height(46.dp)
+                minHeight = 38.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.weight(1f).height(38.dp)
             ) {
                 Icon(painterResource(R.drawable.signal), contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
@@ -2781,9 +2801,9 @@ private fun ConfigPickerScreen(
                         }
                     }
                 },
-                minHeight = 46.dp,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
-                modifier = Modifier.weight(1f).height(46.dp)
+                minHeight = 38.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
+                modifier = Modifier.weight(1f).height(38.dp)
             ) {
                 if (updateSubsState == 1) {
                     CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
@@ -2810,6 +2830,7 @@ private fun ConfigPickerScreen(
         PillButton(
             text = if (pickingFastest) t("finding_fastest") else t("picker_connect_fastest"),
             icon = Icons.Filled.Bolt,
+            minHeight = 44.dp,
             enabled = configs.isNotEmpty() && !pickingFastest,
             onClick = {
                 if (!pickingFastest) {
@@ -11739,8 +11760,12 @@ private fun SubscriptionHeader(
                 else Modifier.background(c.secondaryCard)
             )
             .clickable { onToggle() }
-            .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.md),
-        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            // Thinner than it was, at the owner's request. The height was in
+            // the padding and the gaps between five stacked pieces - the name,
+            // the action rail, the bar, the chips and the renew pill - so that
+            // is what came down, not the type size or the touch targets.
+            .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val chevron by animateFloatAsState(
@@ -11762,8 +11787,8 @@ private fun SubscriptionHeader(
                 Box(
                     Modifier
                         .padding(end = GhajarSpacing.sm)
-                        .size(34.dp)
-                        .clip(RoundedCornerShape(12.dp))
+                        .size(30.dp)
+                        .clip(RoundedCornerShape(11.dp))
                         .background(c.primary.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -11771,7 +11796,7 @@ private fun SubscriptionHeader(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
                         tint = c.primary,
-                        modifier = Modifier.size(19.dp).graphicsLayer { rotationZ = chevron }
+                        modifier = Modifier.size(17.dp).graphicsLayer { rotationZ = chevron }
                     )
                 }
             }
@@ -11927,9 +11952,19 @@ private fun SubscriptionHeader(
                 (sub.expire > 0 &&
                     (sub.expire * 1000 - System.currentTimeMillis()) / 86_400_000L <= 3L)
             if (nearlyOut) {
-                PillButton(t("sub_renew"), onClick = renew, icon = Icons.Filled.Autorenew)
+                PillButton(
+                    t("sub_renew"),
+                    onClick = renew,
+                    icon = Icons.Filled.Autorenew,
+                    minHeight = 42.dp
+                )
             } else {
-                GhostPill(t("sub_renew"), onClick = renew, icon = Icons.Filled.Autorenew)
+                GhostPill(
+                    t("sub_renew"),
+                    onClick = renew,
+                    icon = Icons.Filled.Autorenew,
+                    minHeight = 42.dp
+                )
             }
         }
 
@@ -11986,13 +12021,13 @@ private fun SubHeaderGlyph(
     val c = ghajarColors
     Box(
         Modifier
-            .size(42.dp)
-            .clip(RoundedCornerShape(14.dp))
+            .size(36.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(c.primary.copy(alpha = 0.10f))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -12680,13 +12715,17 @@ private fun ConfigRow(
                         cornerRadius = CornerRadius(w / 2f)
                     )
                 }
+                // Thinner than it was, at the owner's request. A row's height
+                // is its vertical padding plus the gap between its two tiers,
+                // and both were sized for a list read one row at a time rather
+                // than one scrolled through; the name still gets two lines.
                 .padding(
                     start = GhajarSpacing.md,
                     end = GhajarSpacing.sm,
-                    top = if (compact) 8.dp else GhajarSpacing.md,
-                    bottom = if (compact) 8.dp else GhajarSpacing.md
+                    top = if (compact) 6.dp else GhajarSpacing.sm,
+                    bottom = if (compact) 6.dp else GhajarSpacing.sm
                 ),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 6.dp)
+            verticalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 3.dp)
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -12699,8 +12738,8 @@ private fun ConfigRow(
                 // shape or shift its text.
                 Box(
                     Modifier
-                        .size(if (compact) 28.dp else 34.dp)
-                        .clip(RoundedCornerShape(11.dp))
+                        .size(if (compact) 26.dp else 30.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(
                             (if (checked) c.primary else pingColor(ping)).copy(alpha = 0.14f)
                         ),
@@ -12711,7 +12750,7 @@ private fun ConfigRow(
                             Icons.Filled.CheckCircle,
                             contentDescription = null,
                             tint = c.primary,
-                            modifier = Modifier.size(if (compact) 17.dp else 20.dp)
+                            modifier = Modifier.size(if (compact) 16.dp else 18.dp)
                         )
                     } else {
                         LivePingDot(ping)
@@ -12746,8 +12785,8 @@ private fun ConfigRow(
                     }
                     Text(
                         flagRuns(shown, LexendFont),
-                        inlineContent = flagInlineContent(shown, 16.sp),
-                        style = MaterialTheme.typography.bodyLarge,
+                        inlineContent = flagInlineContent(shown, 15.sp),
+                        style = MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isActive) c.primary else c.textPrimary,
                         maxLines = if (compact) 1 else 2,
@@ -12774,7 +12813,7 @@ private fun ConfigRow(
                 }
                 if (!checked && !selectionMode) {
                     Box(
-                        Modifier.size(if (compact) 32.dp else 36.dp),
+                        Modifier.size(if (compact) 30.dp else 34.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         androidx.compose.animation.AnimatedVisibility(
@@ -12951,13 +12990,13 @@ private fun PickerTool(
     )
     Box(
         Modifier
-            .size(46.dp)
-            .clip(RoundedCornerShape(15.dp))
+            .size(38.dp)
+            .clip(RoundedCornerShape(13.dp))
             .background(accent.copy(alpha = 0.10f + 0.16f * fill))
             .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(21.dp))
+        Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(19.dp))
     }
 }
 
@@ -12979,7 +13018,7 @@ private fun RowAction(
 ) {
     Box(
         Modifier
-            .size(36.dp)
+            .size(34.dp)
             .clip(CircleShape)
             .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center

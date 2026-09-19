@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.Autorenew
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.OpenInNew
@@ -425,6 +426,11 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         }
     }
 
+    // Published by the notice monitor, which polls the same feed that carries
+    // the notices - so the shop's state arrives without a call of its own.
+    val shopOpen by GhajarShopStatus.enabled.collectAsState()
+    val shopClosedMessage by GhajarShopStatus.message.collectAsState()
+
     LazyColumn(
         modifier = modifier.fillMaxSize().padding(horizontal = 14.dp),
         state = listState,
@@ -432,6 +438,43 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     ) {
         item(key = "shop-block-0") {
             ShopHeader(linked = linked, onRefresh = { refreshKey++ })
+        }
+
+        // The shop switched off by the operator. A standing strip rather than
+        // a dismissible notice, because it is a condition and not an event -
+        // it should be true on screen for exactly as long as it is true on the
+        // server. Nothing below it is hidden: the plans and the services stay
+        // readable, since being unable to buy is not a reason to be unable to
+        // look at what you already own.
+        if (!shopOpen) {
+            item(key = "shop-closed") {
+                Slab(accent = ghajarColors.warning) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            Icons.Filled.Info,
+                            contentDescription = null,
+                            tint = ghajarColors.warning,
+                            modifier = Modifier.size(22.dp)
+                        )
+                        Spacer(Modifier.width(GhajarSpacing.sm))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                "فروشگاه موقتاً غیرفعال است",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = ghajarColors.textPrimary
+                            )
+                            if (shopClosedMessage.isNotBlank()) {
+                                Text(
+                                    shopClosedMessage,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = ghajarColors.textSecondary
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
         if (busy || checkoutBusy) item(key = "shop-block-1") { LinearProgressIndicator(Modifier.fillMaxWidth()) }
         message?.let { text -> item(key = "shop-block-2") { StatusCard(text, error = false, onDismiss = { message = null }) } }

@@ -1,25 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    The home-screen widget. Four facts and one button: connection state, the
-    server's name, its ping, and connect/disconnect - the whole point being
-    that none of it needs the app opened.
+    The home-screen widget, rebuilt around the four things the owner asked to
+    see without opening the app: the state, which service is carrying it, how
+    much has gone up and down, and one button to connect.
 
-    Tapping the text opens the app; tapping the pill toggles the tunnel. Two
-    separate targets so the toggle can never be hit by accident when someone
-    meant to open the app.
+    Underneath is a rail of three actions that used to require opening the app
+    and finding the right screen: measure the ping, refresh the subscriptions,
+    and move to the next service. They are glyphs with a word each, because a
+    widget action with no label is a guess.
+
+    Tapping the top row opens the app; everything else acts in place. Separate
+    targets on purpose - the toggle must never be hit by someone reaching for
+    the app.
 -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="@drawable/widget_surface"
-    android:padding="14dp">
+    android:padding="12dp">
 
     <LinearLayout
         android:id="@+id/widget_open"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
+        android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:gravity="center_vertical"
         android:baselineAligned="false">
@@ -45,9 +49,15 @@
                 android:maxLines="1"
                 android:ellipsize="end"
                 android:textColor="@color/ghajar_widget_text"
-                android:textSize="15sp"
+                android:textSize="14sp"
                 android:textStyle="bold" />
 
+            <!--
+                The service name carries its flag as part of the text, the way
+                the panel names them. A widget cannot render the app's inline
+                flag spans, so the emoji in the name itself is the flag - which
+                is what the server already sends.
+            -->
             <TextView
                 android:id="@+id/widget_server"
                 android:layout_width="match_parent"
@@ -68,15 +78,96 @@
             android:textSize="12sp" />
     </LinearLayout>
 
+    <!--
+        Up and down for this session. Blank rather than zero when nothing has
+        been measured: a widget showing "0 B" while a tunnel is carrying
+        traffic is worse than one showing nothing, because it looks like an
+        answer.
+    -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <TextView
+            android:id="@+id/widget_down"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/ghajar_widget_muted"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/widget_up"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:gravity="end"
+            android:textColor="@color/ghajar_widget_muted"
+            android:textSize="11sp" />
+    </LinearLayout>
+
     <TextView
         android:id="@+id/widget_toggle"
         android:layout_width="match_parent"
-        android:layout_height="40dp"
-        android:layout_marginTop="10dp"
+        android:layout_height="38dp"
+        android:layout_marginTop="8dp"
         android:background="@drawable/widget_action"
         android:gravity="center"
         android:maxLines="1"
         android:textColor="@color/ghajar_widget_text"
         android:textSize="14sp"
         android:textStyle="bold" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:orientation="horizontal"
+        android:baselineAligned="false">
+
+        <TextView
+            android:id="@+id/widget_ping_btn"
+            android:layout_width="0dp"
+            android:layout_height="32dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/widget_action"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/ghajar_widget_muted"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/widget_subs_btn"
+            android:layout_width="0dp"
+            android:layout_height="32dp"
+            android:layout_weight="1"
+            android:layout_marginEnd="4dp"
+            android:background="@drawable/widget_action"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/ghajar_widget_muted"
+            android:textSize="11sp" />
+
+        <TextView
+            android:id="@+id/widget_next_btn"
+            android:layout_width="0dp"
+            android:layout_height="32dp"
+            android:layout_weight="1"
+            android:background="@drawable/widget_action"
+            android:gravity="center"
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/ghajar_widget_muted"
+            android:textSize="11sp" />
+    </LinearLayout>
 </LinearLayout>
