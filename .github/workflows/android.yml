@@ -3,7 +3,7 @@ name: Android CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['v*', '1.0.0']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -145,7 +145,7 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/tags/1.0.0'
     runs-on: ubuntu-latest
     timeout-minutes: 110
     env:
@@ -231,7 +231,7 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           if [ "$TAG" != "${{ steps.version.outputs.name }}" ]; then
-            echo "::error::Tag v$TAG does not match versionName ${{ steps.version.outputs.name }} in app/build.gradle.kts"
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName ${{ steps.version.outputs.name }} in app/build.gradle.kts"
             exit 1
           fi
 
@@ -291,10 +291,10 @@ jobs:
           V="${{ steps.version.outputs.name }}"
           NOTES=docs/release-notes/v$V.md
           if [ -f "$NOTES" ]; then
-            gh release create "v$V" dist/* --title "v$V" --notes-file "$NOTES"
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file "$NOTES"
           else
             echo "::warning::No release notes at $NOTES; publishing with generated notes."
-            gh release create "v$V" dist/* --title "v$V" --generate-notes
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
           fi
 
       - name: Clean up secrets from runner
