@@ -17,7 +17,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.FileInputStream
 import java.io.FileOutputStream
 import java.net.DatagramPacket
@@ -130,6 +132,7 @@ class GhajarDnsOnlyService : VpnService() {
     private var tun: ParcelFileDescriptor? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var pump: Job? = null
+    private var watchdog: Job? = null
 
     @Volatile
     private var running = false
@@ -220,7 +223,120 @@ class GhajarDnsOnlyService : VpnService() {
         DnsOnlyState.active(privateDnsActive())
         GhajarLog.i(TAG, "DNS-only mode active on $address")
         pump = scope.launch { forward(fd, resolverAddress) }
+        watchdog = scope.launch { watch(address) }
     }
+
+    /**
+     * Notices when the resolver in use has stopped answering, and applies the
+     * user's policy.
+     *
+     * A watchdog rather than reacting to forwarding errors: one query timing
+     * out is an ordinary event on these networks, and treating it as failure
+     * would move the resolver constantly. Two consecutive probe failures is
+     * the threshold, which on a 45-second period means roughly a minute and a
+     * half of a resolver being genuinely unreachable.
+     *
+     * Everything about whether to move, and where to, is decided by
+     * [DnsSmartSelect] - which is pure and tested. This function only observes
+     * and acts; it holds none of the policy itself.
+     */
+    private suspend fun watch(address: String) {
+        val store = ConfigStore.get(applicationContext)
+        val labStore = DnsResolverStore.get(applicationContext)
+        labStore.load()
+        var consecutiveFailures = 0
+
+        while (running) {
+            delay(WATCH_PERIOD_MS)
+            if (!running) return
+
+            val resolver = labStore.resolvers.value.firstOrNull { it.address == address }
+                ?: return
+            val alive = withContext(Dispatchers.IO) {
+                runCatching {
+                    val id = (1..0xFFFE).random()
+                    val request = DnsWire.query(
+                        GhajarDnsLab.NEUTRAL_PROBE_HOST, DnsWire.TYPE_A, id
+                    )
+                    // Through the same protected path the forwarder uses, so a
+                    // healthy probe means the forwarder's own route is healthy
+                    // - not merely that the resolver answers somebody else.
+                    val reply = probeProtected(resolver, request)
+                    DnsWire.parse(reply, id, GhajarDnsLab.NEUTRAL_PROBE_HOST)
+                    true
+                }.getOrDefault(false)
+            }
+
+            if (alive) {
+                consecutiveFailures = 0
+                continue
+            }
+            consecutiveFailures++
+            GhajarLog.w(TAG, "$address did not answer ($consecutiveFailures in a row)")
+            if (consecutiveFailures < FAILURES_BEFORE_ACTING) continue
+
+            // Mark it failed in the store so the decision is made on a verdict
+            // rather than on this function's private opinion.
+            labStore.putVerdicts(
+                mapOf(
+                    resolver.id to (labStore.verdicts.value[resolver.id] ?: DnsVerdict(resolver.id))
+                        .copy(
+                            health = DnsHealth.BAD,
+                            note = "unreachable",
+                            lastTestedAt = System.currentTimeMillis()
+                        )
+                )
+            )
+
+            val next = DnsSmartSelect.decide(
+                resolvers = labStore.resolvers.value,
+                verdicts = labStore.verdicts.value,
+                currentId = resolver.id,
+                manuallyPinned = labStore.chosenManually.value,
+                policy = store.dnsFailPolicy.value
+            )
+            if (next == null) {
+                // Staying and failing visibly is a valid outcome, and the
+                // reason is published so the screen can say which it was.
+                GhajarLog.i(TAG, "not switching: ${DnsSmartSelect.reason.value}")
+                DnsOnlyState.failed(DnsSmartSelect.reason.value)
+                return
+            }
+
+            GhajarLog.i(TAG, "failing over to ${next.address}")
+            labStore.choose(next.id, manual = false)
+            store.setCustomDns(next.address)
+            DnsSmartSelect.switchWorked()
+            // Restarting rather than mutating: a VpnService's DNS server is
+            // fixed at establish() time, so a new resolver means a new tun.
+            start(next.address)
+            return
+        }
+    }
+
+    /**
+     * One probe over a protected socket.
+     *
+     * Deliberately not GhajarDnsLab.exchange: that opens an ordinary socket,
+     * which from inside this service would be routed by this service's own
+     * tun. The probe has to take the same protected path the forwarder does or
+     * it is measuring the wrong thing.
+     */
+    private fun probeProtected(resolver: DnsResolver, request: ByteArray): ByteArray =
+        DatagramSocket().use { socket ->
+            if (!protect(socket)) throw IllegalStateException("protect refused")
+            socket.soTimeout = QUERY_TIMEOUT_MS
+            socket.send(
+                DatagramPacket(
+                    request, request.size,
+                    InetSocketAddress(InetAddress.getByName(resolver.address), 53)
+                )
+            )
+            val reply = ByteArray(MAX_ANSWER)
+            val packet = DatagramPacket(reply, reply.size)
+            socket.receive(packet)
+            reply.copyOf(packet.length)
+        }
 
     /**
      * Reads queries out of the tun, forwards each one, writes the answer back.
@@ -312,6 +428,8 @@ class GhajarDnsOnlyService : VpnService() {
         running = false
         pump?.cancel()
         pump = null
+        watchdog?.cancel()
+        watchdog = null
         runCatching { tun?.close() }
         tun = null
         DnsOnlyState.off()
@@ -329,6 +447,7 @@ class GhajarDnsOnlyService : VpnService() {
     override fun onDestroy() {
         running = false
         pump?.cancel()
+        watchdog?.cancel()
         runCatching { tun?.close() }
         tun = null
         if (DnsOnlyState.phase.value != DnsOnlyPhase.FAILED) DnsOnlyState.off()
@@ -373,6 +492,12 @@ class GhajarDnsOnlyService : VpnService() {
         private const val QUERY_TIMEOUT_MS = 5_000
         private const val MAX_ANSWER = 4096
         private const val MAX_IN_FLIGHT = 64L
+
+        /** How often the resolver in use is checked. */
+        private const val WATCH_PERIOD_MS = 45_000L
+
+        /** Consecutive probe failures before the policy is applied. */
+        private const val FAILURES_BEFORE_ACTING = 2
 
         /** The address inside the tun. Nothing outside this service sees it. */
         private const val TUN_ADDRESS = "10.7.63.1"

@@ -349,7 +349,11 @@ fun DnsLabScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                                 val best = labStore.bestCandidate()
                                 if (best == null) status = t("dnslab_no_candidate")
                                 else {
-                                    labStore.choose(best.id)
+                                    // manual = false: this was the app's pick,
+                                    // so failover is allowed to move off it
+                                    // later. A row's own "use this one" is the
+                                    // manual case and keeps the default.
+                                    labStore.choose(best.id, manual = false)
                                     store.setCustomDns(best.address)
                                     status = t("dnslab_chose").format(best.name)
                                 }

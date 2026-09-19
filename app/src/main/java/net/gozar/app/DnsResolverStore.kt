@@ -55,6 +55,25 @@ class DnsResolverStore private constructor(context: Context) {
     private val _chosenId = MutableStateFlow<String?>(null)
     val chosenId: StateFlow<String?> = _chosenId.asStateFlow()
 
+    /**
+     * The choice was the user's own, not the app's.
+     *
+     * The distinction is load-bearing: automatic failover must never move off
+     * a resolver somebody picked by hand, and without this flag "chosen"
+     * cannot tell a deliberate pick from one the app made two minutes ago.
+     */
+    private val _chosenManually = MutableStateFlow(false)
+    val chosenManually: StateFlow<Boolean> = _chosenManually.asStateFlow()
+
+    /**
+     * Whether the stored choice was manual, read during [load].
+     *
+     * A field rather than a fourth element of the Triple: the Triple is
+     * already at the edge of readable, and this value is only ever written by
+     * the read and consumed immediately after it.
+     */
+    private var manualOnDisk = true
+
     private val _loaded = MutableStateFlow(false)
     val loaded: StateFlow<Boolean> = _loaded.asStateFlow()
 
@@ -72,6 +91,7 @@ class DnsResolverStore private constructor(context: Context) {
         _resolvers.value = list.ifEmpty { GhajarDnsLab.Catalogue }
         _verdicts.value = verdicts
         _chosenId.value = chosen
+        _chosenManually.value = chosen != null && manualOnDisk
         _loaded.value = true
         DnsScanEngine.seed(verdicts)
     }
@@ -108,6 +128,7 @@ class DnsResolverStore private constructor(context: Context) {
             if (v.id.isNotBlank()) verdicts[v.id] = v
         }
 
+        manualOnDisk = root.optBoolean("chosenManually", true)
         return Triple(
             list,
             verdicts,
@@ -141,7 +162,10 @@ class DnsResolverStore private constructor(context: Context) {
         if (ids.isEmpty()) return
         _resolvers.value = _resolvers.value.filterNot { it.id in ids }
         _verdicts.value = _verdicts.value - ids
-        if (_chosenId.value in ids) _chosenId.value = null
+        if (_chosenId.value in ids) {
+            _chosenId.value = null
+            _chosenManually.value = false
+        }
         persist()
     }
 
@@ -163,7 +187,10 @@ class DnsResolverStore private constructor(context: Context) {
         val kept = keep.mapTo(HashSet()) { it.id }
         _resolvers.value = keep
         _verdicts.value = verdicts.filterKeys { it in kept }
-        if (_chosenId.value !in kept) _chosenId.value = null
+        if (_chosenId.value !in kept) {
+            _chosenId.value = null
+            _chosenManually.value = false
+        }
         persist()
     }
 
@@ -171,6 +198,7 @@ class DnsResolverStore private constructor(context: Context) {
         _resolvers.value = emptyList()
         _verdicts.value = emptyMap()
         _chosenId.value = null
+        _chosenManually.value = false
         persist()
     }
 
@@ -189,8 +217,16 @@ class DnsResolverStore private constructor(context: Context) {
         persist()
     }
 
-    fun choose(id: String?) {
+    /**
+     * Records which resolver is in use.
+     *
+     * [manual] says whether a person picked it. Automatic selection passes
+     * false and is then free to move on; a manual pick is left alone until the
+     * user clears it.
+     */
+    fun choose(id: String?, manual: Boolean = true) {
         _chosenId.value = id
+        _chosenManually.value = id != null && manual
         persist()
     }
 
@@ -262,6 +298,7 @@ class DnsResolverStore private constructor(context: Context) {
         val resolvers = _resolvers.value
         val verdicts = _verdicts.value
         val chosen = _chosenId.value
+        val manual = _chosenManually.value
         scope.launch {
             writeLock.withLock {
                 runCatching {
@@ -281,7 +318,10 @@ class DnsResolverStore private constructor(context: Context) {
                     val vArray = JSONArray()
                     verdicts.values.forEach { vArray.put(it.toJson()) }
                     root.put("verdicts", vArray)
-                    if (chosen != null) root.put("chosen", chosen)
+                    if (chosen != null) {
+                        root.put("chosen", chosen)
+                        root.put("chosenManually", manual)
+                    }
 
                     // Rename over, never write in place: a process killed
                     // mid-write would otherwise leave a truncated array and
