@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.BroadcastReceiver.PendingResult
 import android.content.Intent
 import android.widget.RemoteViews
+import gozarcore.Gozarcore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -299,8 +300,9 @@ class GhajarWidget : AppWidgetProvider() {
             val store = runCatching { ConfigStore.get(app) }.getOrNull() ?: return
             val id = VpnState.activeId.value ?: store.selectedId.value
             val cfg = store.configs.value.firstOrNull { it.id == id } ?: return
-            val ms = withContext(Dispatchers.IO) {
-                Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg))
+            val ms: Long = withContext(Dispatchers.IO) {
+                runCatching { Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg)) }
+                    .getOrDefault(-1L)
             }
             // A failure clears the number rather than leaving the last good one
             // on screen, which would be presenting a stale measurement as now.
