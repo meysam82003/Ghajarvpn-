@@ -6,6 +6,9 @@ plugins {
 }
 
 val ghajarDemoBuild = providers.gradleProperty("ghajar.demo").orNull == "true"
+// Opt-in instrumentation ABI. Production ARM outputs and engine code are unchanged.
+// Tor/Aether vendor binaries are ARM-only; this APK is only a CI test target.
+val ghajarEmulatorTest = providers.gradleProperty("ghajar.emulatorTest").orNull == "true"
 val ghajarSignedDemo = providers.gradleProperty("ghajar.demo.signed").orNull == "true"
 check(!ghajarSignedDemo || ghajarDemoBuild) { "Signed demo requires -Pghajar.demo=true" }
 
@@ -107,6 +110,7 @@ android {
             isEnable = true
             reset()
             include("arm64-v8a", "armeabi-v7a")
+            if (ghajarEmulatorTest) include("x86_64")
             isUniversalApk = false
         }
     }

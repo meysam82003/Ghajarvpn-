@@ -108,6 +108,9 @@ build_abi() {
 
 build_abi arm64-v8a arm64 aarch64-linux-android26-clang
 build_abi armeabi-v7a arm armv7a-linux-androideabi26-clang
+if [ "${GHAJAR_EMULATOR_TEST:-false}" = "true" ]; then
+    build_abi x86_64 amd64 x86_64-linux-android26-clang
+fi
 
 # Assert the protocols are in the artifact rather than trusting the tag list.
 # A typo in a tag is silent, and a core without OpenConnect is

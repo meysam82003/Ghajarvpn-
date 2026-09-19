@@ -1214,6 +1214,27 @@ private fun GozarApp(
     val pagerState = rememberPagerState(initialPage = PAGE_HOME, pageCount = { PAGE_COUNT })
     val settingsScroll = rememberScrollState()
 
+    // Accounting observes connection transitions even when Home is not composed.
+    val accountingConnection by VpnState.state.collectAsState()
+    LaunchedEffect(accountingConnection) {
+        val off = accountingConnection != Connection.CONNECTED && accountingConnection != Connection.CONNECTING
+        if (android.net.TrafficStats.getTotalRxBytes() == android.net.TrafficStats.UNSUPPORTED.toLong())
+            return@LaunchedEffect
+        UsageStore.syncDirect(
+            android.net.TrafficStats.getTotalRxBytes(),
+            android.net.TrafficStats.getTotalTxBytes(),
+            off
+        )
+        if (!off) return@LaunchedEffect
+        while (isActive) {
+            delay(5000)
+            UsageStore.syncDirect(
+                android.net.TrafficStats.getTotalRxBytes(),
+                android.net.TrafficStats.getTotalTxBytes(),
+                true
+            )
+        }
+    }
     val destinationState = rememberSaveableStateHolder()
     var showFree by rememberSaveable { mutableStateOf(false) }
     var backupDetail by rememberSaveable { mutableStateOf(false) }
@@ -1929,25 +1950,6 @@ private fun ConnectionScreen(
     val mixedPortValue by store.mixedPort.collectAsState()
     LaunchedEffect(mixedPortValue) { MixedPort.value = mixedPortValue }
 
-    LaunchedEffect(conn) {
-        val off = conn != Connection.CONNECTED && conn != Connection.CONNECTING
-        if (android.net.TrafficStats.getTotalRxBytes() == android.net.TrafficStats.UNSUPPORTED.toLong())
-            return@LaunchedEffect
-        UsageStore.syncDirect(
-            android.net.TrafficStats.getTotalRxBytes(),
-            android.net.TrafficStats.getTotalTxBytes(),
-            off
-        )
-        if (!off) return@LaunchedEffect
-        while (isActive) {
-            delay(5000)
-            UsageStore.syncDirect(
-                android.net.TrafficStats.getTotalRxBytes(),
-                android.net.TrafficStats.getTotalTxBytes(),
-                true
-            )
-        }
-    }
     val error by VpnState.error.collectAsState()
     val scope = rememberCoroutineScope()
 

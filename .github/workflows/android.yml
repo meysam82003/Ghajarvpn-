@@ -91,10 +91,9 @@ jobs:
           git clone https://github.com/Noisemux/zeptun /tmp/zeptun
           git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
           cd /tmp/zeptun
-          # Only the two ABIs this app ships; building x86 as well would double
-          # the step for emulators the release never targets.
-          ABIS="armeabi-v7a arm64-v8a" sh scripts/build_android.sh
-          for abi in armeabi-v7a arm64-v8a; do
+          # Add the native emulator ABI for real engine instrumentation.
+          ABIS="armeabi-v7a arm64-v8a x86_64" sh scripts/build_android.sh
+          for abi in armeabi-v7a arm64-v8a x86_64; do
             dest="$GITHUB_WORKSPACE/app/src/main/jniLibs/$abi"
             mkdir -p "$dest"
             cp "zig-out/android/jniLibs/$abi/libzeptun.so" "$dest/"
@@ -125,13 +124,13 @@ jobs:
           cache: false
 
       - name: Build the sing-box core
-        run: sh scripts/build-singbox.sh
+        run: GHAJAR_EMULATOR_TEST=true sh scripts/build-singbox.sh
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest
+        run: ./gradlew --no-daemon --stacktrace -Pghajar.emulatorTest=true :app:assembleDebug :app:assembleDebugAndroidTest
 
       - name: Run unit tests
         run: ./gradlew --no-daemon --stacktrace test

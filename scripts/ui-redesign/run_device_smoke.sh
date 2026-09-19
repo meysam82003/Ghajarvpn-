@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 mkdir -p device-evidence
-# Android 30's ARM64 translator faults on a native system instruction.
-# Exercise the production ARMv7 APK with its supported 32-bit translation path.
-app_apk=$(find device-apks -name 'app-armeabi-v7a-debug.apk' -print -quit)
+# Both ARM translation paths crash inside native Go. Use the real x86_64
+# Xray/Psiphon, sing-box and zeptun engines, without a mock or demo flag.
+app_apk=$(find device-apks -name 'app-x86_64-debug.apk' -print -quit)
 test_apk=$(find device-apks -name 'app-debug-androidTest.apk' -print -quit)
 [ -n "$app_apk" ] && [ -n "$test_apk" ]
 adb install -r "$app_apk"
