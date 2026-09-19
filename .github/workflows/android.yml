@@ -150,10 +150,17 @@ jobs:
     # operator who does not have it would otherwise be unable to release at
     # all. The tag to publish under is derived from versionName in that case,
     # so a dispatch cannot invent a version the build does not carry.
+    #
+    # A dispatch only publishes from the release branch. It used to publish
+    # from whichever ref it was fired on, which meant dispatching this
+    # workflow on a feature branch - the ordinary way to get a compile check -
+    # rebuilt and overwrote the published release's APKs with a build of
+    # unfinished work. Every CI run on a branch is a build; only main is a
+    # release.
     if: >-
       startsWith(github.ref, 'refs/tags/v') ||
       github.ref == 'refs/tags/1.0.0' ||
-      github.event_name == 'workflow_dispatch'
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
     runs-on: ubuntu-latest
     timeout-minutes: 110
     env:

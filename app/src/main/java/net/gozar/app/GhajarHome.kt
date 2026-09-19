@@ -2,12 +2,7 @@ package net.gozar.app
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearEasing
-import androidx.compose.animation.core.RepeatMode
-import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.infiniteRepeatable
-import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -132,18 +127,27 @@ fun ConnectOrb(
         label = "orbFill"
     )
 
-    val spin = rememberInfiniteTransition(label = "orb")
-    val sweepState = spin.animateFloat(
-        initialValue = -90f,
-        targetValue = 270f,
-        animationSpec = ghajarEndless(infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart)),
-        label = "orbSweep"
+    // Both of these used to be an infinite transition, created on every
+    // composition of this screen and therefore running from launch: idle,
+    // disconnected, with nothing on screen moving, the app still woke the main
+    // thread every frame to interpolate two numbers the draw pass was not
+    // reading. Home is the screen the app opens on, so that was the frame
+    // budget of everything else.
+    //
+    // ghajarPulse schedules nothing while its condition is false. The travelling
+    // arc exists while a connection is being made; the breath exists while the
+    // tunnel is up. Off and idle now costs zero frames.
+    val sweepState = ghajarPulse(
+        active = working,
+        durationMillis = 1500,
+        from = -90f,
+        to = 270f,
+        reverse = false
     )
-    val breathState = spin.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = ghajarEndless(infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse)),
-        label = "orbBreath"
+    val breathState = ghajarPulse(
+        active = state == Connection.CONNECTED,
+        durationMillis = 2600,
+        easing = FastOutSlowInEasing
     )
 
     var pressed by remember { mutableStateOf(false) }

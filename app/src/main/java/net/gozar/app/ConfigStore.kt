@@ -422,23 +422,6 @@ class ConfigStore private constructor(context: Context) {
     }
 
     /**
-     * The autopilot card is flying the tunnel.
-     *
-     * Kept apart from [autoSelect] although engaging sets both. autoSelect is
-     * the mechanism - a failover loop in the service - and it has always been
-     * settable on its own from Settings. This is the user having handed the
-     * choice of server over from the list, which is what the card reflects and
-     * what a manual tap on a server has to be able to take back.
-     */
-    private val _autoPilot = MutableStateFlow(prefs.getBoolean(KEY_AUTOPILOT, false))
-    val autoPilot: StateFlow<Boolean> = _autoPilot.asStateFlow()
-
-    fun setAutoPilot(enabled: Boolean) {
-        _autoPilot.value = enabled
-        prefs.edit().putBoolean(KEY_AUTOPILOT, enabled).apply()
-    }
-
-    /**
      * Newest server at the top of the list, under the thumb.
      *
      * A config is added because it is about to be used, and the list is
@@ -819,7 +802,6 @@ class ConfigStore private constructor(context: Context) {
         put("dnsTunnelResolver", _dnsTunnelResolver.value)
         put("dnsTunnelName", _dnsTunnelName.value)
         put("dnsTunnelAutoReconnect", _dnsTunnelAutoReconnect.value)
-        put("autoPilot", _autoPilot.value)
         put("newestFirst", _newestFirst.value)
         put("reduceMotion", _reduceMotion.value)
         put("dynamicAccent", _dynamicAccent.value)
@@ -889,7 +871,6 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("dnsTunnelAutoReconnect")) {
             setDnsTunnelAutoReconnect(o.getBoolean("dnsTunnelAutoReconnect"))
         }
-        if (o.has("autoPilot")) setAutoPilot(o.getBoolean("autoPilot"))
         if (o.has("newestFirst")) setNewestFirst(o.getBoolean("newestFirst"))
         if (o.has("reduceMotion")) setReduceMotion(o.getBoolean("reduceMotion"))
         if (o.has("dynamicAccent")) setDynamicAccent(o.getBoolean("dynamicAccent"))
@@ -1155,7 +1136,6 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_DNSTT_RESOLVER = "dnstt_resolver"
         private const val KEY_DNSTT_NAME = "dnstt_name"
         private const val KEY_DNSTT_RECONNECT = "dnstt_reconnect"
-        private const val KEY_AUTOPILOT = "auto_pilot"
         private const val KEY_NEWEST_FIRST = "newest_first"
         private const val KEY_AETHER_SEED_CLEANED = "aether_seed_cleaned_v1"
         private const val KEY_AUTOREFRESH = "auto_refresh_hours"
