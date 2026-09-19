@@ -47,28 +47,43 @@ Both run the same `gomobile bind` with the same build tags and then assert
 that the protocols this app needs are actually present in the artifact,
 because a typo in a build tag is otherwise completely silent.
 
+## `-checklinkname=0` is not optional
+
+If the build ends, after about ten minutes of compiling, with:
+
+```
+link: experimental/libbox: invalid reference to os.checkPidfdOnce
+```
+
+the `-ldflags` are missing. `libbox/pidfd_android.go` pulls the private
+`os.checkPidfdOnce` in with `//go:linkname` to switch pidfd off on Android
+(their issue 3233), and since Go 1.23 the linker refuses a pull-linkname to
+an unmarked symbol unless `-checklinkname=0` is passed.
+
+Two things this is easy to get wrong, and both cost a failed build here:
+
+- **`badlinkname` is a build tag, `-checklinkname=0` is a linker flag.** They
+  are different mechanisms and the tag does not substitute for the flag.
+  Passing the full tag list with no ldflags fails in exactly the same way.
+- **It is not a Go version problem.** The same failure happens on 1.26.8. The
+  Go version below is pinned to match upstream, not to fix this.
+
+The flags come from their `cmd/internal/build_shared/flags.go`.
+
 ## The toolchain versions are not the ones in go.mod
 
-Read from sing-box's own CI, not from its `go.mod`, because the two disagree
-and the disagreement costs a failed build:
+Read from sing-box's own CI, because `go.mod` describes what the module needs
+rather than what its release is built with:
 
-| | go.mod says | what actually works |
+| | go.mod says | upstream CI uses |
 |---|---|---|
 | Go | `go 1.25.5` | **1.26.8** |
 | gomobile | `v0.1.12` | **v0.1.13** |
 
-`go 1.25.5` in go.mod is the minimum *language* version, not the toolchain
-their release is built with. `experimental/libbox/pidfd_android.go` has a
-`//go:linkname` to `os.checkPidfdOnce`, a private runtime symbol, and on Go
-1.25 the link fails with `invalid reference to os.checkPidfdOnce`. The
-`badlinkname` build tag does not rescue it.
-
-The gomobile difference is the same shape: go.mod pins v0.1.12 as a
-*library*, while their `Makefile`'s `lib_install` installs the v0.1.13
-*tool*. The tool is the one that has to match.
-
-`scripts/build-singbox-aar.sh` checks the toolchain up front and says exactly
-this, so the next person does not have to read a linker error to find out.
+`go 1.25.5` is the minimum *language* version. The gomobile difference is the
+same shape: go.mod pins v0.1.12 as a *library*, while their `Makefile`'s
+`lib_install` installs the v0.1.13 *tool*, and the tool is the one that
+generates the bindings.
 
 ## The two things that will confuse the next person
 

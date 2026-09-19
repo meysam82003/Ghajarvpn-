@@ -18,17 +18,20 @@ set -eu
 SINGBOX_COMMIT=8330820fa62505f9574e4c35cd969d9af6eb7769
 SINGBOX_REPO=https://github.com/SagerNet/sing-box
 
-# These two come from sing-box's OWN CI, not from its go.mod, and the
-# difference is not academic - reading go.mod instead cost a failed build:
+# Both of these come from sing-box's own CI rather than its go.mod, because
+# go.mod describes what the module needs and not what its release is built
+# with:
 #
-#   go.mod says "go 1.25.5", which is the minimum LANGUAGE version. Their CI
-#   builds with 1.26.8. experimental/libbox/pidfd_android.go has a
-#   //go:linkname to os.checkPidfdOnce, a private runtime symbol, and on 1.25
-#   the link fails outright with "invalid reference to os.checkPidfdOnce".
+#   go.mod says "go 1.25.5", the minimum LANGUAGE version. Their CI builds
+#   with 1.26.8, so that is what this pins.
 #
 #   go.mod pins gomobile v0.1.12 as a LIBRARY. Their Makefile's lib_install
-#   installs the v0.1.13 TOOL. Those are different things and the tool is the
-#   one that has to match.
+#   installs the v0.1.13 TOOL. Different things; the tool is the one that
+#   generates the bindings, so it is the one that has to match.
+#
+# Note on what the Go version does NOT explain: the
+# "invalid reference to os.checkPidfdOnce" link failure is not a version
+# problem. It happens on 1.26.8 too. See LDFLAGS below for the actual cause.
 GO_VERSION=1.26.8
 GOMOBILE_VERSION=v0.1.13
 
@@ -59,24 +62,37 @@ work=${SINGBOX_WORKDIR:-/tmp/sing-box}
 # current Go toolchain without them.
 TAGS=with_quic,with_wireguard,with_utls,with_openconnect,with_openvpn,with_clash_api,badlinkname,tfogo_checklinkname0
 
+# -checklinkname=0 is the one that actually matters, and it is a LINKER flag,
+# not a build tag. libbox/pidfd_android.go pulls os.checkPidfdOnce in with
+# //go:linkname to disable pidfd on Android (their issue 3233), and since Go
+# 1.23 the linker refuses a pull-linkname to an unmarked symbol unless this is
+# passed. Without it the build fails at the very last step, after ten minutes
+# of compiling, with:
+#
+#   link: experimental/libbox: invalid reference to os.checkPidfdOnce
+#
+# The badlinkname tag above is a separate thing and does NOT substitute for
+# it - passing the tags without this flag fails exactly the same way, on any
+# Go version. Taken from their cmd/internal/build_shared/flags.go.
+#
+# -s -w -buildid= are from the same function, and strip about a third off a
+# library that is otherwise close to a hundred megabytes.
+LDFLAGS="-checklinkname=0 -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -s -w -buildid="
+
 if [ ! -d "$work/.git" ]; then
     git clone "$SINGBOX_REPO" "$work"
 fi
 git -C "$work" fetch --all --tags
 git -C "$work" checkout "$SINGBOX_COMMIT"
 
-# Say the toolchain out loud rather than hoping. A mismatch here fails at the
-# link step with a message about a runtime symbol, which reads like a compiler
-# bug rather than a version problem.
+# Report the toolchain rather than assuming it. Not fatal below 1.26 - the
+# module's own minimum is 1.25.5 and it may well work - but a mismatch with
+# what upstream builds is worth seeing in the log before a ten-minute compile.
 have=$(go env GOVERSION)
-echo "go toolchain: $have (this core needs go$GO_VERSION or newer)"
+echo "go toolchain: $have (upstream builds with go$GO_VERSION)"
 case "$have" in
     go1.2[6-9]*|go[2-9]*) ;;
-    *)
-        echo "ERROR: sing-box needs go$GO_VERSION; $have will fail at the link" >&2
-        echo "step with 'invalid reference to os.checkPidfdOnce'." >&2
-        exit 1
-        ;;
+    *) echo "note: older than upstream's go$GO_VERSION; continuing" >&2 ;;
 esac
 
 go install "github.com/sagernet/gomobile/cmd/gomobile@$GOMOBILE_VERSION"
@@ -101,6 +117,7 @@ gomobile bind -v \
     -javapkg=io.nekohasekai \
     -libname=box \
     -tags "$TAGS" \
+    -ldflags "$LDFLAGS" \
     ./experimental/libbox
 
 ls -lh "$root/app/libs/libbox.aar"
