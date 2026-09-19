@@ -6,9 +6,6 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -260,14 +257,15 @@ private fun LogScreen(onBack: () -> Unit) {
                     }
                 }
 
-                // Only offered when it would do something.
-                AnimatedVisibility(
-                    visible = !atBottom && shown.isNotEmpty(),
-                    enter = fadeIn(), exit = fadeOut(),
-                    modifier = Modifier.align(Alignment.BottomStart).padding(16.dp)
-                ) {
+                // Only offered when it would do something. A plain `if` rather
+                // than AnimatedVisibility: inside a Box the ColumnScope
+                // overload of that is the one Kotlin picks, from the Column
+                // this Box sits in, and it does not apply here.
+                if (!atBottom && shown.isNotEmpty()) {
                     Row(
                         Modifier
+                            .align(Alignment.BottomStart)
+                            .padding(16.dp)
                             .clip(RoundedCornerShape(50))
                             .background(MaterialTheme.colorScheme.primary)
                             .clickable { scope.launch { listState.scrollToItem(shown.size - 1) } }

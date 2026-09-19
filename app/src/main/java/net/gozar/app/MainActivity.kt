@@ -1234,6 +1234,7 @@ private fun GozarApp(
     var themeDetail by remember { mutableStateOf(false) }
     var cleanIpDetail by remember { mutableStateOf(false) }
     var dnsLabDetail by remember { mutableStateOf(false) }
+    var mapDetail by remember { mutableStateOf(false) }
     var netMonDetail by remember { mutableStateOf(false) }
     var netCatDetail by remember { mutableStateOf(false) }
     var netCatIndex by remember { mutableStateOf(-1) }
@@ -1366,7 +1367,7 @@ private fun GozarApp(
     var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
+    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
@@ -1390,6 +1391,7 @@ private fun GozarApp(
         onSettingsTab && themeDetail -> "theme"
         onSettingsTab && cleanIpDetail -> "cleanip"
         onSettingsTab && dnsLabDetail -> "dnslab"
+        onSettingsTab && mapDetail -> "map"
         onSettingsTab && checkHostDetail -> "checkhost"
         onSettingsTab && netCatIndex >= 0 -> "netcatone"
         onSettingsTab && netCatDetail -> "netcat"
@@ -1420,6 +1422,7 @@ private fun GozarApp(
             themeDetail -> themeDetail = false
             cleanIpDetail -> cleanIpDetail = false
             dnsLabDetail -> dnsLabDetail = false
+            mapDetail -> mapDetail = false
             checkHostDetail -> checkHostDetail = false
             netCatIndex >= 0 -> netCatIndex = -1
             netCatDetail -> netCatDetail = false
@@ -1539,6 +1542,7 @@ private fun GozarApp(
                         "theme" -> BounceIconButton(onClick = { themeDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "cleanip" -> BounceIconButton(onClick = { cleanIpDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "dnslab" -> BounceIconButton(onClick = { dnsLabDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "map" -> BounceIconButton(onClick = { mapDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netmon" -> BounceIconButton(onClick = { netMonDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netcat" -> BounceIconButton(onClick = { netCatDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "checkhost" -> BounceIconButton(onClick = { checkHostDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1591,6 +1595,7 @@ private fun GozarApp(
                         themeDetail = false
                         cleanIpDetail = false
                         dnsLabDetail = false
+                        mapDetail = false
                         netMonDetail = false
                         netCatDetail = false
                         netCatIndex = -1
@@ -1740,6 +1745,7 @@ private fun GozarApp(
                     themeDetail -> "theme"
                     cleanIpDetail -> "cleanip"
                     dnsLabDetail -> "dnslab"
+                    mapDetail -> "map"
                     checkHostDetail -> "checkhost"
                     netCatIndex >= 0 -> "netcatone"
                     netCatDetail -> "netcat"
@@ -1785,12 +1791,14 @@ private fun GozarApp(
                         "checkhost" -> CheckHostScreen()
                         "netcatone" -> NetCategoryScreen(index = netCatIndex)
                         "dnslab" -> DnsLabScreen(store = store)
+                        "map" -> GhajarMapScreen()
                         "tools" -> ToolsScreen(
                             store = store,
                             onOpenCheckHost = { checkHostDetail = true },
                             onOpenStability = { stabilityDetail = true },
                             onOpenCleanIp = { cleanIpDetail = true },
                             onOpenDnsLab = { dnsLabDetail = true },
+                            onOpenMap = { mapDetail = true },
                             onSwitch = onSwitch
                         )
                         "connection_settings" -> ConnectionSettingsScreen(
@@ -2424,14 +2432,23 @@ private fun ConfigPickerScreen(
         modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // The expanded panel scrolls. This column is fixed - it holds the
-        // panel, the stats strip and the toolbar above a weighted list - so
-        // when the panel opened, the part that did not fit was simply clipped,
-        // which is why the file and QR tiles were not on screen. Bounded by
-        // what is left and scrollable inside it, nothing is cut at any height.
+        // While the panel is open it IS the screen.
+        //
+        // The previous attempt at this wrapped it in weight(1f, fill = false)
+        // and called that "bounded by what is left". It is not: weight hands
+        // out a share of the column, and the config list below keeps its own
+        // share whether or not it has anything in it. So the panel got a few
+        // hundred pixels with its own scrollbar - two rows visible - while the
+        // bottom half of the screen sat empty. Scrolling was there; the space
+        // was not.
+        //
+        // Giving it weight(1f) and hiding the strip, the toolbar and the list
+        // while it is open is the fix. Those three are behind it and cannot be
+        // used anyway, so nothing is lost by not drawing them, and the panel
+        // gets the entire column instead of a slice of it.
         Box(
             if (addMenu) Modifier
-                .weight(1f, fill = false)
+                .weight(1f)
                 .verticalScroll(rememberScrollState())
             else Modifier
         ) {
@@ -2456,11 +2473,18 @@ private fun ConfigPickerScreen(
         }
 
         val favouriteCount = remember(configs) { configs.count { it.favorite } }
-        // The ping map is read inside PickerStatsStrip, not here. Reading it in
-        // this body subscribed the whole screen to every entry, so each result
-        // arriving during "test all" recomposed the entire picker - and built
-        // two throwaway lists of the map while doing it. That is the jank.
-        PickerStatsStrip(configs = configs, pings = pings)
+        // The strip and the toolbar collapse to nothing while the add panel is
+        // open, so the panel above can have the whole column. Both are behind
+        // the panel and unreachable anyway, and their height is part of what
+        // was starving it.
+        AnimatedVisibility(visible = !addMenu) {
+            // The ping map is read inside PickerStatsStrip, not here. Reading
+            // it in this body subscribed the whole screen to every entry, so
+            // each result arriving during "test all" recomposed the entire
+            // picker - and built two throwaway lists of the map while doing
+            // it. That is the jank.
+            PickerStatsStrip(configs = configs, pings = pings)
+        }
 
         // The four actions and the sub-update button used to float loose above
         // the list as five separate boxes. They are one slab now: the test is
@@ -2468,6 +2492,7 @@ private fun ConfigPickerScreen(
         // and the two list-wide jobs share the row underneath - including the
         // free-projects entry, which was previously only reachable by first
         // expanding "افزودن سرور" and was being missed entirely.
+        AnimatedVisibility(visible = !addMenu) {
         Slab(spacing = GhajarSpacing.sm) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             BounceOutlinedButton(
@@ -2777,6 +2802,7 @@ private fun ConfigPickerScreen(
                 }
             }
         }
+        }
 
         AnimatedVisibility(
             visible = searchOpen,
@@ -2885,7 +2911,10 @@ private fun ConfigPickerScreen(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f)
+            // Zero height, not merely hidden: a weighted child claims its
+            // share of the column even with nothing in it, and that share is
+            // what the add panel above needs.
+            modifier = (if (addMenu) Modifier.height(0.dp) else Modifier.weight(1f))
                 .onSizeChanged { viewportH = it.height }
                 .pointerInput(allIds) {
                     awaitEachGesture {
@@ -4260,7 +4289,7 @@ private fun LabeledDropdown(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun settingsDepth(key: String): Int = when (key) {
     "settings" -> 0
-    "stability", "cleanip", "dnslab", "perapp", "theme", "netcat" -> 2
+    "stability", "cleanip", "dnslab", "map", "perapp", "theme", "netcat" -> 2
     "checkhost" -> 3
     "netcatone" -> 3
     // Reached directly from the Settings list, like usage or tools.
@@ -6266,6 +6295,7 @@ private fun ToolsScreen(
     onOpenCleanIp: () -> Unit,
     onOpenCheckHost: () -> Unit,
     onOpenDnsLab: () -> Unit,
+    onOpenMap: () -> Unit,
     onSwitch: (ProxyConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -6346,6 +6376,14 @@ private fun ToolsScreen(
                 icon = Icons.Filled.Dns,
                 chevron = true,
                 onClick = onOpenDnsLab
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("map_title"),
+                subtitle = t("map_subtitle"),
+                icon = Icons.Filled.Public,
+                chevron = true,
+                onClick = onOpenMap
             )
         }
 
