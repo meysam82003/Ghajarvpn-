@@ -401,14 +401,18 @@ fun PillButton(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     enabled: Boolean = true,
-    accent: Color? = null
+    accent: Color? = null,
+    // The default is the full-size primary action. A screen with several
+    // stacked pills - the server picker's toolbar - passes a shorter one
+    // rather than getting its own copy of this button.
+    minHeight: Dp = 52.dp
 ) {
     val c = ghajarColors
     val tint = if (enabled) (accent ?: c.primary) else c.disabled
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = 52.dp)
+            .heightIn(min = minHeight)
             .clip(RoundedCornerShape(GhajarRadius.pill))
             .background(tint)
             .clickable(enabled = enabled) { onClick() }
@@ -444,14 +448,15 @@ fun GhostPill(
     modifier: Modifier = Modifier,
     icon: ImageVector? = null,
     enabled: Boolean = true,
-    accent: Color? = null
+    accent: Color? = null,
+    minHeight: Dp = 48.dp
 ) {
     val c = ghajarColors
     val tint = if (enabled) (accent ?: c.primary) else c.onDisabled
     Row(
         modifier
             .fillMaxWidth()
-            .heightIn(min = 48.dp)
+            .heightIn(min = minHeight)
             .clip(RoundedCornerShape(GhajarRadius.pill))
             .border(1.5.dp, tint.copy(alpha = 0.7f), RoundedCornerShape(GhajarRadius.pill))
             .clickable(enabled = enabled) { onClick() }
