@@ -199,9 +199,9 @@ fun CleanIpScreen() {
                         clipboard.setText(AnnotatedString(h.ip))
                         copied = "${t("copied")} ${h.ip}"
                     },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.secondaryContainer)
+                    shape = RoundedCornerShape(GhajarRadius.md),
+                    colors = CardDefaults.cardColors(containerColor = ghajarColors.secondaryCard),
+                    elevation = CardDefaults.cardElevation(0.dp)
                 ) {
                     Row(
                         Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),

@@ -523,6 +523,55 @@ function nmStockCompleteExtendFallback($userId, array $userRow, array $invoice, 
     sendmessage($userId, "✅ پنل در دسترس نبود؛ تمدید با کانفیگ جایگزین انبار شبکه‌ملی تکمیل شد.", null, 'HTML');
     return $stock;
 }
+/**
+ * Schema version for the stock tables. Bump this after changing any of the
+ * CREATE/ALTER statements below; that is what makes the DDL run again.
+ */
+if (!defined('NM_STOCK_SCHEMA_VERSION')) {
+    define('NM_STOCK_SCHEMA_VERSION', '2026-09-18.1');
+}
+
+/**
+ * Creates the stock tables if they are missing.
+ *
+ * WHY THERE IS A FILE FLAG HERE
+ * -----------------------------
+ * The `static $ready` below only lasts for one request - PHP-FPM shares no
+ * state between requests - so this function used to issue its four
+ * CREATE TABLE IF NOT EXISTS and seven ALTER TABLE ADD COLUMN statements on
+ * EVERY request that touched stock. The ALTERs are expected to fail (the
+ * columns already exist) and their exceptions are swallowed, but MySQL still
+ * parses each one, takes a metadata lock on the table and round-trips the
+ * error. Eleven DDL round-trips before answering a product list is a large
+ * part of why the shop felt slow, and it grew with network latency to the
+ * database.
+ *
+ * The DDL only ever needs to run after a deploy that changed it. A stamp file
+ * holding NM_STOCK_SCHEMA_VERSION records that it has run; while the stamp
+ * matches, this function returns immediately and issues no statements at all.
+ *
+ * If the stamp cannot be read or written - read-only filesystem, no temp dir -
+ * it falls back to the old behaviour of running the DDL once per request, so
+ * the schema is still guaranteed to exist. Correctness never depends on the
+ * stamp; only the speed does.
+ */
+function nmStockSchemaStampFile()
+{
+    $dir = sys_get_temp_dir();
+    if (!is_string($dir) || $dir === '' || !is_dir($dir)) {
+        return null;
+    }
+    // Namespaced by database name so two installations on one host cannot
+    // mark each other's schema as ready.
+    $tag = 'default';
+    if (defined('DB_NAME')) {
+        $tag = (string)constant('DB_NAME');
+    } elseif (isset($GLOBALS['dbname'])) {
+        $tag = (string)$GLOBALS['dbname'];
+    }
+    return rtrim($dir, '/\\') . '/faoxima-nm-stock-' . substr(sha1($tag), 0, 16) . '.stamp';
+}
+
 function nmStockEnsureSchema()
 {
     global $pdo;
@@ -530,6 +579,16 @@ function nmStockEnsureSchema()
     if ($ready || !isset($pdo) || !($pdo instanceof PDO)) {
         return $ready;
     }
+
+    $stampFile = nmStockSchemaStampFile();
+    if ($stampFile !== null && is_file($stampFile)) {
+        $seen = @file_get_contents($stampFile);
+        if (is_string($seen) && trim($seen) === NM_STOCK_SCHEMA_VERSION) {
+            $ready = true;
+            return true;
+        }
+    }
+
     try {
         $pdo->exec("CREATE TABLE IF NOT EXISTS nm_config_stock (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, shelf_id BIGINT UNSIGNED NULL, codepanel VARCHAR(191) NOT NULL DEFAULT 'auto', codeproduct VARCHAR(191) NOT NULL DEFAULT 'auto', tier VARCHAR(32) NOT NULL DEFAULT 'auto', format VARCHAR(32) NOT NULL DEFAULT 'link', content MEDIUMTEXT NOT NULL, sub_link MEDIUMTEXT NULL, status ENUM('active','reserved','delivered','disabled') NOT NULL DEFAULT 'active', assigned_user VARCHAR(64) NULL, assigned_invoice VARCHAR(64) NULL, assigned_mode VARCHAR(64) NULL, created_at INT UNSIGNED NOT NULL DEFAULT 0, reserved_at INT UNSIGNED NULL, delivered_at INT UNSIGNED NULL, UNIQUE KEY uq_nm_config_stock_content (content(191)), KEY idx_nm_stock_lookup (status, codepanel, codeproduct, tier), KEY idx_nm_stock_shelf (status, shelf_id), KEY idx_nm_stock_invoice (assigned_invoice)) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
         $pdo->exec("CREATE TABLE IF NOT EXISTS nm_stock_shelves (id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(191) NOT NULL, source_codepanel VARCHAR(191) NOT NULL DEFAULT 'auto', stock_codepanel VARCHAR(191) NOT NULL DEFAULT 'auto', category_id VARCHAR(64) NULL, category_name VARCHAR(191) NULL, codeproduct VARCHAR(191) NOT NULL DEFAULT 'auto', product_name VARCHAR(191) NULL, volume_gb DECIMAL(10,2) NOT NULL DEFAULT 0, service_days INT NOT NULL DEFAULT 0, price BIGINT NOT NULL DEFAULT 0, status ENUM('active','disabled') NOT NULL DEFAULT 'active', created_at INT UNSIGNED NOT NULL DEFAULT 0, updated_at INT UNSIGNED NULL, UNIQUE KEY uq_nm_stock_shelf_name_panel (name, source_codepanel), KEY idx_nm_stock_shelf_lookup (status, source_codepanel, codeproduct)) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
@@ -540,6 +599,9 @@ function nmStockEnsureSchema()
         foreach (['category_id' => "VARCHAR(64) NULL", 'category_name' => "VARCHAR(191) NULL"] as $field => $definition) { try { $pdo->exec("ALTER TABLE nm_stock_product_map ADD COLUMN $field $definition"); } catch (Throwable $e) {} }
         foreach (['source_panel_code' => "VARCHAR(191) NULL"] as $field => $definition) { try { $pdo->exec("ALTER TABLE invoice ADD COLUMN $field $definition"); } catch (Throwable $e) {} }
         $ready = true;
+        if ($stampFile !== null) {
+            @file_put_contents($stampFile, NM_STOCK_SCHEMA_VERSION, LOCK_EX);
+        }
     } catch (Throwable $e) {
         error_log('nmStockEnsureSchema failed: ' . $e->getMessage());
     }
@@ -741,45 +803,116 @@ function nmStockPanelForInvoice(array $invoice)
     return false;
 }
 
-function nmStockHasAvailableForProduct(array $panel, array $product)
+/**
+ * All active stock for one panel, fetched once per request.
+ *
+ * WHY THIS EXISTS
+ * ---------------
+ * nmStockHasAvailableForProduct() used to run its own COUNT(*) - a LEFT JOIN
+ * across nm_config_stock and nm_stock_shelves with nine bound parameters and
+ * an ABS() comparison on a column, so no index could serve it - and
+ * ServicesHandler calls it once per product. A panel with thirty products
+ * therefore ran thirty of those queries to answer one product list.
+ *
+ * The set of active stock for a panel does not depend on the product, so it
+ * can be read once and matched in PHP. This returns a compact index of the
+ * four things the predicate actually looks at; the matching below is the same
+ * condition the SQL expressed, so the answer per product is unchanged.
+ */
+function nmStockPanelCandidates(array $panel)
+{
+    // Guarded the same way the rest of this file guards it - the resolver
+    // lives in another include that is not always loaded first.
+    $stockPanel = function_exists('nmPanelResolveStockCode')
+        ? nmPanelResolveStockCode($panel)
+        : (trim((string)($panel['code_panel'] ?? '')) ?: 'auto');
+    $sourcePanel = trim((string)($panel['code_panel'] ?? '')) ?: $stockPanel;
+    return array_values(array_unique(array_filter(
+        [$stockPanel, $sourcePanel, 'auto'],
+        static function ($v) { return trim((string)$v) !== ''; }
+    )));
+}
+
+function nmStockAvailableIndex(array $panel)
 {
     global $pdo;
-    if (!nmStockEnsureSchema()) return false;
-    $stockPanel = nmPanelResolveStockCode($panel);
-    $sourcePanel = trim((string)($panel['code_panel'] ?? '')) ?: $stockPanel;
-    $productCode = trim((string)($product['code_product'] ?? 'auto')) ?: 'auto';
-    $productName = function_exists('nmNormalizeText') ? nmNormalizeText($product['name_product'] ?? '') : (string)($product['name_product'] ?? '');
-    $volume = (float)($product['Volume_constraint'] ?? 0);
-    $days = (int)($product['Service_time'] ?? 0);
-    $panelCandidates = array_values(array_unique(array_filter([$stockPanel, $sourcePanel, 'auto'], static function($v){ return trim((string)$v) !== ''; })));
-    $panelParamsS = [];
-    $panelParamsSrc = [];
-    $panelParamsSt = [];
+    static $cache = [];
 
-    $params = [
-        ':code_stock' => $productCode,
-        ':code_shelf' => $productCode,
-        ':product_name_where' => $productName,
-        ':vol' => $volume,
-        ':days' => $days,
-    ];
-    foreach ($panelCandidates as $idx => $candidate) {
-        $kS = ':panels_' . $idx;
-        $kSrc = ':panelsrc_' . $idx;
-        $kSt = ':panelst_' . $idx;
-        $panelParamsS[] = $kS;
-        $panelParamsSrc[] = $kSrc;
-        $panelParamsSt[] = $kSt;
-        $params[$kS] = (string)$candidate;
-        $params[$kSrc] = (string)$candidate;
-        $params[$kSt] = (string)$candidate;
+    $candidates = nmStockPanelCandidates($panel);
+    $key = implode('|', $candidates);
+    if (array_key_exists($key, $cache)) {
+        return $cache[$key];
     }
+    $cache[$key] = ['any_auto' => false, 'codes' => [], 'names' => [], 'vol_days' => []];
+
+    if (!nmStockEnsureSchema() || $candidates === []) {
+        return $cache[$key];
+    }
+
+    $placeholders = [];
+    $params = [];
+    foreach ($candidates as $idx => $candidate) {
+        $placeholders[] = ':p' . $idx;
+        $params[':p' . $idx] = (string)$candidate;
+    }
+    $in = implode(',', $placeholders);
+
     try {
-        $sql = "SELECT COUNT(*) FROM nm_config_stock s LEFT JOIN nm_stock_shelves sh ON sh.id=s.shelf_id WHERE s.status='active' AND (s.codepanel IN (" . implode(',', $panelParamsS) . ") OR sh.source_codepanel IN (" . implode(',', $panelParamsSrc) . ") OR sh.stock_codepanel IN (" . implode(',', $panelParamsSt) . ")) AND (s.codeproduct=:code_stock OR s.codeproduct='auto' OR sh.codeproduct=:code_shelf OR sh.codeproduct='auto' OR sh.product_name=:product_name_where OR (ABS(sh.volume_gb - :vol) < 0.001 AND sh.service_days=:days)) AND (sh.id IS NULL OR sh.status='active')";
+        // One read of everything active for this panel, no per-product filter.
+        $sql = "SELECT s.codeproduct AS stock_code, sh.codeproduct AS shelf_code,"
+             . " sh.product_name AS shelf_name, sh.volume_gb AS shelf_volume,"
+             . " sh.service_days AS shelf_days"
+             . " FROM nm_config_stock s"
+             . " LEFT JOIN nm_stock_shelves sh ON sh.id = s.shelf_id"
+             . " WHERE s.status = 'active'"
+             . " AND (s.codepanel IN ($in) OR sh.source_codepanel IN ($in) OR sh.stock_codepanel IN ($in))"
+             . " AND (sh.id IS NULL OR sh.status = 'active')";
         $stmt = $pdo->prepare($sql);
-        $stmt->execute($params);
-        return ((int)$stmt->fetchColumn()) > 0;
-    } catch (Throwable $e) { error_log('nmStockHasAvailableForProduct failed: ' . $e->getMessage()); return false; }
+        $stmt->execute(array_merge($params, $params, $params));
+        $index = ['any_auto' => false, 'codes' => [], 'names' => [], 'vol_days' => []];
+        foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) ?: [] as $row) {
+            foreach (['stock_code', 'shelf_code'] as $field) {
+                $code = trim((string)($row[$field] ?? ''));
+                if ($code === '') continue;
+                if ($code === 'auto') { $index['any_auto'] = true; continue; }
+                $index['codes'][$code] = true;
+            }
+            $name = trim((string)($row['shelf_name'] ?? ''));
+            if ($name !== '') {
+                $index['names'][$name] = true;
+            }
+            if ($row['shelf_volume'] !== null && $row['shelf_days'] !== null) {
+                // Rounded to the same 0.001 tolerance the old ABS() used.
+                $index['vol_days'][round((float)$row['shelf_volume'], 3) . ':' . (int)$row['shelf_days']] = true;
+            }
+        }
+        $cache[$key] = $index;
+    } catch (Throwable $e) {
+        error_log('nmStockAvailableIndex failed: ' . $e->getMessage());
+    }
+    return $cache[$key];
+}
+
+function nmStockHasAvailableForProduct(array $panel, array $product)
+{
+    $index = nmStockAvailableIndex($panel);
+    if (!empty($index['any_auto'])) {
+        return true;
+    }
+    $productCode = trim((string)($product['code_product'] ?? 'auto')) ?: 'auto';
+    if ($productCode !== '' && isset($index['codes'][$productCode])) {
+        return true;
+    }
+    $productName = function_exists('nmNormalizeText')
+        ? nmNormalizeText($product['name_product'] ?? '')
+        : (string)($product['name_product'] ?? '');
+    $productName = trim((string)$productName);
+    if ($productName !== '' && isset($index['names'][$productName])) {
+        return true;
+    }
+    $volume = round((float)($product['Volume_constraint'] ?? 0), 3);
+    $days = (int)($product['Service_time'] ?? 0);
+    return isset($index['vol_days'][$volume . ':' . $days]);
 }
 
 function nmStockSendQr($chatId, $qrPayload, $fullText, $shortCaption = '📥 کیو‌آر کد')

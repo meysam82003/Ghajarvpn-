@@ -23,6 +23,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.compose.ui.graphics.toArgb
 import androidx.core.net.toUri
 import org.json.JSONObject
 
@@ -37,14 +38,25 @@ class SecurePaymentActivity : Activity() {
     private var initialHost: String? = null
     private var accountToken: String = ""
 
+    /** The active theme's canvas, resolved once in onCreate. */
+    private var chrome: Int = Color.BLACK
+
+    /** Readable foreground for that canvas - white is wrong on the light theme. */
+    private var onChrome: Int = Color.WHITE
+
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        window.statusBarColor = Color.rgb(7, 27, 46)
-        window.navigationBarColor = Color.rgb(7, 27, 46)
+        // Views, not Compose, so the stored theme is resolved directly here;
+        // this window used to be painted in the old fixed navy.
+        val palette = ghajarPaletteFor(this)
+        chrome = palette.background.toArgb()
+        onChrome = palette.textPrimary.toArgb()
+        window.statusBarColor = chrome
+        window.navigationBarColor = chrome
         androidx.core.view.WindowCompat.getInsetsController(window, window.decorView).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
+            isAppearanceLightStatusBars = !palette.dark
+            isAppearanceLightNavigationBars = !palette.dark
         }
         if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
@@ -57,7 +69,7 @@ class SecurePaymentActivity : Activity() {
         initialHost = checkoutUrl.host
         accountToken = GhajarAccountStore(this).token()
 
-        webContainer = FrameLayout(this).apply { setBackgroundColor(Color.rgb(7, 27, 46)) }
+        webContainer = FrameLayout(this).apply { setBackgroundColor(chrome) }
         val webReady = try {
             webView = buildWebView()
             webContainer.addView(webView, FrameLayout.LayoutParams(-1, -1))
@@ -73,7 +85,7 @@ class SecurePaymentActivity : Activity() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_RTL
-            setBackgroundColor(Color.rgb(7, 27, 46))
+            setBackgroundColor(chrome)
             setPadding(dp(12), dp(8), dp(8), dp(8))
             addView(ImageView(this@SecurePaymentActivity).apply {
                 setImageResource(R.mipmap.ic_launcher)
@@ -82,7 +94,7 @@ class SecurePaymentActivity : Activity() {
             addView(TextView(this@SecurePaymentActivity).apply {
                 text = "درگاه پرداخت امن قاجار"
                 textSize = 17f
-                setTextColor(Color.WHITE)
+                setTextColor(onChrome)
                 setPadding(dp(10), 0, dp(10), 0)
             }, LinearLayout.LayoutParams(0, -2, 1f))
             addView(ImageButton(this@SecurePaymentActivity).apply {
@@ -131,7 +143,7 @@ class SecurePaymentActivity : Activity() {
 
     @SuppressLint("SetJavaScriptEnabled")
     private fun buildWebView(): WebView = WebView(this).apply {
-        setBackgroundColor(Color.rgb(7, 27, 46))
+        setBackgroundColor(chrome)
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
         settings.allowFileAccess = false
@@ -153,7 +165,7 @@ class SecurePaymentActivity : Activity() {
         webContainer.removeAllViews()
         val note = TextView(this).apply {
             text = message
-            setTextColor(Color.WHITE)
+            setTextColor(onChrome)
             textSize = 15f
             gravity = Gravity.CENTER
             setPadding(dp(24), dp(24), dp(24), dp(24))

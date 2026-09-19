@@ -100,6 +100,50 @@ try {
         exit;
     }
 
+    // Mints a one-time ticket for the caller's own account, so the panel can
+    // be opened in a real browser and land on that same account. Requires a
+    // valid bearer - this issues nothing to an anonymous caller.
+    if ($action === 'web_ticket') {
+        require_once __DIR__ . '/lib/Auth.php';
+        $bearer = FaoximaAuth::extractBearerToken();
+        $user = $bearer !== null ? FaoximaAuth::userFromToken($bearer) : null;
+        if (!is_array($user) || (int)($user['id'] ?? 0) <= 0) {
+            __weblink_emit(401, ['status' => false, 'msg' => 'Unauthorized']);
+            exit;
+        }
+        $ticket = FaoximaWebLink::issueTicket((int)$user['id']);
+        if ($ticket === null) {
+            __weblink_emit(500, ['status' => false, 'msg' => 'Unable to issue ticket']);
+            exit;
+        }
+        __weblink_emit(200, ['status' => true, 'ticket' => $ticket, 'expires_in' => 90]);
+        exit;
+    }
+
+    // Spends a ticket and hands back that user's session token. Single use:
+    // a replay of the same ticket gets a 400, not a second session.
+    if ($action === 'redeem') {
+        $ticket = trim((string)($_POST['ticket'] ?? $_GET['ticket'] ?? ''));
+        if ($ticket === '') {
+            __weblink_emit(400, ['status' => false, 'msg' => 'ticket is required']);
+            exit;
+        }
+        $userId = FaoximaWebLink::redeemTicket($ticket);
+        if ($userId === null) {
+            __weblink_emit(400, ['status' => false, 'msg' => 'Ticket is invalid, expired or already used']);
+            exit;
+        }
+        $userRecord = select('user', '*', 'id', $userId, 'select', ['cache' => false]);
+        if (empty($userRecord) || !is_array($userRecord)) {
+            __weblink_emit(404, ['status' => false, 'msg' => 'Account not found']);
+            exit;
+        }
+        // Same gate evaluation and same token the Telegram path returns, so a
+        // browser session is never more privileged than the mini-app one.
+        __weblink_emit(200, VerifyHandler::resolveForUser($userId, $userRecord));
+        exit;
+    }
+
     __weblink_emit(400, ['status' => false, 'msg' => 'Unknown action']);
 } catch (Throwable $e) {
     error_log('[GhajarWebLink] ' . $e->getMessage());

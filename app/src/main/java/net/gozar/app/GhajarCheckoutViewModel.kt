@@ -39,6 +39,11 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
     val pendingPayments = mutableStateOf<List<GhajarPendingPayment>>(emptyList())
     /** Delivery/refund lifecycle of the current paid order; null for unpaid browsing. */
     private val stage = mutableStateOf<GhajarOrderStage?>(null)
+    /** True once a confirmed payment's delivery attempt has failed at least
+     * once - lets the UI show an explicit "retry delivery" action distinct
+     * from the generic "check payment status" one, for the same paid,
+     * undelivered order. */
+    val deliveryFailed: Boolean get() = stage.value == GhajarOrderStage.PROVISION_FAILED
     private var owner = ""
     // The wallet fallback for one invoice is attempted at most once per session
     // and only after the panel had a real chance to finish provisioning.
@@ -91,7 +96,7 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 // beginPayment/purchase call left the user looking at a generic
                 // error with zero trace in Debugger/log export to diagnose from.
                 GhajarLog.e("Payment", "operation failed: ${failure.javaClass.simpleName}: ${failure.message}")
-                if (!silent) error.value = GhajarCommerceRules.publicMessage(failure.message.orEmpty())
+                if (!silent) error.value = GhajarCommerceRules.publicMessage(failure)
             } finally {
                 if (!silent) busy.value = false
             }
@@ -232,8 +237,24 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
                 stage.value = null
                 prefs.edit().clear().apply()
             }
-            GhajarPaymentOutcome.SERVICE_READY ->
+            GhajarPaymentOutcome.SERVICE_READY -> {
+                // deliver() only records a failed delivery (stage -> PROVISION_FAILED,
+                // surfaced as the red "تحویل سرویس ناموفق بود" text + deliveryFailed)
+                // when stage.value was already non-null going in. That's always true
+                // coming from the PAID_WAITING branch below, but when the panel
+                // finishes fast enough that the very first checkPayment() after
+                // payment sees SERVICE_READY directly, stage.value is still null here
+                // - so a delivery failure went completely unrecorded, and since
+                // checkPayment() runs silent(=true), runOperation's generic
+                // error.value path is suppressed too. The delivery dialog then sat on
+                // "در حال همگام‌سازی" (syncing) forever with no error and no timeout,
+                // because nothing was ever driving it to a resolved state. Seeding the
+                // same paid stage the PAID_WAITING branch below already seeds closes
+                // that gap, so a delivery failure here is tracked exactly like any
+                // other paid order's.
+                if (stage.value == null) stage.value = GhajarOrderFlow.initialStage(paid = true, walletTopUp = walletTopUp.value)
                 deliver(api.serviceFrom(requireNotNull(service), purchase.value?.username.orEmpty()), finishCheckout = true)
+            }
             GhajarPaymentOutcome.PAID_WAITING -> {
                 // Payment is real but the service is not delivered yet: the order
                 // becomes PROVISION_FAILED territory with an idempotent wallet fallback.

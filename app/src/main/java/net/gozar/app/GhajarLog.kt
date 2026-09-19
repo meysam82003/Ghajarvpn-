@@ -206,14 +206,57 @@ object GhajarLog {
         val sharedDir = File(context.cacheDir, "shared").apply { mkdirs() }
         val out = File(sharedDir, "ghajar-log-export.txt")
         runCatching {
-            FileOutputStream(out).use { stream ->
+            val raw = buildString {
                 for (n in ROTATED_FILES downTo 1) {
                     val f = rotatedFile(n)
-                    if (f.exists()) stream.write(f.readBytes())
+                    if (f.exists()) append(f.readText(Charsets.UTF_8))
                 }
-                if (currentFile().exists()) stream.write(currentFile().readBytes())
+                if (currentFile().exists()) append(currentFile().readText(Charsets.UTF_8))
             }
+            out.writeText(redact(raw), Charsets.UTF_8)
         }
         out
     }
+
+    /**
+     * The exported file is meant to be shared with support/developers, so it
+     * must never carry anything that could be replayed against the account:
+     * bearer/session tokens, API keys, card numbers or phone numbers that may
+     * have ended up in a logged exception message or URL. This never touches
+     * what's kept in the in-app log (GhajarLogActivity), only the copy that
+     * leaves the device.
+     */
+    internal val redactionPatterns: List<Pair<Regex, String>> = listOf(
+        Regex("(?i)bearer\\s+[A-Za-z0-9\\-_.]{8,}") to "Bearer [REDACTED]",
+        // The key list covers what this app actually carries, not just the
+        // generic three: "pass" as well as "password", the private/public keys
+        // and short id a Reality config is useless without, the pre-shared key
+        // and obfuscation secret, and the one-time web panel ticket.
+        Regex("(?i)(\"?(?:token|access_token|api[_-]?key|session|ticket|secret|psk|pass|passwd|private[_-]?key|public[_-]?key|short[_-]?id|auth)\"?\\s*[:=]\\s*\"?)[A-Za-z0-9+/\\-_.=]{6,}") to "$1[REDACTED]",
+        Regex("(?i)(\"?password\"?\\s*[:=]\\s*\"?)[^\"\\s,}]{1,}") to "$1[REDACTED]",
+        // A share link carries the credential in its userinfo, so the whole
+        // link is the secret. Everything up to the @ goes; the host and port
+        // stay, because which server failed is the point of a diagnostic.
+        Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|hy2|tuic|socks5?|http)://[^@\\s/]+@") to "$1://[REDACTED]@",
+        // A bare vmess:// link is a base64 blob with no @ at all.
+        Regex("(?i)\\bvmess://[A-Za-z0-9+/=]{16,}") to "vmess://[REDACTED]",
+        // A VLESS/VMess uuid is that server's whole authentication.
+        Regex("(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b") to "[UUID]",
+        // Long hex runs are how every credential this app generates looks: the
+        // VPN Share password, the link session token, the web panel ticket, a
+        // pinned certificate fingerprint. 32 is above anything meaningful a
+        // diagnostic would print in hex and below every one of those.
+        Regex("(?i)\\b[0-9a-f]{32,}\\b") to "[REDACTED]",
+        Regex("(?:\\+98|0)9\\d{9}\\b") to "[PHONE]",
+        Regex("\\b\\d{16}\\b") to "[CARD]"
+    )
+
+    /**
+     * Internal rather than private so the pattern set is unit-tested. It is
+     * applied only to the copy that leaves the device; the in-app log view is
+     * untouched, so a user debugging their own connection still sees
+     * everything.
+     */
+    internal fun redact(text: String): String =
+        redactionPatterns.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
 }

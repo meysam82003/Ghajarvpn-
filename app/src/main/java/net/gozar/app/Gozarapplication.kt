@@ -35,6 +35,22 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         GhajarLog.i("Startup", "phase: notification monitor ready")
         GhajarOpenVpnBridge.initialize(this)
         GhajarLog.i("Startup", "phase: openvpn bridge ready")
+        // Main process only, like the notification monitor above: the
+        // ":openvpn" process must not also decide to start tunnels. The VPN
+        // service registers its own connectivity listener for the tun's
+        // underlying network, which is a separate concern from the rules.
+        if (processName == packageName) NetworkAutoConnect.initialize(this)
+        // Off unless the user sets an interval; it re-reads the setting every
+        // tick, so switching it on or off needs no restart.
+        if (processName == packageName) ConfigRotator.initialize(this)
+        GhajarLog.i("Startup", "phase: network rules ready")
+        // The widget is pushed rather than polled: the platform's own update
+        // period cannot be shorter than thirty minutes, which is useless for a
+        // connection state. This costs nothing when no widget is placed -
+        // refresh() returns immediately on an empty id list.
+        if (processName == packageName) scope.launch {
+            VpnState.state.collect { GhajarWidget.refresh(this@GozarApplication) }
+        }
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {
@@ -44,7 +60,18 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
                 if (enteringApp) scope.launch {
                     val configStore = ConfigStore.get(this@GozarApplication)
                     configStore.awaitReady()
-                    SubscriptionRefresher.refreshStale(configStore, force = false)
+                    // Entering the app refreshes every subscription, not just
+                    // the ones older than the auto-refresh interval. That
+                    // interval defaults to an hour, so re-opening the app
+                    // inside it used to refresh nothing at all - which is the
+                    // opposite of what this call site was documented to do.
+                    // The one-minute floor keeps a quick app switch from
+                    // refetching everything again.
+                    SubscriptionRefresher.refreshStale(
+                        configStore,
+                        force = true,
+                        minIntervalMs = SubscriptionRefresher.ENTRY_MIN_INTERVAL_MS
+                    )
                 }
             }
 

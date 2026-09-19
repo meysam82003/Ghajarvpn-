@@ -54,10 +54,29 @@ object ConfigFile {
     class ForeignApp : Exception()
     class NotABackup : Exception()
 
+    /**
+     * An old, certificate-bound backup (FLAG_CERT) that this install cannot
+     * decrypt because it was written by a differently-signed build. Debug
+     * builds are signed with an auto-generated debug keystore that differs
+     * per machine/CI run, so every such build produced backups only it could
+     * ever read. New backups are never certificate-bound (see [seal]), so
+     * this can only surface for files written before that change.
+     */
+    class ForeignBuild : Exception()
+
     class Backup(
         val configs: List<ProxyConfig>,
         val subs: List<Subscription>,
-        val settings: JSONObject?
+        val settings: JSONObject?,
+        /** OpenVPN engine preferences (ConfigFile v>=3 only); null on older
+         * backups. */
+        val openVpnSettings: JSONObject?,
+        /** Each saved OpenVPN profile, serialized (ConfigFile v>=4 only);
+         * empty on older backups. See [GhajarOpenVpnBridge.exportProfiles]. */
+        val openVpnProfiles: List<ByteArray> = emptyList(),
+        /** Per-network auto-connect rules (ConfigFile v>=5 only); null on
+         * older backups, which leaves the installed rules untouched. */
+        val networkRules: JSONObject? = null
     )
 
     fun isPasswordProtected(bytes: ByteArray): Boolean {
@@ -75,7 +94,7 @@ object ConfigFile {
         val arr = JSONArray()
         configs.forEach { arr.put(it.toJson()) }
         val root = JSONObject().put("v", 1).put("locked", locked).put("configs", arr)
-        return seal(context, root, password)
+        return seal(root, password)
     }
 
     fun encodeBackup(
@@ -89,16 +108,49 @@ object ConfigFile {
         configs.forEach { cfgArr.put(it.toJson()) }
         val subArr = JSONArray()
         subs.forEach { subArr.put(it.toJson()) }
+        val ovpn = GhajarOpenVpnSettings.read(context)
+        val ovpnObj = JSONObject()
+            .put("reconnectOnNetworkChange", ovpn.reconnectOnNetworkChange)
+            .put("useSystemProxy", ovpn.useSystemProxy)
+            .put("pauseOnScreenOff", ovpn.pauseOnScreenOff)
+            .put("encryptProfiles", ovpn.encryptProfiles)
+        val profilesArr = JSONArray()
+        GhajarOpenVpnBridge.exportProfiles(context).forEach { bytes ->
+            profilesArr.put(Base64.encodeToString(bytes, Base64.NO_WRAP))
+        }
         val root = JSONObject()
-            .put("v", 2)
+            .put("v", 5)
             .put("kind", "backup")
             .put("configs", cfgArr)
             .put("subs", subArr)
             .put("settings", settings)
-        return seal(context, root, password)
+            .put("openVpnSettings", ovpnObj)
+            .put("openVpnProfiles", profilesArr)
+            .put("networkRules", NetworkRules.toJson(context))
+        return seal(root, password)
     }
 
-    private fun seal(context: Context, root: JSONObject, password: String?): ByteArray {
+    /**
+     * A backup is never bound to the installing APK's signing certificate.
+     *
+     * It used to be: every backup mixed [signingHash] into the key, so the
+     * derived key only existed on that exact signed build. Debug builds are
+     * signed with an auto-generated debug keystore (a fresh one per machine,
+     * and per CI run on an ephemeral runner), and this screen exports without
+     * a password, so in practice *every* exported backup was readable only by
+     * the single build that wrote it - installing the next build silently
+     * turned every existing backup into an unrecoverable file, reported by
+     * the import picker as "this is a shared config, not a backup".
+     *
+     * The binding also bought nothing: the static secret mixed into the key
+     * lives in the APK, so anyone holding the APK can derive the key with or
+     * without the certificate. All it did was break the one thing a backup
+     * exists for - restoring onto another build or another phone.
+     *
+     * Confidentiality now comes from [password] when the caller supplies one.
+     * Old certificate-bound files are still read (see [open]).
+     */
+    internal fun seal(root: JSONObject, password: String?): ByteArray {
         val plain = root.toString().toByteArray(Charsets.UTF_8)
 
         val rnd = SecureRandom()
@@ -106,8 +158,7 @@ object ConfigFile {
         val iv = ByteArray(IV_LEN).also { rnd.nextBytes(it) }
         val hasPw = !password.isNullOrEmpty()
 
-        val cert = signingHash(context)
-        val key = deriveKey(password, salt, cert)
+        val key = deriveKey(password, salt, null)
 
         val cipher = Cipher.getInstance(TRANSFORM)
         cipher.init(Cipher.ENCRYPT_MODE, key, GCMParameterSpec(TAG_BITS, iv))
@@ -115,7 +166,6 @@ object ConfigFile {
 
         var flags = 0
         if (hasPw) flags = flags or FLAG_PW
-        if (cert != null) flags = flags or FLAG_CERT
 
         val header = ByteArray(5)
         MAGIC.toByteArray(Charsets.US_ASCII).copyInto(header, 0)
@@ -125,7 +175,7 @@ object ConfigFile {
     }
 
     fun decode(context: Context, bytes: ByteArray, password: String?): List<ProxyConfig> {
-        val root = open(context, bytes, password)
+        val root = open(bytes, password) { signingHash(context) }
         val arr = root.optJSONArray("configs") ?: throw BadFile()
         val locked = root.optBoolean("locked", true)
         return (0 until arr.length()).map { i ->
@@ -139,10 +189,10 @@ object ConfigFile {
     }
 
     fun isBackup(context: Context, bytes: ByteArray, password: String?): Boolean =
-        open(context, bytes, password).optString("kind") == "backup"
+        open(bytes, password) { signingHash(context) }.optString("kind") == "backup"
 
     fun decodeBackup(context: Context, bytes: ByteArray, password: String?): Backup {
-        val root = open(context, bytes, password)
+        val root = open(bytes, password) { signingHash(context) }
         if (root.optString("kind") != "backup") throw NotABackup()
         val cfgArr = root.optJSONArray("configs") ?: throw BadFile()
         val configs = (0 until cfgArr.length()).map {
@@ -152,10 +202,17 @@ object ConfigFile {
         val subs = (0 until subArr.length()).map {
             Subscription.fromJson(subArr.getJSONObject(it))
         }
-        return Backup(configs, subs, root.optJSONObject("settings"))
+        val profilesArr = root.optJSONArray("openVpnProfiles") ?: JSONArray()
+        val profiles = (0 until profilesArr.length()).mapNotNull { i ->
+            runCatching { Base64.decode(profilesArr.getString(i), Base64.NO_WRAP) }.getOrNull()
+        }
+        return Backup(
+            configs, subs, root.optJSONObject("settings"), root.optJSONObject("openVpnSettings"), profiles,
+            root.optJSONObject("networkRules")
+        )
     }
 
-    private fun open(context: Context, bytes: ByteArray, password: String?): JSONObject {
+    internal fun open(bytes: ByteArray, password: String?, certProvider: () -> String?): JSONObject {
         if (bytes.size < 5 + SALT_LEN + IV_LEN + 16) throw BadFile()
         if (String(bytes, 0, 4, Charsets.US_ASCII) != MAGIC) throw BadFile()
 
@@ -164,7 +221,10 @@ object ConfigFile {
         val hasCert = (flags and FLAG_CERT) != 0
         if (hasPw && password.isNullOrEmpty()) throw NeedsPassword()
 
-        val cert = if (hasCert) (signingHash(context) ?: throw ForeignApp()) else null
+        // seal() never sets FLAG_CERT any more, so this only runs for files
+        // written before that change: they stay readable on the build that
+        // wrote them, and fail as ForeignBuild anywhere else.
+        val cert = if (hasCert) (certProvider() ?: throw ForeignApp()) else null
 
         var off = 5
         val salt = bytes.copyOfRange(off, off + SALT_LEN); off += SALT_LEN
@@ -177,7 +237,15 @@ object ConfigFile {
         val plain = try {
             cipher.doFinal(ct)
         } catch (e: Exception) {
-            if (hasPw) throw WrongPassword() else throw BadFile()
+            // GCM rejected the key. Which input was wrong is knowable from the
+            // flags, and saying so matters: a certificate-bound file that fails
+            // here is not corrupt and not "not a backup" - it was written by a
+            // differently-signed build and no password can open it.
+            when {
+                hasCert && !hasPw -> throw ForeignBuild()
+                hasPw -> throw WrongPassword()
+                else -> throw BadFile()
+            }
         }
 
         return try {

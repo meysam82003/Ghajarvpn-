@@ -3,7 +3,7 @@ name: Android CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    tags: ['v*', '1.0.0']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -17,7 +17,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
 
@@ -73,6 +73,60 @@ jobs:
           fi
           ls -lh app/libs/ca.psiphon.aar
 
+      # The zeptun tun engine (MIT, Noisemux/zeptun), pinned to one commit and
+      # built from source rather than vendored: it is Zig, and a committed
+      # binary nobody can reproduce is worse than a build step. Its own CI
+      # builds Android exactly this way. The engine is additive - the existing
+      # Xray tun path does not use it - so a failure here must not be able to
+      # break the app: the libraries simply will not be in the APK, and
+      # ZeptunEngine reports itself unavailable at runtime.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build the zeptun tun engine
+        env:
+          ZEPTUN_COMMIT: 2798fc0ced2e39b2f55f3c1c1bcec45f91021400
+        run: |
+          git clone https://github.com/Noisemux/zeptun /tmp/zeptun
+          git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
+          cd /tmp/zeptun
+          # Only the two ABIs this app ships; building x86 as well would double
+          # the step for emulators the release never targets.
+          ABIS="armeabi-v7a arm64-v8a" sh scripts/build_android.sh
+          for abi in armeabi-v7a arm64-v8a; do
+            dest="$GITHUB_WORKSPACE/app/src/main/jniLibs/$abi"
+            mkdir -p "$dest"
+            cp "zig-out/android/jniLibs/$abi/libzeptun.so" "$dest/"
+            cp "zig-out/android/jniLibs/$abi/libzeptun-jni.so" "$dest/"
+            # Android 15 requires 16 KB load alignment; zeptun's own CI checks
+            # this and so does this one, because a library that fails to load
+            # on a new phone would be indistinguishable from one not built.
+            for so in "$dest/libzeptun.so" "$dest/libzeptun-jni.so"; do
+              align=$(readelf -lW "$so" | awk '$1 == "LOAD" { print $NF; exit }')
+              echo "$so $align"
+              [ "$align" = "0x4000" ]
+            done
+          done
+          ls -lh "$GITHUB_WORKSPACE/app/src/main/jniLibs"/*/libzeptun*.so
+
+      # sing-box (SagerNet/sing-box, GPL-3.0), built from source at a pinned
+      # commit into the same kind of gomobile AAR its own Android client uses.
+      # This is a second core alongside Xray, not a replacement: it is the only
+      # way to get Snell, AnyTLS, ShadowTLS, ShadowsocksR and - the one that
+      # needed a whole engine rather than a config field - OpenConnect, which
+      # is Cisco AnyConnect's protocol and has nothing to do with Xray.
+      #
+      # Built rather than vendored for the same reason as zeptun: a committed
+      # 100 MB binary nobody can reproduce is worse than a build step.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache: false
+
+      - name: Build the sing-box core
+        run: sh scripts/build-singbox.sh
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -91,9 +145,9 @@ jobs:
 
   release:
     needs: build
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || github.ref == 'refs/tags/1.0.0'
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 110
     env:
       GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dhttp.proxyHost= -Dhttps.proxyHost="
     steps:
@@ -125,6 +179,43 @@ jobs:
             exit 1
           fi
 
+      # Both built-from-source cores have to be built here too, not only in
+      # the build job. zeptun was missing from this job, which meant every
+      # signed release APK shipped without it while the debug artifact had it -
+      # the one build nobody would think to check. sing-box is a compile-time
+      # dependency on top of that, so without it this job cannot build at all.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build the zeptun tun engine
+        env:
+          ZEPTUN_COMMIT: 2798fc0ced2e39b2f55f3c1c1bcec45f91021400
+        run: |
+          git clone https://github.com/Noisemux/zeptun /tmp/zeptun
+          git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
+          cd /tmp/zeptun
+          ABIS="armeabi-v7a arm64-v8a" sh scripts/build_android.sh
+          for abi in armeabi-v7a arm64-v8a; do
+            dest="$GITHUB_WORKSPACE/app/src/main/jniLibs/$abi"
+            mkdir -p "$dest"
+            cp "zig-out/android/jniLibs/$abi/libzeptun.so" "$dest/"
+            cp "zig-out/android/jniLibs/$abi/libzeptun-jni.so" "$dest/"
+            for so in "$dest/libzeptun.so" "$dest/libzeptun-jni.so"; do
+              align=$(readelf -lW "$so" | awk '$1 == "LOAD" { print $NF; exit }')
+              echo "$so $align"
+              [ "$align" = "0x4000" ]
+            done
+          done
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.8'
+          cache: false
+
+      - name: Build the sing-box core
+        run: sh scripts/build-singbox.sh
+
       - name: Remove any committed local signing config
         run: rm -f keystore.properties
 
@@ -140,7 +231,7 @@ jobs:
         run: |
           TAG="${GITHUB_REF_NAME#v}"
           if [ "$TAG" != "${{ steps.version.outputs.name }}" ]; then
-            echo "::error::Tag v$TAG does not match versionName ${{ steps.version.outputs.name }} in app/build.gradle.kts"
+            echo "::error::Tag $GITHUB_REF_NAME does not match versionName ${{ steps.version.outputs.name }} in app/build.gradle.kts"
             exit 1
           fi
 
@@ -186,6 +277,25 @@ jobs:
           name: Ghajarvpn-release-v${{ steps.version.outputs.name }}
           path: dist/*
           if-no-files-found: error
+
+      # The in-app updater reads this repository's releases/latest and picks
+      # the asset matching the device's ABI, verifying it against the
+      # SHA256SUMS.txt asset. Uploading the APKs as workflow artifacts alone
+      # left nothing for it to find, so every tag built a release that the app
+      # could never offer. This publishes them as release assets, which is
+      # what UpdateChecker actually looks at.
+      - name: Publish the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          V="${{ steps.version.outputs.name }}"
+          NOTES=docs/release-notes/v$V.md
+          if [ -f "$NOTES" ]; then
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file "$NOTES"
+          else
+            echo "::warning::No release notes at $NOTES; publishing with generated notes."
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+          fi
 
       - name: Clean up secrets from runner
         if: always()

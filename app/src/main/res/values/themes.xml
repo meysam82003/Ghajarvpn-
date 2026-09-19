@@ -1,5 +1,30 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
-    <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar" />
+    <!--
+        The window background is painted by the platform before Compose runs,
+        which is exactly the blank pause a user sees on a cold launch: the app
+        has not started, so there is nothing else on screen yet. A flat fill
+        made that read as "the app is stuck"; launch_window puts the brand
+        canvas and the gold wordmark there instead, positioned to match the
+        one GhajarIntro draws, so the intro continues from it rather than
+        replacing it. See drawable/launch_window.xml.
+    -->
+    <style name="Theme.Ghajarvpn" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@drawable/launch_window</item>
+    </style>
+
+    <!--
+        The widget's connect trampoline. It has no UI at all - it exists only
+        because Android will not let a broadcast receiver start a foreground
+        service - so it must not draw a window, dim what is behind it, or
+        animate. Without this the home screen would visibly flash.
+    -->
+    <style name="Theme.Ghajarvpn.Invisible" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowIsTranslucent">true</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:backgroundDimEnabled">false</item>
+        <item name="android:windowAnimationStyle">@null</item>
+    </style>
 </resources>

@@ -198,6 +198,120 @@ final class FaoximaWebLink
         }
     }
 
+    /**
+     * One-time hand-off ticket, so the panel opened in a real browser lands on
+     * the account the app is already signed in as.
+     *
+     * The problem this solves: the mini-app authenticates with Telegram's
+     * `initData`, which a plain browser tab never has, so "پنل کامل خدمات
+     * حساب" opened an unauthenticated page no matter who tapped it. The app
+     * does hold a valid bearer, but a bearer in a URL ends up in history, in
+     * referrers and in server logs, so the URL carries a ticket instead:
+     * single use, 90 seconds, bound to one user id, and worth nothing once
+     * redeemed.
+     */
+    private const TICKET_TTL_SECONDS = 90;
+
+    public static function ensureTicketTable(): void
+    {
+        global $pdo;
+        static $done = false;
+        if ($done || !($pdo instanceof PDO)) {
+            return;
+        }
+        $done = true;
+        try {
+            $pdo->exec(
+                "CREATE TABLE IF NOT EXISTS web_app_tickets (
+                    id INT AUTO_INCREMENT PRIMARY KEY,
+                    ticket CHAR(64) NOT NULL,
+                    user_id INT NOT NULL,
+                    created_at INT NOT NULL,
+                    expires_at INT NOT NULL,
+                    used_at INT NULL,
+                    UNIQUE KEY uniq_ticket (ticket),
+                    KEY idx_expires (expires_at)
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4"
+            );
+        } catch (Throwable $e) {
+            if (class_exists('FaoximaLogger')) {
+                FaoximaLogger::exception($e, 'Failed to ensure web_app_tickets table');
+            }
+        }
+    }
+
+    /** Mints a ticket for an already-authenticated user. */
+    public static function issueTicket(int $userId): ?string
+    {
+        global $pdo;
+        if (!($pdo instanceof PDO) || $userId <= 0) {
+            return null;
+        }
+        self::ensureTicketTable();
+        try {
+            $ticket = bin2hex(random_bytes(32));
+            $now = time();
+            // Housekeeping is cheap and keeps the table from growing without
+            // bound: anything expired or already spent is of no further use.
+            $pdo->prepare("DELETE FROM web_app_tickets WHERE expires_at < :cut OR used_at IS NOT NULL")
+                ->execute([':cut' => $now - self::TICKET_TTL_SECONDS]);
+            $stmt = $pdo->prepare(
+                "INSERT INTO web_app_tickets (ticket, user_id, created_at, expires_at)
+                 VALUES (:ticket, :uid, :now, :exp)"
+            );
+            $stmt->execute([
+                ':ticket' => $ticket,
+                ':uid'    => $userId,
+                ':now'    => $now,
+                ':exp'    => $now + self::TICKET_TTL_SECONDS,
+            ]);
+            return $ticket;
+        } catch (Throwable $e) {
+            if (class_exists('FaoximaLogger')) {
+                FaoximaLogger::exception($e, 'Failed to issue web app ticket');
+            }
+            return null;
+        }
+    }
+
+    /**
+     * Spends a ticket and returns the user id it was bound to, or null.
+     *
+     * The UPDATE ... WHERE used_at IS NULL is what makes it single use: two
+     * tabs racing the same ticket means exactly one affected row, so only one
+     * of them gets a session.
+     */
+    public static function redeemTicket(string $ticket): ?int
+    {
+        global $pdo;
+        $ticket = trim($ticket);
+        if (!($pdo instanceof PDO) || !preg_match('/^[0-9a-f]{64}$/', $ticket)) {
+            return null;
+        }
+        self::ensureTicketTable();
+        try {
+            $now = time();
+            $claim = $pdo->prepare(
+                "UPDATE web_app_tickets SET used_at = :now
+                  WHERE ticket = :ticket AND used_at IS NULL AND expires_at >= :now2"
+            );
+            $claim->execute([':now' => $now, ':ticket' => $ticket, ':now2' => $now]);
+            if ($claim->rowCount() < 1) {
+                return null;
+            }
+            $read = $pdo->prepare("SELECT user_id FROM web_app_tickets WHERE ticket = :ticket LIMIT 1");
+            $read->execute([':ticket' => $ticket]);
+            $row = $read->fetch(PDO::FETCH_ASSOC);
+            $uid = is_array($row) ? (int)($row['user_id'] ?? 0) : 0;
+            return $uid > 0 ? $uid : null;
+        } catch (Throwable $e) {
+            if (class_exists('FaoximaLogger')) {
+                FaoximaLogger::exception($e, 'Failed to redeem web app ticket');
+            }
+            return null;
+        }
+    }
+
     public static function resolveBotUsername(): string
     {
         global $setting;

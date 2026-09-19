@@ -12,6 +12,18 @@ data class IpIntel(
     val org: String,
     val asn: String,
     val countryCode: String,
+    /**
+     * City, latitude and longitude, when the lookup returned them.
+     *
+     * Added for the map. Blank and null are normal answers, not errors: some
+     * addresses resolve to a country and no further, and the map is built to
+     * say "somewhere in Germany" rather than to invent a city. Every field
+     * here is optional with a default, so nothing that constructed an IpIntel
+     * before these existed had to change.
+     */
+    val city: String = "",
+    val latitude: Double? = null,
+    val longitude: Double? = null,
     val companyType: String,
     val datacenterName: String,
     val abuserScore: String,
@@ -113,6 +125,12 @@ object IpIntelligence {
                     .ifBlank { location.optString("country_code", "") }
                     .ifBlank { asn.optString("country", "") }
                     .uppercase(),
+                city = location.optString("city", ""),
+                // optDouble gives NaN for a missing or unparseable value, and
+                // NaN would project to a pin in the middle of nowhere - so it
+                // becomes null and the map falls back to the country.
+                latitude = location.optDouble("latitude").takeIf { !it.isNaN() },
+                longitude = location.optDouble("longitude").takeIf { !it.isNaN() },
                 companyType = company.optString("type", "").ifBlank { asn.optString("type", "") },
                 datacenterName = datacenter.optString("datacenter", ""),
                 abuserScore = company.optString("abuser_score", ""),

@@ -31,11 +31,14 @@ private const val FIELD_ALPHA = 0.35f
 @Composable
 fun ParticleField(modifier: Modifier = Modifier) {
     val conn by VpnState.state.collectAsState()
+    // Three theme tones instead of three fixed colours, so the field reads as
+    // part of the active palette rather than the old identity.
+    val palette = ghajarColors
     val tint by animateColorAsState(
         targetValue = when (conn) {
-            Connection.CONNECTED -> Color(0xFF4BF0A4)
-            Connection.CONNECTING -> Color(0xFFFFA94D)
-            else -> Color(0xFF5B83D6)
+            Connection.CONNECTED -> palette.successGlow
+            Connection.CONNECTING -> palette.warning
+            else -> palette.primary
         },
         animationSpec = tween(500),
         label = "particleTint"

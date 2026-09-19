@@ -81,7 +81,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -397,11 +396,10 @@ private fun SshHostCard(
     val routed = SshManager.willUseTunnel(host)
 
     val accent = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-    val dark = MaterialTheme.colorScheme.background.luminance() < 0.5f
     val stateColor = when {
-        up -> Color(0xFF2E9E44)
+        up -> ghajarColors.good
         busy -> MaterialTheme.colorScheme.primary
-        else -> if (dark) Color(0xFFBFBFBF) else Color(0xFF6B6B6B)
+        else -> ghajarColors.textMuted
     }
     val scale = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
@@ -739,7 +737,7 @@ private fun SshHostEditor(
                     )
                 }
                 Spacer(Modifier.width(12.dp))
-                Switch(checked = direct, onCheckedChange = { direct = it })
+                SkinSwitch(checked = direct, onCheckedChange = { direct = it })
             }
         }
 
@@ -832,7 +830,7 @@ internal fun SshStateDot(active: Boolean, color: Color) {
     val ripple by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1700, easing = LinearEasing))),
         label = "sshRipple"
     )
     Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
@@ -944,11 +942,9 @@ private fun SshGlassDialog(
     else MaterialTheme.colorScheme.primary
     Dialog(onDismissRequest = onDismiss) {
         Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            ),
-            border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
+            shape = RoundedCornerShape(GhajarRadius.lg),
+            colors = CardDefaults.cardColors(containerColor = ghajarColors.surface),
+            border = BorderStroke(1.dp, ghajarColors.border),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(

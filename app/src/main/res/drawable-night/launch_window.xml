@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The dark canvas variant; see drawable/launch_window.xml. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ghajar_window_dark" />
+    <item
+        android:gravity="center"
+        android:width="200dp"
+        android:height="72dp"
+        android:drawable="@drawable/ghajar_wordmark" />
+</layer-list>

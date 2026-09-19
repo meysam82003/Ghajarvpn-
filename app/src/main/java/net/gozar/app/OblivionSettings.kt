@@ -27,7 +27,7 @@ fun OblivionSettings(raw: String, onChange: (String)->Unit) {
     }
     @Composable fun toggle(label:String,key:String) {
         Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.SpaceBetween){
-            Text(label,Modifier.weight(1f));Switch(options.flag(key),{onChange(options.changed(key,it.toString()))})
+            Text(label,Modifier.weight(1f));SkinSwitch(options.flag(key),{onChange(options.changed(key,it.toString()))})
         }
     }
     @Composable fun field(label:String,key:String,secret:Boolean=false) {

@@ -19,9 +19,22 @@ object ConfigDebug {
     )
     private val KNOWN_NETWORKS = setOf("tcp", "kcp", "ws", "httpupgrade", "xhttp", "grpc", "http")
     private val KNOWN_SECURITY = setOf("none", "tls", "reality")
+    /**
+     * Every fingerprint the bundled core accepts as a preset.
+     *
+     * Taken from its PresetFingerprints table rather than from memory, which
+     * is why two that look like mistakes are here:
+     *
+     * - "randomizednoalpn" is a real preset, and the one to reach for when a
+     *   network rejects a handshake that advertises ALPN.
+     * - "unsafe" is also real, and means the opposite of a fingerprint: it
+     *   turns uTLS off and lets Go's own TLS stack do the handshake. That is a
+     *   perfectly ordinary client hello, which on some networks is exactly
+     *   what gets through - and on others is the thing being looked for.
+     */
     private val KNOWN_FINGERPRINTS = setOf(
         "chrome", "firefox", "safari", "ios", "android", "edge",
-        "random", "randomized", "360", "qq"
+        "random", "randomized", "randomizednoalpn", "unsafe", "360", "qq"
     )
     private val KNOWN_METHODS = setOf(
         "aes-256-gcm", "aes-128-gcm",

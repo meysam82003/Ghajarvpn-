@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The starting window, drawn by the platform before a single line of Compose
+    runs. It used to be a flat near-white fill, which is what the blank white
+    pause on launch actually was - the app had not started yet, so there was
+    nothing else to show.
+
+    Now it is the brand canvas with the same gold wordmark, at the same width
+    and centred the same way as the one in GhajarIntro, so the intro continues
+    from it instead of replacing it: nothing flashes and nothing jumps.
+
+    drawable-night/ carries the dark canvas; this file covers the light case.
+-->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/ghajar_window_light" />
+    <item
+        android:gravity="center"
+        android:width="200dp"
+        android:height="72dp"
+        android:drawable="@drawable/ghajar_wordmark" />
+</layer-list>

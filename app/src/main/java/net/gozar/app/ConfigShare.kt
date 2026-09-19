@@ -61,6 +61,14 @@ object ConfigShare {
         if (c.mode.isNotEmpty()) params.add("mode" to c.mode)
         if (c.alpn.isNotEmpty()) params.add("alpn" to c.alpn)
         if (c.headerType.isNotEmpty()) params.add("headerType" to c.headerType)
+        // The finalmask and ECH settings, each only when it is set. These are
+        // not standard share-link keys, so a client that does not know them
+        // ignores them and gets the same server it always did - while this app
+        // reading its own link back gets the whole config.
+        if (c.maskType.isNotEmpty()) params.add("mask" to c.maskType)
+        if (c.maskDomain.isNotEmpty()) params.add("maskDomain" to c.maskDomain)
+        if (c.maskPassword.isNotEmpty()) params.add("maskPass" to c.maskPassword)
+        if (c.echConfigList.isNotEmpty()) params.add("ech" to c.echConfigList)
         val query = params.joinToString("&") { "${it.first}=${enc(it.second)}" }
         return "$scheme://${enc(userInfo)}@${c.address}:${c.port}?$query#${enc(c.name)}"
     }

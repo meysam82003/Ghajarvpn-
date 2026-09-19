@@ -37,23 +37,46 @@ class GozarVpnService : VpnService() {
     private val scope = CoroutineScope(Dispatchers.IO)
     private var pollJob: Job? = null
     private var startJob: Job? = null
-    private val engineLock = kotlinx.coroutines.sync.Mutex()
     private var configName: String = "VPN"
+    private var configAddress: String = ""
+    private var configPort: Int = 0
+    @Volatile private var lastPingMs: Int? = null
+    @Volatile private var pinging = false
     private var stopLabel: String = "Disconnect"
     @Volatile private var tearingDown = false
     private var autoSelector: AutoSelector? = null
     private var autoJob: Job? = null
+    private var underlyingListener: ((NetKind?, android.net.Network?) -> Unit)? = null
+    /** True when the zeptun engine, not the Xray core, owns this session's tun. */
+    @Volatile private var zeptunOwnsTun = false
 
     override fun onCreate() {
         super.onCreate()
-        Gozarcore.setLogger(object : gozarcore.Logger {
-            override fun log(line: String?) {
-                Log.i("XrayCore", line ?: "")
-                GhajarLog.i("XrayCore", line ?: "")
-            }
-        })
-        TorLog.sink = { line -> Log.i("XrayCore", line); GhajarLog.i("Tor", line) }
+        // Nothing in here may throw. A throw from onCreate() aborts service
+        // creation, and two aborts in a row make ActivityManager flag the
+        // hosting process "bad" - after which every startForegroundService()
+        // for this service is refused with SecurityException until the app is
+        // force-stopped or the device reboots. That is exactly the state a
+        // user's phone was found in (see the 2026-09-18 log: two connects,
+        // both "Unable to launch app ...: process is bad").
+        runCatching {
+            Gozarcore.setLogger(object : gozarcore.Logger {
+                override fun log(line: String?) {
+                    Log.i("XrayCore", line ?: "")
+                    GhajarLog.i("XrayCore", line ?: "")
+                }
+            })
+        }.onFailure { GhajarLog.e(TAG, "core logger not attached: ${it.javaClass.name}") }
+        runCatching {
+            TorLog.sink = { line -> Log.i("XrayCore", line); GhajarLog.i("Tor", line) }
+        }
+        GhajarLog.i(TAG, "service created in process ${currentProcessName()}")
     }
+
+    /** Recorded on every start so an exported log proves where the tunnel ran. */
+    private fun currentProcessName(): String =
+        if (android.os.Build.VERSION.SDK_INT >= 28) android.app.Application.getProcessName()
+        else packageName
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
@@ -74,6 +97,10 @@ class GozarVpnService : VpnService() {
                 }
                 return START_NOT_STICKY
             }
+            ACTION_PING -> {
+                if (enginesReady && !tearingDown) runPing()
+                return START_STICKY
+            }
             else -> {
                 val configJson = intent?.getStringExtra(EXTRA_CONFIG)
                 if (startJob?.isActive == true || enginesReady || tunFd != null) return START_STICKY
@@ -81,6 +108,9 @@ class GozarVpnService : VpnService() {
                 psiphonSpec = PsiphonSpec.parse(intent?.getStringExtra(EXTRA_PSIPHON))
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
                 configName = intent?.getStringExtra(EXTRA_NAME) ?: "VPN"
+                configAddress = intent?.getStringExtra(EXTRA_ADDRESS).orEmpty()
+                configPort = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
+                lastPingMs = null
                 stopLabel = intent?.getStringExtra(EXTRA_STOP_LABEL) ?: "Disconnect"
                 if (configJson.isNullOrEmpty()) {
                     die("No config provided")
@@ -119,20 +149,51 @@ class GozarVpnService : VpnService() {
                 .addAddress("10.10.0.2", 32)
                 .addRoute("0.0.0.0", 0)
 
-            val resolvers = if (options?.flag("overrideDns") == true)
+            val store = ConfigStore.get(applicationContext)
+            // In zeptun's fake-IP mode the engine runs its own resolver and
+            // hands out synthetic addresses, so the tun's DNS server has to be
+            // that resolver - pointing apps at a real one instead would send
+            // every query past the thing meant to answer it. The address is
+            // inside the tun's own 0.0.0.0/0 route, so nothing else changes.
+            val fakeIpDns = options?.proxyOnly == true &&
+                store.zeptunTunnel.value &&
+                ZeptunEngine.available &&
+                store.zeptunDns.value == ZeptunEngine.DnsMode.FAKE_IP
+            val resolvers = if (fakeIpDns) listOf(ZeptunEngine.FAKE_DNS_ADDRESS)
+                else if (options?.flag("overrideDns") == true)
                 listOf(options.text("dnsPrimary"),options.text("dnsSecondary")).filter { it.isNotBlank() }
                 else listOf("1.1.1.1")
             resolvers.forEach { builder.addDnsServer(it) }
             if (options != null && options.text("ipVersion") != "v4") builder.addAddress("fd00::2",128).addRoute("::",0)
             applyPerApp(builder)
 
-            val pfd = if (options?.proxyOnly == true) null else builder.establish()
+            // Proxy-only modes (Aether or Psiphon with routingMode = proxy)
+            // deliberately establish no tun: those engines publish a local
+            // SOCKS5 proxy and the user points apps at it by hand. With the
+            // zeptun engine present and switched on, that proxy can carry the
+            // whole device instead - so a tun is established for zeptun to
+            // own. Everything about the Xray path below is unchanged, and when
+            // the setting is off or the engine is not in this build, pfd stays
+            // null exactly as before.
+            val wantZeptun = options?.proxyOnly == true &&
+                store.zeptunTunnel.value &&
+                ZeptunEngine.available
+            val pfd = if (options?.proxyOnly == true) {
+                if (wantZeptun) builder.establish() else null
+            } else builder.establish()
             if (pfd == null && options?.proxyOnly != true) {
                 die("VPN permission not granted")
                 return@launch
             }
+            if (wantZeptun && pfd == null) {
+                // Asked for, and Android refused the tun. Say so rather than
+                // carrying on as a proxy the user is not expecting.
+                GhajarLog.e(TAG, "zeptun asked for but no tun was granted")
+            }
+            zeptunOwnsTun = wantZeptun && pfd != null
             tunFd = pfd
             if (pfd != null) { runCatching { blockFd?.close() }; blockFd = null }
+            if (pfd != null) trackUnderlyingNetwork()
 
                 setupGeoAssets()
                 val spec = aetherSpec
@@ -171,7 +232,60 @@ class GozarVpnService : VpnService() {
                 runCatching { Gozarcore.stop() }
                 ensureActive()
                 val readyJson = if (psi != null) PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT) else configJson
-                if (pfd != null) Gozarcore.start(readyJson, pfd.detachFd().toLong())
+                // zeptun's tun is not Xray's to take: in this mode Xray is not
+                // started at all (it never was in proxy-only mode), and the
+                // engine forwards the tun to whichever local SOCKS proxy the
+                // proxy-only engine published.
+                if (zeptunOwnsTun && pfd != null) {
+                    val socksPort = when {
+                        psi != null -> PsiphonController.SOCKS_PORT
+                        else -> AetherController.SOCKS_PORT
+                    }
+                    if (socksPort <= 0) {
+                        die("the proxy engine published no SOCKS port")
+                        return@launch
+                    }
+                    val failure = ZeptunEngine.start(
+                        this@GozarVpnService,
+                        pfd.fd,
+                        ZeptunEngine.socksConfig(
+                            socksPort = socksPort,
+                            mtu = options?.number("mtu") ?: 1500,
+                            ipv6 = options != null && options.text("ipVersion") != "v4",
+                            dnsMode = store.zeptunDns.value,
+                            dnsUpstream = store.zeptunDnsUpstream.value,
+                            profile = store.zeptunProfile.value
+                        )
+                    )
+                    if (failure != null) {
+                        // No silent degrade to a proxy nobody is pointed at.
+                        die("zeptun did not start: $failure")
+                        return@launch
+                    }
+                }
+                if (pfd != null && !zeptunOwnsTun) {
+                    val fd = pfd.detachFd().toLong()
+                    var bindAttempt = 0
+                    while (true) {
+                        try {
+                            Gozarcore.start(readyJson, fd)
+                            break
+                        } catch (e: CancellationException) {
+                            throw e
+                        } catch (e: Exception) {
+                            // engineLock now serializes this against any other instance's
+                            // teardown, but Xray-core's own socket close can still finish
+                            // a beat after Gozarcore.stop() returns. Retry a couple of
+                            // times only for that specific failure before giving up.
+                            val portBusy = e.message?.contains("address already in use", ignoreCase = true) == true
+                            if (!portBusy || bindAttempt >= 2) throw e
+                            bindAttempt++
+                            Log.w(TAG, "mixed-inbound port still held, retry $bindAttempt/2 in 400ms")
+                            runCatching { Gozarcore.stop() }
+                            delay(400)
+                        }
+                    }
+                }
                 Log.i(TAG, "Xray core started, tunnel up")
                 val tor = torSpec
                 if (tor != null) {
@@ -229,16 +343,29 @@ class GozarVpnService : VpnService() {
     private fun switchTunnel(config: ProxyConfig) {
         if (tearingDown) return
         val store = ConfigStore.get(applicationContext)
+        val sharing = store.vpnShareEnabled.value
+        val shareCredential = if (sharing) store.ensureVpnShareCredential() else null
         val json = ConfigBuilder.build(
             config, store.fragment.value, store.splitRouting.value,
             store.sniffing.value, store.sniffTypes.value,
             adBlock = store.adBlock.value,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
-            onionRouting = store.onionRouting.value
+            customDns = store.customDns.value,
+            youtubeDirect = store.youtubeDirect.value,
+            noiseSpec = store.noiseSpec.value,
+            fragmentPackets = store.fragmentPackets.value,
+            fragmentLength = store.fragmentLength.value,
+            fragmentInterval = store.fragmentInterval.value,
+            onionRouting = store.onionRouting.value,
+            shareOnLan = sharing,
+            shareUser = shareCredential?.first.orEmpty(),
+            sharePass = shareCredential?.second.orEmpty(),
+            shareListenAddress = if (sharing) hotspotInterfaceAddress() ?: "127.0.0.1" else "127.0.0.1"
         )
         Log.d(TAG, "switching tunnel to ${config.name}")
         pollJob?.cancel(); pollJob = null
+        if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
         runCatching { Gozarcore.stop() }
         AetherController.stop()
         PsiphonController.stop()
@@ -249,8 +376,36 @@ class GozarVpnService : VpnService() {
         torSpec = if (config.protocol == "tor")
             config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
         configName = config.name
+        configAddress = config.address
+        configPort = config.port
+        lastPingMs = null
+        GhajarWidget.lastPingMs = null
         VpnState.setConnecting(config.id)
         startTunnel(json)
+    }
+
+    /** A real TCP-connect round trip to the active server (same mechanism
+     * Pinger already uses elsewhere in the app), triggered by the notification's
+     * "پینگ" action. Never fabricated: a failed probe clears the shown value
+     * instead of keeping a stale number on screen. */
+    private fun runPing() {
+        if (pinging || configAddress.isBlank() || configPort <= 0) return
+        pinging = true
+        scope.launch {
+            val result = Pinger.ping(configAddress, configPort)
+            lastPingMs = (result as? PingResult.Ok)?.ms
+            // The widget shows a ping only when one was actually measured, so
+            // it is fed from here rather than measuring on its own - a
+            // RemoteViews update has no business doing network work.
+            GhajarWidget.lastPingMs = lastPingMs
+            GhajarWidget.refresh(applicationContext)
+            pinging = false
+            if (!tearingDown) {
+                runCatching {
+                    getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, buildNotification())
+                }
+            }
+        }
     }
 
     private fun setupGeoAssets() {
@@ -329,10 +484,15 @@ class GozarVpnService : VpnService() {
         tearingDown = true
         enginesReady = false
         startJob?.cancel()
+        untrackUnderlyingNetwork()
         scope.launch {
             engineLock.withLock {
                 stopAutoSelect()
                 pollJob?.cancel(); pollJob = null
+                // Before the descriptor is closed: the engine is still reading
+                // from it, and closing it underneath a running engine is how a
+                // teardown turns into a crash.
+                if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
                 runCatching { Gozarcore.stop() }
                 PsiphonController.stop()
                 AetherController.stop()
@@ -353,8 +513,44 @@ class GozarVpnService : VpnService() {
         }
     }
 
+    /**
+     * Keeps the tunnel pointed at the network that actually carries it.
+     *
+     * A VpnService that never calls setUnderlyingNetworks leaves the framework
+     * to guess, and its guess is the network that was default when the tunnel
+     * was built. So when Wi-Fi dropped and the SIM took over, the tun's
+     * accounting, its connectivity reporting and its socket binding all still
+     * referred to a network that no longer existed - the tunnel looked up and
+     * carried nothing, which is what "the app does not recover when Wi-Fi
+     * drops" actually was.
+     *
+     * Registered once per established tunnel and removed on teardown. Null
+     * means "no opinion, use the default", which is the right answer while the
+     * device is between networks.
+     */
+    private fun trackUnderlyingNetwork() {
+        if (underlyingListener != null) return
+        val listener: (NetKind?, android.net.Network?) -> Unit = { kind, network ->
+            runCatching {
+                setUnderlyingNetworks(network?.let { arrayOf(it) })
+                GhajarLog.i(TAG, "tunnel now rides $kind")
+            }.onFailure { GhajarLog.e(TAG, "underlying network not set: ${it.javaClass.simpleName}") }
+        }
+        underlyingListener = listener
+        NetworkWatcher.initialize(applicationContext)
+        NetworkWatcher.addListener(listener)
+        // Apply whatever is current right now, not only the next change.
+        listener(NetworkWatcher.kind.value, NetworkWatcher.currentNetwork())
+    }
+
+    private fun untrackUnderlyingNetwork() {
+        underlyingListener?.let { NetworkWatcher.removeListener(it) }
+        underlyingListener = null
+    }
+
     private fun enterKillSwitch(reason: String) {
         pollJob?.cancel(); pollJob = null
+        if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
         runCatching { Gozarcore.stop() }
         runCatching { tunFd?.close() }; tunFd = null
         val b = Builder()
@@ -378,6 +574,8 @@ class GozarVpnService : VpnService() {
         startJob?.cancel()
         pollJob?.cancel()
         stopAutoSelect()
+        untrackUnderlyingNetwork()
+        if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
         // Report completion only after native teardown. A new UI retry cannot
         // start a tunnel that this older service instance is still stopping.
         scope.launch {
@@ -414,17 +612,28 @@ class GozarVpnService : VpnService() {
             this, 1, Intent(this, GozarVpnService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
+        val pingPi = PendingIntent.getService(
+            this, 2, Intent(this, GozarVpnService::class.java).setAction(ACTION_PING),
+            PendingIntent.FLAG_IMMUTABLE
+        )
         // First line: live instantaneous speed (updates every second). Second
         // line: total data used this session so far. Both, not one replacing
         // the other.
         val speedLine = "↓ ${fmt(downSpeed)}/s   ↑ ${fmt(upSpeed)}/s"
         val usageLine = "${fmt(totalDown)} دانلود  •  ${fmt(totalUp)} آپلود"
+        val titleWithPing = lastPingMs?.let { "$configName · ${it}ms" } ?: configName
+        val pingLabel = if (pinging) "در حال تست…" else "پینگ"
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(configName)
+            .setContentTitle(titleWithPing)
             .setContentText(speedLine)
             .setStyle(Notification.BigTextStyle().bigText("$speedLine\n$usageLine"))
             .setSmallIcon(R.drawable.ic_stat_ghajar)
             .setContentIntent(pi)
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_rotate, pingLabel, pingPi
+                ).build()
+            )
             .addAction(
                 Notification.Action.Builder(
                     android.R.drawable.ic_menu_close_clear_cancel, stopLabel, stopPi
@@ -477,15 +686,28 @@ class GozarVpnService : VpnService() {
         private const val TAG = "GozarVpnService"
         private const val CHANNEL_ID = "gozarnet_vpn"
         private const val NOTIF_ID = 1
+        // Shared across every GozarVpnService instance in the process, not
+        // per-instance. Android creates a brand-new instance (fresh onCreate())
+        // for each startForegroundService() call once the previous one has been
+        // stopSelf()'d - a new instance's own field would be a fresh, unrelated
+        // Mutex that provides zero exclusion against a still-in-flight teardown
+        // from the instance being replaced. That gap let a reconnect/server-switch
+        // call Gozarcore.start() while the old instance's onDestroy() coroutine
+        // was still calling Gozarcore.stop(), producing the observed
+        // "bind: address already in use" on the mixed-inbound port (10626).
+        private val engineLock = kotlinx.coroutines.sync.Mutex()
         const val ACTION_AETHER_CODE = "net.gozar.app.AETHER_CODE"
         const val EXTRA_AETHER_CODE = "net.gozar.app.AETHER_EMAIL_CODE"
         const val ACTION_STOP = "net.gozar.app.STOP"
         const val ACTION_WARM = "net.gozar.app.WARM"
+        const val ACTION_PING = "net.gozar.app.PING"
         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"
         const val EXTRA_AETHER = "net.gozar.app.AETHER"
         const val EXTRA_PSIPHON = "net.gozar.app.PSIPHON"
         const val EXTRA_TOR = "net.gozar.app.TOR"
         const val EXTRA_NAME = "net.gozar.app.NAME"
         const val EXTRA_STOP_LABEL = "net.gozar.app.STOP_LABEL"
+        const val EXTRA_ADDRESS = "net.gozar.app.ADDRESS"
+        const val EXTRA_PORT = "net.gozar.app.PORT"
     }
 }

@@ -2,5 +2,11 @@
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@drawable/ic_launcher_background"/>
     <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
-    <monochrome android:drawable="@mipmap/ic_launcher_foreground"/>
+    <!--
+        A separate silhouette, not the colour artwork. Android tints whatever
+        is named here with the wallpaper's own colour for themed icons, so
+        handing it the green render produced a tinted-over green blob; this is
+        the mark's alpha, which is what a tint expects.
+    -->
+    <monochrome android:drawable="@mipmap/ic_launcher_mono"/>
 </adaptive-icon>

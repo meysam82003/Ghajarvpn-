@@ -5,9 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import androidx.core.content.ContextCompat
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 
 data class VpnCounters(
     val totalUp: Long = 0L,
@@ -35,51 +39,68 @@ object VpnBridge {
 
     @Volatile private var registered = false
 
+    // ContextCompat.registerReceiver with no Handler delivers onReceive on
+    // the main thread. That used to be where all the real work happened too
+    // - every second while connected, S_COUNTERS ran UsageStore.add(), which
+    // copies five maps and (every 5th call) serializes/writes them to
+    // SharedPreferences - all on main, on every screen, for as long as the
+    // VPN stayed connected. onReceive now only reads the (cheap) Intent
+    // extras and hands them to this background scope; nothing it touches
+    // downstream (VpnState/VpnCommandCoordinator's StateFlow and volatile
+    // fields, UsageStore's own internal locking) requires the main thread.
+    private val bridgeScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
     fun register(context: Context) {
         if (registered) return
         registered = true
         val app = context.applicationContext
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(ctx: Context, intent: Intent) {
-                // Rapid connect/disconnect: stale engine reports must never
-                // overwrite the state the user's latest intent established.
-                val reported = when (intent.getStringExtra(EX_STATE)) {
-                    S_CONNECTED -> Connection.CONNECTED
-                    S_DISCONNECTED -> Connection.DISCONNECTED
-                    S_ERROR -> Connection.ERROR
-                    else -> null
-                }
-                if (reported != null && !VpnCommandCoordinator.acceptBroadcast(reported)) return
-                GhajarLog.d("VpnBridge", "broadcast state=${intent.getStringExtra(EX_STATE)}")
-                when (intent.getStringExtra(EX_STATE)) {
-                    // While IKEv2 owns the tunnel the Xray service is not the authority on
-                    // connection state: IkeController drives VpnState from strongSwan's own
-                    // callbacks. Honouring a late disconnect from the stopped Xray service
-                    // here is what produced the connect/disconnect flicker on IKEv2 connect.
-                    S_CONNECTED -> if (!IkeController.active) { VpnState.setConnected(); VpnCommandCoordinator.onTunnelConfirmed() }
-                    S_ERROR -> if (!IkeController.active) {
-                        VpnState.setError(intent.getStringExtra(EX_ERROR) ?: "Connection failed")
-                        VpnCommandCoordinator.onTunnelFailed()
-                        _counters.value = VpnCounters()
-                    }
-                    S_DISCONNECTED -> {
-                        if (!IkeController.active) VpnState.setDisconnected()
-                        VpnCommandCoordinator.onTunnelTeardown()
-                        _counters.value = VpnCounters()
-                        UsageStore.flush()
-                    }
-                    S_COUNTERS -> {
-                        val tup = intent.getLongExtra(EX_TOTAL_UP, 0L)
-                        val tdown = intent.getLongExtra(EX_TOTAL_DOWN, 0L)
-                        val dup = intent.getLongExtra(EX_DELTA_UP, 0L)
-                        val ddown = intent.getLongExtra(EX_DELTA_DOWN, 0L)
-                        _counters.value = VpnCounters(tup, tdown, dup, ddown)
-                        UsageStore.add(dup, ddown)
-                    }
-                }
+                val state = intent.getStringExtra(EX_STATE)
+                val error = intent.getStringExtra(EX_ERROR)
+                val tup = intent.getLongExtra(EX_TOTAL_UP, 0L)
+                val tdown = intent.getLongExtra(EX_TOTAL_DOWN, 0L)
+                val dup = intent.getLongExtra(EX_DELTA_UP, 0L)
+                val ddown = intent.getLongExtra(EX_DELTA_DOWN, 0L)
+                bridgeScope.launch { handle(state, error, tup, tdown, dup, ddown) }
             }
         }
         ContextCompat.registerReceiver(app, receiver, IntentFilter(ACTION), ContextCompat.RECEIVER_NOT_EXPORTED)
+    }
+
+    private fun handle(state: String?, error: String?, tup: Long, tdown: Long, dup: Long, ddown: Long) {
+        // Rapid connect/disconnect: stale engine reports must never
+        // overwrite the state the user's latest intent established.
+        val reported = when (state) {
+            S_CONNECTED -> Connection.CONNECTED
+            S_DISCONNECTED -> Connection.DISCONNECTED
+            S_ERROR -> Connection.ERROR
+            else -> null
+        }
+        if (reported != null && !VpnCommandCoordinator.acceptBroadcast(reported)) return
+        GhajarLog.d("VpnBridge", "broadcast state=$state")
+        when (state) {
+            // While IKEv2 owns the tunnel the Xray service is not the authority on
+            // connection state: IkeController drives VpnState from strongSwan's own
+            // callbacks. Honouring a late disconnect from the stopped Xray service
+            // here is what produced the connect/disconnect flicker on IKEv2 connect.
+            S_CONNECTED -> if (!IkeController.active) { VpnState.setConnected(); VpnCommandCoordinator.onTunnelConfirmed() }
+            S_ERROR -> if (!IkeController.active) {
+                VpnState.setError(error ?: "Connection failed")
+                VpnCommandCoordinator.onTunnelFailed()
+                _counters.value = VpnCounters()
+            }
+            S_DISCONNECTED -> {
+                if (!IkeController.active) VpnState.setDisconnected()
+                VpnCommandCoordinator.onTunnelTeardown()
+                _counters.value = VpnCounters()
+                UsageStore.flush()
+            }
+            S_COUNTERS -> {
+                _counters.value = VpnCounters(tup, tdown, dup, ddown)
+                UsageStore.add(dup, ddown)
+            }
+        }
     }
 
     private fun send(ctx: Context, state: String, error: String?, tup: Long, tdown: Long, dup: Long, ddown: Long) {

@@ -40,7 +40,15 @@ class SshStore private constructor(context: Context) {
     val hosts: StateFlow<List<SshHost>> = _hosts.asStateFlow()
 
     init {
-        _hosts.value = load()
+        // load() decrypts every saved host's password via AndroidKeyStore
+        // (an IPC round trip per host); running that synchronously in the
+        // constructor blocked whichever thread first called SshStore.get()
+        // - the SSH tab's Composable body, i.e. the main thread, on first
+        // open. Loaded on the existing IO scope instead, same pattern
+        // ConfigStore already uses for the same class of problem; the SSH
+        // list starts empty and fills in once decrypted, like every other
+        // StateFlow-backed list in this app.
+        scope.launch { _hosts.value = load() }
     }
 
     fun add(host: SshHost) {

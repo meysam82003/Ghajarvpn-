@@ -3,6 +3,7 @@ package net.gozar.app
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
@@ -54,38 +55,49 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
     var copied by remember { mutableStateOf<String?>(null) }
     fun copy(value: String, label: String) { clipboard.setText(AnnotatedString(value)); copied = "$label کپی شد" }
     val money = remember { NumberFormat.getIntegerInstance(Locale("fa", "IR")) }
+    val c = ghajarColors
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Surface(shape = RoundedCornerShape(24.dp), shadowElevation = 3.dp, color = Color(0xFF082F2B)) {
-            Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(Color(0xFF17483D), Color(0xFF081F2B))))
+        // The payment card keeps its "card-shaped object" look, but the two
+        // gradient stops now come from the theme's own card tones instead of a
+        // fixed teal, so this page belongs to the active palette.
+        Surface(
+            shape = RoundedCornerShape(GhajarRadius.lg),
+            shadowElevation = 3.dp,
+            color = c.card,
+            border = BorderStroke(1.dp, c.border)
+        ) {
+            Column(Modifier.fillMaxWidth().background(Brush.linearGradient(listOf(c.secondaryCard, c.card)))
                 .padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     GhajarWordmark(Modifier.weight(1f).height(38.dp))
                     Image(painterResource(R.drawable.ghajar_treasury), "خزانهٔ قاجار",
                         modifier = Modifier.size(54.dp), contentScale = ContentScale.Fit)
                 }
-                Text("کارت مقصد • اطلاعات صادرشده از پنل", color = Color(0xFFC6DCD4), style = MaterialTheme.typography.labelMedium)
+                Text("کارت مقصد • اطلاعات صادرشده از پنل", color = c.textSecondary, style = MaterialTheme.typography.labelMedium)
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("\u2066${payment.cardNumber.orEmpty().chunked(4).joinToString(" ")}\u2069",
-                        Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                        Modifier.weight(1f), color = c.textPrimary, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
                     IconButton(onClick = { copy(payment.cardNumber.orEmpty(), "شماره کارت") }, enabled = !payment.cardNumber.isNullOrBlank()) {
-                        Icon(Icons.Filled.ContentCopy, "کپی شماره کارت", tint = Color(0xFFE8C975))
+                        Icon(Icons.Filled.ContentCopy, "کپی شماره کارت", tint = c.primary)
                     }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(payment.cardHolder.orEmpty(), Modifier.weight(1f), color = Color.White)
+                    Text(payment.cardHolder.orEmpty(), Modifier.weight(1f), color = c.textPrimary)
                     IconButton(onClick = { copy(payment.cardHolder.orEmpty(), "نام صاحب کارت") }) {
-                        Icon(Icons.Filled.ContentCopy, "کپی نام صاحب کارت", tint = Color(0xFFE8C975))
+                        Icon(Icons.Filled.ContentCopy, "کپی نام صاحب کارت", tint = c.primary)
                     }
                 }
-                HorizontalDivider(color = Color.White.copy(alpha = .16f))
+                HorizontalDivider(color = c.border)
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("مبلغ دقیق: ${money.format(payment.amount)} تومان", Modifier.weight(1f), color = Color(0xFFFFE4A0), fontWeight = FontWeight.Bold)
+                    // The exact amount is what a mistyped transfer costs, so it
+                    // carries the highlight tone.
+                    Text("مبلغ دقیق: ${money.format(payment.amount)} تومان", Modifier.weight(1f), color = c.highlight, fontWeight = FontWeight.Bold)
                     IconButton(onClick = { copy(payment.amount.toString(), "مبلغ تومان") }) {
-                        Icon(Icons.Filled.ContentCopy, "کپی مبلغ تومان", tint = Color(0xFFE8C975))
+                        Icon(Icons.Filled.ContentCopy, "کپی مبلغ تومان", tint = c.primary)
                     }
                 }
                 TextButton(onClick = { copy(payment.amountRial.toString(), "مبلغ ریال") }) {
-                    Text("${money.format(payment.amountRial)} ریال • کپی", color = Color.White)
+                    Text("${money.format(payment.amountRial)} ریال • کپی", color = c.textSecondary)
                 }
             }
         }
@@ -105,7 +117,15 @@ internal fun CardToCardCard(payment: GhajarPaymentInit, receipt: Uri?, busy: Boo
 }
 
 @Composable
-internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Unit, onRetry: () -> Unit, busy: Boolean) {
+internal fun GhajarDeliveryDialog(
+    delivery: GhajarDelivery, onDismiss: () -> Unit, onRetry: () -> Unit, busy: Boolean,
+    /** True once this same paid order's delivery has already failed at least
+     * once (GhajarCheckoutViewModel.deliveryFailed). Distinguishes "still
+     * working on it" from "already tried and failed, waiting on you to
+     * retry" - previously both looked identical here ("در حال همگام‌سازی"
+     * forever), which is exactly the stuck/unclear state item #3 called out. */
+    failed: Boolean = false
+) {
     val service = delivery.service
     val payloads = remember(service) { (listOfNotNull(service.subscriptionUrl) + service.outputs).filter { it.isNotBlank() }.distinct() }
     var index by remember(payloads) { mutableIntStateOf(0) }
@@ -125,7 +145,11 @@ internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Uni
     }
     val clipboard = LocalClipboardManager.current
     AlertDialog(onDismissRequest = onDismiss,
-        title = { Text(if (delivery.synced) "سرویس به قاجار VPN اضافه شد" else "سرویس صادر شد؛ در حال همگام‌سازی") },
+        title = { Text(when {
+            delivery.synced -> "سرویس به قاجار VPN اضافه شد"
+            failed -> "همگام‌سازی ناموفق بود"
+            else -> "سرویس صادر شد؛ در حال همگام‌سازی"
+        }) },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -133,15 +157,22 @@ internal fun GhajarDeliveryDialog(delivery: GhajarDelivery, onDismiss: () -> Uni
                 Text("\u2066${service.username}\u2069", style = MaterialTheme.typography.bodySmall)
                 if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
                 bitmap?.let { Image(it.asImageBitmap(), "QR اتصال همین سرویس",
-                    Modifier.fillMaxWidth().aspectRatio(1f).background(Color.White), contentScale = ContentScale.Fit) }
+                    // A QR has to stay scannable, so it keeps the fixed pair from
+                    // GhajarFixed rather than following the theme.
+                    Modifier.fillMaxWidth().aspectRatio(1f).background(GhajarFixed.QrForeground),
+                    contentScale = ContentScale.Fit) }
                 if (payload != null && bitmap == null && !busy) Text(if (qrFailed) "این خروجی در QR جا نمی‌شود؛ از کپی لینک استفاده کن." else "QR در حال آماده‌سازی است؛ لینک قابل کپی است.")
                 if (payloads.size > 1) Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = { index-- }, enabled = index > 0) { Text("قبلی") }
                     Text("${index + 1} / ${payloads.size}")
                     TextButton(onClick = { index++ }, enabled = index < payloads.lastIndex) { Text("بعدی") }
                 }
-                Text(if (delivery.synced) "کانفیگ‌ها همگام شدند و در فهرست اتصال قرار دارند." else
-                    "اگر همگام‌سازی کامل نشد، دریافت دوباره را بزن؛ خرید دوباره لازم نیست.", style = MaterialTheme.typography.bodySmall)
+                Text(when {
+                    delivery.synced -> "کانفیگ‌ها همگام شدند و در فهرست اتصال قرار دارند."
+                    failed -> "تلاش قبلی ناموفق بود؛ اتصال یا سرور را بررسی کن و «دریافت دوباره» را بزن. خرید دوباره لازم نیست."
+                    else -> "اگر همگام‌سازی کامل نشد، دریافت دوباره را بزن؛ خرید دوباره لازم نیست."
+                }, style = if (failed) MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.error)
+                    else MaterialTheme.typography.bodySmall)
                 Text("QR و لینک خصوصی‌اند؛ فقط با فرد مورد اعتماد به اشتراک بگذار.", style = MaterialTheme.typography.labelSmall)
             }
         },

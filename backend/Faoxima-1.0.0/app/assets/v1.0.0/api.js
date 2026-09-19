@@ -56,6 +56,14 @@ async function readEnvelope(res) {
 }
 
 export async function verify() {
+    // A ticket in the URL is redeemed by the bootstrap in index.php, which
+    // writes the session token to the same key getToken() reads. Awaiting it
+    // first is what stops this from racing the redeem and falling through to
+    // the Telegram path in a browser that had a perfectly good ticket.
+    if (typeof window !== 'undefined' && window.__FAOXIMA_TICKET_READY__) {
+        try { await window.__FAOXIMA_TICKET_READY__; } catch (_) {}
+    }
+
     // The native client seeds its verified bearer in this same-origin session.
     // Every API action still validates the bearer server-side.
     if (getToken()) return getToken();

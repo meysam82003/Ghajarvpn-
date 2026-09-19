@@ -8,35 +8,74 @@ if (!defined('FAOXIMA_SKIP_BOTAPI_ROUTER')) {
 }
 
 /**
- * Self-healing OPcache invalidation: on every request, force-invalidates every watched
- * PHP file so the next require_once() below recompiles it from what's actually on disk
- * right now, instead of possibly continuing to run stale bytecode from before the file
- * was last uploaded/edited until someone manually restarts PHP-FPM or clears OPcache
- * from a hosting panel.
+ * Deploy-gated OPcache invalidation.
  *
- * opcache_invalidate($file, true) — force=true — always discards that file's cached
- * bytecode and lets it recompile on next load; it does NOT depend on comparing mtimes
- * or on any particular OPcache status field shape (those vary across PHP versions), so
- * there's nothing here that can silently stop working after a PHP upgrade.
+ * WHAT THIS USED TO DO, AND WHY IT WAS SLOW
+ * -----------------------------------------
+ * The previous version ran, on EVERY request:
  *
- * Deliberately file-by-file rather than a blanket opcache_reset() — resetting the whole
- * cache would force PHP to recompile every single file in the entire codebase on every
- * request, which defeats the point of OPcache and would visibly slow the app down. This
- * only touches the small, known set of files this endpoint actually loads.
+ *     foreach ([__DIR__, __DIR__.'/handlers', __DIR__.'/lib'] as $dir)
+ *         foreach (glob($dir.'/*.php') as $file)
+ *             opcache_invalidate($file, true);
  *
- * miniapp.php itself must be the file the webserver invokes directly (not something
- * required by another PHP file's cached bytecode), so it's the one place guaranteed to
- * get freshly re-parsed on every actual code deploy — from here it can reach into
- * OPcache and force any *other* file (handlers, libs) to catch up too.
+ * Its comment claimed this "only touches the small, known set of files this
+ * endpoint actually loads". That was not true: it invalidated EVERY .php file
+ * in those three directories - 77 files, 730 KB, 17,286 lines - on every
+ * single API call. force=true discards compiled bytecode whether or not the
+ * file changed, so OPcache was effectively switched off for the whole API
+ * layer. Every request then re-lexed, re-parsed and re-compiled about 1,700
+ * lines of PHP (Bootstrap + the six lib files + BaseHandler +
+ * service_output + the dispatched handler) before doing any work, plus three
+ * directory scans and 77 invalidate syscalls.
+ *
+ * The self-healing goal was right - a file uploaded over FTP must take effect
+ * without an FPM restart - but the cost belongs on deploys, not on requests.
+ *
+ * HOW THIS VERSION WORKS
+ * ----------------------
+ * The newest mtime across the watched directories is the deploy stamp. It is
+ * remembered in one small file next to this script. When the stamp is
+ * unchanged - i.e. nothing was uploaded since the last request - this block
+ * does nothing at all and OPcache keeps serving bytecode. When the stamp
+ * moves, every watched file is invalidated exactly once, and the new stamp is
+ * written. So an upload still takes effect on the very next request, and the
+ * steady state costs one stat() per directory instead of a full recompile.
+ *
+ * If the stamp file cannot be written (read-only deploy), the block falls
+ * back to invalidating on every request - the old behaviour - so correctness
+ * never depends on the cache file existing.
  */
 if (function_exists('opcache_invalidate')) {
     $__watchDirs = [__DIR__, __DIR__ . '/handlers', __DIR__ . '/lib'];
+    $__stampFile = __DIR__ . '/.opcache-stamp';
+
+    $__newest = 0;
     foreach ($__watchDirs as $__dir) {
         if (!is_dir($__dir)) {
             continue;
         }
-        foreach (glob($__dir . '/*.php') ?: [] as $__file) {
-            @opcache_invalidate($__file, true);
+        $__mtime = @filemtime($__dir);
+        if ($__mtime !== false && $__mtime > $__newest) {
+            $__newest = (int)$__mtime;
+        }
+    }
+
+    $__seen = 0;
+    if (is_file($__stampFile)) {
+        $__seen = (int)@file_get_contents($__stampFile);
+    }
+
+    if ($__newest === 0 || $__newest !== $__seen) {
+        foreach ($__watchDirs as $__dir) {
+            if (!is_dir($__dir)) {
+                continue;
+            }
+            foreach (glob($__dir . '/*.php') ?: [] as $__file) {
+                @opcache_invalidate($__file, true);
+            }
+        }
+        if ($__newest > 0) {
+            @file_put_contents($__stampFile, (string)$__newest, LOCK_EX);
         }
     }
 }

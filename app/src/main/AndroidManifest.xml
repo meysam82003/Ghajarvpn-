@@ -4,6 +4,10 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
+    <!-- Connectivity callbacks: which physical network the device is on, for
+         the per-network auto-connect rules and for keeping the tunnel's
+         underlying network correct. A normal permission, no runtime prompt. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera" android:required="false" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
@@ -14,6 +18,15 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!-- Lets the in-app updater launch the system installer for a downloaded
+         GitHub release APK; Android still requires the user's one-time
+         "allow from this source" grant and the OS install confirmation. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Special-access permission for the per-app usage breakdown; there is no
+         runtime prompt for this, only a per-app toggle under Settings > Usage
+         access, which the app links to but cannot grant on the user's behalf. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
 
@@ -141,11 +154,36 @@
             android:launchMode="singleTop"
             android:label="اتصال به کانفیگ"
             android:theme="@style/Theme.Ghajarvpn" />
+        <!--
+            The home-screen widget. Its toggle is a broadcast to the provider;
+            the connect itself is handed to the invisible activity below,
+            because Android 12+ refuses a foreground-service start from a
+            receiver and the tunnel would otherwise never start.
+        -->
+        <receiver
+            android:name=".GhajarWidget"
+            android:label="@string/widget_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="net.gozar.app.WIDGET_TOGGLE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/ghajar_widget_info" />
+        </receiver>
+        <activity
+            android:name=".GhajarWidgetConnectActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:launchMode="singleInstance"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@style/Theme.Ghajarvpn.Invisible" />
         <service
             android:name=".GozarVpnService"
             android:permission="android.permission.BIND_VPN_SERVICE"
             android:foregroundServiceType="specialUse"
-            android:process=":vpn"
             android:exported="false">
             <intent-filter>
                 <action android:name="android.net.VpnService" />
@@ -153,6 +191,25 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="VPN tunneling client" />
+        </service>
+        <!--
+            DNS-only mode's own VpnService.
+
+            Deliberately WITHOUT the android.net.VpnService intent-filter. VPN
+            consent is granted to the app by VpnService.prepare(), not to a
+            particular service, and that filter is what nominates a service as
+            the app's always-on VPN. Declaring it on two services leaves which
+            one the system picks for always-on ambiguous, and the tunnel is the
+            one that should win that.
+        -->
+        <service
+            android:name=".GhajarDnsOnlyService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="DNS resolver selection" />
         </service>
         <service
             android:name=".GhajarNotificationJob"

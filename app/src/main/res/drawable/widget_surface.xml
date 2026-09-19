@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The widget's own surface. RemoteViews cannot read the app's Compose design
+    tokens, so the two brand values it needs are mirrored here and in
+    values/colors.xml - the same reason the window background is.
+-->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <corners android:radius="24dp" />
+    <solid android:color="@color/ghajar_widget_surface" />
+</shape>

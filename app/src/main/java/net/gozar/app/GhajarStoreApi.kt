@@ -12,7 +12,10 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.DataOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
+import java.net.InetSocketAddress
+import java.net.Proxy
 import java.net.URL
 import java.net.URLEncoder
 import java.security.MessageDigest
@@ -145,6 +148,49 @@ data class GhajarPurchaseResult(
 data class GhajarTrialPanel(val code: String, val name: String, val remaining: Int? = null)
 data class GhajarTrialOptions(val panels: List<GhajarTrialPanel>, val remaining: Int?, val canRequest: Boolean)
 
+data class GhajarRenewProduct(
+    val code: String,
+    val name: String,
+    val volumeGb: Int,
+    val timeDays: Int,
+    val price: Long,
+    val showPrice: Boolean,
+    val note: String,
+    val isCurrentPlan: Boolean = false
+)
+
+data class GhajarRenewCustomOptions(
+    val enabled: Boolean,
+    val forced: Boolean,
+    val pricePerGb: Long,
+    val pricePerDay: Long,
+    val minVolumeGb: Int,
+    val maxVolumeGb: Int,
+    val minTimeDays: Int,
+    val maxTimeDays: Int
+)
+
+data class GhajarRenewOptions(
+    val username: String,
+    val panelName: String,
+    val products: List<GhajarRenewProduct>,
+    val currentPlanCode: String?,
+    val showPrice: Boolean,
+    val discountPercent: Int,
+    val balance: Long,
+    val custom: GhajarRenewCustomOptions
+)
+
+data class GhajarRenewResult(
+    val completed: Boolean,
+    val requiresPayment: Boolean,
+    val username: String,
+    val amountDue: Long,
+    val balance: Long,
+    val price: Long,
+    val orderId: String?
+)
+
 class GhajarApiException(message: String, val httpCode: Int = 0) : IllegalStateException(message)
 
 /** Native client matched to the API shipped in Ghajar_vpnbot_-3-1.zip. */
@@ -201,6 +247,27 @@ class GhajarStoreApi(context: Context) {
 
     fun unlink() = account.clear()
 
+    /**
+     * A one-time ticket for opening the web panel as this same account.
+     *
+     * The panel authenticates with Telegram's initData, which a browser never
+     * has, so "the full account panel" used to open a page that did not know
+     * who had tapped it. This asks the server - authenticated with the bearer
+     * this app already holds - for a ticket the browser can exchange for the
+     * same session. Null when the server is too old to know the action, in
+     * which case the caller opens the plain URL exactly as before.
+     */
+    suspend fun webPanelTicket(): String? = withContext(Dispatchers.IO) {
+        runCatching {
+            requestJson(
+                url = URL("${BrandConfig.WEBLINK_API_URL}?action=web_ticket"),
+                method = "POST",
+                bearer = requireToken(),
+                body = null
+            ).optString("ticket").takeIf { it.isNotBlank() }
+        }.getOrNull()
+    }
+
     suspend fun countries(): List<GhajarPanel> = action("countries").payloadArray().objects().mapNotNull { row ->
         val id = row.optString("id")
         if (id.isBlank()) return@mapNotNull null
@@ -232,8 +299,10 @@ class GhajarStoreApi(context: Context) {
     ): List<GhajarProduct> {
         val params = linkedMapOf("country_id" to countryId)
         categoryId?.takeIf { it.isNotBlank() }?.let { params["category_id"] = it }
-        timeDays?.let { params["time_range_day"] = it.toString() }
-        return action("services", params = params).payloadArray().objects().mapNotNull { row ->
+        // time_range_day is deliberately not sent: the server's own range
+        // buckets don't line up with the exact-match filter it applies to
+        // them, so the range is applied here instead. See GhajarTimeBuckets.
+        val all = action("services", params = params).payloadArray().objects().mapNotNull { row ->
             val id = row.optString("id")
             if (id.isBlank()) return@mapNotNull null
             GhajarProduct(
@@ -246,6 +315,10 @@ class GhajarStoreApi(context: Context) {
                 countryId = row.optString("country_id", countryId)
             )
         }
+        if (timeDays == null) return all
+        val inRange = all.filter { GhajarTimeBuckets.matches(timeDays, it.days) }
+        GhajarLog.d("Store", "time range $timeDays: ${inRange.size} of ${all.size} plan(s) in bucket")
+        return inRange
     }
 
     suspend fun customQuote(countryId: String, trafficGb: Int, timeDays: Int): GhajarCustomQuote {
@@ -294,6 +367,101 @@ class GhajarStoreApi(context: Context) {
     suspend fun service(username: String): GhajarServiceDetails {
         val payload = action("service", params = mapOf("username" to username)).payloadObject()
         return serviceFrom(payload, username)
+    }
+
+    /** Renewal offer for one already-owned service, from `service_renew_options`. */
+    suspend fun renewOptions(username: String): GhajarRenewOptions {
+        val payload = action("service_renew_options", params = mapOf("username" to username)).payloadObject()
+        val products = payload.optJSONArray("products").orEmpty().objects().mapNotNull { row ->
+            val code = row.optString("code")
+            if (code.isBlank()) return@mapNotNull null
+            GhajarRenewProduct(
+                code = code,
+                name = visible(row.optString("name", "پلن قاجار")),
+                volumeGb = row.optInt("volume_gb"),
+                timeDays = row.optInt("time_days"),
+                price = row.optNullableDouble("price")?.toLong() ?: 0,
+                showPrice = row.optBoolean("show_price", true),
+                note = visible(row.optString("note"))
+            )
+        }
+        val currentPlan = payload.optJSONObject("current_plan")
+        val currentCode = currentPlan?.optString("code")?.takeIf { it.isNotBlank() }
+        val custom = payload.optJSONObject("custom")
+        return GhajarRenewOptions(
+            username = payload.optString("username", username),
+            panelName = visible(payload.optJSONObject("panel")?.optString("name").orEmpty()),
+            products = products.map { it.copy(isCurrentPlan = it.code == currentCode) },
+            currentPlanCode = currentCode,
+            showPrice = payload.optBoolean("show_price", true),
+            discountPercent = payload.optInt("discount"),
+            balance = payload.optNullableDouble("balance")?.toLong() ?: 0,
+            custom = GhajarRenewCustomOptions(
+                enabled = custom?.optBoolean("enabled") ?: false,
+                forced = custom?.optBoolean("force") ?: false,
+                pricePerGb = custom?.optNullableLong("price_per_gb") ?: 0,
+                pricePerDay = custom?.optNullableLong("price_per_day") ?: 0,
+                minVolumeGb = custom?.optInt("min_volume_gb") ?: 0,
+                maxVolumeGb = custom?.optInt("max_volume_gb") ?: 0,
+                minTimeDays = custom?.optInt("min_time_days") ?: 0,
+                maxTimeDays = custom?.optInt("max_time_days") ?: 0
+            )
+        )
+    }
+
+    /**
+     * Confirms renewal of [username]'s service with either a catalog [productCode]
+     * or a custom volume/time pair, mirroring [purchase]'s payment-required shape:
+     * `service_renew_confirm` answers with `{kind: "requires_payment", ...}` inside
+     * `obj` when the wallet balance falls short, exactly like the purchase flow.
+     */
+    suspend fun confirmRenew(
+        username: String,
+        productCode: String? = null,
+        customVolumeGb: Int? = null,
+        customTimeDays: Int? = null,
+        discountCode: String? = null
+    ): GhajarRenewResult {
+        val body = JSONObject().put("username", username)
+        if (productCode != null) {
+            body.put("product_code", productCode)
+        } else {
+            body.put(
+                "custom",
+                JSONObject()
+                    .put("traffic_gb", customVolumeGb ?: 0)
+                    .put("time_days", customTimeDays ?: 0)
+            )
+        }
+        discountCode?.takeIf { it.isNotBlank() }?.let { body.put("discount_code", it) }
+
+        val root = action("service_renew_confirm", method = "POST", body = body, allowPaymentRequired = true)
+        val payload = root.payloadObject()
+        val paymentObject = when {
+            root.optBoolean("requires_payment") -> root
+            payload.optString("kind") == "requires_payment" -> payload
+            else -> null
+        }
+        if (paymentObject != null) {
+            return GhajarRenewResult(
+                completed = false,
+                requiresPayment = true,
+                username = paymentObject.optString("username", username),
+                amountDue = paymentObject.optNullableDouble("amount_due")?.toLong() ?: 0,
+                balance = paymentObject.optNullableDouble("balance")?.toLong() ?: 0,
+                price = paymentObject.optNullableDouble("price")?.toLong() ?: 0,
+                orderId = paymentObject.optString("order_id").takeIf { it.isNotBlank() }
+            )
+        }
+        return GhajarRenewResult(
+            completed = root.optBoolean("status", true) && payload.optBoolean("success", true),
+            requiresPayment = false,
+            username = username,
+            amountDue = 0,
+            balance = payload.optNullableDouble("balance")?.toLong() ?: 0,
+            price = 0,
+            orderId = null
+        )
     }
 
     suspend fun notices(forDelivery: Boolean = false): List<GhajarNotice> {
@@ -536,7 +704,11 @@ class GhajarStoreApi(context: Context) {
                     used = info?.used ?: subscription.used,
                     total = info?.total ?: subscription.total,
                     expire = info?.expire ?: subscription.expire,
-                    lastUpdated = System.currentTimeMillis()
+                    lastUpdated = System.currentTimeMillis(),
+                    // Recorded here and nowhere else: this is the only moment
+                    // the app knows which panel service a subscription is,
+                    // and it is what makes one-tap renewal possible later.
+                    serviceUsername = service.username
                 ), fetched.configs)
                 fetched.configs.size
             }
@@ -577,15 +749,66 @@ class GhajarStoreApi(context: Context) {
         }
         val payload = if (method == "GET" || method == "HEAD") null else
             JSONObject(body?.toString() ?: "{}").put("actions", name)
-        requestJson(
+        val result = requestJson(
             url = URL("${BrandConfig.MINIAPP_API_URL}?$query"),
             method = method,
             bearer = requireToken(),
             body = payload,
             allowPaymentRequired = allowPaymentRequired
         )
+        if (name in DIAGNOSTIC_ACTIONS) logResultShape(name, params, result)
+        result
     }
 
+    /**
+     * Catalog/wallet endpoints the shop screen's plan list depends on. Logging
+     * only the returned item count (never a row's contents, never the bearer
+     * token) lets an exported log answer "why are the plans empty" without
+     * guessing: 0 here means the server genuinely returned nothing for these
+     * exact params (a real empty catalog, or a filter combination the panel
+     * doesn't have); a non-zero count logged here but nothing shown in the UI
+     * means the bug is client-side (parsing or state), not the network or the
+     * server.
+     */
+    private val DIAGNOSTIC_ACTIONS = setOf(
+        "countries", "categories", "time_ranges", "services", "custom_price", "invoices", "payment_methods"
+    )
+
+    private fun logResultShape(name: String, params: Map<String, String>, result: JSONObject) {
+        val shape = result.payload()
+        val count = when (shape) {
+            is JSONArray -> shape.length().toString()
+            is JSONObject -> shape.optJSONArray("items")?.length()?.toString() ?: "object"
+            else -> "empty"
+        }
+        GhajarLog.d("Store", "action=$name params=$params -> $count")
+    }
+
+    /**
+     * GhajarVPN's own store/bot-link requests never go through its own VPN
+     * tunnel: GozarVpnService.applyPerApp() always excludes this app's own
+     * traffic from the tunnel (otherwise the app's outbound connection to
+     * its own proxy server would route back into itself). That's correct
+     * and necessary - but it means that if the store's domain is filtered
+     * on the device's raw connection while the tunnel is actively bypassing
+     * that exact kind of filtering for every *other* app, the user sees
+     * "internet is fine, VPN is connected" while the store still can't be
+     * reached, because its own requests never benefit from the tunnel they
+     * are sitting right next to.
+     *
+     * A real, already-running fix for that: whenever the active tunnel is
+     * one of the Xray-core protocols (vless/vmess/trojan/ss/etc., not
+     * OpenVPN/IKEv2 which use separate engines), it always exposes a plain
+     * local SOCKS5 inbound at 127.0.0.1:MixedPort (the same inbound VPN
+     * Share re-exposes on the LAN) whether or not VPN Share is on. A direct
+     * request that fails with a network-level IOException (DNS failure,
+     * TLS failure, timeout, connection refused - never an application-level
+     * GhajarApiException from an actual HTTP response) is retried once
+     * through that local proxy before giving up. If nothing is listening
+     * there (OpenVPN/IKEv2 active, or the VPN is off), the retry fails fast
+     * with its own connection-refused and the original error is what
+     * surfaces - never a silently swallowed cause.
+     */
     private fun requestJson(
         url: URL,
         method: String,
@@ -594,7 +817,64 @@ class GhajarStoreApi(context: Context) {
         allowPaymentRequired: Boolean = false,
         allowLinkGate: Boolean = false
     ): JSONObject {
-        val connection = (url.openConnection() as HttpURLConnection).apply {
+        fun viaProxy() = performRequest(
+            url, method, bearer, body, allowPaymentRequired, allowLinkGate,
+            proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value))
+        )
+
+        // Opening the store is several requests to the same host. When the
+        // direct route is being blocked, each one used to spend its own full
+        // connect timeout discovering that again before falling back, so the
+        // shop took timeout x requests to appear. One failure is remembered for
+        // a minute and the tunnel is tried first during it; any success there
+        // is no slower than before, and the memo is dropped the moment a direct
+        // request works again, so a route that comes back is picked up at once.
+        if (System.currentTimeMillis() < directBlockedUntil) {
+            try {
+                return viaProxy()
+            } catch (throughTunnel: IOException) {
+                GhajarLog.w("Store", "tunnel-first attempt for ${url.host} failed " +
+                    "(${throughTunnel.javaClass.simpleName}); trying direct again")
+                directBlockedUntil = 0L
+            }
+        }
+
+        return try {
+            performRequest(url, method, bearer, body, allowPaymentRequired, allowLinkGate, proxy = null)
+                .also { directBlockedUntil = 0L }
+        } catch (direct: IOException) {
+            GhajarLog.w("Store", "direct request to ${url.host} failed " +
+                "(${direct.javaClass.simpleName}: ${direct.message}); retrying via local tunnel proxy")
+            directBlockedUntil = System.currentTimeMillis() + DIRECT_BLOCK_MEMO_MS
+            try {
+                viaProxy()
+            } catch (viaProxy: IOException) {
+                GhajarLog.e("Store", "local-proxy retry for ${url.host} also failed: " +
+                    "${viaProxy.javaClass.simpleName}: ${viaProxy.message}")
+                throw direct
+            }
+        }
+    }
+
+    /**
+     * When the direct route last failed at the network level, in wall-clock
+     * millis. Zero means "no reason to doubt it". Plain volatile rather than a
+     * lock: a stale read costs one redundant attempt, never correctness.
+     */
+    @Volatile
+    private var directBlockedUntil: Long = 0L
+
+    private fun performRequest(
+        url: URL,
+        method: String,
+        bearer: String?,
+        body: JSONObject?,
+        allowPaymentRequired: Boolean,
+        allowLinkGate: Boolean,
+        proxy: Proxy?
+    ): JSONObject {
+        val connection = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
+        connection.apply {
             requestMethod = method
             connectTimeout = CONNECT_TIMEOUT
             readTimeout = READ_TIMEOUT
@@ -609,8 +889,13 @@ class GhajarStoreApi(context: Context) {
         }
         return try {
             readResponse(connection, allowPaymentRequired, allowLinkGate, bearer != null)
-        } finally {
+        } catch (t: Throwable) {
+            // Only a request that ended badly gives up its socket. A clean one
+            // is left to the keep-alive pool: loading the store is a handful of
+            // calls to the same host, and disconnecting after each one made
+            // every single one of them pay for a fresh TCP + TLS handshake.
             connection.disconnect()
+            throw t
         }
     }
 
@@ -740,6 +1025,10 @@ class GhajarStoreApi(context: Context) {
 
     companion object {
         private val deliveryMutex = Mutex()
+        /** How long one direct-route failure steers later requests to the
+         *  tunnel first. Short enough that a route which comes back is used
+         *  again quickly, long enough to cover one page load. */
+        private const val DIRECT_BLOCK_MEMO_MS = 60_000L
         private const val CONNECT_TIMEOUT = 12_000
         private const val READ_TIMEOUT = 20_000
         private const val UPLOAD_TIMEOUT = 60_000

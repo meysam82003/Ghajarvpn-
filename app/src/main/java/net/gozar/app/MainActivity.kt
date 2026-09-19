@@ -82,6 +82,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -113,6 +114,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
@@ -124,16 +126,22 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BugReport
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Build
 import androidx.compose.material.icons.filled.DataUsage
 import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.CallSplit
+import androidx.compose.material.icons.filled.Shuffle
+import androidx.compose.material.icons.filled.Block
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Inventory2
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Radar
@@ -149,6 +157,9 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.Contrast
 import androidx.compose.material.icons.filled.DarkMode
@@ -162,9 +173,8 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.NetworkCheck
+import androidx.compose.material.icons.filled.Notifications
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.HazeTint
-import dev.chrisbanes.haze.hazeEffect
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Groups
@@ -209,9 +219,13 @@ import androidx.compose.material.icons.filled.FileUpload
 import androidx.compose.material.icons.filled.FileDownload
 import androidx.compose.material.icons.filled.FileOpen
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.DeleteSweep
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.TimerOff
@@ -228,6 +242,7 @@ import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.HorizontalDivider
@@ -238,19 +253,16 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.AlertDialog
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
@@ -323,6 +335,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.lifecycleScope
@@ -348,144 +361,25 @@ import kotlin.math.round
 import kotlin.math.sqrt
 import kotlin.math.roundToInt
 
-private val BrandBlue = Color(0xFF91BCC7)
-private val SplashBackground = Color(0xFF071B2E)
-
-private val GnetLightColors = lightColorScheme(
-    primary = Color(0xFF0D6853),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFFD9EEE8),
-    onPrimaryContainer = Color(0xFF08214F),
-    inversePrimary = Color(0xFF91BCC7),
-    secondary = Color(0xFF987018),
-    onSecondary = Color(0xFFFFFFFF),
-    secondaryContainer = Color(0xFFF2E4B5),
-    onSecondaryContainer = Color(0xFF17212F),
-    tertiary = Color(0xFF0A7C99),
-    onTertiary = Color(0xFFFFFFFF),
-    tertiaryContainer = Color(0xFFC9EDF7),
-    onTertiaryContainer = Color(0xFF04333F),
-    background = Color(0xFFEEF3FA),
-    onBackground = Color(0xFF131720),
-    surface = Color(0xFFFFFFFF),
-    onSurface = Color(0xFF131720),
-    surfaceVariant = Color(0xFFE1E8F4),
-    onSurfaceVariant = Color(0xFF566276),
-    surfaceTint = Color(0xFF0D6853),
-    surfaceBright = Color(0xFFFFFFFF),
-    surfaceDim = Color(0xFFD7DFEC),
-    surfaceContainerLowest = Color(0xFFFFFFFF),
-    surfaceContainerLow = Color(0xFFFFFFFF),
-    surfaceContainer = Color(0xFFFDFEFF),
-    surfaceContainerHigh = Color(0xFFF7FAFE),
-    surfaceContainerHighest = Color(0xFFFFFFFF),
-    inverseSurface = Color(0xFF272E3C),
-    inverseOnSurface = Color(0xFFEBF0F8),
-    error = Color(0xFFC02B26),
-    onError = Color(0xFFFFFFFF),
-    errorContainer = Color(0xFFFFDAD6),
-    onErrorContainer = Color(0xFF410002),
-    outline = Color(0xFFB6C1D2),
-    outlineVariant = Color(0xFFD7DFEC),
-    scrim = Color(0xFF000000)
-)
-
-private val GnetDarkColors = darkColorScheme(
-    primary = Color(0xFF91BCC7),
-    onPrimary = Color(0xFF071226),
-    primaryContainer = Color(0xFF103F39),
-    onPrimaryContainer = Color(0xFFD6E3FF),
-    secondary = Color(0xFFD5AD4A),
-    onSecondary = Color(0xFF0E1626),
-    secondaryContainer = Color(0xFF1C2740),
-    onSecondaryContainer = Color(0xFFD9E2F2),
-    background = Color(0xFF071B2E),
-    onBackground = Color(0xFFE6EAF2),
-    surface = Color(0xFF102637),
-    onSurface = Color(0xFFE6EAF2),
-    surfaceVariant = Color(0xFF232C40),
-    onSurfaceVariant = Color(0xFFA2B0C8),
-    surfaceBright = Color(0xFF2A3348),
-    surfaceDim = Color(0xFF0B101B),
-    surfaceContainerLowest = Color(0xFF0A0F1A),
-    surfaceContainerLow = Color(0xFF131A29),
-    surfaceContainer = Color(0xFF161D2E),
-    surfaceContainerHigh = Color(0xFF1D2537),
-    surfaceContainerHighest = Color(0xFF232C40),
-    tertiary = Color(0xFF0F8C70),
-    onTertiary = Color(0xFF042430),
-    tertiaryContainer = Color(0xFF10394A),
-    onTertiaryContainer = Color(0xFFC5F1FD),
-    inversePrimary = Color(0xFF2557D6),
-    surfaceTint = Color(0xFF6CA0FF),
-    inverseSurface = Color(0xFFE6EAF2),
-    inverseOnSurface = Color(0xFF161D2E),
-    error = Color(0xFFFF7A7A),
-    onError = Color(0xFF2A0A0A),
-    errorContainer = Color(0xFF5A1A1A),
-    onErrorContainer = Color(0xFFFFDAD6),
-    outline = Color(0xFF38445C),
-    outlineVariant = Color(0xFF283244),
-    scrim = Color(0xFF000000)
-)
-
-private val GnetAmoledColors = darkColorScheme(
-    primary = Color(0xFF6CA0FF),
-    onPrimary = Color(0xFF071226),
-    primaryContainer = Color(0xFF1B2944),
-    onPrimaryContainer = Color(0xFFD6E3FF),
-    secondary = Color(0xFF93A7C9),
-    onSecondary = Color(0xFF0E1626),
-    secondaryContainer = Color(0xFF11161F),
-    onSecondaryContainer = Color(0xFFD9E2F2),
-    background = Color(0xFF000000),
-    onBackground = Color(0xFFE6EAF2),
-    surface = Color(0xFF000000),
-    onSurface = Color(0xFFE6EAF2),
-    surfaceVariant = Color(0xFF12161F),
-    onSurfaceVariant = Color(0xFFA2B0C8),
-    surfaceBright = Color(0xFF1A1F2A),
-    surfaceDim = Color(0xFF000000),
-    surfaceContainerLowest = Color(0xFF000000),
-    surfaceContainerLow = Color(0xFF07090D),
-    surfaceContainer = Color(0xFF0B0E14),
-    surfaceContainerHigh = Color(0xFF0F131B),
-    surfaceContainerHighest = Color(0xFF12161F),
-    tertiary = Color(0xFF35E0FF),
-    onTertiary = Color(0xFF042430),
-    tertiaryContainer = Color(0xFF0A2733),
-    onTertiaryContainer = Color(0xFFC5F1FD),
-    inversePrimary = Color(0xFF2557D6),
-    surfaceTint = Color(0xFF6CA0FF),
-    inverseSurface = Color(0xFFE6EAF2),
-    inverseOnSurface = Color(0xFF0B0E14),
-    error = Color(0xFFFF7A7A),
-    onError = Color(0xFF2A0A0A),
-    errorContainer = Color(0xFF3A1010),
-    onErrorContainer = Color(0xFFFFDAD6),
-    outline = Color(0xFF2A3344),
-    outlineVariant = Color(0xFF1B2130),
-    scrim = Color(0xFF000000)
-)
-
+// The two measurement accents. They were a pair of hardcoded cyans chosen by a
+// luminance test; each palette now defines its own, so they read correctly on
+// white and in Graphite Gold instead of staying cyan everywhere.
 private val AppCyan: Color
-    @Composable get() =
-        if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF35E0FF)
-        else Color(0xFF0A7C99)
+    @Composable get() = ghajarColors.info
 
 private val AppAqua: Color
-    @Composable get() =
-        if (MaterialTheme.colorScheme.background.luminance() < 0.5f) Color(0xFF2AE6FF)
-        else Color(0xFF067E9B)
+    @Composable get() = ghajarColors.highlight
 
 internal val LocalLang = compositionLocalOf { Lang.EN }
 
-private const val PAGE_SHOP = 0
-private const val PAGE_SSH = 1
-private const val PAGE_HOME = 2
-private const val PAGE_DEBUG = 3
-private const val PAGE_SETTINGS = 4
-private const val PAGE_COUNT = 5
+// Three tabs only. Declared in reading order, so under RTL the bar reads
+// خانه | فروشگاه | تنظیمات from the right. Home is index 0, which also makes
+// it the launch page and the target of every "back out of everything".
+// SSH and the debugger are not tabs any more - they live in Settings.
+private const val PAGE_HOME = 0
+private const val PAGE_SHOP = 1
+private const val PAGE_SETTINGS = 2
+private const val PAGE_COUNT = 3
 
 @Composable
 private fun stringsFn(): (String) -> String {
@@ -510,53 +404,20 @@ object WindscribeBrand {
     fun displayName(sub: Subscription, lang: Lang): String =
         if (lang == Lang.FA && isWindscribe(sub)) Strings.get(lang, "ws_title") else sub.name
 
-    internal val LightStops = listOf(
-        Color(0xFFC3D9F2),
-        Color(0xFFBFE2F5),
-        Color(0xFFC6EDF8)
-    )
+}
 
-    internal val DarkStops = listOf(
-        Color(0xFF1B2E4A),
-        Color(0xFF1B3D5C),
-        Color(0xFF1C4E6B)
-    )
-
-    internal val AmoledStops = listOf(
-        Color(0xFF0B1521),
-        Color(0xFF0C1F2E),
-        Color(0xFF0D2839)
-    )
-
-    internal val LightRow = Color(0xFFA9D2F4)
-    internal val DarkRow = Color(0xFF0C2138)
-    internal val AmoledRow = Color(0xFF0C2A48)
-
+// The Windscribe surfaces used to carry three hand-picked blue ramps chosen by
+// a luminance test on the old palette. They now derive from the active theme's
+// own card tones, so that screen belongs to the same design system as the rest
+// of the app instead of being the one page still wearing blue.
+@Composable
+private fun windscribeCardBrush(): Brush {
+    val c = ghajarColors
+    return Brush.linearGradient(listOf(c.card, c.secondaryCard, c.card))
 }
 
 @Composable
-private fun windscribeDark(): Boolean =
-    MaterialTheme.colorScheme.surface.luminance() < 0.5f
-
-@Composable
-private fun windscribeAmoled(): Boolean =
-    MaterialTheme.colorScheme.surface == Color(0xFF000000)
-
-@Composable
-private fun windscribeCardBrush(): Brush = Brush.linearGradient(
-    when {
-        windscribeAmoled() -> WindscribeBrand.AmoledStops
-        windscribeDark() -> WindscribeBrand.DarkStops
-        else -> WindscribeBrand.LightStops
-    }
-)
-
-@Composable
-private fun windscribeRowColor(): Color = when {
-    windscribeAmoled() -> WindscribeBrand.AmoledRow
-    windscribeDark() -> WindscribeBrand.DarkRow
-    else -> WindscribeBrand.LightRow
-}
+private fun windscribeRowColor(): Color = ghajarColors.secondaryCard
 
 
 object ImportBus {
@@ -572,6 +433,9 @@ object ImportBus {
 }
 
 class MainActivity : ComponentActivity() {
+    companion object {
+        const val EXTRA_RENEW_SERVICE_USERNAME = "ghajar_renew_service_username"
+    }
 
     private lateinit var store: ConfigStore
     private var afterPermission: (() -> Unit)? = null
@@ -603,6 +467,7 @@ class MainActivity : ComponentActivity() {
         GhajarOpenVpnBridge.initialize(applicationContext)
         GhajarLog.i("Startup", "phase: bridges registered")
         handleImportIntent(intent)
+        handleRenewIntent(intent)
         IkeController.bind(this)
         watchTunnel()
         GhajarLog.i("Startup", "phase: services bound")
@@ -636,36 +501,40 @@ class MainActivity : ComponentActivity() {
             }
         }
         setContent {
-            val themeMode by store.themeMode.collectAsState()
-            val dark = when (themeMode) {
-                ThemeMode.LIGHT -> false
-                ThemeMode.DARK, ThemeMode.AMOLED -> true
-                else -> isSystemInDarkTheme()
-            }
+            val uiTheme by store.uiTheme.collectAsState()
+            val systemDark = isSystemInDarkTheme()
+            val palette = ghajarPaletteFor(uiTheme, systemDark)
+            val dark = palette.dark
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             androidx.compose.runtime.SideEffect {
                 controller.isAppearanceLightStatusBars = !dark
                 controller.isAppearanceLightNavigationBars = !dark
+                // Driven by the active theme instead of two hardcoded colours,
+                // so the system bars match every palette, not just the old one.
                 @Suppress("DEPRECATION")
-                window.navigationBarColor = if (dark) 0xFF071B2E.toInt() else 0xFFEEF3FA.toInt()
+                window.navigationBarColor = palette.background.toArgb()
                 if (android.os.Build.VERSION.SDK_INT >= 29) window.isNavigationBarContrastEnforced = false
             }
             val lang by store.lang.collectAsState()
             val direction = if (lang == Lang.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
 
-            MaterialTheme(
-                colorScheme = if (!dark) GnetLightColors
-                else if (themeMode == ThemeMode.AMOLED) GnetAmoledColors
-                else GnetDarkColors,
+            val reduceMotion by store.reduceMotion.collectAsState()
+            val useDynamicAccent by store.dynamicAccent.collectAsState()
+            val listDensity by store.listDensity.collectAsState()
+
+            GhajarTheme(
+                theme = uiTheme,
                 typography = if (lang == Lang.FA) VazirTypography else LexendTypography,
-                shapes = GhajarSoftShapes
+                shapes = GhajarSoftShapes,
+                reduceMotion = reduceMotion,
+                useDynamicAccent = useDynamicAccent,
+                listDensity = listDensity
             ) {
                 CompositionLocalProvider(
                     LocalLang provides lang,
                     LocalLayoutDirection provides direction
                 ) {
                     var showWelcome by remember { mutableStateOf(true) }
-                    var startMain by remember { mutableStateOf(false) }
                     val pendingOvpn by GhajarOpenVpnBridge.pending.collectAsState()
                     LaunchedEffect(Unit) {
                         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
@@ -675,28 +544,24 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     }
-                    LaunchedEffect(Unit) {
-                        delay(1100)
-                        startMain = true
-                    }
                     Box {
-                        if (startMain) {
-                            GozarApp(
-                                store = store,
-                                onConnect = ::connectTo,
-                                onDisconnect = ::disconnect,
-                                onSwitch = ::switchTo,
-                                onCancelPick = ::cancelPick,
-                                onConnectOpenVpn = ::connectSavedOpenVpn,
-                                onDisconnectOpenVpn = ::disconnectOpenVpn,
-                                onTestOpenVpn = ::testSavedOpenVpn
-                            )
-                        }
-                        AnimatedVisibility(
-                            visible = showWelcome,
-                            exit = fadeOut(tween(400))
-                        ) {
-                            GhajarWelcomeScreen(onDone = { startMain = true; showWelcome = false })
+                        // The app composes from the first frame now. It used to
+                        // wait 1100ms behind the poster before it even started,
+                        // which made opening the app the slowest thing in it;
+                        // the intro is a 900ms overlay on a screen that is
+                        // already built and already interactive underneath.
+                        GozarApp(
+                            store = store,
+                            onConnect = ::connectTo,
+                            onDisconnect = ::disconnect,
+                            onSwitch = ::switchTo,
+                            onCancelPick = ::cancelPick,
+                            onConnectOpenVpn = ::connectSavedOpenVpn,
+                            onDisconnectOpenVpn = ::disconnectOpenVpn,
+                            onTestOpenVpn = ::testSavedOpenVpn
+                        )
+                        if (showWelcome) {
+                            GhajarIntro(onDone = { showWelcome = false })
                         }
                         pendingOvpn?.let { profile ->
                             var ovpnUser by remember(profile) { mutableStateOf(profile.embeddedUsername) }
@@ -752,6 +617,15 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         handleImportIntent(intent)
+        handleRenewIntent(intent)
+    }
+
+    /** Notification's "renew this service" action asks the store screen to open
+     * the renewal dialog for exactly that username. */
+    private fun handleRenewIntent(intent: Intent?) {
+        val username = intent?.getStringExtra(EXTRA_RENEW_SERVICE_USERNAME)?.takeIf { it.isNotBlank() } ?: return
+        intent.removeExtra(EXTRA_RENEW_SERVICE_USERNAME)
+        GhajarRenewRequest.request(username)
     }
 
     private fun handleImportIntent(intent: Intent?) {
@@ -974,8 +848,25 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectTo(config: ProxyConfig) {
-        val s = VpnState.state.value
-        if (s == Connection.CONNECTING || s == Connection.CONNECTED || s == Connection.DISCONNECTING) return
+        // Any request to connect to a specific server - the picker's play
+        // button, the home screen's main button, a quick-connect shortcut -
+        // makes that server the selection, exactly like tapping the row
+        // itself already does via ConfigPickerScreen's onSelect. This used
+        // to only happen for the row tap: connecting via the play button
+        // left the previous selection in store.selectedId untouched, so the
+        // home button (which always reads store.selectedId) reconnected to
+        // a stale, different server after the next disconnect.
+        store.setSelectedId(config.id)
+
+        when (ConnectDecision.resolve(VpnState.state.value, VpnState.activeId.value, config.id)) {
+            ConnectAction.IGNORE -> return
+            // Already on a tunnel to a different server: switch through the
+            // same disconnect-then-connect sequencing switchTo() already
+            // uses for a row tap while connected, instead of silently doing
+            // nothing.
+            ConnectAction.SWITCH -> { switchTo(config); return }
+            ConnectAction.CONNECT -> Unit
+        }
 
         if (!store.autoSelect.value) {
             launchConnect(config)
@@ -1157,12 +1048,22 @@ class MainActivity : ComponentActivity() {
         if (IkeController.active) IkeController.disconnect(this)
         val json = ConfigBuilder.build(config, store.fragment.value, store.splitRouting.value, store.sniffing.value, store.sniffTypes.value, mux = store.mux.value, muxConcurrency = store.muxConcurrency.value, adBlock = store.adBlock.value, fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
+            customDns = store.customDns.value,
+            youtubeDirect = store.youtubeDirect.value,
+            noiseSpec = store.noiseSpec.value,
+            fragmentPackets = store.fragmentPackets.value,
+            fragmentLength = store.fragmentLength.value,
+            fragmentInterval = store.fragmentInterval.value,
             torBase = if (config.protocol == "tor" && config.torBaseId.isNotEmpty())
                 store.configs.value.find { it.id == config.torBaseId } else null,
             chainBase = if (config.chainId.isNotEmpty())
                 store.configs.value.find { it.id == config.chainId } else null,
             onionRouting = store.onionRouting.value,
-            coreLogLevel = store.coreLogLevel.value)
+            coreLogLevel = store.coreLogLevel.value,
+            shareOnLan = store.vpnShareEnabled.value,
+            shareUser = if (store.vpnShareEnabled.value) store.ensureVpnShareCredential().first else "",
+            sharePass = store.vpnSharePassword.value,
+            shareListenAddress = if (store.vpnShareEnabled.value) hotspotInterfaceAddress() ?: "127.0.0.1" else "127.0.0.1")
         VpnState.setConnecting(config.id)
         val aether = AetherController.spec(config)
         val psiphon = PsiphonSpec.from(config)?.toJson()
@@ -1173,20 +1074,55 @@ class MainActivity : ComponentActivity() {
             store.onionRouting.value -> "|1"
             else -> null
         }
-        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon) }; vpnPermission.launch(intent) }
-        else startTunnel(json, config.name, aether, tor, psiphon)
+        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port) }; vpnPermission.launch(intent) }
+        else startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port)
     }
 
-    private fun startTunnel(configJson: String, name: String, aether: String, tor: String?, psiphon: String? = null) {
-        guardedConnect { androidx.core.content.ContextCompat.startForegroundService(this,
-            Intent(this, GozarVpnService::class.java)
-                .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
-                .putExtra(GozarVpnService.EXTRA_NAME, name)
-                .putExtra(GozarVpnService.EXTRA_AETHER, aether)
-                .putExtra(GozarVpnService.EXTRA_TOR, tor)
-                .putExtra(GozarVpnService.EXTRA_PSIPHON, psiphon)
-                .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
-        ) }
+    private fun startTunnel(
+        configJson: String, name: String, aether: String, tor: String?, psiphon: String? = null,
+        address: String = "", port: Int = 0, attempt: Int = 0
+    ) {
+        guardedConnect {
+            try {
+                androidx.core.content.ContextCompat.startForegroundService(this,
+                    Intent(this, GozarVpnService::class.java)
+                        .putExtra(GozarVpnService.EXTRA_CONFIG, configJson)
+                        .putExtra(GozarVpnService.EXTRA_NAME, name)
+                        .putExtra(GozarVpnService.EXTRA_AETHER, aether)
+                        .putExtra(GozarVpnService.EXTRA_TOR, tor)
+                        .putExtra(GozarVpnService.EXTRA_PSIPHON, psiphon)
+                        .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
+                        .putExtra(GozarVpnService.EXTRA_ADDRESS, address)
+                        .putExtra(GozarVpnService.EXTRA_PORT, port)
+                )
+            } catch (error: SecurityException) {
+                // "process is bad" is ActivityManager refusing to launch a
+                // process it flagged after repeated crashes. The old code here
+                // assumed the flag clears "within a second or two" and retried
+                // three times; the 2026-09-18 log disproves that - two separate
+                // connects, eight seconds apart, both refused. The flag lives
+                // until the app is force-stopped, updated or the device
+                // reboots, so retrying cannot clear it.
+                //
+                // The service no longer runs in its own :vpn process (see the
+                // manifest), so the process being started is the one the user
+                // just launched and cannot be in that state. This branch is now
+                // only a last resort: one retry for a genuinely transient
+                // refusal, then an error that says what to actually do.
+                val processBad = error.message?.contains("process is bad", ignoreCase = true) == true
+                GhajarLog.e("GhajarConnect", "service start refused: ${error.message}")
+                if (processBad && attempt < 1) {
+                    lifecycleScope.launch {
+                        delay(700L)
+                        startTunnel(configJson, name, aether, tor, psiphon, address, port, attempt + 1)
+                    }
+                } else if (processBad) {
+                    VpnState.setError(Strings.get(store.lang.value, "err_process_bad"))
+                } else {
+                    throw error
+                }
+            }
+        }
     }
 
     private fun startBlockOnly() {
@@ -1201,6 +1137,12 @@ class MainActivity : ComponentActivity() {
             directOnly = true,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
+            customDns = store.customDns.value,
+            youtubeDirect = store.youtubeDirect.value,
+            noiseSpec = store.noiseSpec.value,
+            fragmentPackets = store.fragmentPackets.value,
+            fragmentLength = store.fragmentLength.value,
+            fragmentInterval = store.fragmentInterval.value,
             coreLogLevel = store.coreLogLevel.value
         )
         startTunnel(json, Strings.get(store.lang.value, "adblock_notif"), "", null)
@@ -1265,12 +1207,7 @@ private fun GozarApp(
 ) {
     val t = stringsFn()
     val scope = rememberCoroutineScope()
-    val themeMode by store.themeMode.collectAsState()
-    val effectiveDark = when (themeMode) {
-        ThemeMode.LIGHT -> false
-        ThemeMode.DARK, ThemeMode.AMOLED -> true
-        else -> isSystemInDarkTheme()
-    }
+    val effectiveDark = ghajarColors.dark
     val pagerState = rememberPagerState(initialPage = PAGE_HOME, pageCount = { PAGE_COUNT })
     val settingsScroll = rememberScrollState()
 
@@ -1284,8 +1221,6 @@ private fun GozarApp(
     var showPsiphonHub by remember { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
     val updateCtx = LocalContext.current
-    val updateUri = LocalUriHandler.current
-    var updateAvailable by remember { mutableStateOf<UpdateChecker.Result.Available?>(null) }
     LaunchedEffect(Unit) {
         if (System.currentTimeMillis() - store.lastUpdateCheck() >= 24L * 60 * 60 * 1000L) {
             val ver = runCatching {
@@ -1293,21 +1228,11 @@ private fun GozarApp(
             }.getOrNull() ?: ""
             val r = UpdateChecker.check(ver)
             store.markUpdateChecked()
-            if (r is UpdateChecker.Result.Available) updateAvailable = r
+            if (r is UpdateChecker.Result.Available) GhajarUpdateFlow.offer(r)
         }
     }
-    updateAvailable?.let { upd ->
-        GlassDialog(
-            onDismiss = { updateAvailable = null },
-            title = t("update_available").format(upd.version),
-            confirmLabel = t("update_now"),
-            dismissLabel = t("later"),
-            onConfirm = {
-                runCatching { updateUri.openUri(upd.url) }
-                updateAvailable = null
-            }
-        ) {}
-    }
+    val pendingUpdate by GhajarUpdateFlow.available.collectAsState()
+    pendingUpdate?.let { upd -> UpdateFlowDialog(upd, onDismiss = { GhajarUpdateFlow.clear() }) }
     var usageDetail by remember { mutableStateOf(false) }
     var perAppDetail by remember { mutableStateOf(false) }
     var logsDetail by remember { mutableStateOf(false) }
@@ -1315,6 +1240,8 @@ private fun GozarApp(
     var aboutDetail by remember { mutableStateOf(false) }
     var themeDetail by remember { mutableStateOf(false) }
     var cleanIpDetail by remember { mutableStateOf(false) }
+    var dnsLabDetail by remember { mutableStateOf(false) }
+    var mapDetail by remember { mutableStateOf(false) }
     var netMonDetail by remember { mutableStateOf(false) }
     var netCatDetail by remember { mutableStateOf(false) }
     var netCatIndex by remember { mutableStateOf(-1) }
@@ -1322,6 +1249,10 @@ private fun GozarApp(
     var toolsDetail by remember { mutableStateOf(false) }
     var connDetail by remember { mutableStateOf(false) }
     var prefsDetail by remember { mutableStateOf(false) }
+    // Notification settings used to be buried inside the shop's third
+    // section. The brief puts notifications in categorized Settings, so they
+    // get a page of their own here.
+    var notifDetail by remember { mutableStateOf(false) }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
     val sortMode by store.sortMode.collectAsState()
     val selectedId by store.selectedId.collectAsState()
@@ -1329,7 +1260,7 @@ private fun GozarApp(
 
     LaunchedEffect(Unit) {
         store.awaitReady()
-        store.seedDefaultAetherIfNeeded()
+        store.removeLegacyDefaultAetherSeed()
         while (true) {
             SubscriptionRefresher.refreshStale(store)
             delay(30 * 60 * 1000L)
@@ -1437,13 +1368,16 @@ private fun GozarApp(
     }
 
     var sshSubScreen by remember { mutableStateOf(false) }
+    // SSH and the debugger moved out of the tab bar into Settings; they keep
+    // their own screens and every capability, just reached from there.
+    var sshDetail by remember { mutableStateOf(false) }
+    var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_SSH && sshSubScreen) || (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail))
+    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
-        page == PAGE_SSH -> "ssh"
         page == PAGE_HOME && exportConfigs != null -> "export"
         page == PAGE_HOME && showManual -> "manual"
         page == PAGE_HOME && showTorNodes -> "tornodes"
@@ -1454,7 +1388,8 @@ private fun GozarApp(
         page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
         page == PAGE_HOME -> "connection"
-        page == PAGE_DEBUG -> "debugger"
+        onSettingsTab && sshDetail -> "ssh"
+        onSettingsTab && debugDetail -> "debugger"
         onSettingsTab && usageDetail -> "usage"
         onSettingsTab && perAppDetail -> "perapp"
         onSettingsTab && logsDetail -> "logs"
@@ -1462,12 +1397,15 @@ private fun GozarApp(
         onSettingsTab && aboutDetail -> "about"
         onSettingsTab && themeDetail -> "theme"
         onSettingsTab && cleanIpDetail -> "cleanip"
+        onSettingsTab && dnsLabDetail -> "dnslab"
+        onSettingsTab && mapDetail -> "map"
         onSettingsTab && checkHostDetail -> "checkhost"
         onSettingsTab && netCatIndex >= 0 -> "netcatone"
         onSettingsTab && netCatDetail -> "netcat"
         onSettingsTab && netMonDetail -> "netmon"
         onSettingsTab && toolsDetail -> "tools"
         onSettingsTab && connDetail -> "connection_settings"
+        onSettingsTab && notifDetail -> "notifications"
         onSettingsTab && prefsDetail -> "preferences"
         else -> "settings"
     }
@@ -1490,14 +1428,20 @@ private fun GozarApp(
             aboutDetail -> aboutDetail = false
             themeDetail -> themeDetail = false
             cleanIpDetail -> cleanIpDetail = false
+            dnsLabDetail -> dnsLabDetail = false
+            mapDetail -> mapDetail = false
             checkHostDetail -> checkHostDetail = false
             netCatIndex >= 0 -> netCatIndex = -1
             netCatDetail -> netCatDetail = false
             netMonDetail -> netMonDetail = false
             toolsDetail -> toolsDetail = false
             connDetail -> connDetail = false
+            notifDetail -> notifDetail = false
             prefsDetail -> prefsDetail = false
-            page == PAGE_SSH && sshSubScreen -> Unit
+            // SSH owns its own inner navigation; let it handle its own back.
+            sshDetail && sshSubScreen -> Unit
+            sshDetail -> sshDetail = false
+            debugDetail -> debugDetail = false
             page != PAGE_HOME -> scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
         }
     }
@@ -1519,11 +1463,14 @@ private fun GozarApp(
     val contentAlpha = 1f - backProgress * 0.25f
 
     val gradBg = MaterialTheme.colorScheme.background
+    // The canvas wash follows the theme's brand tone; it used to be a fixed
+    // blue, which is why every theme still had a blue cast at the top.
+    val gradAccent = ghajarColors.primary
     val gradDark = gradBg.luminance() < 0.5f
-    val gradient = remember(gradBg, gradDark) {
+    val gradient = remember(gradBg, gradAccent, gradDark) {
         if (gradDark) Brush.verticalGradient(
-            0f to lerp(gradBg, Color(0xFF6D9BEE), 0.12f),
-            0.45f to lerp(gradBg, Color(0xFF6D9BEE), 0.05f),
+            0f to lerp(gradBg, gradAccent, 0.12f),
+            0.45f to lerp(gradBg, gradAccent, 0.05f),
             1f to gradBg
         ) else SolidColor(gradBg)
     }
@@ -1535,6 +1482,16 @@ private fun GozarApp(
         topBar = {
             Column {
             CenterAlignedTopAppBar(
+                // The bar paints nothing of its own: the Scaffold's canvas wash
+                // shows straight through, so the header and the page under it
+                // are one continuous tone instead of two stacked panels.
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = Color.Transparent,
+                    titleContentColor = MaterialTheme.colorScheme.onBackground,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onBackground,
+                    actionIconContentColor = MaterialTheme.colorScheme.onBackground
+                ),
                 title = {
                     if (screenKey == "connection") {
                         GhajarWordmark(Modifier.height(48.dp).width(164.dp))
@@ -1591,6 +1548,8 @@ private fun GozarApp(
                         "about" -> BounceIconButton(onClick = { aboutDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "theme" -> BounceIconButton(onClick = { themeDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "cleanip" -> BounceIconButton(onClick = { cleanIpDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "dnslab" -> BounceIconButton(onClick = { dnsLabDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "map" -> BounceIconButton(onClick = { mapDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netmon" -> BounceIconButton(onClick = { netMonDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netcat" -> BounceIconButton(onClick = { netCatDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "checkhost" -> BounceIconButton(onClick = { checkHostDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1602,20 +1561,15 @@ private fun GozarApp(
                 },
                 actions = {
                     BounceIconButton(onClick = {
-                        store.setThemeMode(when (themeMode) {
-                            ThemeMode.LIGHT -> ThemeMode.DARK
-                            ThemeMode.DARK -> ThemeMode.AMOLED
-                            ThemeMode.AMOLED -> ThemeMode.LIGHT
-                            else -> if (effectiveDark) ThemeMode.LIGHT else ThemeMode.DARK
-                        })
+                        // Quick light/dark flip within the brand identity; the
+                        // full theme list lives in Settings -> Appearance.
+                        store.setUiTheme(
+                            if (effectiveDark) GhajarThemeId.PREMIUM_GREEN_LIGHT
+                            else GhajarThemeId.PREMIUM_GREEN_DARK
+                        )
                     }) {
                         Icon(
-                            when (themeMode) {
-                                ThemeMode.LIGHT -> Icons.Filled.LightMode
-                                ThemeMode.AMOLED -> Icons.Filled.Contrast
-                                ThemeMode.DARK -> Icons.Filled.DarkMode
-                                else -> if (effectiveDark) Icons.Filled.DarkMode else Icons.Filled.LightMode
-                            },
+                            if (effectiveDark) Icons.Filled.LightMode else Icons.Filled.DarkMode,
                             contentDescription = "Toggle theme"
                         )
                     }
@@ -1625,42 +1579,21 @@ private fun GozarApp(
             }
         },
         bottomBar = {
-            NavigationBar(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
-                    .clip(RoundedCornerShape(28.dp)),
-                containerColor = MaterialTheme.colorScheme.surface,
-                tonalElevation = 3.dp
-            ) {
-                NavigationBarItem(
-                    selected = page == PAGE_SHOP,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_shop), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("shop")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_SSH,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_SSH) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_tunnel), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("ssh")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_HOME,
-                    onClick = {
-                        showPicker = false; showManual = false; showProjects = false; showTorNodes = false; showWindscribe = false; editingConfig = null
+            // A floating capsule with one filled indicator that slides between
+            // the three destinations. Same three destinations, same reset
+            // behaviour on tap.
+            SkinNavBar(
+                selected = page,
+                items = listOf(
+                    SkinNavItem(R.drawable.ic_royal_home, t("home")) {
+                        showPicker = false; showManual = false; showProjects = false
+                        showTorNodes = false; showWindscribe = false; editingConfig = null
                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
                     },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_home), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("home")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_DEBUG,
-                    onClick = { scope.launch { pagerState.animateScrollToPage(PAGE_DEBUG) } },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_tools), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("debugger")) }
-                )
-                NavigationBarItem(
-                    selected = page == PAGE_SETTINGS,
-                    onClick = {
+                    SkinNavItem(R.drawable.ic_royal_shop, t("shop")) {
+                        scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
+                    },
+                    SkinNavItem(R.drawable.ic_royal_settings, t("settings")) {
                         usageDetail = false
                         perAppDetail = false
                         logsDetail = false
@@ -1668,6 +1601,8 @@ private fun GozarApp(
                         aboutDetail = false
                         themeDetail = false
                         cleanIpDetail = false
+                        dnsLabDetail = false
+                        mapDetail = false
                         netMonDetail = false
                         netCatDetail = false
                         netCatIndex = -1
@@ -1675,12 +1610,13 @@ private fun GozarApp(
                         toolsDetail = false
                         connDetail = false
                         prefsDetail = false
+                        sshDetail = false
+                        debugDetail = false
+                        notifDetail = false
                         scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
-                    },
-                    icon = { Icon(painterResource(R.drawable.ic_royal_settings), contentDescription = null, modifier = Modifier.size(28.dp)) },
-                    label = { Text(t("settings")) }
+                    }
                 )
-            }
+            )
         }
     ) { padding ->
         val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
@@ -1703,11 +1639,6 @@ private fun GozarApp(
         ) { p ->
             if (p == PAGE_SHOP) {
                 GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
-            } else if (p == PAGE_SSH) {
-                SshScreen(
-                    store = SshStore.get(LocalContext.current),
-                    onSubScreenChange = { sshSubScreen = it }
-                )
             } else if (p == PAGE_HOME) {
                 val connKey = when {
                     exportConfigs != null -> "export"
@@ -1765,7 +1696,17 @@ private fun GozarApp(
                             onPsiphonHub = { showPsiphonHub = true },
                             onConnectOpenVpn = onConnectOpenVpn,
                             onDisconnectOpenVpn = onDisconnectOpenVpn,
-                            onTestOpenVpn = onTestOpenVpn
+                            onTestOpenVpn = onTestOpenVpn,
+                            onConnect = onConnect,
+                            onDisconnect = onDisconnect,
+                            // A subscription delivered by the shop or the bot
+                            // can be renewed; the shop already listens for the
+                            // request, the servers list just never made one.
+                            onRenewService = { username ->
+                                GhajarRenewRequest.request(username)
+                                showPicker = false
+                                scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
+                            }
                         )
                         "openvpnhub" -> OpenVpnHubScreen(
                             onConnect = onConnectOpenVpn,
@@ -1799,14 +1740,10 @@ private fun GozarApp(
                         )
                     }
                 }
-            } else if (p == PAGE_DEBUG) {
-                ConfigDebuggerScreen(
-                    store = store,
-                    onSwitch = onSwitch,
-                    active = pagerState.settledPage == 2 && !pagerState.isScrollInProgress
-                )
             } else {
                 val setKey = when {
+                    sshDetail -> "ssh"
+                    debugDetail -> "debugger"
                     usageDetail -> "usage"
                     perAppDetail -> "perapp"
                     logsDetail -> "logs"
@@ -1814,12 +1751,15 @@ private fun GozarApp(
                     aboutDetail -> "about"
                     themeDetail -> "theme"
                     cleanIpDetail -> "cleanip"
+                    dnsLabDetail -> "dnslab"
+                    mapDetail -> "map"
                     checkHostDetail -> "checkhost"
                     netCatIndex >= 0 -> "netcatone"
                     netCatDetail -> "netcat"
                     netMonDetail -> "netmon"
                     toolsDetail -> "tools"
                     connDetail -> "connection_settings"
+                    notifDetail -> "notifications"
                     prefsDetail -> "preferences"
                     else -> "settings"
                 }
@@ -1837,6 +1777,15 @@ private fun GozarApp(
                     label = "setTab"
                 ) { key ->
                     when (key) {
+                        "ssh" -> SshScreen(
+                            store = SshStore.get(LocalContext.current),
+                            onSubScreenChange = { sshSubScreen = it }
+                        )
+                        "debugger" -> ConfigDebuggerScreen(
+                            store = store,
+                            onSwitch = onSwitch,
+                            active = pagerState.settledPage == PAGE_SETTINGS && !pagerState.isScrollInProgress
+                        )
                         "usage" -> DataUsageScreen()
                         "perapp" -> AppProxyScreen(store = store)
                         "logs" -> LogsScreen(store = store)
@@ -1848,11 +1797,16 @@ private fun GozarApp(
                         "netcat" -> NetCategoriesScreen(onOpen = { netCatIndex = it })
                         "checkhost" -> CheckHostScreen()
                         "netcatone" -> NetCategoryScreen(index = netCatIndex)
+                        "dnslab" -> DnsLabScreen(store = store)
+                        "map" -> GhajarMapScreen()
                         "tools" -> ToolsScreen(
                             store = store,
                             onOpenCheckHost = { checkHostDetail = true },
                             onOpenStability = { stabilityDetail = true },
-                            onOpenCleanIp = { cleanIpDetail = true }
+                            onOpenCleanIp = { cleanIpDetail = true },
+                            onOpenDnsLab = { dnsLabDetail = true },
+                            onOpenMap = { mapDetail = true },
+                            onSwitch = onSwitch
                         )
                         "connection_settings" -> ConnectionSettingsScreen(
                             store = store,
@@ -1861,11 +1815,15 @@ private fun GozarApp(
                         )
                         "preferences" -> PreferencesScreen(
                             store = store,
-                            onOpenTheme = { themeDetail = true }
+                            onOpenTheme = { themeDetail = true },
+                            onOpenNotifications = { notifDetail = true }
                         )
+                        "notifications" -> NotificationSettingsScreen()
                         else -> SettingsScreen(
                             store = store,
                             scrollState = settingsScroll,
+                            onOpenSsh = { sshDetail = true },
+                            onOpenDebugger = { debugDetail = true },
                             onOpenUsage = { usageDetail = true },
                             onOpenTools = { toolsDetail = true },
                             onOpenConnection = { connDetail = true },
@@ -1879,8 +1837,6 @@ private fun GozarApp(
         }
     }
 }
-
-private const val PICKING_LABEL = "__picking__"
 
 @Composable
 fun SecureWhile(active: Boolean, key: String) {
@@ -1903,6 +1859,7 @@ private fun ConnectionScreen(
     val t = stringsFn()
     val lang = LocalLang.current
     val n: (String) -> String = { localizeDigits(it, lang) }
+    val context = LocalContext.current
     val configs by store.configs.collectAsState()
     val conn by VpnState.state.collectAsState()
     val activeCfgId by VpnState.activeId.collectAsState()
@@ -1943,12 +1900,30 @@ private fun ConnectionScreen(
     var downSpeed by remember { mutableStateOf(0L) }
     var delayResult by remember { mutableStateOf<String?>(null) }
     var delayRunning by remember { mutableStateOf(false) }
+    var showDoctor by remember { mutableStateOf(false) }
+
+    // OpenVPN owns the tunnel whenever the active id carries its prefix. Its
+    // engine is a separate process that never broadcasts to VpnBridge, so a
+    // session showed live traffic in its own notification and a flat zero here.
+    val ovpnActiveUuid by GhajarOpenVpnBridge.activeUuid.collectAsState()
+    val ovpnCounters by GhajarOpenVpnBridge.counters.collectAsState()
+    val onOpenVpn = activeCfgId.orEmpty().startsWith("ovpn:")
+    val ovpnProfile = remember(ovpnActiveUuid, conn) {
+        ovpnActiveUuid?.let { uuid ->
+            runCatching { GhajarOpenVpnBridge.profiles(context).find { it.uuid == uuid } }.getOrNull()
+        }
+    }
 
     LaunchedEffect(Unit) {
         VpnBridge.counters.collect { c ->
             totalUp = c.totalUp; totalDown = c.totalDown
             upSpeed = c.upSpeed; downSpeed = c.downSpeed
         }
+    }
+    LaunchedEffect(onOpenVpn, ovpnCounters) {
+        if (!onOpenVpn) return@LaunchedEffect
+        totalUp = ovpnCounters.totalUp; totalDown = ovpnCounters.totalDown
+        upSpeed = ovpnCounters.upSpeed; downSpeed = ovpnCounters.downSpeed
     }
     LaunchedEffect(conn) {
         if (conn != Connection.CONNECTED) delayResult = null
@@ -1957,193 +1932,337 @@ private fun ConnectionScreen(
     val selectedConfig = configs.find { it.id == selectedId }
     val connected = conn == Connection.CONNECTED || conn == Connection.CONNECTING
 
-    val hazeState = remember { HazeState() }
-    Box(modifier.fillMaxSize()) {
-        CompositionLocalProvider(LocalHazeState provides hazeState) {
-            Column(
-                Modifier.fillMaxSize().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
-            ) {
-                GhajarSelectedServerCard(selectedConfig, conn, onOpenPicker)
+    val connectedAt by VpnState.connectedAt.collectAsState()
+    val activeConfig = configs.find { it.id == activeCfgId } ?: selectedConfig
+    val netOffline = rememberInternetOffline()
+    val alive by TunnelHealth.alive.collectAsState()
+    val deadTunnel = conn == Connection.CONNECTED && alive == false
+    // A tap does something when a tunnel is up (disconnect) or when a server is
+    // selected (connect); cancelling an auto-pick is handled on its own.
+    val canAct = conn != Connection.DISCONNECTING && (connected || selectedConfig != null)
+    val c = ghajarColors
 
-                var btnPressed by remember { mutableStateOf(false) }
-                val glowActive = !connected && selectedConfig != null && !btnPressed
-                val glowAlpha by animateFloatAsState(
-                    targetValue = if (glowActive) 1f else 0f,
-                    animationSpec = tween(300),
-                    label = "glowAlpha"
+    // One column centred on the connect control. It scrolls only when it must
+    // - a short screen, or a large system font - so the orb stays centred
+    // everywhere else and nothing is ever clipped.
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val floor = maxHeight
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .heightIn(min = floor)
+                .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            ConnectOrb(
+                state = conn,
+                picking = picking,
+                enabled = canAct,
+                tunnelDead = deadTunnel,
+                netOffline = netOffline,
+                onClick = {
+                    when {
+                        picking -> onCancelPick()
+                        connected -> onDisconnect()
+                        else -> selectedConfig?.let { onConnect(it) }
+                    }
+                },
+                // Long press on a live tunnel redials the same server. The
+                // OpenVPN path has no ProxyConfig to hand back, so it drops the
+                // tunnel and the engine's own reconnect takes it from there.
+                onReconnect = {
+                    when {
+                        onOpenVpn -> onDisconnect()
+                        else -> activeConfig?.let { onConnect(it) } ?: onDisconnect()
+                    }
+                }
+            )
+
+            SessionLine(connectedAt.takeIf { it > 0L }, conn)
+
+            // A gesture nobody is told about does not exist.
+            if (conn == Connection.CONNECTED) {
+                Text(
+                    t("orb_hold_reconnect"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textMuted,
+                    textAlign = TextAlign.Center
                 )
-                Box(
-                    Modifier
-                        .fillMaxWidth()
-                        .height(64.dp)
-                        .pointerInput(Unit) {
-                            awaitEachGesture {
-                                awaitFirstDown(requireUnconsumed = false)
-                                btnPressed = true
-                                waitForUpOrCancellation()
-                                btnPressed = false
-                            }
+            }
+
+            // The route: one slab, one row, one tap to the picker. Locked
+            // configs never reveal their endpoint and the built-in engines have
+            // none, exactly as before.
+            Slab(spacing = 0.dp) {
+                // While OpenVPN owns the tunnel, the route is that profile -
+                // not whichever Xray config happens to still be selected. The
+                // active id is "ovpn:<uuid>", which is never in `configs`, so
+                // this row used to fall back to the selection and name a server
+                // that was not carrying a single byte.
+                val routeSubtitle = when {
+                    onOpenVpn -> ovpnProfile?.let { p ->
+                        "OPENVPN · ⁦${p.host}:${p.port}⁩"
+                    } ?: "OPENVPN"
+                    else -> selectedConfig?.let { cfg ->
+                        val engine = cfg.protocol.uppercase(java.util.Locale.ROOT)
+                        val endpoint = when {
+                            cfg.locked -> t("locked_endpoint")
+                            cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
+                            else -> "⁦${cfg.address}:${cfg.port}⁩"
                         }
-                ) {
-                    val netOffline = rememberInternetOffline()
-                    val alive by TunnelHealth.alive.collectAsState()
-                    val deadTunnel = conn == Connection.CONNECTED && alive == false
-                    val stateTint by animateColorAsState(
-                        when {
-                            netOffline || deadTunnel -> Color(0xFFE0413C)
-                            conn == Connection.CONNECTING -> Color(0xFFFFA94D)
-                            connected -> AppGreen
-                            else -> MaterialTheme.colorScheme.primary
-                        },
-                        tween(450),
-                        label = "connTint"
+                        "$engine · $endpoint"
+                    } ?: t("home_openvpn_hint")
+                }
+                SlabRow(
+                    title = when {
+                        onOpenVpn -> ovpnProfile?.name?.let(BrandConfig::sanitizePublicText)
+                            ?: "OpenVPN"
+                        else -> selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
+                            ?: t("hub_no_server")
+                    },
+                    subtitle = routeSubtitle,
+                    icon = if (onOpenVpn) Icons.Filled.Security else Icons.Filled.Shield,
+                    accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
+                    chevron = true,
+                    onClick = onOpenPicker
+                )
+            }
+
+            // Throughput: one object, two readings, totals underneath.
+            val downParts = formatBytesParts(downSpeed, lang)
+            val upParts = formatBytesParts(upSpeed, lang)
+            StatStrip(
+                listOf(
+                    StatCell(
+                        label = t("download"),
+                        value = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
+                        accent = c.info,
+                        sub = t("home_total").format(formatBytes(totalDown, lang))
+                    ),
+                    StatCell(
+                        label = t("upload"),
+                        value = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
+                        accent = c.premium,
+                        sub = t("home_total").format(formatBytes(totalUp, lang))
                     )
-                    val enabled = conn != Connection.DISCONNECTING && (connected || selectedConfig != null)
-                    val press by animateFloatAsState(
-                        if (btnPressed && enabled) 0.97f else 1f,
-                        tween(140, easing = FastOutSlowInEasing),
-                        label = "connPress"
-                    )
-                    Box(
-                        Modifier.matchParentSize()
-                            .graphicsLayer { scaleX = press; scaleY = press }
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(
-                                Brush.horizontalGradient(
-                                    listOf(
-                                        stateTint.copy(alpha = 0.18f),
-                                        stateTint.copy(alpha = 0.30f),
-                                        stateTint.copy(alpha = 0.18f)
-                                    )
-                                )
-                            )
-                            .border(1.6.dp, stateTint.copy(alpha = 0.70f), RoundedCornerShape(20.dp))
-                            .clickable(enabled = enabled || picking) {
-                                when {
-                                    picking -> onCancelPick()
-                                    connected -> onDisconnect()
-                                    else -> selectedConfig?.let { onConnect(it) }
-                                }
-                            },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        ConnectSweep(
-                            color = stateTint,
-                            active = conn == Connection.CONNECTING,
-                            modifier = Modifier.matchParentSize()
-                        )
-                        AnimatedContent(
-                            targetState = if (picking) PICKING_LABEL else conn.name,
-                            transitionSpec = {
-                                (slideInVertically(tween(340, easing = FastOutSlowInEasing)) { it / 2 } +
-                                        fadeIn(tween(340))) togetherWith
-                                        (slideOutVertically(tween(340, easing = FastOutSlowInEasing)) { -it / 2 } +
-                                                fadeOut(tween(200)))
-                            },
-                            label = "connLabel",
-                            modifier = Modifier.fillMaxSize()
-                        ) { key ->
-                            val isPicking = key == PICKING_LABEL
-                            val spinning = isPicking || key == Connection.CONNECTING.name
-                            val spin by rememberInfiniteTransition(label = "connSpin")
-                                .animateFloat(
-                                    initialValue = 0f,
-                                    targetValue = 360f,
-                                    animationSpec = infiniteRepeatable(
-                                        tween(900, easing = LinearEasing),
-                                        RepeatMode.Restart
-                                    ),
-                                    label = "connSpinAngle"
-                                )
-                            Row(
-                                Modifier.fillMaxSize(),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    when {
-                                        isPicking -> Icons.Filled.Autorenew
-                                        key == Connection.CONNECTING.name -> Icons.Filled.Autorenew
-                                        key == Connection.CONNECTED.name -> Icons.Filled.PowerSettingsNew
-                                        else -> Icons.Filled.Bolt
-                                    },
-                                    contentDescription = null,
-                                    tint = stateTint,
-                                    modifier = Modifier
-                                        .size(22.dp)
-                                        .graphicsLayer { rotationZ = if (spinning) spin else 0f }
-                                )
-                                Spacer(Modifier.width(10.dp))
-                                Text(
-                                    when {
-                                        isPicking -> t("finding_fastest")
-                                        key == Connection.CONNECTING.name -> t("connecting_cancel")
-                                        key == Connection.CONNECTED.name -> t("disconnect")
-                                        else -> t("connect")
-                                    },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.Bold,
-                                    color = stateTint,
-                                    maxLines = 1,
-                                    softWrap = false
-                                )
+                )
+            )
+
+            // Measured facts. The latency row doubles as the real-delay test:
+            // tapping it replaces the passive handshake reading with a measured
+            // one, so there is a single row about latency, not two.
+            ConnectionFacts(
+                state = conn,
+                serverAddress = if (onOpenVpn) ovpnProfile?.host else activeConfig?.address,
+                serverPort = if (onOpenVpn) ovpnProfile?.port else activeConfig?.port,
+                // ics-openvpn routes the whole device, so a plain request is
+                // already inside the tunnel. Asking through 127.0.0.1:MixedPort
+                // would reach an inbound only the Xray engine publishes, which
+                // is why the IP and location rows sat on a dash for an OpenVPN
+                // session that was carrying traffic perfectly well.
+                throughLocalProxy = !onOpenVpn,
+                measuredDelay = delayResult,
+                delayRunning = delayRunning,
+                onMeasureDelay = {
+                    delayRunning = true
+                    delayResult = null
+                    scope.launch {
+                        // SpeedTest.delay() measures through gozarcore, which
+                        // has no part in an OpenVPN session; that path gets a
+                        // real TCP handshake against the profile's endpoint.
+                        val ms: Int? = if (onOpenVpn) {
+                            ovpnProfile?.let { p ->
+                                (Pinger.ping(p.host, p.port) as? PingResult.Ok)?.ms
                             }
-                        }
+                        } else SpeedTest.delay()
+                        delayResult =
+                            if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
+                        delayRunning = false
                     }
                 }
+            )
 
-                AnimatedVisibility(
-                    visible = conn == Connection.CONNECTED,
-                    enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-                    exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
-                ) {
-                    Row(
-                        Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        StatBox(
-                            speed = downSpeed,
-                            total = totalDown,
-                            icon = Icons.Filled.ArrowDownward,
-                            color = Color(0xFF35E0FF),
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatBox(
-                            speed = upSpeed,
-                            total = totalUp,
-                            icon = Icons.Filled.ArrowUpward,
-                            color = Color(0xFFD6B25E),
-                            modifier = Modifier.weight(1f)
-                        )
-                        BounceOutlinedButton(
-                            onClick = {
-                                delayRunning = true; delayResult = null
-                                scope.launch {
-                                    val ms = SpeedTest.delay()
-                                    delayResult = if (ms != null) "${localizeDigits("$ms", lang)} ${t("unit_ms")}" else t("delay_failed")
-                                    delayRunning = false
-                                }
-                            },
-                            enabled = !delayRunning,
-                            minHeight = 44.dp,
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
-                        ) {
-                            when {
-                                delayRunning -> Text("…", style = MaterialTheme.typography.labelLarge)
-                                delayResult != null -> Text(delayResult!!, style = MaterialTheme.typography.labelMedium, maxLines = 1)
-                                else -> Icon(Icons.Filled.NetworkCheck, contentDescription = t("real_delay"), modifier = Modifier.size(20.dp))
-                            }
-                        }
-                    }
-                }
+            // A failure the user can act on. The engine's message is whatever it
+            // happened to produce; the diagnose button is how that becomes a
+            // cause and a remedy instead of a sentence to screenshot.
+            val faulted = error?.takeIf { it.isNotBlank() && conn != Connection.CONNECTED }
+            if (faulted != null) {
+                SkinError(
+                    faulted,
+                    retryText = t("doc_action"),
+                    onRetry = { showDoctor = true }
+                )
+            } else if (deadTunnel) {
+                // Connected, carrying nothing, and no error string exists to
+                // explain it - the case the diagnosis is most useful for.
+                GhostPill(t("doc_action"), onClick = { showDoctor = true })
+            }
+        }
+    }
 
-                val globeStyle by store.globeStyle.collectAsState()
-                if (globeStyle == "dots") {
-                    DotGlobeSection(Modifier.weight(1f).fillMaxWidth())
+    if (showDoctor) {
+        ConnectDoctorDialog(
+            config = activeConfig,
+            ovpnProfile = if (onOpenVpn) ovpnProfile else null,
+            engineError = error,
+            tunnelUp = conn == Connection.CONNECTED,
+            onDismiss = { showDoctor = false }
+        )
+    }
+}
+
+/**
+ * The three readings above the server list: how many configs there are, how
+ * many answered their ping, and the best time seen.
+ *
+ * It is its own composable for one reason: `pings` is a SnapshotStateMap, and
+ * whichever composition reads its entries is subscribed to all of them. Read
+ * from the screen body, a single ping result recomposed the whole picker; read
+ * here, it recomposes three cells. derivedStateOf narrows it further - the
+ * numbers only change a handful of times during a full test, so most of the
+ * writes invalidate nothing at all.
+ */
+@Composable
+private fun PickerStatsStrip(
+    configs: List<ProxyConfig>,
+    pings: SnapshotStateMap<String, PingResult>
+) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val c = ghajarColors
+    val answered by remember(configs) {
+        derivedStateOf { configs.count { pings[it.id] is PingResult.Ok } }
+    }
+    val bestMs by remember(configs) {
+        derivedStateOf {
+            configs.mapNotNull { (pings[it.id] as? PingResult.Ok)?.ms }.minOrNull()
+        }
+    }
+    StatStrip(
+        listOf(
+            StatCell(t("count_configs"), localizeDigits("${configs.size}", lang), c.primary),
+            StatCell(
+                t("picker_answered"),
+                localizeDigits("$answered", lang),
+                if (answered > 0) c.good else c.textMuted
+            ),
+            StatCell(
+                t("picker_best"),
+                bestMs?.let { localizeDigits("$it", lang) + " " + t("unit_ms") } ?: "—",
+                c.highlight
+            )
+        )
+    )
+}
+
+
+/**
+ * The card above the server list that flies the tunnel for you.
+ *
+ * Deliberately one card and not a switch in Settings: the question it answers
+ * - "which of these thirty works right now" - is asked while looking at the
+ * list, and an answer two screens away is an answer nobody reaches.
+ *
+ * Every state it can be in says something true and specific. It never says
+ * connected while measuring, and it never claims a server it did not pick:
+ * the phase comes from ServerAutoPilot, which only reports Engaged once the
+ * tunnel is actually up.
+ */
+@Composable
+private fun AutoPilotCard(
+    engaged: Boolean,
+    phase: AutoPilotPhase,
+    candidateCount: Int,
+    onEngage: () -> Unit,
+    onDisengage: () -> Unit
+) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val n: (String) -> String = { localizeDigits(it, lang) }
+    val c = ghajarColors
+    if (candidateCount == 0) return
+
+    val accent = when (phase) {
+        is AutoPilotPhase.Engaged -> c.good
+        is AutoPilotPhase.Failed -> c.error
+        is AutoPilotPhase.Measuring, is AutoPilotPhase.Connecting -> c.highlight
+        AutoPilotPhase.Off -> c.primary
+    }
+    val subtitle = when (phase) {
+        is AutoPilotPhase.Measuring ->
+            t("autopilot_measuring").format(n("${phase.done}"), n("${phase.total}"))
+        is AutoPilotPhase.Connecting ->
+            t("autopilot_connecting").format(phase.name)
+        is AutoPilotPhase.Engaged ->
+            t("autopilot_engaged_on").format(phase.name, n("${phase.ms}"))
+        is AutoPilotPhase.Failed -> t(phase.reasonKey)
+        AutoPilotPhase.Off -> t("autopilot_sub").format(n("$candidateCount"))
+    }
+    val busy = phase is AutoPilotPhase.Measuring || phase is AutoPilotPhase.Connecting
+
+    Slab(accent = accent, spacing = GhajarSpacing.sm) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+        ) {
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        color = accent,
+                        modifier = Modifier.size(20.dp)
+                    )
                 } else {
-                    EarthSection(Modifier.weight(1f).fillMaxWidth())
+                    Icon(
+                        Icons.Filled.Bolt,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    mixedText(t("autopilot_title")),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = c.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    mixedText(subtitle),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (phase is AutoPilotPhase.Failed) c.error else c.textSecondary,
+                    maxLines = 3
+                )
+            }
+            // One control, and it is the one the current state needs. An
+            // "engage" button that is live while already engaged is how a user
+            // ends up re-measuring a working tunnel by accident.
+            if (engaged) {
+                BounceOutlinedButton(
+                    onClick = onDisengage,
+                    minHeight = 38.dp,
+                    contentPadding = PaddingValues(horizontal = 14.dp)
+                ) {
+                    Text(t("autopilot_release"), style = MaterialTheme.typography.labelMedium)
+                }
+            } else {
+                BounceButton(onClick = onEngage, enabled = !busy) {
+                    Text(t("autopilot_go"), style = MaterialTheme.typography.labelMedium)
                 }
             }
         }
@@ -2169,6 +2288,10 @@ private fun ConfigPickerScreen(
     onConnectOpenVpn: (String) -> Unit = {},
     onDisconnectOpenVpn: () -> Unit = {},
     onTestOpenVpn: (String) -> Unit = {},
+    onConnect: (ProxyConfig) -> Unit = {},
+    onDisconnect: () -> Unit = {},
+    /** Opens the shop on this panel service's renewal. */
+    onRenewService: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -2177,6 +2300,15 @@ private fun ConfigPickerScreen(
     val configs by store.configs.collectAsState()
     val subscriptions by store.subscriptions.collectAsState()
     val activeId by VpnState.activeId.collectAsState()
+    val conn by VpnState.state.collectAsState()
+    fun toggleConnection(cfg: ProxyConfig) {
+        // Tapping a server by hand is the user taking the choice back. Leaving
+        // the autopilot engaged here would let its failover loop move the
+        // tunnel off the server they just picked, some seconds later, with no
+        // explanation on screen.
+        if (store.autoPilot.value) ServerAutoPilot.disengage(store)
+        if (cfg.id == activeId && conn != Connection.DISCONNECTED) onDisconnect() else onConnect(cfg)
+    }
     val clipboard = LocalClipboardManager.current
     val pickerContext = LocalContext.current
     val pickerScope = rememberCoroutineScope()
@@ -2196,6 +2328,28 @@ private fun ConfigPickerScreen(
     }
 
     var subStatus by remember { mutableStateOf("") }
+
+    // Reading a QR out of a saved image, without the camera.
+    //
+    // The scanner screen can already do this, but only after it has opened
+    // and been granted camera permission - so the way most configs actually
+    // arrive, as a screenshot from a chat, required granting access to the
+    // camera first and then pointing it at nothing. This path asks for no
+    // permission at all.
+    val qrImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            pickerScope.launch {
+                val text = withContext(Dispatchers.IO) {
+                    decodeQrFromGallery(pickerContext, uri)
+                }
+                if (!text.isNullOrBlank()) ImportBus.offerScan(text)
+                else subStatus = t("scan_qr_image_none")
+            }
+        }
+    }
+
     var addBusy by remember { mutableStateOf(false) }
     var addDone by remember { mutableStateOf("") }
     var testAllState by remember { mutableStateOf(0) }
@@ -2210,6 +2364,10 @@ private fun ConfigPickerScreen(
     var searchOpen by remember { mutableStateOf(false) }
     var pingingSubs by remember { mutableStateOf(emptySet<String>()) }
     var query by remember { mutableStateOf("") }
+    var favoritesOnly by remember { mutableStateOf(false) }
+    var pickingFastest by remember { mutableStateOf(false) }
+    var protocolFilter by remember { mutableStateOf<String?>(null) }
+    var protocolMenu by remember { mutableStateOf(false) }
     val expandedSubs by store.expandedSubs.collectAsState()
     val scope = rememberCoroutineScope()
 
@@ -2233,10 +2391,37 @@ private fun ConfigPickerScreen(
 
     val allIds = remember(configs) { configs.map { it.id }.toSet() }
 
+    // The autopilot card, above the list.
+    val autoPilotOn by store.autoPilot.collectAsState()
+    val autoPilotPhase by ServerAutoPilot.phase.collectAsState()
+    val newestFirst by store.newestFirst.collectAsState()
+    val activeName = remember(activeId, configs) {
+        configs.firstOrNull { it.id == activeId }?.name
+    }
+    // Tells the card a tunnel actually came up, so it stops saying
+    // "connecting". Keyed on both because a reconnect to the same server is
+    // still a transition the card has to follow.
+    LaunchedEffect(conn, activeName) {
+        if (conn == Connection.CONNECTED && activeName != null) {
+            ServerAutoPilot.onConnected(activeName)
+        }
+    }
+    LaunchedEffect(Unit) {
+        ServerAutoPilot.restore(
+            store,
+            if (conn == Connection.CONNECTED) activeName else null
+        )
+    }
+
+    // Newest-first is applied on top of the sort rather than as a fourth sort
+    // mode, because it answers a different question: the sort is how you want
+    // the list read, this is where the one you just added went. Only the
+    // stored order can be reversed - reversing "fastest" would put the slowest
+    // server under the thumb, which is the opposite of the point.
     fun sortMaybe(list: List<ProxyConfig>): List<ProxyConfig> = when (sortMode) {
         ConfigStore.SORT_FASTEST -> list.sortedBy { pingRank(pings[it.id]) }
         ConfigStore.SORT_ALPHA -> list.sortedBy { it.name.lowercase() }
-        else -> list
+        else -> if (newestFirst) list.asReversed() else list
     }
     val pingSortKey = if (sortMode == ConfigStore.SORT_FASTEST) {
         remember(configs, pings.toList()) {
@@ -2244,18 +2429,29 @@ private fun ConfigPickerScreen(
         }
     } else 0
     val q = query.trim()
-    val grouped = remember(configs, subscriptions, sortMode, pingSortKey, q) {
+    fun matchesFilters(cfg: ProxyConfig): Boolean =
+        (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter)
+    // Search used to match the name only, which is the one field a subscription
+    // controls and often truncates. Matching the host and the protocol too is
+    // what makes "arazmta" or "vless" find anything.
+    fun matchesQuery(cfg: ProxyConfig): Boolean = q.isEmpty() ||
+        cfg.name.contains(q, true) ||
+        cfg.address.contains(q, true) ||
+        cfg.protocol.contains(q, true)
+    val grouped = remember(configs, subscriptions, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter) {
         subscriptions.map { sub ->
-            val all = sortMaybe(configs.filter { it.subId == sub.id })
+            val all = sortMaybe(configs.filter { it.subId == sub.id && matchesFilters(it) })
             sub to when {
                 q.isEmpty() || sub.name.contains(q, true) -> all
-                else -> all.filter { it.name.contains(q, true) }
+                else -> all.filter { matchesQuery(it) }
             }
         }.filter { (sub, list) -> q.isEmpty() || list.isNotEmpty() || sub.name.contains(q, true) }
             .sortedByDescending { (sub, _) -> WindscribeBrand.isWindscribe(sub) }
     }
-    val loose = remember(configs, sortMode, pingSortKey, q) {
-        sortMaybe(configs.filter { it.subId.isEmpty() && (q.isEmpty() || it.name.contains(q, true)) })
+    val loose = remember(configs, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter) {
+        sortMaybe(configs.filter {
+            it.subId.isEmpty() && matchesFilters(it) && matchesQuery(it)
+        })
     }
     fun displayedOrder(): List<String> = buildList {
         grouped.forEach { (sub, cfgs) -> if (sub.id in expandedSubs || q.isNotEmpty()) cfgs.forEach { add(it.id) } }
@@ -2409,6 +2605,26 @@ private fun ConfigPickerScreen(
         modifier.fillMaxSize().padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
+        // While the panel is open it IS the screen.
+        //
+        // The previous attempt at this wrapped it in weight(1f, fill = false)
+        // and called that "bounded by what is left". It is not: weight hands
+        // out a share of the column, and the config list below keeps its own
+        // share whether or not it has anything in it. So the panel got a few
+        // hundred pixels with its own scrollbar - two rows visible - while the
+        // bottom half of the screen sat empty. Scrolling was there; the space
+        // was not.
+        //
+        // Giving it weight(1f) and hiding the strip, the toolbar and the list
+        // while it is open is the fix. Those three are behind it and cannot be
+        // used anyway, so nothing is lost by not drawing them, and the panel
+        // gets the entire column instead of a slice of it.
+        Box(
+            if (addMenu) Modifier
+                .weight(1f)
+                .verticalScroll(rememberScrollState())
+            else Modifier
+        ) {
         AddServerPanel(
             expanded = addMenu,
             busy = addBusy,
@@ -2424,10 +2640,50 @@ private fun ConfigPickerScreen(
             onProjects = { addMenu = false; onFreeProjects() },
             onWindscribe = { addMenu = false; onWindscribe() },
             onScanQr = { addMenu = false; onScanQr() },
+            onQrFromImage = { addMenu = false; qrImagePicker.launch("image/*") },
             onOpenVpn = { addMenu = false; onOpenVpnHub() },
             onPsiphon = { addMenu = false; onPsiphonHub() }
         )
+        }
 
+        val favouriteCount = remember(configs) { configs.count { it.favorite } }
+        // The strip and the toolbar collapse to nothing while the add panel is
+        // open, so the panel above can have the whole column. Both are behind
+        // the panel and unreachable anyway, and their height is part of what
+        // was starving it.
+        AnimatedVisibility(visible = !addMenu) {
+            // The ping map is read inside PickerStatsStrip, not here. Reading
+            // it in this body subscribed the whole screen to every entry, so
+            // each result arriving during "test all" recomposed the entire
+            // picker - and built two throwaway lists of the map while doing
+            // it. That is the jank.
+            PickerStatsStrip(configs = configs, pings = pings)
+        }
+
+        AnimatedVisibility(visible = !addMenu) {
+            AutoPilotCard(
+                engaged = autoPilotOn,
+                phase = autoPilotPhase,
+                candidateCount = remember(configs) {
+                    AutoSelector.interchangeable(configs).size
+                },
+                onEngage = {
+                    pickerScope.launch {
+                        ServerAutoPilot.engage(pickerContext, store) { onConnect(it) }
+                    }
+                },
+                onDisengage = { ServerAutoPilot.disengage(store) }
+            )
+        }
+
+        // The four actions and the sub-update button used to float loose above
+        // the list as five separate boxes. They are one slab now: the test is
+        // the primary action on its row, the three tools are glyphs beside it,
+        // and the two list-wide jobs share the row underneath - including the
+        // free-projects entry, which was previously only reachable by first
+        // expanding "افزودن سرور" and was being missed entirely.
+        AnimatedVisibility(visible = !addMenu) {
+        Slab(spacing = GhajarSpacing.sm) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             BounceOutlinedButton(
                 onClick = {
@@ -2454,6 +2710,12 @@ private fun ConfigPickerScreen(
                             }
                             jobs.joinAll()
                             testAllState = 2
+                            // Testing every server and then leaving the list in
+                            // its old order made you re-read all of it to find
+                            // the winner. The results are in; order by them.
+                            if (snapshot.any { pings[it.id] is PingResult.Ok }) {
+                                store.setSortMode(ConfigStore.SORT_FASTEST)
+                            }
                         }
                     }
                 },
@@ -2492,8 +2754,8 @@ private fun ConfigPickerScreen(
                     onDismissRequest = { purgeMenu = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     DropdownMenuItem(
                         text = { Text(t("delete_manual_configs"), style = MaterialTheme.typography.bodyMedium) },
@@ -2562,6 +2824,25 @@ private fun ConfigPickerScreen(
                 }
             }
 
+            // Newest at the top, under the thumb. A toggle rather than a sort
+            // option because it is a layout preference that survives whichever
+            // sort you are reading the list in, and it is here rather than in
+            // Settings because the moment you want it is the moment you have
+            // just pasted a config in and cannot find it.
+            BounceOutlinedButton(
+                onClick = { store.setNewestFirst(!newestFirst) },
+                minHeight = 42.dp,
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier.size(42.dp)
+            ) {
+                Icon(
+                    Icons.Filled.ArrowUpward,
+                    contentDescription = t("newest_first"),
+                    tint = if (newestFirst) ghajarColors.primary else LocalContentColor.current,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
             Box {
                 BounceOutlinedButton(
                     onClick = { sortMenu = true },
@@ -2576,8 +2857,8 @@ private fun ConfigPickerScreen(
                     onDismissRequest = { sortMenu = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     listOf(
                         ConfigStore.SORT_ALPHA to t("sort_alpha"),
@@ -2620,43 +2901,36 @@ private fun ConfigPickerScreen(
             }
         }
 
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         BounceOutlinedButton(
             onClick = {
                 if (updateSubsState != 1) {
                     updateSubsState = 1
                     scope.launch {
-                        val subs = store.subscriptions.value
-                            .filter { it.url.startsWith("https://") || it.url.startsWith("http://") }
-                        var updated = 0
-                        subs.forEach { sub ->
-                            storeResult {
-                                val result = SubscriptionFetcher.fetchFull(sub.url)
-                                if (result.configs.isNotEmpty()) {
-                                    val info = result.userInfo
-                                    store.upsertSubscription(
-                                        sub.copy(
-                                            used = info?.used ?: sub.used,
-                                            total = info?.total ?: sub.total,
-                                            expire = info?.expire ?: sub.expire,
-                                            lastUpdated = System.currentTimeMillis()
-                                        ),
-                                        result.configs
-                                    )
-                                    updated++
-                                }
-                            }
-                        }
+                        // The same refresher the app-entry path uses, forced and
+                        // with no floor: a button press means refresh now. It
+                        // handles the free-configs source and a dead URL per
+                        // subscription, which the copy that used to live here
+                        // did not.
+                        val before = store.subscriptions.value
+                            .associate { it.id to it.lastUpdated }
+                        SubscriptionRefresher.refreshStale(store, force = true)
                         updateSubsState = 0
-                        if (subs.isEmpty()) subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
-                        else if (updated == subs.size) addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
-                        else if (updated > 0) addDone = n("$updated از ${subs.size} ساب بروزرسانی شد")
-                        else subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
+                        val after = store.subscriptions.value
+                        val refreshable = after.count { SubscriptionRefresher.refreshable(it) }
+                        val updated = after.count { (before[it.id] ?: 0L) < it.lastUpdated }
+                        when {
+                            refreshable == 0 -> subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
+                            updated >= refreshable -> addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
+                            updated > 0 -> addDone = n("$updated از $refreshable ساب بروزرسانی شد")
+                            else -> subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
+                        }
                     }
                 }
             },
             minHeight = 42.dp,
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            modifier = Modifier.fillMaxWidth().height(42.dp)
+            modifier = Modifier.weight(1f).height(42.dp)
         ) {
             if (updateSubsState == 1) {
                 CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
@@ -2674,20 +2948,115 @@ private fun ConfigPickerScreen(
             )
         }
 
+        }
+
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                // Connect to the fastest server without first reading the list.
+                // AutoSelector already measures and ranks every candidate for
+                // the auto-connect path; this is the same call, on demand.
+                BounceOutlinedButton(
+                    onClick = {
+                        if (!pickingFastest) {
+                            pickingFastest = true
+                            scope.launch {
+                                val best = runCatching {
+                                    AutoSelector(context, store).pickFastest()
+                                }.getOrNull()
+                                pickingFastest = false
+                                if (best != null) onConnect(best)
+                                else subStatus = t("picker_no_fastest")
+                            }
+                        }
+                    },
+                    enabled = configs.isNotEmpty() && !pickingFastest,
+                    minHeight = 42.dp,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    modifier = Modifier.weight(1f).height(42.dp)
+                ) {
+                    if (pickingFastest) {
+                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                    } else {
+                        Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        if (pickingFastest) t("finding_fastest") else t("picker_connect_fastest"),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                // The favourites filter used to live inside the search row, so
+                // it only existed once you had opened search - which is not
+                // where anyone looks for it.
+                BounceOutlinedButton(
+                    onClick = { favoritesOnly = !favoritesOnly },
+                    enabled = favouriteCount > 0 || favoritesOnly,
+                    minHeight = 42.dp,
+                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
+                    accent = if (favoritesOnly) ghajarColors.highlight else ghajarColors.primary,
+                    modifier = Modifier.weight(1f).height(42.dp)
+                ) {
+                    Icon(
+                        if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        t("picker_favourites") + if (favouriteCount > 0) " (" + n("$favouriteCount") + ")" else "",
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            }
+        }
+        }
+
         AnimatedVisibility(
             visible = searchOpen,
             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
-            OutlinedTextField(
-                value = query,
-                onValueChange = { query = it },
-                singleLine = true,
-                label = { Text(t("search_servers")) },
-                leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
-            )
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    singleLine = true,
+                    label = { Text(t("search_servers")) },
+                    leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier.weight(1f)
+                )
+                IconButton(onClick = { favoritesOnly = !favoritesOnly }) {
+                    Icon(
+                        if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = "فقط موردعلاقه‌ها",
+                        tint = if (favoritesOnly) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Box {
+                    IconButton(onClick = { protocolMenu = true }) {
+                        Icon(
+                            Icons.Filled.FilterList,
+                            contentDescription = "فیلتر پروتکل",
+                            tint = if (protocolFilter != null) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    DropdownMenu(expanded = protocolMenu, onDismissRequest = { protocolMenu = false }) {
+                        DropdownMenuItem(text = { Text("همهٔ پروتکل‌ها") }, onClick = {
+                            protocolFilter = null; protocolMenu = false
+                        })
+                        configs.map { it.protocol }.distinct().sorted().forEach { proto ->
+                            DropdownMenuItem(text = { Text(proto) }, onClick = {
+                                protocolFilter = proto; protocolMenu = false
+                            })
+                        }
+                    }
+                }
+            }
         }
 
         val statusLine = when {
@@ -2751,7 +3120,10 @@ private fun ConfigPickerScreen(
 
         LazyColumn(
             state = listState,
-            modifier = Modifier.weight(1f)
+            // Zero height, not merely hidden: a weighted child claims its
+            // share of the column even with nothing in it, and that share is
+            // what the add panel above needs.
+            modifier = (if (addMenu) Modifier.height(0.dp) else Modifier.weight(1f))
                 .onSizeChanged { viewportH = it.height }
                 .pointerInput(allIds) {
                     awaitEachGesture {
@@ -2773,14 +3145,16 @@ private fun ConfigPickerScreen(
                 },
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            item(key = "openvpn-section") {
-                GhajarOpenVpnSummaryTile(onOpen = onOpenVpnHub)
-            }
+            // The OpenVPN summary tile used to sit here, above the servers, as a
+            // second kind of thing in a list of one kind. OpenVPN is a way of
+            // adding a server, so it is managed from "افزودن سرور" with the
+            // other providers - the same screen, one entry point instead of two.
             grouped.forEach { (sub, subConfigs) ->
                 val wsRow = if (WindscribeBrand.isWindscribe(sub)) wsRowColor else null
                 item(key = "sub-${sub.id}") {
                     SubscriptionHeader(
                         sub = sub,
+                        configCount = subConfigs.size,
                         isOpen = sub.id in expandedSubs || q.isNotEmpty(),
                         onToggle = { store.toggleSubExpanded(sub.id) },
                         onRefresh = {
@@ -2825,6 +3199,8 @@ private fun ConfigPickerScreen(
                             dead.forEach { pings.remove(it); selected.remove(it) }
                             addDone = n(t("deleted_n").format(dead.size))
                         },
+                        onRenew = sub.serviceUsername.takeIf { it.isNotBlank() }
+                            ?.let { username -> { onRenewService(username) } },
                         pinging = sub.id in pingingSubs,
                         onPing = {
                             if (sub.id !in pingingSubs && subConfigs.isNotEmpty()) {
@@ -2876,7 +3252,10 @@ private fun ConfigPickerScreen(
                                 openActionsId = if (openActionsId == cfg.id) null else cfg.id
                             },
                             modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
-                            containerColor = wsRow
+                            containerColor = wsRow,
+                            conn = conn,
+                            onToggleConnection = { toggleConnection(cfg) },
+                            onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) }
                         )
                     }
                 }
@@ -2894,13 +3273,8 @@ private fun ConfigPickerScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Row(
-                            Modifier.clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
-                                .border(
-                                    1.dp,
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.30f),
-                                    RoundedCornerShape(12.dp)
-                                )
+                            Modifier.clip(RoundedCornerShape(GhajarRadius.md))
+                                .background(ghajarColors.secondaryCard)
                                 .padding(horizontal = 14.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -2937,7 +3311,10 @@ private fun ConfigPickerScreen(
                         onToggleActions = {
                             openActionsId = if (openActionsId == cfg.id) null else cfg.id
                         },
-                        modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200))
+                        modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
+                        conn = conn,
+                        onToggleConnection = { toggleConnection(cfg) },
+                        onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) }
                     )
                 }
             }
@@ -3171,7 +3548,8 @@ private fun ExportConfigScreen(
                 title = t("export_lock_details"),
                 subtitle = if (lockDetails) t("export_locked_note") else t("export_unlocked_note"),
                 checked = lockDetails,
-                onCheckedChange = { lockDetails = it }
+                onCheckedChange = { lockDetails = it },
+                icon = Icons.Filled.Lock
             )
         }
 
@@ -3264,19 +3642,18 @@ private fun ManualConfigScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            OutlinedTextField(
-                name, { name = it },
-                label = { Text(t("name_optional")) },
-                singleLine = true,
-                shape = RoundedCornerShape(16.dp),
-                modifier = Modifier.fillMaxWidth()
+            SkinField(
+                value = name,
+                onValueChange = { name = it },
+                label = t("name_optional")
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                BounceOutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text(t("cancel")) }
-                BounceButton(
-                    onClick = { onSave(existing.copy(name = name.ifBlank { existing.name })) },
-                    modifier = Modifier.weight(1f)
-                ) { Text(t("save")) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                GhostPill(t("cancel"), onCancel, Modifier.weight(1f))
+                PillButton(
+                    t("save"),
+                    { onSave(existing.copy(name = name.ifBlank { existing.name })) },
+                    Modifier.weight(1f)
+                )
             }
         }
         return
@@ -3300,6 +3677,8 @@ private fun ManualConfigScreen(
     var mode by remember { mutableStateOf(existing?.mode ?: "") }
     var alpn by remember { mutableStateOf(existing?.alpn ?: "") }
     var fingerprint by remember { mutableStateOf(existing?.fingerprint ?: "chrome") }
+    var cipherSuites by remember { mutableStateOf(existing?.cipherSuites ?: "") }
+    var randomSubdomain by remember { mutableStateOf(existing?.randomSubdomain ?: false) }
     var allowInsecure by remember { mutableStateOf(existing?.allowInsecure ?: false) }
     var pinnedCert by remember { mutableStateOf(existing?.pinnedCertSha256 ?: "") }
     var pinning by remember { mutableStateOf(false) }
@@ -3318,74 +3697,147 @@ private fun ManualConfigScreen(
     var hyDown by remember { mutableStateOf(if ((existing?.hyDownMbps ?: 0) > 0) "${existing?.hyDownMbps}" else "") }
     var error by remember { mutableStateOf("") }
 
+    // The form used to be twenty identical outlined fields in one flat column:
+    // the name of the server, the cryptography and the transport all looked
+    // equally important and equally unrelated. It is now grouped - identity,
+    // endpoint, credentials, transport, security - each group one slab under
+    // its own rail, and each field the skin's own filled box.
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        OutlinedTextField(name, { name = it }, label = { Text(t("name_optional")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = scriptFont(name)), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        LabeledDropdown(t("protocol"), listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "wireguard", "ikev2", "socks", "http"), protocol) { protocol = it }
-        OutlinedTextField(address, { address = it }, label = { Text(t("address")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = monoFont()), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol != "ikev2") OutlinedTextField(
-            port, { port = it.filter { c -> c.isDigit() } },
-            label = { Text(t("port")) }, singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            shape = RoundedCornerShape(16.dp),
-            modifier = Modifier.fillMaxWidth()
-        )
+        Rail(t("manual_sec_identity"))
+        Slab {
+            SkinField(
+                value = name,
+                onValueChange = { name = it },
+                label = t("name_optional"),
+                placeholder = t("manual_name_hint")
+            )
+            LabeledDropdown(t("protocol"), listOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "wireguard", "ikev2", "socks", "http"), protocol) { protocol = it }
+        }
 
-        if (protocol == "vless" || protocol == "vmess")
-            OutlinedTextField(uuid, { uuid = it }, label = { Text(t("uuid")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol == "ikev2") {
-            OutlinedTextField(uuid, { uuid = it }, label = { Text(t("ikev2_user")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(password, { password = it }, label = { Text(t("password")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(sni, { sni = it }, label = { Text(t("ikev2_remote_id")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            Text(
-                t("ikev2_note"),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        Rail(t("manual_sec_endpoint"))
+        Slab {
+            SkinField(
+                value = address,
+                onValueChange = { address = it },
+                label = t("address"),
+                placeholder = "example.com"
+            )
+            if (protocol != "ikev2") SkinField(
+                value = port,
+                onValueChange = { port = it.filter { c -> c.isDigit() } },
+                label = t("port"),
+                placeholder = "443",
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
             )
         }
-        if (protocol == "trojan" || protocol == "shadowsocks" || protocol == "hysteria2")
-            OutlinedTextField(password, { password = it }, label = { Text(t("password")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-        if (protocol == "hysteria2") {
-            OutlinedTextField(hyObfsPassword, { hyObfsPassword = it }, label = { Text(t("hy_obfs")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(
-                    hyUp, { hyUp = it.filter { c -> c.isDigit() } },
-                    label = { Text(t("hy_up")) }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)
-                )
-                OutlinedTextField(
-                    hyDown, { hyDown = it.filter { c -> c.isDigit() } },
-                    label = { Text(t("hy_down")) }, singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    shape = RoundedCornerShape(16.dp), modifier = Modifier.weight(1f)
-                )
+
+        val needsCredentials = protocol in setOf("vless", "vmess", "ikev2", "trojan", "shadowsocks", "hysteria2")
+        if (needsCredentials) {
+            Rail(t("manual_sec_credentials"))
+            Slab {
+                if (protocol == "vless" || protocol == "vmess")
+                    SkinField(value = uuid, onValueChange = { uuid = it }, label = t("uuid"))
+                if (protocol == "ikev2") {
+                    SkinField(value = uuid, onValueChange = { uuid = it }, label = t("ikev2_user"))
+                    SkinField(value = password, onValueChange = { password = it }, label = t("password"))
+                    SkinField(
+                        value = sni,
+                        onValueChange = { sni = it },
+                        label = t("ikev2_remote_id"),
+                        helper = t("ikev2_note")
+                    )
+                }
+                if (protocol == "trojan" || protocol == "shadowsocks" || protocol == "hysteria2")
+                    SkinField(value = password, onValueChange = { password = it }, label = t("password"))
+                if (protocol == "shadowsocks")
+                    LabeledDropdown(t("enc_method"),
+                        listOf("aes-256-gcm", "aes-128-gcm", "chacha20-ietf-poly1305", "2022-blake3-aes-256-gcm"), method) { method = it }
+                if (protocol == "vless")
+                    SkinField(value = flow, onValueChange = { flow = it }, label = t("flow_optional"))
             }
         }
-        if (protocol == "shadowsocks")
-            LabeledDropdown(t("enc_method"),
-                listOf("aes-256-gcm", "aes-128-gcm", "chacha20-ietf-poly1305", "2022-blake3-aes-256-gcm"), method) { method = it }
-        if (protocol == "vless")
-            OutlinedTextField(flow, { flow = it }, label = { Text(t("flow_optional")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
 
         if (protocol == "hysteria2") {
-            OutlinedTextField(sni, { sni = it }, label = { Text(t("sni")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(alpn, { alpn = it }, label = { Text(t("alpn")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+            Rail(t("manual_sec_tuning"))
+            Slab {
+                SkinField(value = hyObfsPassword, onValueChange = { hyObfsPassword = it }, label = t("hy_obfs"))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+                    SkinField(
+                        value = hyUp,
+                        onValueChange = { hyUp = it.filter { c -> c.isDigit() } },
+                        label = t("hy_up"),
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                    SkinField(
+                        value = hyDown,
+                        onValueChange = { hyDown = it.filter { c -> c.isDigit() } },
+                        label = t("hy_down"),
+                        modifier = Modifier.weight(1f),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                    )
+                }
+            }
+            Rail(t("manual_sec_security"))
+            Slab {
+                SkinField(value = sni, onValueChange = { sni = it }, label = t("sni"))
+                SkinField(value = alpn, onValueChange = { alpn = it }, label = t("alpn"))
+            }
         }
 
         if (protocol !in setOf("shadowsocks", "hysteria2", "wireguard", "ikev2")) {
+            Rail(t("manual_sec_transport"))
+            Slab {
             LabeledDropdown(t("network"), listOf("tcp", "ws", "grpc", "http", "httpupgrade", "xhttp"), network) { network = it }
+            if (network == "ws" || network == "httpupgrade" || network == "http" || network == "xhttp") {
+                SkinField(value = path, onValueChange = { path = it }, label = t("ws_path"), placeholder = "/")
+                SkinField(value = host, onValueChange = { host = it }, label = t("ws_host"))
+            }
+            if (network == "xhttp")
+                LabeledDropdown(t("mode"), listOf("auto", "packet-up", "stream-up", "stream-one"), mode.ifEmpty { "auto" }) { mode = it }
+            if (network == "grpc") {
+                SkinField(value = serviceName, onValueChange = { serviceName = it }, label = t("service_name"))
+                LabeledDropdown(t("mode"), listOf("gun", "multi"), mode.ifEmpty { "gun" }) { mode = it }
+            }
+            }
+
+            Rail(t("manual_sec_security"))
+            Slab {
             LabeledDropdown(t("security"), listOf("none", "tls", "reality"), security) { security = it }
             if (security == "tls" || security == "reality") {
-                OutlinedTextField(sni, { sni = it }, label = { Text(t("sni")) }, singleLine = true, textStyle = LocalTextStyle.current.copy(fontFamily = monoFont()), shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+                SkinField(value = sni, onValueChange = { sni = it }, label = t("sni"))
                 LabeledDropdown(t("fingerprint"), listOf("chrome", "firefox", "safari", "ios", "android", "edge", "random"), fingerprint.ifEmpty { "chrome" }) { fingerprint = it }
             }
             if (security == "tls")
-                OutlinedTextField(alpn, { alpn = it }, label = { Text(t("alpn")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
+                SkinField(value = alpn, onValueChange = { alpn = it }, label = t("alpn"))
+            // From PattNG and MahsaNG: the exact cipher list and a varying
+            // hostname are both things a network fingerprints a client by.
+            // Both are blank/off on every existing config, so nothing changes
+            // until they are filled in.
+            if (security == "tls")
+                SkinField(
+                    value = cipherSuites,
+                    onValueChange = { cipherSuites = it },
+                    label = t("cipher_suites")
+                )
+            if (security == "tls" || security == "reality") {
+                SettingRow(
+                    title = t("random_subdomain"),
+                    subtitle = t("random_subdomain_sub"),
+                    checked = randomSubdomain,
+                    onCheckedChange = { randomSubdomain = it },
+                    icon = Icons.Filled.Shuffle
+                )
+            }
+            if (security == "reality") {
+                SkinField(value = publicKey, onValueChange = { publicKey = it }, label = t("public_key"))
+                SkinField(value = shortId, onValueChange = { shortId = it }, label = t("short_id"))
+            }
             if (security == "tls") {
-                SettingsGroup {
                     SettingRow(
                         title = t("allow_insecure"),
                         subtitle = when {
@@ -3411,33 +3863,20 @@ private fun ManualConfigScreen(
                                     pinning = false
                                 }
                             }
-                        }
+                        },
+                        icon = Icons.Filled.Warning
                     )
                 }
             }
-            if (security == "reality") {
-                OutlinedTextField(publicKey, { publicKey = it }, label = { Text(t("public_key")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(shortId, { shortId = it }, label = { Text(t("short_id")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            }
-            if (network == "ws" || network == "httpupgrade" || network == "http" || network == "xhttp") {
-                OutlinedTextField(path, { path = it }, label = { Text(t("ws_path")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(host, { host = it }, label = { Text(t("ws_host")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-            }
-            if (network == "xhttp")
-                LabeledDropdown(t("mode"), listOf("auto", "packet-up", "stream-up", "stream-one"), mode.ifEmpty { "auto" }) { mode = it }
-            if (network == "grpc") {
-                OutlinedTextField(serviceName, { serviceName = it }, label = { Text(t("service_name")) }, singleLine = true, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth())
-                LabeledDropdown(t("mode"), listOf("gun", "multi"), mode.ifEmpty { "gun" }) { mode = it }
-            }
         }
 
-        if (error.isNotEmpty())
-            Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        if (error.isNotEmpty()) SkinError(error)
 
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            BounceOutlinedButton(onClick = onCancel, modifier = Modifier.weight(1f)) { Text(t("cancel")) }
-            BounceButton(
-                onClick = {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+            GhostPill(t("cancel"), onCancel, Modifier.weight(1f))
+            PillButton(
+                t("save"),
+                {
                     val p = if (protocol == "ikev2") 500 else port.toIntOrNull()
                     when {
                         address.isBlank() -> error = t("err_address")
@@ -3480,6 +3919,8 @@ private fun ManualConfigScreen(
                                 fingerprint = fingerprint.trim(),
                                 allowInsecure = allowInsecure,
                                 pinnedCertSha256 = pinnedCert,
+                                cipherSuites = cipherSuites.trim(),
+                                randomSubdomain = randomSubdomain,
                                 hyObfs = if (hyObfsPassword.isBlank()) "" else "salamander",
                                 hyObfsPassword = hyObfsPassword.trim(),
                                 hyUpMbps = hyUp.toIntOrNull() ?: 0,
@@ -3488,8 +3929,9 @@ private fun ManualConfigScreen(
                         )
                     }
                 },
-                modifier = Modifier.weight(1f)
-            ) { Text(t("save")) }
+                Modifier.weight(1f),
+                icon = Icons.Filled.Save
+            )
         }
     }
 }
@@ -3505,6 +3947,7 @@ private fun AddServerPanel(
     onProjects: () -> Unit,
     onWindscribe: () -> Unit,
     onScanQr: () -> Unit,
+    onQrFromImage: () -> Unit = {},
     onOpenVpn: () -> Unit = {},
     onPsiphon: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -3516,118 +3959,166 @@ private fun AddServerPanel(
         label = "addRot"
     )
 
-    Card(
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-        modifier = modifier.fillMaxWidth()
-    ) {
-        Column(Modifier.fillMaxWidth().padding(10.dp)) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    monoText(t("add_server")),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 17.sp,
-                    letterSpacing = (-0.5).sp,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f).padding(start = 6.dp)
-                )
-                BounceOutlinedButton(
-                    onClick = onToggle,
-                    enabled = !busy,
-                    minHeight = 44.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(44.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.Add,
-                        contentDescription = t("add_server"),
-                        modifier = Modifier.size(22.dp).graphicsLayer { rotationZ = rot }
-                    )
-                }
-            }
-
-            AnimatedVisibility(
-                visible = expanded,
-                enter = fadeIn(tween(300)) + expandVertically(tween(300)),
-                exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+    // Two kinds of thing were stacked as seven identical outlined buttons: four
+    // ways to bring in a config you already have, and four providers that fetch
+    // one for you. They are now told apart - the four inputs are a grid of
+    // tiles, the four providers are rows of one slab - inside a single
+    // borderless slab instead of a bordered card full of bordered buttons.
+    val c = ghajarColors
+    Slab(modifier, spacing = 0.dp) {
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(GhajarRadius.md))
+                .clickable(enabled = !busy) { onToggle() }
+                .padding(vertical = GhajarSpacing.xs),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+        ) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background(c.primary.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    Modifier.padding(top = 10.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AddTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f))
-                        AddTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f))
-                    }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        AddTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f))
-                        AddTile(
-                            Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f)
-                        )
-                    }
-                    AddTile(
-                        Icons.Filled.Shield, t("ws_title"), onWindscribe, Modifier.fillMaxWidth()
-                    )
-                    AddTile(
-                        Icons.Filled.Security, "OpenVPN", onOpenVpn, Modifier.fillMaxWidth()
-                    )
-                    AddTile(
-                        Icons.Filled.Public, "Psiphon", onPsiphon, Modifier.fillMaxWidth()
-                    )
-                    AddTile(
-                        Icons.Filled.CardGiftcard, t("free_projects"), onProjects, Modifier.fillMaxWidth(),
-                        accent = MaterialTheme.colorScheme.tertiary
-                    )
-                }
+                Icon(
+                    Icons.Filled.Add,
+                    contentDescription = t("add_server"),
+                    tint = c.primary,
+                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = rot }
+                )
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    mixedText(t("add_server")),
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.Bold,
+                    color = c.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    t("add_server_sub"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textSecondary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
-    }
-}
 
-@Composable
-private fun AddTile(
-    icon: ImageVector,
-    label: String,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-    accent: Color = MaterialTheme.colorScheme.primary
-) {
-    val density = LocalDensity.current
-    var textW by remember(label) { mutableStateOf<Dp?>(null) }
-
-    BounceOutlinedButton(
-        onClick = onClick,
-        minHeight = 60.dp,
-        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-        accent = accent,
-        modifier = modifier.height(60.dp)
-    ) {
-        Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(Modifier.width(7.dp))
-        Text(
-            label,
-            style = MaterialTheme.typography.labelMedium,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            onTextLayout = { r ->
-                var widest = 0f
-                for (i in 0 until r.lineCount) {
-                    val lw = r.getLineRight(i) - r.getLineLeft(i)
-                    if (lw > widest) widest = lw
+        AnimatedVisibility(
+            visible = expanded,
+            enter = fadeIn(tween(300)) + expandVertically(tween(300)),
+            exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
+        ) {
+            Column(
+                Modifier.padding(top = GhajarSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                // The order the app's own users asked for, top to bottom:
+                // where to put a config you already have, then the providers
+                // that hand you one - Psiphon first among them, because it is
+                // the only engine that needs no config at all and the only one
+                // nobody finds by looking for somewhere to paste something.
+                //
+                // "I have a config" is one collapsed row rather than a grid of
+                // four tiles, so all five entries are on screen at once. The
+                // panel scrolls now, so opening it shows all four tiles.
+                var haveOpen by remember { mutableStateOf(false) }
+                // Grouped rather than a flat run of rows. The entries fall
+                // into three genuinely different kinds of thing, and a list
+                // that does not say so makes the user read all of it to find
+                // out which kind they wanted: a config you already have, an
+                // engine that needs no config at all, and a provider that
+                // fetches configs for you.
+                //
+                // No group here is decorative. Every row below is wired to a
+                // handler that exists - a labelled section leading to rows
+                // that do nothing would be worse than the flat list it
+                // replaced.
+                Rail(t("add_group_have"))
+                SlabRow(
+                    title = t("add_have_config"),
+                    subtitle = t("add_have_config_sub"),
+                    icon = Icons.Filled.ContentPaste,
+                    accent = c.highlight,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = { haveOpen = !haveOpen }
+                )
+                AnimatedVisibility(
+                    visible = haveOpen,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(220)),
+                    exit = fadeOut(tween(160)) + shrinkVertically(tween(160))
+                ) {
+                    Column(
+                        Modifier.padding(top = GhajarSpacing.sm, bottom = GhajarSpacing.xs),
+                        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+                    ) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                            GlyphTile(Icons.Filled.Add, t("add_manually"), onManual, Modifier.weight(1f), enabled = !busy)
+                            GlyphTile(Icons.Filled.ContentPaste, t("paste_clipboard"), onPaste, Modifier.weight(1f), enabled = !busy)
+                        }
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                            GlyphTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f), enabled = !busy)
+                            GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
+                        }
+                        // A QR in a screenshot or a saved photo is how most
+                        // configs actually arrive - through a chat app, not a
+                        // poster - and until now the only way to read one was
+                        // to point the camera at another screen.
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                            GlyphTile(Icons.Filled.QrCode2, t("scan_qr_image"), onQrFromImage, Modifier.weight(1f), enabled = !busy)
+                            Spacer(Modifier.weight(1f))
+                        }
+                    }
                 }
-                val want = with(density) { widest.toDp() } + 1.dp
-                val have = textW
-                if (have == null || want.value > have.value + 0.5f) textW = want
-            },
-            modifier = textW?.let { Modifier.width(it) } ?: Modifier.weight(1f, fill = false)
-        )
+
+                Rail(t("add_group_engines"))
+                SlabRow(
+                    title = "Psiphon",
+                    subtitle = t("add_psiphon_sub"),
+                    icon = Icons.Filled.Public,
+                    accent = c.good,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onPsiphon
+                )
+                SlabDivider()
+                SlabRow(
+                    title = "OpenVPN",
+                    subtitle = t("add_ovpn_sub"),
+                    icon = Icons.Filled.Security,
+                    accent = c.accentAlt,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onOpenVpn
+                )
+
+                Rail(t("add_group_providers"))
+                SlabRow(
+                    title = t("free_projects"),
+                    subtitle = t("add_free_sub"),
+                    icon = Icons.Filled.CardGiftcard,
+                    accent = c.premium,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onProjects
+                )
+                SlabDivider()
+                SlabRow(
+                    title = t("ws_title"),
+                    subtitle = t("add_ws_sub"),
+                    icon = Icons.Filled.Shield,
+                    accent = c.info,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onWindscribe
+                )
+            }
+        }
     }
 }
 
@@ -3750,7 +4241,8 @@ private fun FreeProjectsScreen(
                 subtitle = t("proj_aether_h2_sub"),
                 checked = aetherH2 && aetherMode == "masque",
                 onCheckedChange = { aetherH2 = it },
-                enabled = aetherMode == "masque"
+                enabled = aetherMode == "masque",
+                icon = Icons.Filled.Bolt
             )
             BounceButton(
                 onClick = {
@@ -3921,59 +4413,104 @@ private fun LabeledDropdown(
     selected: String,
     onSelect: (String) -> Unit
 ) {
+    // Every choice in every form comes through here. A handful of options is a
+    // row of chips - you see them all and pick in one tap; a long list stays a
+    // menu, but on the skin's filled box instead of Material's outlined button,
+    // so a form is no longer a column of strokes.
+    val c = ghajarColors
     var open by remember { mutableStateOf(false) }
-    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)) {
         Text(
             label,
             style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant
+            fontWeight = FontWeight.Medium,
+            color = c.textSecondary
         )
-        Box {
-            OutlinedButton(
-                onClick = { open = true },
-                shape = RoundedCornerShape(14.dp),
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    selected,
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontFamily = scriptFont(selected),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f)
-                )
-                Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-            }
-            DropdownMenu(
-                expanded = open,
-                onDismissRequest = { open = false },
-                offset = DpOffset(0.dp, 8.dp),
-                shape = RoundedCornerShape(16.dp),
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+        if (options.size <= 4) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
             ) {
                 options.forEach { opt ->
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                opt,
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = scriptFont(opt)
-                            )
-                        },
-                        trailingIcon = {
-                            if (opt == selected) Icon(
-                                Icons.Filled.Check,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { onSelect(opt); open = false }
+                    val on = opt == selected
+                    Text(
+                        opt,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontFamily = scriptFont(opt),
+                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                        color = if (on) c.onPrimary else c.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(GhajarRadius.pill))
+                            .background(if (on) c.primary else c.secondaryCard)
+                            .clickable { onSelect(opt) }
+                            .padding(vertical = 10.dp)
                     )
+                }
+            }
+        } else {
+            Box {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(GhajarRadius.md))
+                        .background(c.secondaryCard)
+                        .clickable { open = true }
+                        .padding(horizontal = GhajarSpacing.md, vertical = 13.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+                ) {
+                    Text(
+                        selected,
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontFamily = scriptFont(selected),
+                        color = c.textPrimary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Icon(
+                        Icons.Filled.ExpandMore,
+                        contentDescription = null,
+                        tint = c.textMuted,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+                DropdownMenu(
+                    expanded = open,
+                    onDismissRequest = { open = false },
+                    offset = DpOffset(0.dp, 8.dp),
+                    shape = RoundedCornerShape(GhajarRadius.lg),
+                    containerColor = c.card,
+                    border = null
+                ) {
+                    options.forEach { opt ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    opt,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontFamily = scriptFont(opt),
+                                    fontWeight = if (opt == selected) FontWeight.Bold else FontWeight.Normal,
+                                    color = if (opt == selected) c.primary else c.textPrimary
+                                )
+                            },
+                            trailingIcon = {
+                                if (opt == selected) Icon(
+                                    Icons.Filled.Check,
+                                    contentDescription = null,
+                                    tint = c.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            },
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                            modifier = Modifier.height(42.dp),
+                            onClick = { onSelect(opt); open = false }
+                        )
+                    }
                 }
             }
         }
@@ -3983,9 +4520,13 @@ private fun LabeledDropdown(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun settingsDepth(key: String): Int = when (key) {
     "settings" -> 0
-    "stability", "cleanip", "perapp", "theme", "netcat" -> 2
+    "stability", "cleanip", "dnslab", "map", "perapp", "theme", "netcat" -> 2
     "checkhost" -> 3
     "netcatone" -> 3
+    // Reached directly from the Settings list, like usage or tools.
+    "ssh", "debugger" -> 1
+    // One level below preferences, like the theme picker.
+    "notifications" -> 2
     else -> 1
 }
 
@@ -4006,9 +4547,8 @@ private fun InfoBox(
             color = accent,
             textAlign = if (centered) TextAlign.Center else TextAlign.Start,
             modifier = Modifier
-                .clip(RoundedCornerShape(12.dp))
-                .background(accent.copy(alpha = 0.08f))
-                .border(1.dp, accent.copy(alpha = 0.25f), RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(GhajarRadius.md))
+                .background(accent.copy(alpha = 0.10f))
                 .padding(horizontal = 14.dp, vertical = 9.dp)
         )
     }
@@ -4025,53 +4565,275 @@ private fun GlassDialog(
     accentOverride: Color? = null,
     body: @Composable ColumnScope.() -> Unit
 ) {
-    val accent = accentOverride
-        ?: if (destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    // Every dialog in the app comes through here, so it is the skin's sheet:
+    // a slab raised onto the surface tone, the title carried by a rail, and
+    // the two actions as the skin's pills - confirm filled, dismiss ghost -
+    // rather than two identical outlined buttons where nothing says which one
+    // is the action you came for.
+    val c = ghajarColors
+    val accent = accentOverride ?: if (destructive) c.error else c.primary
     Dialog(onDismissRequest = onDismiss) {
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant
-            ),
-            border = BorderStroke(1.dp, accent.copy(alpha = 0.35f)),
-            modifier = Modifier.fillMaxWidth()
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(GhajarRadius.xl))
+                .background(c.surface)
         ) {
             Column(
-                Modifier.fillMaxWidth().padding(20.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
+                Modifier.padding(GhajarSpacing.xl),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
             ) {
-                Text(
-                    title,
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold,
-                    color = accent
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        Modifier
+                            .size(width = 3.dp, height = 18.dp)
+                            .clip(RoundedCornerShape(GhajarRadius.pill))
+                            .background(accent)
+                    )
+                    Spacer(Modifier.width(GhajarSpacing.sm))
+                    Text(
+                        title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = c.textPrimary
+                    )
+                }
                 body()
-                Row(
-                    Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (dismissLabel != null) {
-                        BounceOutlinedButton(
-                            onClick = onDismiss,
-                            minHeight = 42.dp,
-                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(dismissLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
-                        }
-                    }
-                    BounceOutlinedButton(
-                        onClick = onConfirm,
-                        minHeight = 42.dp,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                        accent = accent,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(confirmLabel, maxLines = 1, overflow = TextOverflow.Ellipsis, softWrap = false)
-                    }
+                PillButton(
+                    text = confirmLabel,
+                    onClick = onConfirm,
+                    accent = accent
+                )
+                if (dismissLabel != null) {
+                    GhostPill(
+                        text = dismissLabel,
+                        onClick = onDismiss,
+                        accent = c.textSecondary
+                    )
                 }
             }
+            // The same top-edge light every slab has, in the dialog's accent.
+            Canvas(Modifier.fillMaxWidth().height(1.dp)) {
+                drawRect(
+                    brush = Brush.horizontalGradient(
+                        0f to Color.Transparent,
+                        0.5f to accent.copy(alpha = 0.55f),
+                        1f to Color.Transparent
+                    )
+                )
+            }
+        }
+    }
+}
+
+/** One parsed block of a release note, in the skin's own type and colours. */
+@Composable
+private fun ReleaseNoteBlock(block: NoteBlock) {
+    val c = ghajarColors
+    when (block) {
+        is NoteBlock.Heading -> Text(
+            mixedText(block.text),
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold,
+            color = c.primary,
+            modifier = Modifier.padding(top = 4.dp)
+        )
+
+        is NoteBlock.Bullet -> Row(verticalAlignment = Alignment.Top) {
+            Text("•", color = c.primary, modifier = Modifier.padding(end = 6.dp))
+            Text(mixedText(block.text), style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+        }
+
+        is NoteBlock.Paragraph -> Text(
+            mixedText(block.text),
+            style = MaterialTheme.typography.bodySmall,
+            color = c.textSecondary
+        )
+
+        // A real table: one clipped surface, the header on the brand tone, and
+        // every row the same column widths so the columns line up.
+        is NoteBlock.Table -> Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(GhajarRadius.md))
+                .background(c.secondaryCard)
+        ) {
+            val columns = maxOf(
+                block.header?.size ?: 0,
+                block.rows.maxOfOrNull { it.size } ?: 0
+            ).coerceAtLeast(1)
+            block.header?.let { header ->
+                ReleaseNoteRow(header, columns, header = true)
+                HorizontalDivider(color = c.border)
+            }
+            block.rows.forEachIndexed { index, row ->
+                if (index > 0) HorizontalDivider(color = c.border.copy(alpha = 0.5f))
+                ReleaseNoteRow(row, columns, header = false)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ReleaseNoteRow(cells: List<String>, columns: Int, header: Boolean) {
+    val c = ghajarColors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .then(if (header) Modifier.background(c.primary.copy(alpha = 0.12f)) else Modifier)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        // Ragged rows are padded out here, in the layout, rather than in the
+        // parser - the note said what it said.
+        repeat(columns) { i ->
+            Text(
+                mixedText(cells.getOrElse(i) { "" }),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = if (header) FontWeight.Bold else FontWeight.Normal,
+                color = if (header) c.textPrimary else c.textSecondary,
+                modifier = Modifier.weight(1f).padding(end = 6.dp)
+            )
+        }
+    }
+}
+
+/** Full update flow (changelog, download+progress+cancel, checksum + signature
+ * verification, install) for a release UpdateChecker found, reached from both
+ * the periodic background check and the manual "check for updates" button.
+ * Reuses GlassDialog's exact card/typography/button styling at every stage. */
+@Composable
+private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
+    val scope = rememberCoroutineScope()
+    var stage by remember(upd.version) { mutableStateOf(0) } // 0 offer, 1 downloading, 2 verifying, 3 ready, 4 error
+    var progress by remember(upd.version) { mutableStateOf(0f) }
+    var errorText by remember(upd.version) { mutableStateOf<String?>(null) }
+    var readyFile by remember(upd.version) { mutableStateOf<java.io.File?>(null) }
+    var downloadJob by remember(upd.version) { mutableStateOf<Job?>(null) }
+
+    fun startDownload() {
+        val apk = upd.apk
+        if (apk == null) { runCatching { uriHandler.openUri(upd.url) }; onDismiss(); return }
+        stage = 1; progress = 0f; errorText = null
+        downloadJob = scope.launch {
+            when (val result = GhajarUpdateInstaller.download(context, apk) { read, total ->
+                progress = if (total > 0) (read.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+            }) {
+                is GhajarUpdateInstaller.DownloadResult.Cancelled -> stage = 0
+                is GhajarUpdateInstaller.DownloadResult.Failed -> {
+                    errorText = "دانلود ناموفق بود: ${result.reason}"
+                    stage = 4
+                }
+                is GhajarUpdateInstaller.DownloadResult.Success -> {
+                    stage = 2
+                    val checksum = GhajarUpdateInstaller.verifySha256(result.file, upd.apkSha256)
+                    if (checksum is GhajarUpdateInstaller.VerifyResult.ChecksumMismatch) {
+                        result.file.delete()
+                        errorText = "فایل دانلودشده با نسخهٔ منتشرشده مطابقت ندارد؛ ممکن است دانلود خراب شده باشد. دوباره تلاش کن."
+                        stage = 4
+                        return@launch
+                    }
+                    val signature = GhajarUpdateInstaller.verifySignatureMatchesInstalled(context, result.file)
+                    if (signature is GhajarUpdateInstaller.VerifyResult.SignatureMismatch) {
+                        result.file.delete()
+                        errorText = signature.reason
+                        stage = 4
+                        return@launch
+                    }
+                    // A checksum/signature Unavailable is reported, not hidden — the file is still
+                    // safe to install (Android's own installer re-verifies the APK signature).
+                    errorText = listOfNotNull(
+                        (checksum as? GhajarUpdateInstaller.VerifyResult.Unavailable)?.reason,
+                        (signature as? GhajarUpdateInstaller.VerifyResult.Unavailable)?.reason
+                    ).joinToString("\n").takeIf { it.isNotBlank() }
+                    readyFile = result.file
+                    stage = 3
+                }
+            }
+        }
+    }
+
+    GlassDialog(
+        onDismiss = {
+            if (stage == 1) downloadJob?.cancel()
+            onDismiss()
+        },
+        title = when (stage) {
+            1 -> "در حال دانلود نسخهٔ ${upd.version}"
+            2 -> "در حال بررسی فایل"
+            3 -> "نسخهٔ ${upd.version} آماده نصب است"
+            4 -> "بروزرسانی ناموفق بود"
+            else -> "نسخهٔ جدید ${upd.version} موجود است"
+        },
+        confirmLabel = when (stage) {
+            1 -> "لغو دانلود"
+            2 -> "لطفاً صبر کن…"
+            3 -> "نصب"
+            4 -> "تلاش دوباره"
+            else -> "دانلود و بروزرسانی"
+        },
+        dismissLabel = if (stage == 0) "بعداً" else if (stage == 1) null else "بستن",
+        onConfirm = {
+            when (stage) {
+                0 -> startDownload()
+                1 -> downloadJob?.cancel()
+                2 -> Unit
+                3 -> readyFile?.let { GhajarUpdateInstaller.install(context, it) }
+                4 -> startDownload()
+                else -> Unit
+            }
+        }
+    ) {
+        when (stage) {
+            0 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (upd.changelog.isNotBlank()) {
+                    Text("تغییرات این نسخه:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    // The release body is Markdown. Rendering it as one flat
+                    // bulleted list turned headings into bullets and a table
+                    // into a row of pipe characters; ReleaseNotes parses the
+                    // three shapes a release note actually uses.
+                    val blocks = remember(upd.changelog) { ReleaseNotes.parse(upd.changelog) }
+                    Column(
+                        // The dialog bounds its own body now, so no second cap
+                        // here: a long release note scrolls instead of being
+                        // cut at a fixed height.
+                        Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+                    ) {
+                        blocks.forEach { block -> ReleaseNoteBlock(block) }
+                    }
+                }
+                if (upd.apk == null) {
+                    Text("فایل APK متناسب با این دستگاه در این نسخه پیدا نشد؛ صفحهٔ ریلیز باز می‌شود.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                } else if (upd.apkSha256 == null) {
+                    Text("این نسخه فایل SHA256SUMS.txt منتشر نکرده؛ صحت فایل پس از دانلود قابل تأیید کامل نیست.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            1 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                Text("${(progress * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+            }
+            2 -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                Text("بررسی SHA-256 و امضای بستهٔ دانلودشده…", style = MaterialTheme.typography.bodySmall)
+            }
+            3 -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("فایل دانلود و بررسی شد. تنظیمات و اطلاعات فعلی برنامه در نصب حفظ می‌شود.",
+                    style = MaterialTheme.typography.bodySmall)
+                errorText?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                if (!GhajarUpdateInstaller.canInstallPackages(context)) {
+                    Text("برای نصب باید اجازهٔ «نصب از منابع ناشناس» را برای قاجار وی‌پی‌ان فعال کنی.",
+                        color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    BounceOutlinedButton(onClick = {
+                        runCatching { context.startActivity(GhajarUpdateInstaller.unknownSourcesSettingsIntent(context)) }
+                    }, minHeight = 38.dp, modifier = Modifier.fillMaxWidth()) { Text("باز کردن تنظیمات") }
+                }
+            }
+            4 -> Text(errorText ?: "خطای نامشخص", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
     }
 }
@@ -4731,7 +5493,8 @@ private fun TorNodesScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                 title = t("tor_through_vpn"),
                 subtitle = t("tor_through_vpn_sub"),
                 checked = throughVpn,
-                onCheckedChange = { throughVpn = it }
+                onCheckedChange = { throughVpn = it },
+                icon = Icons.Filled.Hub
             )
             if (throughVpn) {
                 Text(
@@ -4759,13 +5522,8 @@ private fun TorNodesScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                 )
                 Row(
                     Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(boxTint.copy(alpha = 0.05f + 0.09f * boxFill))
-                        .border(
-                            1.dp,
-                            boxTint.copy(alpha = 0.16f + 0.36f * boxFill),
-                            RoundedCornerShape(14.dp)
-                        )
+                        .clip(RoundedCornerShape(GhajarRadius.md))
+                        .background(ghajarColors.secondaryCard)
                         .clickable {
                             picked = if (on) picked - code else picked + code
                         }
@@ -5033,7 +5791,7 @@ private fun CheckHostScreen(modifier: Modifier = Modifier) {
                     val res = results[node.id] ?: CheckHost.NodeResult.Pending
                     val tint = when (res) {
                         is CheckHost.NodeResult.Ok -> AppGreen
-                        is CheckHost.NodeResult.Failed -> Color(0xFFE0413C)
+                        is CheckHost.NodeResult.Failed -> ghajarColors.error
                         else -> MaterialTheme.colorScheme.primary
                     }
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -5106,8 +5864,8 @@ private fun NetRadarRow(site: NetMonitor.Site, st: NetMonitor.State) {
     val lang = LocalLang.current
     val target = when (st) {
         is NetMonitor.State.Reachable -> AppGreen
-        is NetMonitor.State.Sanctioned -> Color(0xFFFFA94D)
-        is NetMonitor.State.Unreachable -> Color(0xFFE0413C)
+        is NetMonitor.State.Sanctioned -> ghajarColors.warning
+        is NetMonitor.State.Unreachable -> ghajarColors.error
         is NetMonitor.State.Testing -> MaterialTheme.colorScheme.primary
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
@@ -5177,7 +5935,7 @@ private fun RadarDot(tint: Color, pulsing: Boolean) {
     val ripple by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1700, easing = LinearEasing))),
         label = "radarRipple"
     )
     Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
@@ -5239,9 +5997,9 @@ private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = 
             val angle by spin.animateFloat(
                 initialValue = 0f,
                 targetValue = 360f,
-                animationSpec = infiniteRepeatable(
+                animationSpec = ghajarEndless(infiniteRepeatable(
                     animation = tween(1100, easing = LinearEasing)
-                ),
+                )),
                 label = "radarSpinAngle"
             )
             BounceIconButton(onClick = { run() }, enabled = !running) {
@@ -5351,52 +6109,36 @@ private fun SettingsHubCard(
     iconRes: Int? = null,
     accents: List<String> = emptyList()
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth()
-            .clip(RoundedCornerShape(20.dp))
-            .clickable { onClick() },
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, (tint ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.30f))
-    ) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Box(
-                Modifier.size(38.dp).clip(RoundedCornerShape(12.dp))
-                    .background((tint ?: MaterialTheme.colorScheme.primary).copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                val iconTint = tint ?: MaterialTheme.colorScheme.primary
-                if (iconRes != null) {
-                    Icon(
-                        painter = painterResource(iconRes),
-                        contentDescription = null,
-                        tint = iconTint,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else if (icon != null) {
-                    Icon(icon, contentDescription = null, tint = iconTint,
-                        modifier = Modifier.size(20.dp))
-                }
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(mixedText(title), style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    if (accents.isEmpty()) mixedText(subtitle)
-                    else accentText(subtitle, *accents.toTypedArray()),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Icon(
-                Icons.Filled.ChevronRight,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurfaceVariant
+    // Kept as one entry point so the screens that still call it adopt the new
+    // skin with no edit: a hub card is now a one-row slab. The accents overload
+    // (highlighted words inside the subtitle) is preserved.
+    val c = ghajarColors
+    val accent = tint ?: c.primary
+    Slab(spacing = 0.dp, padding = GhajarSpacing.md) {
+        if (accents.isEmpty()) {
+            SlabRow(
+                title = title,
+                subtitle = subtitle,
+                icon = icon,
+                iconRes = iconRes,
+                accent = accent,
+                chevron = true,
+                onClick = onClick
+            )
+        } else {
+            SlabRow(
+                title = title,
+                icon = icon,
+                iconRes = iconRes,
+                accent = accent,
+                chevron = true,
+                onClick = onClick
+            )
+            Text(
+                accentText(subtitle, *accents.toTypedArray()),
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textSecondary,
+                modifier = Modifier.padding(start = 50.dp, bottom = GhajarSpacing.sm)
             )
         }
     }
@@ -5412,54 +6154,121 @@ private fun SettingsScreen(
     onOpenPreferences: () -> Unit,
     onOpenAbout: () -> Unit,
     onOpenNetMon: () -> Unit,
+    onOpenSsh: () -> Unit,
+    onOpenDebugger: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
     val lang = LocalLang.current
     val usage by UsageStore.usage.collectAsState()
     val allTime = remember(usage) { UsageStore.totalAll(usage) }
+    val configs by store.configs.collectAsState()
+    val subscriptions by store.subscriptions.collectAsState()
+    val c = ghajarColors
 
+    // Rails name the categories; each category is ONE slab holding its rows.
+    // The old page was eight separate outlined cards in a column, which read as
+    // eight equally important things.
     Column(
-        modifier.fillMaxSize().verticalScroll(scrollState).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.fillMaxSize().verticalScroll(scrollState)
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        SettingsHubCard(
-            icon = Icons.Filled.DataUsage,
-            title = t("data_usage"),
-            subtitle = formatBytes(allTime[0] + allTime[1], lang),
-            onClick = onOpenUsage
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.TravelExplore,
-            title = t("netmon_title"),
-            subtitle = t("netmon_sub"),
-            onClick = onOpenNetMon
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Build,
-            title = t("tools"),
-            subtitle = t("tools_sub"),
-            onClick = onOpenTools
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Router,
-            title = t("connection_settings"),
-            subtitle = t("connection_settings_sub"),
-            onClick = onOpenConnection
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Tune,
-            title = t("preferences"),
-            subtitle = t("preferences_sub"),
-            onClick = onOpenPreferences
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Info,
-            title = t("about"),
-            subtitle = t("about_sub"),
-            onClick = onOpenAbout
+        ScreenHeader(
+            title = t("settings"),
+            context = t("settings_header_sub")
         )
 
+        // The page used to open as nothing but a list of doors. These are the
+        // three numbers that say what this install actually holds, read from
+        // the same stores the pages behind those doors read.
+        StatStrip(
+            listOf(
+                StatCell(t("count_configs"), localizeDigits("${configs.size}", lang), c.primary),
+                StatCell(t("count_subs"), localizeDigits("${subscriptions.size}", lang), c.info),
+                StatCell(t("data_usage"), formatBytes(allTime[0] + allTime[1], lang), c.premium, onClick = onOpenUsage)
+            )
+        )
+
+        Rail(t("sec_connection"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("connection_settings"),
+                subtitle = t("connection_settings_sub"),
+                icon = Icons.Filled.Router,
+                chevron = true,
+                onClick = onOpenConnection
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("tools"),
+                subtitle = t("tools_sub"),
+                icon = Icons.Filled.Build,
+                chevron = true,
+                onClick = onOpenTools
+            )
+        }
+
+        Rail(t("sec_diagnostics"))
+        // The debugger and SSH used to be top-level tabs. Same screens, same
+        // capabilities, reached from here so the bar can stay at three.
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("debugger"),
+                subtitle = t("debugger_settings_sub"),
+                iconRes = R.drawable.ic_royal_tools,
+                chevron = true,
+                onClick = onOpenDebugger
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("netmon_title"),
+                subtitle = t("netmon_sub"),
+                icon = Icons.Filled.TravelExplore,
+                chevron = true,
+                onClick = onOpenNetMon
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("ssh"),
+                subtitle = t("ssh_settings_sub"),
+                iconRes = R.drawable.ic_royal_tunnel,
+                chevron = true,
+                onClick = onOpenSsh
+            )
+        }
+
+        Rail(t("sec_usage"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("data_usage"),
+                subtitle = formatBytes(allTime[0] + allTime[1], lang),
+                icon = Icons.Filled.DataUsage,
+                chevron = true,
+                onClick = onOpenUsage
+            )
+        }
+
+        Rail(t("sec_app"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("preferences"),
+                subtitle = t("preferences_sub"),
+                icon = Icons.Filled.Tune,
+                chevron = true,
+                onClick = onOpenPreferences
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("about"),
+                subtitle = t("about_sub"),
+                icon = Icons.Filled.Info,
+                chevron = true,
+                onClick = onOpenAbout
+            )
+        }
+
+        Rail(t("sec_data"))
         BackupRow(store)
     }
 }
@@ -5474,6 +6283,13 @@ private fun BackupRow(store: ConfigStore) {
     var statusOwner by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<ByteArray?>(null) }
+    // A password-protected backup can't be told apart from "not a backup at
+    // all" without the password first - isBackup()/decodeBackup() both throw
+    // NeedsPassword() for it. That used to be swallowed as a flat, wrong
+    // "این فایل کانفیگ اشتراکی است، نه بکاپ" regardless of the real cause.
+    var needsPassword by remember { mutableStateOf(false) }
+    var backupPassword by remember { mutableStateOf("") }
+    var backupPasswordError by remember { mutableStateOf("") }
 
     LaunchedEffect(status) {
         if (status.isNotEmpty()) { delay(3500); status = "" }
@@ -5516,100 +6332,189 @@ private fun BackupRow(store: ConfigStore) {
                 }
                 when {
                     bytes == null || bytes.isEmpty() -> status = t("import_bad_file")
-                    runCatching { ConfigFile.isBackup(context, bytes, null) }
-                        .getOrDefault(false) -> pending = bytes
-                    else -> status = t("backup_not_backup")
+                    runCatching { ConfigFile.isPasswordProtected(bytes) }.getOrDefault(false) -> {
+                        needsPassword = true
+                        backupPassword = ""
+                        backupPasswordError = ""
+                        pending = bytes
+                    }
+                    else -> {
+                        // Every failure used to collapse into "this is a shared
+                        // config, not a backup", which was wrong for every cause
+                        // except one. The real ones are distinguishable.
+                        val outcome = runCatching { ConfigFile.isBackup(context, bytes, null) }
+                        when (outcome.getOrNull()) {
+                            true -> { needsPassword = false; pending = bytes }
+                            false -> status = t("backup_not_backup")
+                            else -> status = when (outcome.exceptionOrNull()) {
+                                is ConfigFile.ForeignBuild -> t("backup_foreign_build")
+                                is ConfigFile.ForeignApp -> t("import_foreign_app")
+                                else -> t("import_bad_file")
+                            }
+                        }
+                    }
                 }
             }
         }
     }
 
-    Column(
-        Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            BounceOutlinedButton(
-                onClick = {
-                    if (!busy) {
-                        val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
-                            .format(java.util.Date())
-                        saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
-                    }
-                },
-                enabled = !busy,
-                minHeight = 34.dp,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
-            ) {
-                Icon(
-                    Icons.Filled.FileUpload,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    t("backup_export"),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false
-                )
+    // Backup used to be two small outlined chips squeezed under the settings
+    // list. It is the feature people reach for when something has gone wrong,
+    // so it now reads as a real section: what the file contains, a full-width
+    // primary action to write one, a ghost action to read one back, and the
+    // outcome as a proper state rather than a grey caption.
+    val c = ghajarColors
+    Slab(spacing = GhajarSpacing.md) {
+        SlabRow(
+            title = t("backup_title"),
+            subtitle = t("backup_header_sub"),
+            icon = Icons.Filled.Inventory2,
+            accent = c.premium
+        )
+        // What a written file actually carries, counted from live state so the
+        // numbers are never a guess.
+        val configCount = store.configs.value.size
+        val subCount = store.subscriptions.value.size
+        StatStrip(
+            listOf(
+                StatCell(t("count_configs"), localizeDigits("$configCount", store.lang.value), c.info),
+                StatCell(t("count_subs"), localizeDigits("$subCount", store.lang.value), c.premium)
+            )
+        )
+        PillButton(
+            text = t("backup_export"),
+            icon = Icons.Filled.FileUpload,
+            enabled = !busy,
+            onClick = {
+                if (!busy) {
+                    val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                        .format(java.util.Date())
+                    saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
+                }
             }
-            BounceOutlinedButton(
-                onClick = { opener.launch(arrayOf("*/*")) },
-                minHeight = 34.dp,
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 5.dp)
-            ) {
-                Icon(
-                    Icons.Filled.FileDownload,
-                    contentDescription = null,
-                    modifier = Modifier.size(15.dp)
-                )
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    t("backup_import"),
-                    style = MaterialTheme.typography.labelMedium,
-                    maxLines = 1,
-                    softWrap = false
-                )
-            }
-        }
+        )
+        GhostPill(
+            text = t("backup_import"),
+            icon = Icons.Filled.FileDownload,
+            onClick = { opener.launch(arrayOf("*/*")) }
+        )
         AnimatedVisibility(visible = status.isNotEmpty()) {
             Text(
                 mixedText(status),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium,
+                color = c.textSecondary,
                 textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth().padding(top = 6.dp)
+                modifier = Modifier.fillMaxWidth()
             )
         }
     }
 
     pending?.let { bytes ->
+        var preview by remember(bytes) { mutableStateOf<ConfigFile.Backup?>(null) }
+        var previewFailed by remember(bytes) { mutableStateOf(false) }
+        var passwordSubmitted by remember(bytes) { mutableStateOf(false) }
+        LaunchedEffect(bytes, passwordSubmitted) {
+            if (needsPassword && !passwordSubmitted) return@LaunchedEffect
+            val pw = if (needsPassword) backupPassword else null
+            val result = withContext(Dispatchers.IO) {
+                runCatching { ConfigFile.decodeBackup(context, bytes, pw) }
+            }
+            result.onSuccess { preview = it }.onFailure { e ->
+                if (needsPassword && e is ConfigFile.WrongPassword) {
+                    backupPasswordError = t("import_wrong_password")
+                    passwordSubmitted = false
+                } else {
+                    previewFailed = true
+                }
+            }
+        }
+        val awaitingPassword = needsPassword && preview == null && !previewFailed
         GlassDialog(
-            onDismiss = { pending = null },
+            onDismiss = { pending = null; needsPassword = false },
             title = t("backup_import"),
-            confirmLabel = t("import_button"),
+            confirmLabel = if (awaitingPassword) t("import_button") else "جایگزینی کامل",
             dismissLabel = t("cancel"),
             accentOverride = AppGreen,
             onConfirm = {
-                pending = null
-                scope.launch {
-                    val result = withContext(Dispatchers.IO) {
-                        runCatching { ConfigFile.decodeBackup(context, bytes, null) }.getOrNull()
-                    }
-                    if (result == null) {
-                        status = t("import_bad_file")
-                    } else {
+                if (awaitingPassword) {
+                    if (backupPassword.isNotEmpty()) { backupPasswordError = ""; passwordSubmitted = true }
+                } else {
+                    val result = preview
+                    pending = null
+                    needsPassword = false
+                    if (result != null) {
                         store.restoreBackup(result.configs, result.subs, result.settings)
+                        GhajarOpenVpnSettings.restore(context, result.openVpnSettings)
+                        NetworkRules.restore(context, result.networkRules)
+                        val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, result.openVpnProfiles, merge = false)
                         status = localizeDigits(
-                            t("backup_restored").format(result.configs.size, result.subs.size),
+                            t("backup_restored").format(result.configs.size, result.subs.size) +
+                                if (result.openVpnProfiles.isNotEmpty()) " + ${ovpnOutcome.added} پروفایل OpenVPN" else "",
                             store.lang.value
                         )
-                    }
+                    } else status = t("import_bad_file")
                 }
             }
         ) {
-            Text(mixedText(t("backup_restore_q")), style = MaterialTheme.typography.bodyMedium)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                when {
+                    awaitingPassword -> {
+                        Text(t("import_needs_password"), style = MaterialTheme.typography.bodySmall)
+                        OutlinedTextField(
+                            backupPassword, { backupPassword = it; backupPasswordError = "" },
+                            label = { Text(t("import_password")) },
+                            singleLine = true,
+                            visualTransformation = PasswordVisualTransformation(),
+                            shape = RoundedCornerShape(14.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                        if (backupPasswordError.isNotEmpty()) {
+                            Text(backupPasswordError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.labelSmall)
+                        }
+                    }
+                    previewFailed -> Text(t("import_bad_file"), color = MaterialTheme.colorScheme.error)
+                    preview == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Text("در حال خواندن فایل بکاپ…", style = MaterialTheme.typography.bodySmall)
+                    }
+                    else -> {
+                        val p = preview!!
+                        Text(
+                            "این فایل شامل ${p.configs.size} کانفیگ و ${p.subs.size} اشتراک است.",
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                        if (p.openVpnProfiles.isEmpty()) {
+                            Text(
+                                "توجه: این بکاپ پروفایل OpenVPN ندارد (بکاپ قدیمی یا بدون پروفایل ذخیره‌شده).",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        } else {
+                            Text(
+                                "شامل ${p.openVpnProfiles.size} پروفایل OpenVPN.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Text(mixedText(t("backup_restore_q")), style = MaterialTheme.typography.bodySmall)
+                        HorizontalDivider(color = ghajarColors.border)
+                        BounceOutlinedButton(
+                            onClick = {
+                                pending = null
+                                val report = store.mergeBackup(p.configs, p.subs)
+                                val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, p.openVpnProfiles, merge = true)
+                                status = localizeDigits(
+                                    "افزوده شد: ${report.addedConfigs} کانفیگ، ${report.addedSubscriptions} اشتراک، ${ovpnOutcome.added} پروفایل OpenVPN" +
+                                        " (تکراری نادیده گرفته شد: ${report.duplicateConfigs} کانفیگ، ${report.duplicateSubscriptions} اشتراک، ${ovpnOutcome.duplicates} پروفایل)",
+                                    store.lang.value
+                                )
+                            },
+                            minHeight = 38.dp,
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("در عوض فقط افزودن (بدون حذف موارد فعلی)") }
+                    }
+                }
+            }
         }
     }
 }
@@ -5620,6 +6525,9 @@ private fun ToolsScreen(
     onOpenStability: () -> Unit,
     onOpenCleanIp: () -> Unit,
     onOpenCheckHost: () -> Unit,
+    onOpenDnsLab: () -> Unit,
+    onOpenMap: () -> Unit,
+    onSwitch: (ProxyConfig) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -5628,58 +6536,113 @@ private fun ToolsScreen(
     val onionRouting by store.onionRouting.collectAsState()
     val adBlock by store.adBlock.collectAsState()
     val blockWhenOff by store.blockWhenOff.collectAsState()
+    var vpnShareOpen by remember { mutableStateOf(false) }
+    var connectionHistoryOpen by remember { mutableStateOf(false) }
+    // Nine unrelated entries in one flat stack: sharing next to ad-blocking
+    // next to a Cloudflare scanner. Grouped by what they are for, same
+    // entries and same destinations.
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        SettingsHubCard(
-            icon = Icons.Filled.NetworkCheck,
-            title = t("stab_title"),
-            subtitle = t("stab_sub"),
-            onClick = onOpenStability
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.BugReport,
-            title = "لاگ و اشکال‌زدایی",
-            subtitle = "مشاهده و دانلود گزارش کامل رویدادها و خطاها",
-            onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
-        )
-        SettingsHubCard(
-            icon = Icons.Filled.Dns,
-            title = t("chk_title"),
-            subtitle = t("chk_sub"),
-            onClick = onOpenCheckHost
-        )
-        SettingsHubCard(
-            iconRes = R.drawable.cloudflare,
-            title = t("scan_warp"),
-            subtitle = t("scan_sub"),
-            onClick = onOpenCleanIp
-        )
+        ScreenHeader(title = t("tools"), context = t("tools_header_sub"))
+
+        Rail(t("sec_sharing"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = "اشتراک‌گذاری VPN",
+                subtitle = "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی",
+                icon = Icons.Filled.Wifi,
+                chevron = true,
+                onClick = { vpnShareOpen = true }
+            )
+            SlabDivider()
+            SlabRow(
+                title = "تاریخچهٔ اتصال",
+                subtitle = "زمان و وضعیت آخرین اتصال‌ها، قطعی‌ها و خطاها",
+                icon = Icons.Filled.History,
+                chevron = true,
+                onClick = { connectionHistoryOpen = true }
+            )
+            SlabDivider()
+            SlabRow(
+                title = "لاگ و اشکال‌زدایی",
+                subtitle = "مشاهده و دانلود گزارش کامل رویدادها و خطاها",
+                icon = Icons.Filled.BugReport,
+                chevron = true,
+                onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
+            )
+        }
+
+        Rail(t("sec_measure"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("stab_title"),
+                subtitle = t("stab_sub"),
+                icon = Icons.Filled.NetworkCheck,
+                chevron = true,
+                onClick = onOpenStability
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("chk_title"),
+                subtitle = t("chk_sub"),
+                icon = Icons.Filled.Dns,
+                chevron = true,
+                onClick = onOpenCheckHost
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("scan_warp"),
+                subtitle = t("scan_sub"),
+                iconRes = R.drawable.cloudflare,
+                chevron = true,
+                onClick = onOpenCleanIp
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("dnslab_title"),
+                subtitle = t("dnslab_sub"),
+                icon = Icons.Filled.Dns,
+                chevron = true,
+                onClick = onOpenDnsLab
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("map_title"),
+                subtitle = t("map_subtitle"),
+                icon = Icons.Filled.Public,
+                chevron = true,
+                onClick = onOpenMap
+            )
+        }
+
+        Rail(t("sec_privacy"))
         SettingsGroup {
             SettingRow(
                 title = t("adblock_title"),
                 subtitle = t("adblock_sub"),
                 checked = adBlock,
-                onCheckedChange = { store.setAdBlock(it) }
+                onCheckedChange = { store.setAdBlock(it) },
+                icon = Icons.Filled.Shield
             )
             AnimatedVisibility(visible = adBlock) {
+                // A dependent sub-setting, so it sits on the nested card tone
+                // with the brand hairline rather than a tinted block.
                 Box(
                     Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.08f))
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.22f),
-                            RoundedCornerShape(14.dp)
-                        )
-                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .clip(RoundedCornerShape(GhajarRadius.sm))
+                        .background(ghajarColors.secondaryCard)
+                        .border(1.dp, ghajarColors.primary.copy(alpha = 0.30f), RoundedCornerShape(GhajarRadius.sm))
+                        .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm)
                 ) {
                     SettingRow(
                         title = t("adblock_always_title"),
                         subtitle = t("adblock_always_sub"),
                         checked = blockWhenOff,
-                        onCheckedChange = { store.setBlockWhenOff(it) }
+                        onCheckedChange = { store.setBlockWhenOff(it) },
+                        icon = Icons.Filled.Shield
                     )
                 }
             }
@@ -5687,14 +6650,405 @@ private fun ToolsScreen(
                 title = t("onion_title"),
                 subtitle = t("onion_sub"),
                 checked = onionRouting,
-                onCheckedChange = { store.setOnionRouting(it) }
+                onCheckedChange = { store.setOnionRouting(it) },
+                icon = Icons.Filled.Hub
             )
             SettingRow(
                 title = t("smart_connect"),
                 subtitle = t("smart_connect_sub"),
                 checked = autoSelect,
-                onCheckedChange = { store.setAutoSelect(it) }
+                onCheckedChange = { store.setAutoSelect(it) },
+                icon = Icons.Filled.Bolt
             )
+        }
+    }
+    if (vpnShareOpen) VpnShareDialog(store = store, onSwitch = onSwitch, onDismiss = { vpnShareOpen = false })
+    if (connectionHistoryOpen) ConnectionHistoryDialog(onDismiss = { connectionHistoryOpen = false })
+}
+
+/**
+ * "VPN Only" sharing: exposes the engine's own local SOCKS5 inbound (already
+ * bound to 127.0.0.1 for every connection, see ConfigBuilder's socksIn) on
+ * this device's hotspot interface instead. A device connected to this
+ * phone's hotspot can point its Wi-Fi proxy settings at this phone's
+ * hotspot IP and the shown port to route through the exact same tunnel this
+ * phone uses. Fail-closed by construction: the SOCKS listener lives inside
+ * the same Xray core process as the tunnel itself, so disconnecting or
+ * losing the VPN tears the listener down with it — there is no path for a
+ * connected device to fall through to this phone's raw internet.
+ *
+ * The other two requested modes are NOT implemented, and not faked:
+ * - "VPN + Internet" (mixed, chosen routes) would need to selectively
+ *   redirect only some destinations from hotspot clients while leaving
+ *   others direct. VpnService only ever intercepts this device's own
+ *   per-UID-selected traffic; it has no API to inspect or redirect packets
+ *   arriving from other devices over the hotspot interface at all.
+ * - "VPN only for connected devices, host stays direct" needs the same
+ *   thing in reverse (redirect guest traffic, leave the host alone) and
+ *   hits the identical wall: without root-level netfilter rules on the
+ *   hotspot interface, Android gives this app no hook into hotspot client
+ *   traffic. The SOCKS relay above is the only mechanism available without
+ *   root, and it only ever affects a device that explicitly configures
+ *   itself to use it — it cannot make that separation automatic.
+ */
+@Composable
+private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val enabled by store.vpnShareEnabled.collectAsState()
+    val connected by VpnState.state.collectAsState()
+    val activeId by VpnState.activeId.collectAsState()
+    val configs by store.configs.collectAsState()
+    // Toggling the switch only takes effect on the next connect, exactly
+    // like every other tunnel-affecting setting in this app (adBlock,
+    // splitRouting, ...). But leaving an open (no-password) proxy running
+    // after the user pressed "stop sharing" would be a real leak, not just
+    // a UI inconsistency - so this one setting forces a live rebuild of the
+    // current tunnel through the same switchTo() sequencing a manual server
+    // switch already uses, instead of waiting for the next reconnect.
+    fun applyLiveIfConnected() {
+        if (connected == Connection.CONNECTED) {
+            configs.find { it.id == activeId }?.let(onSwitch)
+        }
+    }
+    val socksPort = MixedPort.value
+    val httpPort = HttpSharePort.value
+    // Re-read every few seconds instead of once: switching Wi-Fi/hotspot
+    // while this dialog stays open must not keep showing a stale address.
+    var hotspotIp by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            hotspotIp = withContext(Dispatchers.IO) { hotspotInterfaceAddress() }
+            delay(3000)
+        }
+    }
+    val shareUser by store.vpnShareUsername.collectAsState()
+    val sharePass by store.vpnSharePassword.collectAsState()
+    var showGuide by remember { mutableStateOf(false) }
+    var showQr by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (enabled) store.ensureVpnShareCredential() }
+    // Only the Xray-core engine (ConfigBuilder's socks-in/http-share-in)
+    // actually exposes the shared proxy - OpenVPN and IKEv2 run through
+    // completely separate engines with no such inbound at all, so telling
+    // the user it's active there would be a real IP/port that never works.
+    val activeProtocol = configs.find { it.id == activeId }?.protocol
+    val xraySupported = !activeId.orEmpty().startsWith("ovpn:") && activeProtocol != "ikev2"
+    val live = enabled && connected == Connection.CONNECTED && xraySupported
+
+    fun copy(label: String, value: String) {
+        clipboard.setText(AnnotatedString(value))
+        android.widget.Toast.makeText(context, "$label کپی شد", android.widget.Toast.LENGTH_SHORT).show()
+    }
+
+    GlassDialog(
+        onDismiss = onDismiss,
+        title = "VPN Share",
+        confirmLabel = "بستن",
+        onConfirm = onDismiss
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("اشتراک‌گذاری اتصال VPN با دستگاه دیگر", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(GhajarRadius.sm))
+                    .background(ghajarColors.secondaryCard)
+                    .border(1.dp, ghajarColors.border, RoundedCornerShape(GhajarRadius.sm))
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "فعال‌سازی اشتراک‌گذاری", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
+                )
+                SkinSwitch(checked = enabled, onCheckedChange = { store.setVpnShareEnabled(it); applyLiveIfConnected() })
+            }
+            if (enabled && connected != Connection.CONNECTED) {
+                Text(
+                    "وضعیت: غیرفعال (برای شروع، اول از صفحهٔ اصلی به یک سرور وصل شو)",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+                )
+            } else if (enabled && connected == Connection.CONNECTED && !xraySupported) {
+                Text(
+                    "وضعیت: غیرفعال (این قابلیت فقط برای پروتکل‌های Xray کار می‌کند؛ اتصال فعلی OpenVPN یا IKEv2 است)",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+                )
+            }
+            if (live) {
+                Text("وضعیت: فعال", fontWeight = FontWeight.Bold, color = AppGreen)
+                val ip = hotspotIp
+                if (ip == null) {
+                    Text("ابتدا هات‌اسپات همین گوشی را روشن کن.", color = MaterialTheme.colorScheme.error)
+                } else {
+                    ShareAddressRow("آدرس پراکسی (HTTP، برای تنظیمات Wi-Fi)", ip, httpPort.toString(), ::copy)
+                    Text(
+                        "بدون رمز؛ هر دستگاهی در همین شبکه می‌تواند از این آدرس استفاده کند.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error
+                    )
+                    HorizontalDivider(color = ghajarColors.border)
+                    ShareAddressRow("آدرس SOCKS5 (امن‌تر؛ برای اپ/مرورگری که SOCKS را پشتیبانی کند)",
+                        ip, socksPort.toString(), ::copy)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("کاربری: $shareUser", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { copy("نام کاربری", shareUser) },
+                            contentPadding = PaddingValues(4.dp)) { Text("کپی") }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("رمز: $sharePass", style = MaterialTheme.typography.bodySmall)
+                        TextButton(onClick = { copy("رمز", sharePass) },
+                            contentPadding = PaddingValues(4.dp)) { Text("کپی") }
+                    }
+                    // Typing a 24-character hex password into a second phone by
+                    // hand is how this feature stopped being used. The QR
+                    // carries the whole SOCKS5 endpoint - address, port, user
+                    // and password - in the standard URI form, so a client that
+                    // reads proxy QRs is configured in one scan. It is only
+                    // offered while sharing is genuinely live, so the code can
+                    // never encode an address that is not listening.
+                    TextButton(onClick = { showQr = true }) {
+                        Icon(Icons.Filled.QrCodeScanner, null, Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("نمایش QR اتصال")
+                    }
+                    TextButton(onClick = { store.regenerateVpnShareCredential(); applyLiveIfConnected() }) {
+                        Text("تولید رمز SOCKS5 جدید")
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    OutlinedButton(onClick = { showGuide = true }, modifier = Modifier.weight(1f)) {
+                        Text("راهنمای اتصال")
+                    }
+                    OutlinedButton(
+                        onClick = { store.setVpnShareEnabled(false); applyLiveIfConnected() },
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.weight(1f)
+                    ) { Text("توقف اشتراک‌گذاری") }
+                }
+            }
+            HorizontalDivider(color = ghajarColors.border)
+            Text(
+                "این پراکسی فقط ترافیکی را که خودت به آن دستگاه اجازه می‌دهی از VPN رد می‌کند، نه کل دستگاه دوم را؛ بستگی به این دارد که خود آن دستگاه یا برنامه‌اش پراکسی را رعایت کند. اشتراک‌گذاری کامل ترافیک دستگاه دوم بدون دسترسی روت روی اندروید ممکن نیست.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+
+    // Reuses the app's existing QR sheet rather than drawing a second one. The
+    // address is re-read here, so a hotspot that changed while the dialog was
+    // open cannot produce a code pointing at the old one.
+    // Sharing stopping while the sheet is open closes it, in an effect rather
+    // than a branch: clearing the flag during composition would write state
+    // from the composition that reads it.
+    LaunchedEffect(live) { if (!live) showQr = false }
+    val qrIp = hotspotIp
+    if (showQr && live && qrIp != null && shareUser.isNotBlank() && sharePass.isNotBlank()) {
+        QrDialog(
+            link = "socks5://$shareUser:$sharePass@$qrIp:$socksPort",
+            title = "VPN Share",
+            onDismiss = { showQr = false }
+        )
+    }
+
+    if (showGuide) {
+        VpnShareSetupDialog(
+            sharingOn = enabled,
+            tunnelUp = connected == Connection.CONNECTED,
+            engineSupported = xraySupported,
+            hotspotIp = hotspotIp,
+            socksPort = socksPort,
+            httpPort = httpPort,
+            shareUser = shareUser,
+            sharePass = sharePass,
+            onCopy = ::copy,
+            onDismiss = { showGuide = false }
+        )
+    }
+}
+
+/**
+ * VPN Share, checked rather than described.
+ *
+ * The old guide was six sentences with no values in them and no idea whether
+ * any of it was true. This runs [ShareDoctor] first - is sharing on, is a
+ * tunnel up, does this engine even publish the inbound, is the hotspot's own
+ * interface up, and is anything actually accepting a connection on the address
+ * the user is about to type into a second phone - and only then lays out the
+ * steps, with that device's real address, port and credential in them.
+ */
+@Composable
+private fun VpnShareSetupDialog(
+    sharingOn: Boolean,
+    tunnelUp: Boolean,
+    engineSupported: Boolean,
+    hotspotIp: String?,
+    socksPort: Int,
+    httpPort: Int,
+    shareUser: String,
+    sharePass: String,
+    onCopy: (String, String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    val t: (String) -> String = { Strings.get(lang, it) }
+    var report by remember { mutableStateOf<DoctorReport?>(null) }
+    var run by remember { mutableStateOf(0) }
+
+    LaunchedEffect(run, sharingOn, tunnelUp, hotspotIp) {
+        report = null
+        report = ShareDoctor.run(
+            sharingOn = sharingOn,
+            tunnelUp = tunnelUp,
+            engineSupported = engineSupported,
+            hotspotIp = hotspotIp,
+            socksPort = socksPort,
+            httpPort = httpPort,
+            credentialSet = shareUser.isNotBlank() && sharePass.isNotBlank()
+        )
+    }
+
+    val current = report
+    // The steps are only worth showing once there is something for the second
+    // device to connect to; otherwise they would send the user to type an
+    // address that nothing is listening on.
+    val usable = current != null && current.worst != DoctorVerdict.FAIL && hotspotIp != null
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t("share_setup_title")) },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+            ) {
+                DoctorBody(current, allOkKey = "share_all_ok")
+                if (usable && hotspotIp != null) {
+                    HorizontalDivider(color = c.border)
+                    Text(
+                        t("share_steps_title"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c.textSecondary
+                    )
+                    ShareStep("1", t("share_step_join"))
+                    ShareStep("2", t("share_step_wifi"))
+                    ShareStep("3", t("share_step_manual"))
+                    ShareStep("4", t("share_step_host").format(hotspotIp))
+                    ShareStep("5", t("share_step_port").format(httpPort.toString()))
+                    ShareStep("6", t("share_step_save"))
+                    HorizontalDivider(color = c.border)
+                    Text(
+                        t("share_step_socks_title"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c.textSecondary
+                    )
+                    ShareStep("1", t("share_step_socks_addr").format("$hotspotIp:$socksPort"))
+                    ShareStep("2", t("share_step_socks_cred"))
+                    GhostPill(
+                        t("share_copy_socks"),
+                        onClick = {
+                            onCopy(
+                                t("share_setup_title"),
+                                "socks5://$shareUser:$sharePass@$hotspotIp:$socksPort"
+                            )
+                        }
+                    )
+                }
+            }
+        },
+        confirmButton = { PillButton(t("doc_close"), onDismiss) },
+        dismissButton = {
+            GhostPill(t("doc_again"), onClick = { run++ }, enabled = current != null)
+        }
+    )
+}
+
+/**
+ * The leak-protection report.
+ *
+ * Two of the five findings are Android's to grant, not this app's, so the
+ * dialog's own action is the shortcut to the screen where the user grants
+ * them - always-on VPN and "block connections without VPN".
+ */
+@Composable
+private fun LeakGuardDialog(store: ConfigStore, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val lang = LocalLang.current
+    val t: (String) -> String = { Strings.get(lang, it) }
+    var report by remember { mutableStateOf<DoctorReport?>(null) }
+    var run by remember { mutableStateOf(0) }
+
+    LaunchedEffect(run) {
+        report = null
+        report = LeakGuard.run(context, store)
+    }
+
+    val current = report
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(t("leak_title")) },
+        text = {
+            Column(
+                Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+            ) {
+                DoctorBody(current, allOkKey = "leak_all_ok")
+                Text(
+                    t("leak_note"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ghajarColors.textMuted
+                )
+            }
+        },
+        confirmButton = {
+            PillButton(t("leak_open_settings"), onClick = {
+                // The OEM-specific screen first, the generic one as a
+                // fallback - the same pair the kill-switch card already uses.
+                runCatching {
+                    context.startActivity(
+                        Intent("android.net.vpn.SETTINGS").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }.onFailure {
+                    runCatching {
+                        context.startActivity(
+                            Intent(android.provider.Settings.ACTION_VPN_SETTINGS)
+                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }
+            })
+        },
+        dismissButton = {
+            GhostPill(t("doc_again"), onClick = { run++ }, enabled = current != null)
+        }
+    )
+}
+
+@Composable
+private fun ShareStep(number: String, text: String) {
+    val c = ghajarColors
+    Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+        Text(
+            localizeDigits(number, LocalLang.current),
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = c.primary
+        )
+        Text(mixedText(text), style = MaterialTheme.typography.bodyMedium, color = c.textPrimary)
+    }
+}
+
+@Composable
+private fun ShareAddressRow(label: String, ip: String, port: String, onCopy: (String, String) -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("آدرس: $ip", modifier = Modifier.weight(1f))
+            TextButton(onClick = { onCopy("آدرس", ip) }, contentPadding = PaddingValues(4.dp)) { Text("کپی آدرس") }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("پورت: $port", modifier = Modifier.weight(1f))
+            TextButton(onClick = { onCopy("پورت", port) }, contentPadding = PaddingValues(4.dp)) { Text("کپی پورت") }
         }
     }
 }
@@ -5799,9 +7153,9 @@ private fun ConfigDebuggerScreen(
     val stateColor = when {
         testing || result == null -> MaterialTheme.colorScheme.primary
         state == DebugState.HEALTHY -> AppGreen
-        state == DebugState.TIMEOUT -> if (dark) Color(0xFFFFC24D) else Color(0xFF9A6B00)
-        state == DebugState.BLOCKED -> if (dark) Color(0xFFFF8A3D) else Color(0xFFD2620F)
-        state == DebugState.OFFLINE -> if (dark) Color(0xFF8A93A5) else Color(0xFF6B7484)
+        state == DebugState.TIMEOUT -> ghajarColors.warning
+        state == DebugState.BLOCKED -> ghajarColors.error
+        state == DebugState.OFFLINE -> ghajarColors.textMuted
         else -> MaterialTheme.colorScheme.error
     }
     val stateLabel = when {
@@ -5946,7 +7300,7 @@ private fun ConfigDebuggerScreen(
                         when {
                             info.reputation < 0 -> null
                             info.reputation >= 60 -> AppGreen
-                            info.reputation >= 40 -> Color(0xFFFF8A3D)
+                            info.reputation >= 40 -> ghajarColors.warning
                             else -> MaterialTheme.colorScheme.error
                         }
                     )
@@ -5972,7 +7326,7 @@ private fun ConfigDebuggerScreen(
             problems.forEach { check ->
                 val color = when (check.level) {
                     DebugLevel.OK -> AppGreen
-                    DebugLevel.WARN -> Color(0xFFFFA94D)
+                    DebugLevel.WARN -> ghajarColors.warning
                     DebugLevel.BAD -> MaterialTheme.colorScheme.error
                 }
                 val icon = when (check.level) {
@@ -6081,7 +7435,7 @@ private fun ProbeCheckRow(check: DebugCheck, index: Int, stamp: Any?) {
     val t = stringsFn()
     val color = when (check.level) {
         DebugLevel.OK -> AppGreen
-        DebugLevel.WARN -> Color(0xFFFFA94D)
+        DebugLevel.WARN -> ghajarColors.warning
         DebugLevel.BAD -> MaterialTheme.colorScheme.error
     }
     val icon = when (check.level) {
@@ -6309,27 +7663,19 @@ private fun SettingsGroup(
     title: String? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
-        ),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f))
-    ) {
-        Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            if (title != null) {
-                Text(
-                    mixedText(title),
-                    style = MaterialTheme.typography.labelLarge,
-                    color = MaterialTheme.colorScheme.primary
-                )
-            }
-            content()
+    // Every grouped control in the app comes through here, so this one change
+    // puts all of them on the slab skin.
+    val c = ghajarColors
+    Slab {
+        if (title != null) {
+            Text(
+                mixedText(title),
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = c.textSecondary
+            )
         }
+        content()
     }
 }
 
@@ -6343,6 +7689,16 @@ private fun ConnectionSettingsScreen(
     val t = stringsFn()
     val lang = LocalLang.current
     val fragment by store.fragment.collectAsState()
+    val fragmentPackets by store.fragmentPackets.collectAsState()
+    val fragmentLength by store.fragmentLength.collectAsState()
+    val fragmentInterval by store.fragmentInterval.collectAsState()
+    val rotateMinutes by store.rotateMinutes.collectAsState()
+    val zeptunTunnel by store.zeptunTunnel.collectAsState()
+    val zeptunDns by store.zeptunDns.collectAsState()
+    val zeptunDnsUpstream by store.zeptunDnsUpstream.collectAsState()
+    val zeptunProfile by store.zeptunProfile.collectAsState()
+    val youtubeDirect by store.youtubeDirect.collectAsState()
+    val noiseSpec by store.noiseSpec.collectAsState()
     val splitRouting by store.splitRouting.collectAsState()
     val sniffing by store.sniffing.collectAsState()
     val sniffTypes by store.sniffTypes.collectAsState()
@@ -6360,6 +7716,17 @@ private fun ConnectionSettingsScreen(
     var ovpnUseSystemProxy by remember { mutableStateOf(openVpnDefaults.useSystemProxy) }
     var ovpnPauseOnScreenOff by remember { mutableStateOf(openVpnDefaults.pauseOnScreenOff) }
     var ovpnEncryptProfiles by remember { mutableStateOf(openVpnDefaults.encryptProfiles) }
+    val netRuleDefaults = remember(settingsContext) { NetworkRules.read(settingsContext) }
+    var netRulesOn by remember { mutableStateOf(netRuleDefaults.enabled) }
+    var netRuleWifi by remember { mutableStateOf(netRuleDefaults.wifi) }
+    var netRuleCellular by remember { mutableStateOf(netRuleDefaults.cellular) }
+    var netRuleOther by remember { mutableStateOf(netRuleDefaults.other) }
+    var netRuleRecover by remember { mutableStateOf(netRuleDefaults.recoverOnChange) }
+    var showLeakGuard by remember { mutableStateOf(false) }
+
+    if (showLeakGuard) {
+        LeakGuardDialog(store = store, onDismiss = { showLeakGuard = false })
+    }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -6370,31 +7737,217 @@ private fun ConnectionSettingsScreen(
                 title = t("fakedns_title"),
                 subtitle = t("fakedns_sub"),
                 checked = fakeDns,
-                onCheckedChange = { store.setFakeDns(it) }
+                onCheckedChange = { store.setFakeDns(it) },
+                icon = Icons.Filled.Dns
             )
             SettingRow(
                 title = t("encdns_title"),
                 subtitle = t("encdns_sub"),
                 checked = encryptedDns,
-                onCheckedChange = { store.setEncryptedDns(it) }
+                onCheckedChange = { store.setEncryptedDns(it) },
+                icon = Icons.Filled.Lock
             )
             SettingRow(
                 title = t("split_title"),
                 subtitle = t("split_sub"),
                 checked = splitRouting,
-                onCheckedChange = { store.setSplitRouting(it) }
+                onCheckedChange = { store.setSplitRouting(it) },
+                icon = Icons.Filled.CallSplit
             )
             SettingRow(
                 title = t("fragment_title"),
                 subtitle = t("fragment_sub"),
                 checked = fragment,
-                onCheckedChange = { store.setFragment(it) }
+                onCheckedChange = { store.setFragment(it) },
+                icon = Icons.Filled.Shuffle
+            )
+            // The fragmentor's own parameters. They were already in the store
+            // with setters and a backup entry, but nothing showed them and
+            // nothing passed them to the core - so the fragmentor always ran
+            // on the built-in "tlshello / 10-20 / 10-20" whatever was saved.
+            // Both halves are fixed now: these are wired through every connect
+            // path, and the presets are the ones worth having.
+            AnimatedVisibility(visible = fragment) {
+                Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                    Text(
+                        t("fragment_tune"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = ghajarColors.textSecondary
+                    )
+                    val presets = remember {
+                        listOf(
+                            Triple("tlshello", "10-20", "10-20"),
+                            Triple("tlshello", "40-60", "30-50"),
+                            Triple("1-3", "10-20", "10-20"),
+                            Triple("1-5", "1-3", "1-3")
+                        )
+                    }
+                    val labels = listOf(
+                        t("fragment_preset_default"),
+                        t("fragment_preset_wide"),
+                        t("fragment_preset_first"),
+                        t("fragment_preset_tiny")
+                    )
+                    presets.forEachIndexed { index, preset ->
+                        val (packets, length, interval) = preset
+                        val active = fragmentPackets == packets &&
+                            fragmentLength == length && fragmentInterval == interval
+                        SlabRow(
+                            title = labels[index],
+                            subtitle = "packets $packets · length $length · interval $interval",
+                            icon = if (active) Icons.Filled.Check else Icons.Filled.Shuffle,
+                            accent = if (active) ghajarColors.primary else ghajarColors.textMuted,
+                            onClick = {
+                                store.setFragmentPackets(packets)
+                                store.setFragmentLength(length)
+                                store.setFragmentInterval(interval)
+                            }
+                        )
+                    }
+                    Text(
+                        t("fragment_tune_note"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ghajarColors.textMuted
+                    )
+                }
+            }
+            // The zeptun tun engine. The row reports what the library on
+            // this device actually says about itself rather than whether the
+            // build was supposed to include it - a version string here is
+            // proof it loaded, and its absence is proof it did not.
+            val zeptunVersion = remember { ZeptunEngine.version() }
+            SettingRow(
+                title = t("zeptun_title"),
+                subtitle = when {
+                    zeptunVersion == null -> t("zeptun_absent")
+                    zeptunTunnel -> t("zeptun_on").format(zeptunVersion)
+                    else -> t("zeptun_off").format(zeptunVersion)
+                },
+                checked = zeptunTunnel && zeptunVersion != null,
+                enabled = zeptunVersion != null,
+                onCheckedChange = { store.setZeptunTunnel(it) },
+                icon = Icons.Filled.Dns
+            )
+            Text(
+                t("zeptun_note"),
+                style = MaterialTheme.typography.labelSmall,
+                color = ghajarColors.textMuted
+            )
+            // The engine's own options, shown only while it is actually in
+            // charge of a tunnel. Offering DNS modes for an engine that is
+            // switched off, or not in the build, would be four rows that
+            // cannot do anything.
+            AnimatedVisibility(visible = zeptunTunnel && zeptunVersion != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                    SlabRow(
+                        title = t("zeptun_dns_title"),
+                        subtitle = when (zeptunDns) {
+                            ZeptunEngine.DnsMode.FORWARD -> t("zeptun_dns_forward")
+                            ZeptunEngine.DnsMode.HIJACK ->
+                                if (zeptunDnsUpstream.isBlank()) t("zeptun_dns_hijack_unset")
+                                else t("zeptun_dns_hijack").format(zeptunDnsUpstream)
+                            ZeptunEngine.DnsMode.FAKE_IP -> t("zeptun_dns_fake")
+                        },
+                        icon = Icons.Filled.Dns,
+                        accent = if (zeptunDns == ZeptunEngine.DnsMode.FORWARD)
+                            ghajarColors.textMuted else ghajarColors.primary,
+                        chevron = true,
+                        onClick = {
+                            val modes = ZeptunEngine.DnsMode.entries
+                            store.setZeptunDns(modes[(modes.indexOf(zeptunDns) + 1) % modes.size])
+                        }
+                    )
+                    // Only asked for in the one mode that reads it: hijack
+                    // does nothing at all without an upstream.
+                    AnimatedVisibility(visible = zeptunDns == ZeptunEngine.DnsMode.HIJACK) {
+                        SkinField(
+                            value = zeptunDnsUpstream,
+                            onValueChange = { store.setZeptunDnsUpstream(it) },
+                            label = t("zeptun_dns_upstream"),
+                            placeholder = "1.1.1.1"
+                        )
+                    }
+                    SlabRow(
+                        title = t("zeptun_profile_title"),
+                        subtitle = when (zeptunProfile) {
+                            ZeptunEngine.Profile.BALANCED -> t("zeptun_profile_balanced")
+                            ZeptunEngine.Profile.THROUGHPUT -> t("zeptun_profile_throughput")
+                            ZeptunEngine.Profile.BATTERY -> t("zeptun_profile_battery")
+                        },
+                        icon = Icons.Filled.Speed,
+                        accent = if (zeptunProfile == ZeptunEngine.Profile.BALANCED)
+                            ghajarColors.textMuted else ghajarColors.primary,
+                        chevron = true,
+                        onClick = {
+                            val all = ZeptunEngine.Profile.entries
+                            store.setZeptunProfile(all[(all.indexOf(zeptunProfile) + 1) % all.size])
+                        }
+                    )
+                    Text(
+                        t("zeptun_dns_note"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ghajarColors.textMuted
+                    )
+                }
+            }
+            // Noise packets on the direct outbound, from MahsaNG. Off by
+            // default: a server that will not tolerate an unexpected leading
+            // packet fails rather than degrades.
+            SlabRow(
+                title = t("noise_title"),
+                subtitle = when (noiseSpec) {
+                    "", "off" -> t("noise_off")
+                    "light" -> t("noise_light")
+                    "standard" -> t("noise_standard")
+                    "aggressive" -> t("noise_aggressive")
+                    "quic" -> t("noise_quic")
+                    else -> t("noise_custom")
+                },
+                icon = Icons.Filled.GraphicEq,
+                accent = if (noiseSpec.isBlank() || noiseSpec == "off")
+                    ghajarColors.textMuted else ghajarColors.primary,
+                chevron = true,
+                onClick = {
+                    // Cycles the presets only. A hand-written spec is kept as
+                    // it is until the user taps, which then moves to "off"
+                    // rather than silently rewriting what they typed.
+                    val steps = listOf("off", "light", "standard", "aggressive", "quic")
+                    val here = steps.indexOf(noiseSpec.ifBlank { "off" })
+                    store.setNoiseSpec(steps[(here.coerceAtLeast(0) + 1) % steps.size])
+                }
+            )
+            // Youtube Direct, from MahsaNG. A bandwidth decision, not a
+            // censorship one - which is why the note says what it costs.
+            SettingRow(
+                title = t("youtube_direct_title"),
+                subtitle = if (youtubeDirect) t("youtube_direct_on") else t("youtube_direct_off"),
+                checked = youtubeDirect,
+                onCheckedChange = { store.setYoutubeDirect(it) },
+                icon = Icons.Filled.PlayArrow
+            )
+            // Rotating configs: off unless an interval is set, and it only
+            // moves between servers that are already in the list.
+            SlabRow(
+                title = t("rotate_title"),
+                subtitle = if (rotateMinutes <= 0) t("rotate_off")
+                else t("rotate_every").format(localizeDigits("$rotateMinutes", lang)),
+                icon = Icons.Filled.Autorenew,
+                accent = if (rotateMinutes > 0) ghajarColors.primary else ghajarColors.textMuted,
+                chevron = true,
+                onClick = {
+                    // 0 -> 15 -> 30 -> 60 -> 120 -> off again.
+                    val steps = listOf(0, 15, 30, 60, 120)
+                    val next = steps[(steps.indexOf(rotateMinutes).coerceAtLeast(0) + 1) % steps.size]
+                    store.setRotateMinutes(next)
+                }
             )
             SettingRow(
                 title = t("sniffing_title"),
                 subtitle = t("sniffing_sub"),
                 checked = sniffing,
-                onCheckedChange = { store.setSniffing(it) }
+                onCheckedChange = { store.setSniffing(it) },
+                icon = Icons.Filled.TravelExplore
             )
             AnimatedVisibility(visible = sniffing) {
                 Column {
@@ -6415,7 +7968,8 @@ private fun ConnectionSettingsScreen(
                 title = t("mux_title"),
                 subtitle = t("mux_sub"),
                 checked = mux,
-                onCheckedChange = { store.setMux(it) }
+                onCheckedChange = { store.setMux(it) },
+                icon = Icons.Filled.Layers
             )
             AnimatedVisibility(visible = mux) {
                 Row(
@@ -6439,7 +7993,18 @@ private fun ConnectionSettingsScreen(
                 title = t("kill_switch_title"),
                 subtitle = t("kill_switch_sub"),
                 checked = killSwitch,
-                onCheckedChange = { store.setKillSwitch(it) }
+                onCheckedChange = { store.setKillSwitch(it) },
+                icon = Icons.Filled.Block
+            )
+            // The toggles above say what this app was asked to do. This says
+            // what would actually happen to traffic if the tunnel dropped,
+            // including the two halves of it that only Android can grant.
+            SlabRow(
+                title = t("leak_title"),
+                subtitle = t("leak_sub"),
+                icon = Icons.Filled.Shield,
+                chevron = true,
+                onClick = { showLeakGuard = true }
             )
             AnimatedVisibility(visible = killSwitch) {
                 Card(
@@ -6528,6 +8093,52 @@ private fun ConnectionSettingsScreen(
                     }
                 )
             }
+        }
+
+        SettingsGroup(t("netrule_title")) {
+            Text(
+                t("netrule_sub"),
+                style = MaterialTheme.typography.bodySmall,
+                color = ghajarColors.textSecondary
+            )
+            SettingRow(
+                title = t("netrule_enabled"),
+                subtitle = t("netrule_enabled_sub"),
+                checked = netRulesOn,
+                onCheckedChange = { value ->
+                    netRulesOn = value
+                    NetworkRules.setEnabled(settingsContext, value)
+                }
+            )
+            // Three states, so a tap cycles rather than opening a menu for what
+            // is effectively one of three words.
+            NetRuleRow(t("netrule_wifi"), netRuleWifi, enabled = netRulesOn) { next ->
+                netRuleWifi = next
+                NetworkRules.setAction(settingsContext, NetKind.WIFI, next)
+            }
+            NetRuleRow(t("netrule_cellular"), netRuleCellular, enabled = netRulesOn) { next ->
+                netRuleCellular = next
+                NetworkRules.setAction(settingsContext, NetKind.CELLULAR, next)
+            }
+            NetRuleRow(t("netrule_other"), netRuleOther, enabled = netRulesOn) { next ->
+                netRuleOther = next
+                NetworkRules.setAction(settingsContext, NetKind.OTHER, next)
+            }
+            SettingRow(
+                title = t("netrule_recover"),
+                subtitle = t("netrule_recover_sub"),
+                checked = netRuleRecover,
+                onCheckedChange = { value ->
+                    netRuleRecover = value
+                    NetworkRules.setRecoverOnChange(settingsContext, value)
+                },
+                enabled = netRulesOn
+            )
+            Text(
+                t("netrule_note"),
+                style = MaterialTheme.typography.bodySmall,
+                color = ghajarColors.textMuted
+            )
         }
 
         SettingsGroup("OpenVPN") {
@@ -6646,6 +8257,7 @@ private fun ConnectionSettingsScreen(
 private fun PreferencesScreen(
     store: ConfigStore,
     onOpenTheme: () -> Unit,
+    onOpenNotifications: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -6672,6 +8284,12 @@ private fun PreferencesScreen(
             subtitle = t("theme_settings_sub"),
             onClick = onOpenTheme
         )
+        SettingsHubCard(
+            icon = Icons.Filled.Notifications,
+            title = t("notif_settings"),
+            subtitle = t("notif_settings_sub"),
+            onClick = onOpenNotifications
+        )
 
         SettingsGroup {
             Text(t("language"), style = MaterialTheme.typography.labelLarge,
@@ -6695,8 +8313,8 @@ private fun PreferencesScreen(
                     onDismissRequest = { langOpen = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     DropdownMenuItem(
                         text = {
@@ -6742,8 +8360,8 @@ private fun PreferencesScreen(
                     onDismissRequest = { autoRefreshOpen = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     listOf(0, 1, 6, 12, 24).forEach { h ->
                         DropdownMenuItem(
@@ -6777,8 +8395,8 @@ private fun PreferencesScreen(
                     onDismissRequest = { coreLogOpen = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     listOf("none", "error", "warning", "info", "debug").forEach { level ->
                         DropdownMenuItem(
@@ -6821,87 +8439,221 @@ private val TelegramIcon: ImageVector =
         build()
     }
 
+/**
+ * Notification settings as a settings page rather than a block inside the
+ * shop's third section, where they were effectively unfindable. The controls
+ * themselves are unchanged - same permission request, same channel entry
+ * points, same per-category toggles.
+ */
+@Composable
+private fun NotificationSettingsScreen(modifier: Modifier = Modifier) {
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        SettingsGroup { GhajarNotificationSettings() }
+    }
+}
+
 @Composable
 private fun ThemeSettingsScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     val t = stringsFn()
-    val themeMode by store.themeMode.collectAsState()
-    val globeStyle by store.globeStyle.collectAsState()
+    val selected by store.uiTheme.collectAsState()
+    val c = ghajarColors
 
     Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(18.dp)
+        modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Text(t("theme_mode"), style = MaterialTheme.typography.titleMedium)
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            ThemeModeRow(
-                icon = Icons.Filled.LightMode,
-                label = t("theme_light"),
-                selected = themeMode == ThemeMode.LIGHT,
-                onClick = { store.setThemeMode(ThemeMode.LIGHT) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.DarkMode,
-                label = t("theme_dark"),
-                selected = themeMode == ThemeMode.DARK,
-                onClick = { store.setThemeMode(ThemeMode.DARK) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.Contrast,
-                label = t("theme_amoled"),
-                selected = themeMode == ThemeMode.AMOLED,
-                onClick = { store.setThemeMode(ThemeMode.AMOLED) }
-            )
-            ThemeModeRow(
-                icon = Icons.Filled.Contrast,
-                label = t("theme_system"),
-                selected = themeMode == ThemeMode.SYSTEM,
-                onClick = { store.setThemeMode(ThemeMode.SYSTEM) }
+        Text(t("appearance_title"), style = MaterialTheme.typography.titleMedium, color = c.textPrimary)
+        Text(
+            t("appearance_sub"),
+            style = MaterialTheme.typography.bodySmall,
+            color = c.textSecondary
+        )
+        Spacer(Modifier.height(GhajarSpacing.xs))
+
+        GhajarPalettes.forEach { palette ->
+            val (label, sub) = when (palette.id) {
+                GhajarThemeId.PREMIUM_GREEN_DARK -> t("theme_green_dark") to t("theme_green_dark_sub")
+                GhajarThemeId.PREMIUM_GREEN_LIGHT -> t("theme_green_light") to t("theme_green_light_sub")
+                GhajarThemeId.MIDNIGHT_BLUE -> t("theme_midnight") to t("theme_midnight_sub")
+                GhajarThemeId.GRAPHITE_GOLD -> t("theme_graphite") to t("theme_graphite_sub")
+                GhajarThemeId.SYSTEM -> t("theme_system") to t("theme_system_sub")
+            }
+            ThemeChoiceRow(
+                label = label,
+                subtitle = sub,
+                preview = palette,
+                selected = selected == palette.id,
+                onClick = { store.setUiTheme(palette.id) }
             )
         }
 
-        Text(t("globe_style_title"), style = MaterialTheme.typography.titleMedium)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            GlobeStyleOption(
-                label = t("globe_style_filled"),
-                selected = globeStyle == "filled",
-                onClick = { store.setGlobeStyle("filled") },
-                modifier = Modifier.weight(1f)
+        ThemeChoiceRow(
+            label = t("theme_system"),
+            subtitle = t("theme_system_sub"),
+            // Shows whichever Premium Green palette the phone would pick.
+            preview = ghajarPaletteFor(GhajarThemeId.SYSTEM, isSystemInDarkTheme()),
+            selected = selected == GhajarThemeId.SYSTEM,
+            onClick = { store.setUiTheme(GhajarThemeId.SYSTEM) }
+        )
+
+        Rail(t("appearance_more"))
+        Slab {
+            val reduceMotion by store.reduceMotion.collectAsState()
+            val useDynamicAccent by store.dynamicAccent.collectAsState()
+            val density by store.listDensity.collectAsState()
+
+            SlabRow(
+                title = t("reduce_motion"),
+                subtitle = t("reduce_motion_sub"),
+                icon = Icons.Filled.TimerOff,
+                onClick = { store.setReduceMotion(!reduceMotion) },
+                trailing = {
+                    SkinSwitch(
+                        checked = reduceMotion,
+                        onCheckedChange = { store.setReduceMotion(it) }
+                    )
+                }
             )
-            GlobeStyleOption(
-                label = t("globe_style_dots"),
-                selected = globeStyle == "dots",
-                onClick = { store.setGlobeStyle("dots") },
-                modifier = Modifier.weight(1f)
+            SlabDivider()
+            // Disabled rather than hidden below Android 12: a setting that
+            // appears on one phone and not another reads as a missing feature,
+            // and the subtitle can say why it is unavailable here.
+            SlabRow(
+                title = t("dynamic_accent"),
+                subtitle = if (dynamicAccentSupported) t("dynamic_accent_sub")
+                else t("dynamic_accent_unsupported"),
+                icon = Icons.Filled.Palette,
+                enabled = dynamicAccentSupported,
+                onClick = if (dynamicAccentSupported) {
+                    { store.setDynamicAccent(!useDynamicAccent) }
+                } else null,
+                trailing = {
+                    SkinSwitch(
+                        checked = useDynamicAccent && dynamicAccentSupported,
+                        onCheckedChange = if (dynamicAccentSupported) {
+                            { store.setDynamicAccent(it) }
+                        } else null,
+                        enabled = dynamicAccentSupported
+                    )
+                }
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("list_density"),
+                subtitle = when (density) {
+                    ListDensity.ONE -> t("list_density_one_sub")
+                    ListDensity.TWO -> t("list_density_two_sub")
+                },
+                icon = Icons.Filled.Apps,
+                value = when (density) {
+                    ListDensity.ONE -> t("list_density_one")
+                    ListDensity.TWO -> t("list_density_two")
+                },
+                onClick = {
+                    store.setListDensity(
+                        if (density == ListDensity.ONE) ListDensity.TWO else ListDensity.ONE
+                    )
+                }
             )
         }
     }
 }
 
+/**
+ * A theme row previews the theme with its own colours, so the choice is made
+ * by looking rather than by reading a name.
+ */
 @Composable
-private fun ThemeModeRow(
-    icon: androidx.compose.ui.graphics.vector.ImageVector,
+private fun ThemeChoiceRow(
     label: String,
+    subtitle: String,
+    preview: GhajarPalette,
     selected: Boolean,
     onClick: () -> Unit
 ) {
-    val border = if (selected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    Card(
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).clickable { onClick() },
-        shape = RoundedCornerShape(16.dp),
-        border = BorderStroke(if (selected) 2.dp else 1.dp, border),
-        colors = CardDefaults.cardColors(
-            containerColor = if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-            else MaterialTheme.colorScheme.surface
-        )
+    val c = ghajarColors
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.md))
+            .background(if (selected) c.primary.copy(alpha = 0.14f) else c.secondaryCard)
+            .clickable { onClick() }
+            .padding(GhajarSpacing.md),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(22.dp))
-            Spacer(Modifier.width(12.dp))
-            Text(mixedText(label), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-            if (selected) Icon(Icons.Filled.Check, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+        // Selection is a leading accent bar plus a tinted fill, the same way
+        // the connected server row is marked. No outlines anywhere in the skin.
+        Box(
+            Modifier
+                .width(3.dp)
+                .height(28.dp)
+                .clip(RoundedCornerShape(GhajarRadius.pill))
+                .background(if (selected) c.primary else Color.Transparent)
+        )
+        ThemeSwatch(preview)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                mixedText(label),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Bold,
+                color = c.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textSecondary,
+                maxLines = 2
+            )
+        }
+        if (selected) {
+            Icon(Icons.Filled.Check, contentDescription = null, tint = c.primary, modifier = Modifier.size(20.dp))
+        }
+    }
+}
+
+/** Background, card and the brand tone of one theme, drawn in that theme. */
+@Composable
+private fun ThemeSwatch(palette: GhajarPalette) {
+    Box(
+        Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(GhajarRadius.sm))
+            .background(palette.background)
+            .border(1.dp, palette.border, RoundedCornerShape(GhajarRadius.sm)),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(6.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .height(8.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(palette.card)
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(0.72f)
+                    .height(10.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(palette.primary)
+            )
+            Box(
+                Modifier
+                    .fillMaxWidth(0.45f)
+                    .height(6.dp)
+                    .clip(RoundedCornerShape(3.dp))
+                    .background(palette.highlight)
+            )
         }
     }
 }
@@ -6982,6 +8734,7 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
                             is UpdateChecker.Result.Available -> {
                                 updateStatus = t("update_available").format(r.version)
                                 updateUrl = r.url
+                                GhajarUpdateFlow.offer(r)
                             }
                             UpdateChecker.Result.UpToDate -> updateStatus = t("up_to_date")
                             UpdateChecker.Result.Failed -> updateStatus = t("update_failed")
@@ -7450,7 +9203,7 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
             }
             val phaseTint = when (phase) {
                 StabilityTest.Phase.PING -> AppCyan
-                StabilityTest.Phase.DOWNLOAD -> Color(0xFFC23BFF)
+                StabilityTest.Phase.DOWNLOAD -> ghajarColors.accentAlt
                 else -> AppAqua
             }
             Crossfade(targetState = phase, animationSpec = tween(300), label = "phaseText") { ph ->
@@ -7511,7 +9264,7 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
                     label = t("download"),
                     mbps = dlLive,
                     active = running && phase == StabilityTest.Phase.DOWNLOAD,
-                    tint = Color(0xFFC23BFF),
+                    tint = ghajarColors.accentAlt,
                     modifier = Modifier.weight(1f)
                 )
                 SpeedTile(
@@ -7665,8 +9418,8 @@ private fun qualityLabelKey(score: Double): String = when {
 private fun qualityColor(score: Double): Color = when {
     score >= 80 -> AppGreen
     score >= 60 -> AppCyan
-    score >= 40 -> Color(0xFFFFA94D)
-    else -> Color(0xFFE0413C)
+    score >= 40 -> ghajarColors.warning
+    else -> ghajarColors.error
 }
 
 private fun formatTestTime(millis: Long, lang: Lang): String {
@@ -7713,19 +9466,18 @@ private fun SpeedTile(
     )
     val glow by rememberInfiniteTransition(label = "speedGlow").animateFloat(
         initialValue = 0.35f, targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(900, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "speedGlowA"
     )
     val border = if (active) tint.copy(alpha = glow) else tint.copy(alpha = 0.22f)
 
     Column(
         modifier
-            .clip(RoundedCornerShape(18.dp))
-            .background(tint.copy(alpha = 0.09f))
-            .border(1.dp, border, RoundedCornerShape(18.dp))
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .background(ghajarColors.secondaryCard)
             .padding(horizontal = 14.dp, vertical = 14.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
@@ -7779,7 +9531,7 @@ private fun SpeedBar(
     val t = stringsFn()
     val lang = LocalLang.current
     val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val track = if (isDark) Color(0xFF111A2F) else MaterialTheme.colorScheme.surfaceVariant
+    val track = ghajarColors.secondaryCard
 
     val targetFrac = sqrt((mbps / 100.0).coerceIn(0.0, 1.0)).toFloat()
     val frac by animateFloatAsState(targetFrac, tween(600), label = "speedBar")
@@ -7792,14 +9544,14 @@ private fun SpeedBar(
     val shimmer = rememberInfiniteTransition(label = "shimmer")
     val sweep by shimmer.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1100, easing = LinearEasing))),
         label = "sweep"
     )
 
     val accentBrush = Brush.horizontalGradient(
         if (isDark) accent else accent.map { lerp(it, Color.Black, 0.34f) }
     )
-    val chip = if (isDark) Color(0xFF1B2440) else MaterialTheme.colorScheme.surfaceVariant
+    val chip = ghajarColors.secondaryCard
 
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -7901,7 +9653,7 @@ private fun MetricRow(label: String, value: String) {
 private fun QualityStartButton(running: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val t = stringsFn()
     val tint by animateColorAsState(
-        targetValue = if (running) Color(0xFFFFA94D) else MaterialTheme.colorScheme.primary,
+        targetValue = if (running) ghajarColors.warning else MaterialTheme.colorScheme.primary,
         animationSpec = tween(420),
         label = "qualityBtnTint"
     )
@@ -7971,7 +9723,7 @@ private fun QualityStartButton(running: Boolean, onClick: () -> Unit, modifier: 
 private fun ConnectSweep(color: Color, active: Boolean, modifier: Modifier = Modifier) {
     val phase = rememberInfiniteTransition(label = "connSweep").animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1500, easing = LinearEasing))),
         label = "connSweepV"
     )
     val fade by animateFloatAsState(
@@ -8009,7 +9761,7 @@ private fun ConnectGlow(color: Color, modifier: Modifier = Modifier, alpha: Floa
     val tr = rememberInfiniteTransition(label = "connectBeam")
     val progress by tr.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(2600, easing = LinearEasing))),
         label = "beam"
     )
     Spacer(
@@ -8079,19 +9831,19 @@ private fun PulseHalo(color: Color, size: Dp, modifier: Modifier = Modifier) {
     val breath by tr.animateFloat(
         initialValue = 0.88f,
         targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(2600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "haloBreath"
     )
     val strength by tr.animateFloat(
         initialValue = 0.75f,
         targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(2600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "haloStrength"
     )
 
@@ -8120,15 +9872,15 @@ private fun PingLine(color: Color, size: Dp = 96.dp, modifier: Modifier = Modifi
     val tr = rememberInfiniteTransition(label = "ping")
     val t by tr.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1800, easing = LinearEasing))),
         label = "pingT"
     )
     val core by tr.animateFloat(
         initialValue = 0.85f, targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(900, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "pingCore"
     )
 
@@ -8204,6 +9956,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
     var toDate by remember { mutableStateOf(LocalDate.now()) }
     var fromHour by remember { mutableStateOf(0) }
     var toHour by remember { mutableStateOf(23) }
+    var detailConfig by remember { mutableStateOf<String?>(null) }
 
     val bars = remember(daily, hourly, mode, fromDate, toDate, fromHour, toHour) {
         when (mode) {
@@ -8239,6 +9992,14 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
     val rangeDirect = remember(bars, dailyCfg, hourlyCfg, hourlyMode) { bars.sumOf(directOf) }
     val rangeVpn = (total[0] + total[1] - rangeDirect).coerceAtLeast(0L)
 
+    val ranged = remember(dailyCfg, hourlyCfg, bars, hourlyMode) {
+        UsageStore.configTotalsRange(dailyCfg, hourlyCfg, bars, hourlyMode)
+    }
+    val configDirect = ranged.firstOrNull { it.first == UsageStore.DIRECT_KEY }?.second
+        ?: longArrayOf(0L, 0L)
+    val perConfig = ranged.filter { it.first != UsageStore.DIRECT_KEY }
+    val grand = configDirect[0] + configDirect[1] + perConfig.sumOf { it.second[0] + it.second[1] }
+
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -8264,8 +10025,8 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                     onDismissRequest = { menuOpen = false },
                     offset = DpOffset(0.dp, 8.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     RangeMode.values().forEach { m ->
                         DropdownMenuItem(
@@ -8297,13 +10058,8 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
             Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Row(
                     Modifier.fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f))
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                            RoundedCornerShape(14.dp)
-                        ),
+                        .clip(RoundedCornerShape(GhajarRadius.md))
+                        .background(ghajarColors.secondaryCard),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     RangeCell(
@@ -8337,6 +10093,31 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
             }
         }
 
+        OutlinedButton(
+            onClick = {
+                val csv = buildString {
+                    append("label,upload_bytes,download_bytes\n")
+                    bars.forEach { bar -> append("${bar.label},${bar.up},${bar.down}\n") }
+                }
+                runCatching {
+                    val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+                    val file = java.io.File(dir, "ghajar-usage.csv")
+                    file.writeText(csv, Charsets.UTF_8)
+                    val uri = androidx.core.content.FileProvider.getUriForFile(
+                        context, "${context.packageName}.fileprovider", file
+                    )
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/csv"
+                        putExtra(Intent.EXTRA_STREAM, uri)
+                        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                    }
+                    context.startActivity(Intent.createChooser(send, "خروجی CSV مصرف"))
+                }
+            },
+            enabled = bars.isNotEmpty(),
+            modifier = Modifier.fillMaxWidth()
+        ) { Text("خروجی CSV همین بازه") }
+
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
@@ -8351,7 +10132,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                         icon = Icons.Filled.ArrowDownward,
                         label = t("download"),
                         bytes = total[1],
-                        tint = Color(0xFF35E0FF),
+                        tint = ghajarColors.info,
                         lang = lang,
                         modifier = Modifier.weight(1f)
                     )
@@ -8359,7 +10140,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                         icon = Icons.Filled.ArrowUpward,
                         label = t("upload"),
                         bytes = total[0],
-                        tint = Color(0xFFB86BFF),
+                        tint = ghajarColors.accentAlt,
                         lang = lang,
                         modifier = Modifier.weight(1f)
                     )
@@ -8431,19 +10212,11 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
             }
         }
 
-        val ranged = remember(dailyCfg, hourlyCfg, bars, hourlyMode) {
-            UsageStore.configTotalsRange(dailyCfg, hourlyCfg, bars, hourlyMode)
-        }
-        val direct = ranged.firstOrNull { it.first == UsageStore.DIRECT_KEY }?.second
-            ?: longArrayOf(0L, 0L)
-        val perConfig = ranged.filter { it.first != UsageStore.DIRECT_KEY }
-        val grand = direct[0] + direct[1] + perConfig.sumOf { it.second[0] + it.second[1] }
-
         if (grand > 0L) {
             SettingsGroup(t("usage_by_config")) {
                 UsageShareRow(
                     name = t("usage_direct"),
-                    bytes = direct[0] + direct[1],
+                    bytes = configDirect[0] + configDirect[1],
                     grand = grand,
                     tint = DirectBarColor,
                     lang = lang
@@ -8454,20 +10227,41 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                         bytes = v[0] + v[1],
                         grand = grand,
                         tint = ServerPalette[i % ServerPalette.size],
-                        lang = lang
+                        lang = lang,
+                        onClick = { detailConfig = name }
                     )
                 }
             }
         }
     }
+
+    detailConfig?.let { name ->
+        val windows = if (hourlyMode) bars.mapNotNull { bar ->
+            val perCfg = (if (hourlyMode) hourlyCfg else dailyCfg)[bar.key]?.get(name)
+            if (perCfg == null || (perCfg[0] + perCfg[1]) <= 0L) null
+            else UsageStore.hourKeyToEpochRange(bar.key)
+        } else emptyList()
+        val entry = perConfig.firstOrNull { it.first == name }?.second ?: longArrayOf(0L, 0L)
+        ConfigUsageDetailDialog(
+            name = name,
+            upBytes = entry[0],
+            downBytes = entry[1],
+            windows = windows,
+            longRange = !hourlyMode,
+            lang = lang,
+            onDismiss = { detailConfig = null }
+        )
+    }
 }
 
-private val DirectBarColor = Color(0xFF8A94A6)
+// Per-app and per-server series colours. They were a fixed six-colour array
+// plus a fixed grey; both now come from the active theme, so the charts belong
+// to the same palette as everything else.
+private val DirectBarColor: Color
+    @Composable get() = ghajarColors.neutralBar
 
-private val ServerPalette = listOf(
-    Color(0xFFFFA94D), Color(0xFFFF6BC1), Color(0xFF6D9BEE),
-    Color(0xFFFFD24D), Color(0xFFFF7A6B), Color(0xFF9BE85B)
-)
+private val ServerPalette: List<Color>
+    @Composable get() = ghajarColors.chart
 
 @Composable
 private fun TransferTile(
@@ -8565,8 +10359,8 @@ private fun RangeCell(
                     onDismissRequest = { open = false },
                     offset = DpOffset(0.dp, 4.dp),
                     shape = RoundedCornerShape(16.dp),
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
+                    containerColor = ghajarColors.surface,
+                    border = BorderStroke(1.dp, ghajarColors.border)
                 ) {
                     (0..23).forEach { h ->
                         DropdownMenuItem(
@@ -8601,11 +10395,15 @@ private fun UsageShareRow(
     bytes: Long,
     grand: Long,
     tint: Color,
-    lang: Lang
+    lang: Lang,
+    onClick: (() -> Unit)? = null
 ) {
     val frac = if (grand > 0L) (bytes.toFloat() / grand.toFloat()).coerceIn(0f, 1f) else 0f
     val width by animateFloatAsState(frac, tween(500), label = "usageShare")
-    Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(5.dp),
+        modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 flagRuns(name, LexendFont),
@@ -8631,6 +10429,101 @@ private fun UsageShareRow(
                     .clip(RoundedCornerShape(3.dp))
                     .background(tint)
             )
+        }
+    }
+}
+
+/** Per-config usage detail, opened by tapping a row in the "usage by config"
+ * list. Reuses GlassDialog styling. The per-app breakdown is real Android
+ * NetworkStatsManager data restricted to the hour-buckets this exact config
+ * was actually active in (per UsageStore's own per-config attribution) — it
+ * is only offered for hourly-precision ranges (today, or a short custom
+ * range), since day-granularity buckets can't be windowed precisely enough
+ * to attribute to one config without also mixing in other configs' traffic
+ * from the same day. */
+@Composable
+private fun ConfigUsageDetailDialog(
+    name: String,
+    upBytes: Long,
+    downBytes: Long,
+    windows: List<Pair<Long, Long>>,
+    longRange: Boolean,
+    lang: Lang,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    var perApp by remember(name, windows) { mutableStateOf<PerAppUsageStats.Result?>(null) }
+    LaunchedEffect(name, windows) {
+        perApp = if (longRange || windows.isEmpty()) null
+        else PerAppUsageStats.queryForWindows(context, windows)
+    }
+    GlassDialog(
+        onDismiss = onDismiss,
+        title = name,
+        confirmLabel = "بستن",
+        onConfirm = onDismiss
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column {
+                    Text("دانلود", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(formatBytes(downBytes, lang), fontWeight = FontWeight.Bold)
+                }
+                Column {
+                    Text("آپلود", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(formatBytes(upBytes, lang), fontWeight = FontWeight.Bold)
+                }
+                Column {
+                    Text("مجموع", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(formatBytes(upBytes + downBytes, lang), fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+            HorizontalDivider(color = ghajarColors.border)
+            Text("مصرف به تفکیک برنامه", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+            when {
+                longRange -> Text(
+                    "تفکیک برنامه‌ای فقط برای «امروز» یا یک بازهٔ سفارشی کوتاه (حداکثر ۲ روز) در دسترس است؛ برای بازه‌های هفتگی و ماهانه فقط دقت روزانه ذخیره می‌شود.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                windows.isEmpty() -> Text("در این بازه مصرفی برای این سرویس ثبت نشده است.",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                perApp == null -> Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Text("در حال خواندن آمار برنامه‌ها…", style = MaterialTheme.typography.bodySmall)
+                }
+                else -> when (val r = perApp) {
+                    is PerAppUsageStats.Result.PermissionRequired -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(
+                            "برای دیدن مصرف هر برنامه، دسترسی «Usage access» را برای قاجار وی‌پی‌ان فعال کن. اندروید این دسترسی را فقط از تنظیمات می‌دهد.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
+                        )
+                        BounceOutlinedButton(
+                            onClick = { runCatching { context.startActivity(PerAppUsageStats.usageAccessSettingsIntent(context)) } },
+                            minHeight = 38.dp, modifier = Modifier.fillMaxWidth()
+                        ) { Text("باز کردن تنظیمات دسترسی") }
+                    }
+                    is PerAppUsageStats.Result.Unavailable -> Text(r.reason,
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    is PerAppUsageStats.Result.Ok -> if (r.apps.isEmpty()) {
+                        Text("اندروید هنوز ترافیکی را به برنامهٔ خاصی نسبت نداده است.",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        val grand = r.apps.sumOf { it.totalBytes }.coerceAtLeast(1L)
+                        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            r.apps.forEachIndexed { i, app ->
+                                UsageShareRow(
+                                    name = app.label,
+                                    bytes = app.totalBytes,
+                                    grand = grand,
+                                    tint = ServerPalette[i % ServerPalette.size],
+                                    lang = lang
+                                )
+                            }
+                        }
+                    }
+                    null -> Unit
+                }
+            }
         }
     }
 }
@@ -8814,56 +10707,103 @@ private fun SniffTypeSelector(selected: Set<String>, onToggle: (String) -> Unit)
     }
 }
 
+/**
+ * One network's rule, as a row whose value cycles on tap.
+ *
+ * There are exactly three choices and each is a short phrase, so a dropdown
+ * would add a menu to read one of three words.
+ */
+@Composable
+private fun NetRuleRow(
+    title: String,
+    action: NetRuleAction,
+    enabled: Boolean,
+    onChange: (NetRuleAction) -> Unit
+) {
+    val lang = LocalLang.current
+    val t: (String) -> String = { Strings.get(lang, it) }
+    val c = ghajarColors
+    val label = when (action) {
+        NetRuleAction.OFF -> t("netrule_off")
+        NetRuleAction.LAST -> t("netrule_last")
+        NetRuleAction.FASTEST -> t("netrule_fastest")
+    }
+    SlabRow(
+        title = title,
+        subtitle = label,
+        icon = when (action) {
+            NetRuleAction.OFF -> Icons.Filled.Block
+            NetRuleAction.LAST -> Icons.Filled.History
+            NetRuleAction.FASTEST -> Icons.Filled.Speed
+        },
+        accent = if (action == NetRuleAction.OFF) c.textMuted else c.primary,
+        enabled = enabled,
+        chevron = true,
+        onClick = {
+            val all = NetRuleAction.values()
+            onChange(all[(action.ordinal + 1) % all.size])
+        }
+    )
+}
+
 @Composable
 private fun SettingRow(
     title: String,
     subtitle: String,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    icon: ImageVector? = null
 ) {
+    // Every toggle in the app comes through here. It is the skin's row, not a
+    // label next to a Material switch: a state pip that takes the brand tone
+    // when the option is on, and the whole row as the tap target so the switch
+    // is confirmation rather than the only thing you are allowed to hit.
+    val c = ghajarColors
     Row(
-        Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.md))
+            .then(if (enabled) Modifier.clickable { onCheckedChange(!checked) } else Modifier)
+            .padding(vertical = GhajarSpacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Column(Modifier.weight(1f)) {
-            Text(mixedText(title), style = MaterialTheme.typography.bodyLarge)
-            Text(mixedText(subtitle), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (icon != null) {
+            Box(
+                Modifier
+                    .size(38.dp)
+                    .clip(RoundedCornerShape(13.dp))
+                    .background((if (checked) c.primary else c.textMuted).copy(alpha = if (enabled) 0.14f else 0.06f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = if (!enabled) c.onDisabled else if (checked) c.primary else c.textMuted,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
         }
-        Spacer(Modifier.width(16.dp))
-        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                mixedText(title),
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = FontWeight.Medium,
+                color = if (enabled) c.textPrimary else c.onDisabled
+            )
+            if (subtitle.isNotBlank()) {
+                Text(
+                    mixedText(subtitle),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = c.textSecondary
+                )
+            }
+        }
+        SkinSwitch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
-@Composable
-private fun GlobeStyleOption(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val border = if (selected) MaterialTheme.colorScheme.primary
-    else MaterialTheme.colorScheme.outline.copy(alpha = 0.4f)
-    val bg = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-    else Color.Transparent
-    Box(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(bg)
-            .border(BorderStroke(if (selected) 1.5.dp else 1.dp, border), RoundedCornerShape(14.dp))
-            .clickable { onClick() }
-            .padding(vertical = 12.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            label,
-            style = MaterialTheme.typography.bodyMedium,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-        )
-    }
-}
 
 private fun Modifier.pressBounce(
     scale: Animatable<Float, AnimationVector1D>,
@@ -8891,18 +10831,25 @@ private fun FillButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    borderWidth: Dp = 1.5.dp,
+    /** A primary action carries the accent; a secondary one sits on the
+     *  nested-surface tone. They used to differ only by border width, which
+     *  meant the page never said which button it wanted you to press. */
+    filled: Boolean = false,
     minHeight: Dp = 48.dp,
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
     accent: Color = MaterialTheme.colorScheme.primary,
     content: @Composable RowScope.() -> Unit
 ) {
+    // Every Bounce*Button in the app lands here, so this is where the old
+    // "outlined, glassy, slightly raised" look lived. On the skin a secondary
+    // action is a filled capsule with no stroke and no blur; the press still
+    // floods it with the accent, which is the one part of the old button worth
+    // keeping.
+    val c = ghajarColors
     val primary = accent
-    val onPrimary = MaterialTheme.colorScheme.onPrimary
-    val disabled = primary.copy(alpha = 0.35f)
-    val shape = RoundedCornerShape(22.dp)
-    val hazeState = LocalHazeState.current
-    val surfaceColor = MaterialTheme.colorScheme.surface
+    val onPrimary = c.onPrimary
+    val disabled = c.onDisabled
+    val shape = RoundedCornerShape(GhajarRadius.pill)
 
     val interaction = remember { MutableInteractionSource() }
     var center by remember { mutableStateOf(Offset.Zero) }
@@ -8925,25 +10872,27 @@ private fun FillButton(
         label = "fillRadius"
     )
     val fillFrac = if (maxR > 0f) (radius / maxR).coerceIn(0f, 1f) else 0f
-    val contentColor = lerp(if (enabled) primary else disabled, onPrimary, fillFrac)
+    val restColor = when {
+        !enabled -> disabled
+        filled -> onPrimary
+        else -> primary
+    }
+    val contentColor = if (filled) restColor else lerp(restColor, onPrimary, fillFrac)
 
     Box(
         modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .then(ghajarSoftSurface(shape, enabled))
             .clip(shape)
-            .then(
-                if (hazeState != null) Modifier.hazeEffect(hazeState) {
-                    blurRadius = 10.dp
-                    backgroundColor = surfaceColor
-                    tints = listOf(HazeTint(surfaceColor.copy(alpha = 0.30f)))
-                    noiseFactor = 0f
-                } else Modifier
+            .background(
+                when {
+                    !enabled -> c.disabled.copy(alpha = 0.25f)
+                    filled -> primary
+                    else -> c.secondaryCard
+                }
             )
             .drawBehind {
                 if (radius > 0.5f) drawCircle(color = primary, radius = radius, center = center)
             }
-            .border(BorderStroke(0.7.dp, if (enabled) primary.copy(alpha = 0.22f) else disabled.copy(alpha = 0.3f)), shape)
             .defaultMinSize(minWidth = 56.dp, minHeight = minHeight)
             .onSizeChanged { sz = it }
             .pointerInput(enabled) {
@@ -8976,7 +10925,7 @@ private fun BounceButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     content: @Composable RowScope.() -> Unit
-) = FillButton(onClick, modifier, enabled, borderWidth = 2.dp, content = content)
+) = FillButton(onClick, modifier, enabled, filled = true, content = content)
 
 @Composable
 private fun BounceOutlinedButton(
@@ -8987,7 +10936,7 @@ private fun BounceOutlinedButton(
     contentPadding: PaddingValues = PaddingValues(horizontal = 20.dp, vertical = 12.dp),
     accent: Color = MaterialTheme.colorScheme.primary,
     content: @Composable RowScope.() -> Unit
-) = FillButton(onClick, modifier, enabled, borderWidth = 1.5.dp,
+) = FillButton(onClick, modifier, enabled,
     minHeight = minHeight, contentPadding = contentPadding, accent = accent, content = content)
 
 @Composable
@@ -8998,7 +10947,6 @@ private fun BounceTextButton(
     content: @Composable RowScope.() -> Unit
 ) = FillButton(
     onClick, modifier, enabled,
-    borderWidth = 1.5.dp,
     minHeight = 40.dp,
     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
     content = content
@@ -9013,11 +10961,13 @@ private fun BounceIconButton(
 ) {
     val scale = remember { Animatable(1f) }
     val scope = rememberCoroutineScope()
+    // Flat: the header it mostly lives in is now one continuous tone, and a
+    // raised, gradient-filled tile in the corner of it re-drew the seam this
+    // release just removed.
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.pressBounce(scale, scope)
-            .then(ghajarSoftSurface(RoundedCornerShape(16.dp), enabled)),
+        modifier = modifier.pressBounce(scale, scope),
         content = content
     )
 }
@@ -9066,56 +11016,6 @@ private fun SpeedText(bytes: Long) {
     )
 }
 
-@Composable
-private fun StatBox(
-    speed: Long,
-    total: Long,
-    icon: ImageVector,
-    color: Color,
-    modifier: Modifier = Modifier
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val parts = formatBytesParts(speed, lang)
-    val surfaceColor = MaterialTheme.colorScheme.surface
-    val isDark = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val accent = if (isDark) color else lerp(color, Color.Black, 0.42f)
-    val hazeState = LocalHazeState.current
-    Column(
-        modifier
-            .clip(RoundedCornerShape(14.dp))
-            .then(
-                if (hazeState != null) Modifier.hazeEffect(hazeState) {
-                    blurRadius = 10.dp
-                    backgroundColor = surfaceColor
-                    tints = listOf(HazeTint(surfaceColor.copy(alpha = 0.30f)))
-                    noiseFactor = 0f
-                } else Modifier.background(surfaceColor.copy(alpha = if (isDark) 0.55f else 0.75f))
-            )
-            .background(accent.copy(alpha = if (isDark) 0.12f else 0.10f))
-            .border(BorderStroke(1.dp, accent.copy(alpha = if (isDark) 0.75f else 0.55f)), RoundedCornerShape(14.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        verticalArrangement = Arrangement.spacedBy(2.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = accent, modifier = Modifier.size(13.dp))
-            Spacer(Modifier.width(4.dp))
-            Text(
-                "\u202A${parts.first}\u202C ${parts.second}${t("unit_per_sec")}",
-                style = MaterialTheme.typography.bodySmall,
-                color = accent,
-                maxLines = 1
-            )
-        }
-        Text(
-            formatBytes(total, lang),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 1
-        )
-    }
-}
-
 private fun formatBytesParts(bytes: Long, lang: Lang): Pair<String, String> {
     val unit: String
     val num: String
@@ -9146,8 +11046,8 @@ private fun GhajarOpenVpnSummaryTile(onOpen: () -> Unit) {
     Surface(
         onClick = onOpen,
         shape = RoundedCornerShape(18.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+        color = ghajarColors.card,
+        border = BorderStroke(1.dp, ghajarColors.border),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
@@ -9217,8 +11117,8 @@ private fun PsiphonHubScreen(
     ) {
         Surface(
             shape = RoundedCornerShape(18.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f)),
+            color = ghajarColors.card,
+            border = BorderStroke(1.dp, ghajarColors.border),
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -9262,15 +11162,18 @@ private fun PsiphonHubScreen(
             }
         }
 
-        OutlinedTextField(
-            value = country,
-            onValueChange = {
-                country = it.take(2).uppercase(Locale.ROOT)
+        // Was a two-character text field. That asked the user to know both
+        // that DE means Germany and - the part that actually bites - whether
+        // Psiphon has a server there, which it does not tell you: an
+        // unserved region is not rejected, the tunnel just never establishes,
+        // and that is indistinguishable from the network being blocked. The
+        // list now comes from the engine's own AvailableEgressRegions notice.
+        PsiphonCountryRow(
+            selected = country,
+            onSelect = {
+                country = it
                 store.updatePsiphonSettings(config.id, mode, country)
-            },
-            label = { Text("کد کشور خروجی (اختیاری؛ مانند DE یا US)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
+            }
         )
 
         OutlinedTextField(cdnIps, {
@@ -9433,7 +11336,7 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
                     val isBusy = activeUuid == profile.uuid && status == GhajarOvpnState.CONNECTING
                     Surface(
                         shape = RoundedCornerShape(14.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        color = ghajarColors.secondaryCard
                     ) {
                         Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -9534,7 +11437,7 @@ private fun GhajarOpenVpnSection(onConnect: (String) -> Unit, onDisconnect: () -
                 Text("${imports.size} فایل معتبر" + if (bulkBad > 0) "، $bulkBad فایل نامعتبر" else "")
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text("نام کاربری و رمز همه یکی است", modifier = Modifier.weight(1f))
-                    Switch(checked = sharedCredentials, onCheckedChange = { sharedCredentials = it })
+                    SkinSwitch(checked = sharedCredentials, onCheckedChange = { sharedCredentials = it })
                 }
                 if (sharedCredentials) {
                     OutlinedTextField(sharedUser, { sharedUser = it }, label = { Text("نام کاربری مشترک") }, singleLine = true)
@@ -9606,6 +11509,16 @@ private fun SubscriptionHeader(
     timedOutCount: Int,
     onPing: () -> Unit,
     pinging: Boolean,
+    /**
+     * Renew this service, or null when there is nothing to renew.
+     *
+     * Only a subscription delivered for a panel account carries a service
+     * username, so a hand-pasted link never shows the action - the button
+     * exists exactly where it would work.
+     */
+    onRenew: (() -> Unit)? = null,
+    /** How many configs this subscription holds, shown under its name. */
+    configCount: Int = 0,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -9641,130 +11554,244 @@ private fun SubscriptionHeader(
     val ws = WindscribeBrand.isWindscribe(sub)
     val brandBrush = if (ws) windscribeCardBrush() else null
 
-    Card(
-        modifier = modifier.appearOnce().fillMaxWidth()
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onToggle() },
-        shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (ws) Color.Transparent
-            else MaterialTheme.colorScheme.secondaryContainer
-        )
+    // Was a Material card with six 21dp icon buttons crowded into one row -
+    // share, speed, edit, refresh, delete and the chevron - which is most of
+    // why this block read as unfinished. Three glyphs now carry what is used
+    // often; the rest moved into one overflow menu. The entrance animation is
+    // gone too: this is a LazyColumn item, so it re-ran every time the header
+    // scrolled back into view.
+    val c = ghajarColors
+    Column(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(GhajarRadius.lg))
+            .then(
+                if (brandBrush != null) Modifier.background(brandBrush)
+                else Modifier.background(c.secondaryCard)
+            )
+            .clickable { onToggle() }
+            .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.md),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
     ) {
-        Column(
-            Modifier.fillMaxWidth()
-                .then(if (brandBrush != null) Modifier.background(brandBrush) else Modifier)
-                .padding(start = 14.dp, end = 6.dp, top = 12.dp, bottom = 12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val chevron by animateFloatAsState(
-                    targetValue = if (!isOpen) 0f else if (ws) 180f else 90f,
-                    animationSpec = tween(360, easing = FastOutSlowInEasing),
-                    label = "subChevron"
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            val chevron by animateFloatAsState(
+                targetValue = if (!isOpen) 0f else if (ws) 180f else 90f,
+                animationSpec = tween(360, easing = FastOutSlowInEasing),
+                label = "subChevron"
+            )
+            if (ws) {
+                Image(
+                    painter = painterResource(R.drawable.windscribe),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.padding(end = 8.dp).size(24.dp)
+                        .graphicsLayer { rotationZ = chevron }
                 )
-                if (ws) {
-                    Image(
-                        painter = painterResource(R.drawable.windscribe),
-                        contentDescription = null,
-                        contentScale = ContentScale.Fit,
-                        modifier = Modifier.padding(end = 7.dp).size(24.dp)
-                            .graphicsLayer { rotationZ = chevron }
-                    )
-                } else {
+            } else {
+                // The chevron sits in its own tinted tile, like every other
+                // leading glyph in the skin, instead of floating bare.
+                Box(
+                    Modifier
+                        .padding(end = GhajarSpacing.sm)
+                        .size(34.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(c.primary.copy(alpha = 0.14f)),
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
                         Icons.Filled.ChevronRight,
                         contentDescription = null,
-                        modifier = Modifier.padding(end = 7.dp).graphicsLayer { rotationZ = chevron }
+                        tint = c.primary,
+                        modifier = Modifier.size(19.dp).graphicsLayer { rotationZ = chevron }
                     )
-                }
-                Box(Modifier.weight(1f)) {
-                    MarqueeName(
-                        GhajarUiRules.brandedSubscriptionTitle(sub.total, WindscribeBrand.displayName(sub, lang)),
-                        MaterialTheme.typography.titleSmall
-                    )
-                }
-                Box {
-                    Icon(Icons.Filled.Share, contentDescription = t("share"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { shareMenu = true }.padding(7.dp).size(21.dp))
-                    DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
-                        CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
-                            shareMenu = false
-                            clipboard.setText(AnnotatedString(sub.url))
-                            android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
-                        }
-                        CompactMenuItem(Icons.Filled.Share, t("share_app")) {
-                            shareMenu = false
-                            val send = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_TEXT, sub.url)
-                            }
-                            context.startActivity(Intent.createChooser(send, sub.name))
-                        }
-                    }
-                }
-                if (pinging) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(7.dp).size(21.dp)
-                    )
-                } else {
-                    Icon(Icons.Filled.Speed, contentDescription = t("test_all"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onPing() }.padding(7.dp).size(21.dp))
-                }
-                Icon(Icons.Filled.Edit, contentDescription = t("edit_sub_name"), tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { draftName = sub.name; renaming = true }.padding(7.dp).size(21.dp))
-                Icon(Icons.Filled.Refresh, contentDescription = t("refresh"), tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(RoundedCornerShape(50)).clickable { onRefresh() }.padding(7.dp).size(21.dp))
-                Box {
-                    var subPurgeMenu by remember { mutableStateOf(false) }
-                    Icon(Icons.Filled.Delete, contentDescription = t("remove"), tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(RoundedCornerShape(50))
-                            .clickable { subPurgeMenu = true }.padding(7.dp).size(21.dp))
-                    DropdownMenu(
-                        expanded = subPurgeMenu,
-                        onDismissRequest = { subPurgeMenu = false },
-                        offset = DpOffset(0.dp, 4.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.35f))
-                    ) {
-                        DropdownMenuItem(
-                            text = { Text(t("delete_all_configs"), style = MaterialTheme.typography.bodyMedium) },
-                            leadingIcon = {
-                                Icon(Icons.Filled.DeleteForever, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { subPurgeMenu = false; onRemove() }
-                        )
-                        DropdownMenuItem(
-                            text = { Text(t("delete_timed_out"), style = MaterialTheme.typography.bodyMedium) },
-                            leadingIcon = {
-                                Icon(Icons.Filled.TimerOff, contentDescription = null, modifier = Modifier.size(18.dp))
-                            },
-                            enabled = timedOutCount > 0,
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { subPurgeMenu = false; onRemoveTimedOut() }
-                        )
-                    }
                 }
             }
-            if (sub.total > 0) {
-                Spacer(Modifier.height(6.dp))
-                UsageBar(used = sub.used, total = sub.total)
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                MarqueeName(
+                    GhajarUiRules.brandedSubscriptionTitle(sub.total, WindscribeBrand.displayName(sub, lang)),
+                    MaterialTheme.typography.titleSmall
+                )
+                Text(
+                    localizeDigits("$configCount", lang) + " " + t("count_configs"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textSecondary,
+                    maxLines = 1
+                )
             }
-            val quota = quotaChips(sub, lang)
-            if (quota.isNotEmpty()) {
-                Spacer(Modifier.height(7.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    quota.forEach { (label, level) ->
-                        QuotaChip(label, level)
+
+            // The two actions anyone actually uses on a subscription.
+            if (pinging) {
+                CircularProgressIndicator(
+                    strokeWidth = 2.dp,
+                    color = c.primary,
+                    modifier = Modifier.padding(6.dp).size(20.dp)
+                )
+            } else {
+                SubHeaderGlyph(Icons.Filled.Speed, t("test_all")) { onPing() }
+            }
+            SubHeaderGlyph(Icons.Filled.Refresh, t("refresh")) { onRefresh() }
+
+            Box {
+                SubHeaderGlyph(Icons.Filled.MoreVert, t("more")) { shareMenu = true }
+                DropdownMenu(
+                    expanded = shareMenu,
+                    onDismissRequest = { shareMenu = false },
+                    offset = DpOffset(0.dp, 4.dp),
+                    shape = RoundedCornerShape(GhajarRadius.lg),
+                    containerColor = c.card,
+                    border = null
+                ) {
+                    CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
+                        shareMenu = false
+                        clipboard.setText(AnnotatedString(sub.url))
+                        android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
                     }
+                    CompactMenuItem(Icons.Filled.Share, t("share_app")) {
+                        shareMenu = false
+                        val send = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_TEXT, sub.url)
+                        }
+                        context.startActivity(Intent.createChooser(send, sub.name))
+                    }
+                    CompactMenuItem(Icons.Filled.Edit, t("edit_sub_name")) {
+                        shareMenu = false
+                        draftName = sub.name
+                        renaming = true
+                    }
+                    HorizontalDivider(color = c.border)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                t("delete_all_configs"),
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = c.error
+                            )
+                        },
+                        leadingIcon = {
+                            Icon(
+                                Icons.Filled.DeleteForever,
+                                contentDescription = null,
+                                tint = c.error,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        },
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        modifier = Modifier.height(40.dp),
+                        onClick = { shareMenu = false; onRemove() }
+                    )
+                    DropdownMenuItem(
+                        text = { Text(t("delete_timed_out"), style = MaterialTheme.typography.bodyMedium) },
+                        leadingIcon = {
+                            Icon(Icons.Filled.TimerOff, contentDescription = null, modifier = Modifier.size(18.dp))
+                        },
+                        enabled = timedOutCount > 0,
+                        contentPadding = PaddingValues(horizontal = 14.dp),
+                        modifier = Modifier.height(40.dp),
+                        onClick = { shareMenu = false; onRemoveTimedOut() }
+                    )
                 }
             }
         }
+
+        // The bar had no number on it, so "how much is left" meant reading
+        // two byte counts and dividing. The percentage sits on the bar's own
+        // row, in the bar's own colour, so the warning colour and the number
+        // say the same thing.
+        if (sub.total > 0) {
+            val remaining = (sub.total - sub.used).coerceAtLeast(0L)
+            val percent = ((remaining.toDouble() / sub.total) * 100).roundToInt().coerceIn(0, 100)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                Box(Modifier.weight(1f)) { UsageBar(used = sub.used, total = sub.total) }
+                Text(
+                    localizeDigits("$percent", lang) + "٪",
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = usageLevelColor(remaining, sub.total)
+                )
+            }
+        }
+        val quota = quotaChips(sub, lang)
+        if (quota.isNotEmpty()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                quota.forEach { (label, level) -> QuotaChip(label, level) }
+            }
+        }
+        // A service bought from the shop or the bot can be renewed without
+        // leaving this list. It only appears on subscriptions that carry a
+        // panel username, so it is never a button that leads nowhere. It is
+        // emphasised once the quota or the clock is nearly out, which is the
+        // moment it exists for.
+        onRenew?.let { renew ->
+            val nearlyOut = (sub.total > 0 &&
+                (sub.total - sub.used).toFloat() / sub.total <= 0.15f) ||
+                (sub.expire > 0 &&
+                    (sub.expire * 1000 - System.currentTimeMillis()) / 86_400_000L <= 3L)
+            if (nearlyOut) {
+                PillButton(t("sub_renew"), onClick = renew, icon = Icons.Filled.Autorenew)
+            } else {
+                GhostPill(t("sub_renew"), onClick = renew, icon = Icons.Filled.Autorenew)
+            }
+        }
+
+        // When the link was last fetched, to the second. A subscription that
+        // silently stopped updating looks exactly like one whose numbers have
+        // not changed, and this is the only thing that tells them apart.
+        Text(
+            if (sub.lastUpdated > 0)
+                t("sub_updated_at").format(formatStamp(sub.lastUpdated, lang))
+            else t("sub_never_updated"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textMuted,
+            maxLines = 1
+        )
+    }
+}
+
+/** The colour the usage bar is drawing itself in, so a number beside it agrees. */
+@Composable
+private fun usageLevelColor(remaining: Long, total: Long): Color {
+    val frac = if (total > 0) (remaining.toFloat() / total).coerceIn(0f, 1f) else 0f
+    return when {
+        frac <= 0.10f -> ghajarColors.error
+        frac <= 0.30f -> ghajarColors.warning
+        else -> ghajarColors.primary
+    }
+}
+
+/**
+ * A local timestamp as date and clock, digits localised.
+ *
+ * Deliberately not a "2 hours ago" - the question this answers is whether the
+ * refresh that just ran actually ran, and a relative label cannot say that.
+ */
+private fun formatStamp(millis: Long, lang: Lang): String {
+    val date = java.util.Date(millis)
+    val pattern = if (lang == Lang.FA) "yyyy/MM/dd - HH:mm:ss" else "yyyy-MM-dd HH:mm:ss"
+    val text = java.text.SimpleDateFormat(pattern, java.util.Locale.US).format(date)
+    return localizeDigits(text, lang)
+}
+
+/** One action glyph in a subscription header: tinted tile, no outline. */
+@Composable
+private fun SubHeaderGlyph(
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit
+) {
+    val c = ghajarColors
+    Box(
+        Modifier
+            .size(34.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(c.primary.copy(alpha = 0.10f))
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -9804,8 +11831,8 @@ private fun quotaChips(sub: Subscription, lang: Lang): List<Pair<String, Int>> {
 @Composable
 private fun QuotaChip(label: String, level: Int) {
     val accent = when (level) {
-        2 -> Color(0xFFE53935)
-        1 -> Color(0xFFF59E0B)
+        2 -> ghajarColors.error
+        1 -> ghajarColors.warning
         else -> MaterialTheme.colorScheme.primary
     }
     Text(
@@ -9826,8 +11853,8 @@ private fun UsageBar(used: Long, total: Long) {
     val remaining = (total - used).coerceAtLeast(0L)
     val frac = if (total > 0) (remaining.toFloat() / total).coerceIn(0f, 1f) else 0f
     val barColor = when {
-        frac <= 0.10f -> Color(0xFFE53935)
-        frac <= 0.30f -> Color(0xFFF59E0B)
+        frac <= 0.10f -> ghajarColors.error
+        frac <= 0.30f -> ghajarColors.warning
         else -> MaterialTheme.colorScheme.primary
     }
     Box(
@@ -9979,8 +12006,10 @@ private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
     val t = stringsFn()
     val context = LocalContext.current
     val accent = MaterialTheme.colorScheme.primary
-    val qrBg = Color(0xFF0E1422)
-    val qrFg = lerp(Color.White, accent, 0.06f)
+    // Fixed on purpose - a camera has to read this, so it must not follow the
+    // theme. See GhajarFixed for why this is the one documented exception.
+    val qrBg = GhajarFixed.QrBackground
+    val qrFg = lerp(GhajarFixed.QrForeground, accent, 0.06f)
     val bmp = remember(link, qrBg, qrFg) {
         ConfigShare.qrBitmap(link, darkColor = qrFg.toArgb(), lightColor = qrBg.toArgb())
     }
@@ -9989,10 +12018,10 @@ private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
     val strokeAlpha by pulseTr.animateFloat(
         initialValue = 0.22f,
         targetValue = 0.55f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(900, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "qrStroke"
     )
 
@@ -10299,8 +12328,21 @@ private fun ConfigRow(
     actionsOpen: Boolean,
     onToggleActions: () -> Unit,
     modifier: Modifier = Modifier,
-    appear: Boolean = true,
-    containerColor: Color? = null
+    /**
+     * The entrance animation. Off by default on purpose.
+     *
+     * In a LazyColumn an item is composed when it scrolls in and disposed when
+     * it scrolls out, so `remember` is lost and the animation fires again every
+     * time a row comes back. That is three concurrent float animations plus a
+     * graphicsLayer per visible row for the whole of every scroll - rows fading
+     * and sliding while you drag, which reads as exactly the stutter it is.
+     * A screen entering can ask for it; a recycled list item should not.
+     */
+    appear: Boolean = false,
+    containerColor: Color? = null,
+    conn: Connection = Connection.DISCONNECTED,
+    onToggleConnection: (() -> Unit)? = null,
+    onToggleFavorite: () -> Unit = {}
 ) {
     val t = stringsFn()
     val lang = LocalLang.current
@@ -10314,9 +12356,23 @@ private fun ConfigRow(
         QrDialog(link = link, title = GhajarUiRules.brandedConfigName(config.name), onDismiss = { qrFor = null })
     }
 
+    val c = ghajarColors
+    // Compact rows drop the endpoint line and tighten the padding, which is
+    // where a row's height actually goes. Two columns were the other option
+    // and were rejected: this list maps a drag's y position to a row id for
+    // paint-selection, and a second column makes that mapping select the
+    // wrong servers - silently, which is the worst way for it to be wrong.
+    val compact = LocalListDensity.current == ListDensity.TWO
+    // Selection is a low-alpha brand wash rather than a filled container, so a
+    // long list of selected rows stays readable instead of turning into a block
+    // of solid colour.
     val highlight by animateColorAsState(
         targetValue = when {
-            checked || isSelected -> MaterialTheme.colorScheme.primaryContainer
+            checked || isSelected -> c.primary.copy(alpha = 0.16f)
+            // The row actually carrying traffic. A 3dp accent bar is easy to
+            // miss in a long list; the wash is the same signal at a glance,
+            // and lighter than the selected one so the two stay distinct.
+            isActive -> c.primary.copy(alpha = 0.09f)
             containerColor != null -> containerColor
             else -> Color.Transparent
         },
@@ -10324,7 +12380,7 @@ private fun ConfigRow(
         label = "rowHighlight"
     )
 
-    val swipeRed = Color(0xFFE0413C)
+    val swipeRed = c.error
     var rowWidth by remember { mutableStateOf(1) }
     var dragX by remember { mutableStateOf(0f) }
     val dragEnabled = !selectionMode && !checked
@@ -10353,7 +12409,7 @@ private fun ConfigRow(
             .fillMaxWidth()
             .onSizeChanged { rowWidth = it.width }
             .offset { IntOffset(dragX.roundToInt(), 0) }
-            .clip(RoundedCornerShape(14.dp))
+            .clip(RoundedCornerShape(GhajarRadius.md))
             .draggable(
                 orientation = Orientation.Horizontal,
                 enabled = dragEnabled,
@@ -10380,16 +12436,34 @@ private fun ConfigRow(
                 }
             )
             .combinedClickable(onClick = onClick, onLongClick = onLongPress),
-        shape = RoundedCornerShape(14.dp),
-        colors = if (containerColor != null)
-            CardDefaults.cardColors(containerColor = containerColor)
-        else CardDefaults.cardColors()
+        shape = RoundedCornerShape(GhajarRadius.lg),
+        // Server rows live in a scrolling list, not inside one slab, so each is
+        // its own small slab: filled, edgeless, on the nested card tone. The
+        // active one is marked by a leading accent bar (drawn below), not by a
+        // border - the skin has no borders.
+        colors = CardDefaults.cardColors(containerColor = containerColor ?: c.secondaryCard),
+        border = null
     ) {
         Row(
             Modifier.fillMaxWidth().background(rowTint)
-                .padding(start = 14.dp, end = 9.dp, top = 10.dp, bottom = 10.dp),
+                .padding(
+                    start = 8.dp,
+                    end = 9.dp,
+                    top = if (compact) 5.dp else 10.dp,
+                    bottom = if (compact) 5.dp else 10.dp
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            // The leading accent bar: full height on the row that is connected,
+            // invisible otherwise. This is what replaced the border.
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(if (compact) 20.dp else 30.dp)
+                    .clip(RoundedCornerShape(GhajarRadius.pill))
+                    .background(if (isActive) c.primary else Color.Transparent)
+            )
+            Spacer(Modifier.width(6.dp))
             if (checked) {
                 Icon(Icons.Filled.CheckCircle, contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
@@ -10407,14 +12481,35 @@ private fun ConfigRow(
                 } else {
                     MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface)
                 }
-                Text(
-                    if (config.locked) AnnotatedString(t("locked_config"))
-                    else scriptRuns("${config.address}:${config.port}", LexendFont),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isActive) MaterialTheme.colorScheme.primary
-                    else MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis
-                )
+                // Protocol and endpoint on one line: the tag first, because it
+                // is the shorter, fixed-width half and a long hostname should
+                // not be what pushes it off the row.
+                //
+                // Compact drops this whole line, not just the address: the tag
+                // moves up beside the name instead, so the protocol - which is
+                // how you tell two servers on the same host apart - survives
+                // the density change. The address does not; it is one tap away
+                // in edit, and it is what the second line was mostly made of.
+                if (!compact) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        ProtocolTag(config.protocol, isActive)
+                        Text(
+                            if (config.locked) AnnotatedString(t("locked_config"))
+                            else scriptRuns("${config.address}:${config.port}", LexendFont),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isActive) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+            if (compact) {
+                Spacer(Modifier.width(6.dp))
+                ProtocolTag(config.protocol, isActive)
             }
             Spacer(Modifier.width(3.dp))
             PingChip(ping)
@@ -10430,6 +12525,14 @@ private fun ConfigRow(
                 )
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        if (config.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                        contentDescription = "موردعلاقه",
+                        tint = if (config.favorite) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.clip(CircleShape)
+                            .clickable { onToggleFavorite() }.padding(4.dp).size(21.dp)
+                    )
                     Box {
                         Icon(Icons.Filled.Share, contentDescription = t("share"),
                             tint = MaterialTheme.colorScheme.primary,
@@ -10475,6 +12578,22 @@ private fun ConfigRow(
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.clip(CircleShape).clickable { onDelete() }.padding(4.dp).size(21.dp))
                 }
+            }
+            if (!checked && !selectionMode && onToggleConnection != null) {
+                val connectedHere = isActive && conn == Connection.CONNECTED
+                val connectingHere = isActive && conn == Connection.CONNECTING
+                Icon(
+                    when {
+                        connectedHere -> Icons.Filled.Stop
+                        connectingHere -> Icons.Filled.Autorenew
+                        else -> Icons.Filled.PlayArrow
+                    },
+                    contentDescription = if (connectedHere) "قطع اتصال" else "اتصال",
+                    tint = if (connectedHere) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.clip(CircleShape)
+                        .clickable(enabled = !connectingHere) { onToggleConnection() }
+                        .padding(4.dp).size(21.dp)
+                )
             }
             if (!checked && !selectionMode) {
                 Box(Modifier.size(29.dp), contentAlignment = Alignment.Center) {
@@ -10716,24 +12835,32 @@ private fun MarqueeName(text: String, style: TextStyle? = null, color: Color = C
 @Composable
 private fun LivePingDot(ping: PingResult?) {
     val color = pingColor(ping)
-    val transition = rememberInfiniteTransition(label = "pingDot")
-    val ripple by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
-        label = "ripple"
-    )
+    // The ripple only runs while a measurement is actually running. It used to
+    // run on every row forever: an infinite transition per visible item, each
+    // driving a graphicsLayer every frame, for a number that had already
+    // settled. A pulse that never stops also stops meaning anything - now it
+    // is exactly the "this one is being tested" signal.
+    val measuring = ping == PingResult.Testing
     Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
-        Box(
-            Modifier
-                .size(24.dp)
-                .graphicsLayer {
-                    val sc = 0.40f + ripple * 0.60f
-                    scaleX = sc; scaleY = sc
-                    alpha = (1f - ripple) * 0.6f
-                }
-                .background(Brush.radialGradient(listOf(color, Color.Transparent)), CircleShape)
-        )
+        if (measuring) {
+            val transition = rememberInfiniteTransition(label = "pingDot")
+            val ripple by transition.animateFloat(
+                initialValue = 0f,
+                targetValue = 1f,
+                animationSpec = ghajarEndless(infiniteRepeatable(tween(1700, easing = LinearEasing))),
+                label = "ripple"
+            )
+            Box(
+                Modifier
+                    .size(24.dp)
+                    .graphicsLayer {
+                        val sc = 0.40f + ripple * 0.60f
+                        scaleX = sc; scaleY = sc
+                        alpha = (1f - ripple) * 0.6f
+                    }
+                    .background(Brush.radialGradient(listOf(color, Color.Transparent)), CircleShape)
+            )
+        }
         Box(
             Modifier
                 .size(16.dp)
@@ -10741,6 +12868,30 @@ private fun LivePingDot(ping: PingResult?) {
         )
         Box(Modifier.size(9.dp).clip(CircleShape).background(color))
     }
+}
+
+/**
+ * The protocol, as a quiet tag beside the endpoint.
+ *
+ * A server list where every row reads "name / host:port" hides the one field
+ * that decides whether a row will work at all on a given network. Built-in
+ * engines say so instead of naming a transport they do not have.
+ */
+@Composable
+private fun ProtocolTag(protocol: String, active: Boolean) {
+    val c = ghajarColors
+    val label = protocol.trim().uppercase(java.util.Locale.ROOT).ifBlank { return }
+    val tint = if (active) c.primary else c.textMuted
+    Text(
+        label,
+        style = MaterialTheme.typography.labelSmall,
+        color = tint,
+        maxLines = 1,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(tint.copy(alpha = 0.12f))
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+    )
 }
 
 @Composable
@@ -10791,12 +12942,11 @@ private fun PingChip(ping: PingResult?) {
 @Composable
 private fun pingColor(ping: PingResult?): Color = when (ping) {
     is PingResult.Ok -> when {
-        ping.ms <= 250 -> Color(0xFF2E9E44)
-        ping.ms <= 600 -> Color(0xFFF59E0B)
-        else -> Color(0xFFE53935)
+        ping.ms <= 250 -> ghajarColors.good
+        ping.ms <= 600 -> ghajarColors.warning
+        else -> ghajarColors.error
     }
-    PingResult.Failed -> if (MaterialTheme.colorScheme.background.luminance() < 0.5f)
-        Color(0xFFBFBFBF) else Color(0xFF4A4A4A)
+    PingResult.Failed -> ghajarColors.textMuted
     else -> MaterialTheme.colorScheme.onSurfaceVariant
 }
 
@@ -10871,9 +13021,8 @@ private fun AppProxyScreen(
     ) {
         Row(
             Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(16.dp))
-                .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f))
-                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f), RoundedCornerShape(16.dp))
+                .clip(RoundedCornerShape(GhajarRadius.pill))
+                .background(ghajarColors.secondaryCard)
                 .padding(4.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
@@ -10999,13 +13148,8 @@ private fun AppProxyScreen(
                         )
                         Row(
                             Modifier.fillMaxWidth()
-                                .clip(RoundedCornerShape(16.dp))
-                                .background(tint.copy(alpha = 0.05f + 0.09f * fill))
-                                .border(
-                                    1.dp,
-                                    tint.copy(alpha = 0.16f + 0.34f * fill),
-                                    RoundedCornerShape(16.dp)
-                                )
+                                .clip(RoundedCornerShape(GhajarRadius.md))
+                                .background(ghajarColors.secondaryCard)
                                 .clickable { store.togglePerApp(app.pkg) }
                                 .animateItem()
                                 .padding(horizontal = 12.dp, vertical = 10.dp),

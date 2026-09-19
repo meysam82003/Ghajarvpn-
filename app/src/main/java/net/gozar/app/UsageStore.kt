@@ -157,6 +157,17 @@ object UsageStore {
         return map.filterKeys { it >= cutoff }
     }
 
+    /** [key] is an hourly bucket key as produced by [hourlyToday]/[hourlyBarsRange]
+     * (`yyyy-MM-dd-HH`); returns its [startMillis, endMillis) span in the
+     * device's default zone, or null if [key] isn't a valid hourly bucket. */
+    fun hourKeyToEpochRange(key: String): Pair<Long, Long>? {
+        val start = runCatching { LocalDateTime.parse(key, HOUR_FMT) }.getOrNull() ?: return null
+        val zone = java.time.ZoneId.systemDefault()
+        val startMillis = start.atZone(zone).toInstant().toEpochMilli()
+        val endMillis = start.plusHours(1).atZone(zone).toInstant().toEpochMilli()
+        return startMillis to endMillis
+    }
+
     fun configTotalsRange(
         dailyCfg: Map<String, Map<String, LongArray>>,
         hourlyCfg: Map<String, Map<String, LongArray>>,

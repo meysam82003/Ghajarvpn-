@@ -2,6 +2,15 @@ package net.gozar.app
 
 import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
@@ -57,94 +66,165 @@ internal fun GhajarWordmark(modifier: Modifier = Modifier) {
     )
 }
 
-/** Posters are intro illustrations, never a substitute for live VPN state. */
+/**
+ * The intro: a short motion graphic, drawn rather than decoded.
+ *
+ * What this replaces: a full-screen poster picked at random from
+ * thirty-three JPEGs totalling 8.7MB, cropped to fill the display. That cost
+ * a large bitmap decode on the very first frame, and the app deliberately
+ * waited 1100ms before it even began composing behind it - so the slowest
+ * moment in the whole app was opening it.
+ *
+ * This draws instead: one Canvas, no bitmaps, no image decode, nothing to
+ * load from disk. A single animation drives everything and its value is read
+ * only inside the draw lambda, so the ring animating never recomposes
+ * anything. The whole thing is 900ms and the app composes *behind* it from
+ * the first frame, so by the time it fades the app is already interactive.
+ *
+ * Tapping skips it.
+ */
 @Composable
-internal fun GhajarWelcomeScreen(onDone: () -> Unit) {
-    val context = LocalContext.current
-    val prefs = remember { context.getSharedPreferences("ghajar_welcome", Context.MODE_PRIVATE) }
-    val returning = remember { prefs.getBoolean("soft_intro_seen", false) }
-
-    // The full 3.0.4 poster set; only ONE image is shown per launch, randomly.
-    val posters = remember {
-        listOf(
-            R.drawable.ghajar_welcome_world,
-            R.drawable.ghajar_welcome_connection,
-            R.drawable.ghajar_welcome_locations,
-            R.drawable.ghajar_welcome_royal,
-            R.drawable.ghajar_welcome_queen_phone,
-            R.drawable.ghajar_welcome_king_night,
-            R.drawable.ghajar_welcome_king_light,
-            R.drawable.ghajar_welcome_queen_shield,
-            R.drawable.ghajar_welcome_queen_night,
-            R.drawable.ghajar_welcome_king_world,
-            R.drawable.ghajar_welcome_queen_light,
-            R.drawable.ghajar_welcome_extra_01,
-            R.drawable.ghajar_welcome_extra_02,
-            R.drawable.ghajar_welcome_extra_03,
-            R.drawable.ghajar_welcome_extra_04,
-            R.drawable.ghajar_welcome_extra_05,
-            R.drawable.ghajar_welcome_extra_06,
-            R.drawable.ghajar_welcome_extra_07,
-            R.drawable.ghajar_welcome_extra_08,
-            R.drawable.ghajar_welcome_extra_09,
-            R.drawable.ghajar_welcome_extra_10,
-            R.drawable.ghajar_welcome_extra_11,
-            R.drawable.ghajar_welcome_extra_12,
-            R.drawable.ghajar_welcome_extra_13,
-            R.drawable.ghajar_welcome_extra_14,
-            R.drawable.ghajar_welcome_extra_15,
-            R.drawable.ghajar_welcome_extra_16,
-            R.drawable.ghajar_welcome_extra_17,
-            R.drawable.ghajar_welcome_extra_18,
-            R.drawable.ghajar_welcome_extra_19,
-            R.drawable.ghajar_welcome_extra_20,
-            R.drawable.ghajar_welcome_extra_21,
-            R.drawable.ghajar_welcome_extra_22
-        )
-    }
-    // One random poster per launch; the previous launch's poster is not repeated.
-    val selectedPoster = remember {
-        GhajarCommerceRules.randomPoster(prefs.getInt("last_poster", -1), posters.size, kotlin.random.Random.Default)
-    }
-    val selectedTip = remember {
-        GhajarCommerceRules.randomWelcomeTip(prefs.getInt("last_tip", -1), kotlin.random.Random.Default)
-    }
+internal fun GhajarIntro(onDone: () -> Unit) {
+    val c = ghajarColors
     val finish by rememberUpdatedState(onDone)
-    var entered by remember { mutableStateOf(false) }
-    val reveal by animateFloatAsState(if (entered) 1f else 0f, tween(450), label = "welcome-reveal")
+
+    // One driver, 0f -> 1f. Everything below is a function of it.
+    val progress = remember { Animatable(0f) }
+    var leaving by remember { mutableStateOf(false) }
+    val fade by animateFloatAsState(
+        if (leaving) 0f else 1f,
+        tween(220),
+        label = "introFade"
+    )
+
     LaunchedEffect(Unit) {
-        // Persist immediately so a killed process still never repeats the poster/tip.
-        prefs.edit()
-            .putInt("last_poster", selectedPoster)
-            .putInt("last_tip", GhajarCommerceRules.welcomeTipIndex(selectedTip))
-            .putBoolean("soft_intro_seen", true)
-            .apply()
-        entered = true
-        if (returning) {
-            // Existing auto-close behavior for users who have seen the intro once.
-            delay(1500)
-            finish()
-        }
+        progress.animateTo(1f, tween(900, easing = FastOutSlowInEasing))
+        leaving = true
+        delay(220)
+        finish()
     }
-    // The navy info card is part of the brand and must always frame the poster.
-    val backdrop = Color(0xFF061226)
-    Column(
-        Modifier.fillMaxSize().background(backdrop).safeDrawingPadding().clickable(onClick = { finish() }),
-        horizontalAlignment = Alignment.CenterHorizontally
+
+    Box(
+        Modifier
+            .fillMaxSize()
+            .background(c.background)
+            .graphicsLayer { alpha = fade }
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null
+            ) { finish() },
+        contentAlignment = Alignment.Center
     ) {
-        Image(painterResource(posters[selectedPoster]), contentDescription = "خوش آمدی به قاجار VPN",
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = reveal })
-        Surface(color = Color(0xFF0B1F3A), shape = RoundedCornerShape(topStart = 26.dp, topEnd = 26.dp),
-            modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("💡 نکتهٔ قاجار", style = MaterialTheme.typography.labelMedium,
-                    color = Color(0xFFD6B45F), fontWeight = FontWeight.Bold)
-                Text(selectedTip, style = MaterialTheme.typography.bodyMedium,
-                    color = Color(0xFFF2F6FC), textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(top = 6.dp))
+      // The mark under the animation, not instead of it: the rings, ring and
+      // shield are unchanged above, and the wordmark fades and lifts in once
+      // the shield is in place.
+      Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(6.dp)
+      ) {
+        Canvas(Modifier.size(220.dp)) {
+            val p = progress.value
+            val mid = Offset(size.width / 2f, size.height / 2f)
+            val r = size.minDimension / 2f
+
+            // Three rings breathing outward, each a third of a cycle apart, so
+            // there is always one arriving as another leaves.
+            for (i in 0 until 3) {
+                val phase = ((p * 1.6f) + i / 3f) % 1f
+                val alpha = (1f - phase) * 0.28f * p
+                if (alpha > 0.01f) {
+                    drawCircle(
+                        color = c.primary.copy(alpha = alpha),
+                        radius = r * (0.30f + 0.70f * phase),
+                        center = mid,
+                        style = Stroke(width = r * 0.035f)
+                    )
+                }
+            }
+
+            // The brand ring drawing itself, then holding.
+            val sweep = (p / 0.72f).coerceAtMost(1f)
+            drawArc(
+                brush = Brush.sweepGradient(
+                    listOf(c.primary, c.highlight, c.premium, c.primary),
+                    center = mid
+                ),
+                startAngle = -90f,
+                sweepAngle = 360f * sweep,
+                useCenter = false,
+                topLeft = Offset(r * 0.30f, r * 0.30f),
+                size = Size(r * 1.40f, r * 1.40f),
+                style = Stroke(width = r * 0.075f, cap = StrokeCap.Round)
+            )
+
+            // A shield mark that scales up inside the ring once it has closed.
+            val markIn = ((p - 0.42f) / 0.42f).coerceIn(0f, 1f)
+            if (markIn > 0f) {
+                val s = r * 0.40f * markIn
+                val path = Path().apply {
+                    moveTo(mid.x, mid.y - s)
+                    lineTo(mid.x + s * 0.80f, mid.y - s * 0.46f)
+                    lineTo(mid.x + s * 0.80f, mid.y + s * 0.26f)
+                    // Straight edges to the point rather than a Bezier: the
+                    // quadratic helpers have been renamed across Compose
+                    // versions and this shape does not need the curve.
+                    lineTo(mid.x + s * 0.46f, mid.y + s * 0.76f)
+                    lineTo(mid.x, mid.y + s)
+                    lineTo(mid.x - s * 0.46f, mid.y + s * 0.76f)
+                    lineTo(mid.x - s * 0.80f, mid.y + s * 0.26f)
+                    lineTo(mid.x - s * 0.80f, mid.y - s * 0.46f)
+                    close()
+                }
+                drawPath(
+                    path,
+                    brush = Brush.verticalGradient(
+                        listOf(c.highlight.copy(alpha = markIn), c.primary.copy(alpha = markIn)),
+                        startY = mid.y - s,
+                        endY = mid.y + s
+                    )
+                )
+                // The tick, drawn on once the shield is fully in.
+                val tick = ((p - 0.70f) / 0.26f).coerceIn(0f, 1f)
+                if (tick > 0f) {
+                    val a = Offset(mid.x - s * 0.34f, mid.y + s * 0.02f)
+                    val b = Offset(mid.x - s * 0.06f, mid.y + s * 0.30f)
+                    val d = Offset(mid.x + s * 0.40f, mid.y - s * 0.30f)
+                    val firstLeg = (tick / 0.45f).coerceAtMost(1f)
+                    drawLine(
+                        color = c.onPrimary,
+                        start = a,
+                        end = Offset(a.x + (b.x - a.x) * firstLeg, a.y + (b.y - a.y) * firstLeg),
+                        strokeWidth = s * 0.15f,
+                        cap = StrokeCap.Round
+                    )
+                    if (tick > 0.45f) {
+                        val secondLeg = ((tick - 0.45f) / 0.55f).coerceAtMost(1f)
+                        drawLine(
+                            color = c.onPrimary,
+                            start = b,
+                            end = Offset(b.x + (d.x - b.x) * secondLeg, b.y + (d.y - b.y) * secondLeg),
+                            strokeWidth = s * 0.15f,
+                            cap = StrokeCap.Round
+                        )
+                    }
+                }
             }
         }
+
+        // Read only inside graphicsLayer's lambda, like every other value the
+        // intro animates: this places the wordmark without ever recomposing it.
+        Image(
+            painter = painterResource(R.drawable.ghajar_wordmark),
+            contentDescription = BrandConfig.APP_NAME_FA,
+            contentScale = ContentScale.Fit,
+            modifier = Modifier
+                .width(200.dp)
+                .graphicsLayer {
+                    val markIn = ((progress.value - 0.52f) / 0.40f).coerceIn(0f, 1f)
+                    alpha = markIn
+                    translationY = (1f - markIn) * 14.dp.toPx()
+                }
+        )
+      }
     }
 }

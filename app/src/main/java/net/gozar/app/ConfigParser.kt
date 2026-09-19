@@ -246,6 +246,13 @@ object ConfigParser {
             serviceName = p["serviceName"].orEmpty().ifEmpty { if (network == "grpc") p["path"].orEmpty() else "" },
             mode = p["mode"] ?: "", alpn = p["alpn"] ?: "",
             headerType = normalizeHeaderType(p["headerType"]),
+            // Written by this app's own share link. Absent in every link from
+            // anywhere else, and blank is the default, so nothing changes for
+            // a config imported from another client.
+            maskType = p["mask"].orEmpty(),
+            maskDomain = p["maskDomain"].orEmpty(),
+            maskPassword = p["maskPass"].orEmpty(),
+            echConfigList = p["ech"].orEmpty(),
             source = source
         )
     } catch (e: Exception) { null }
@@ -265,6 +272,13 @@ object ConfigParser {
             serviceName = p["serviceName"].orEmpty().ifEmpty { if (network == "grpc") p["path"].orEmpty() else "" },
             mode = p["mode"] ?: "", alpn = p["alpn"] ?: "",
             headerType = normalizeHeaderType(p["headerType"]),
+            // Written by this app's own share link. Absent in every link from
+            // anywhere else, and blank is the default, so nothing changes for
+            // a config imported from another client.
+            maskType = p["mask"].orEmpty(),
+            maskDomain = p["maskDomain"].orEmpty(),
+            maskPassword = p["maskPass"].orEmpty(),
+            echConfigList = p["ech"].orEmpty(),
             source = source
         )
     } catch (e: Exception) { null }
