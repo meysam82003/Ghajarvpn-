@@ -527,6 +527,27 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_DNSTT_RECONNECT, enabled).apply()
     }
 
+    /**
+     * What to do when the resolver in use stops answering.
+     *
+     * Defaults to staying put. Moving to another resolver behind the user's
+     * back means their lookups start going somewhere they did not choose,
+     * which for DNS is the exposure they picked a resolver to avoid - so the
+     * safe default is a visible failure, and the other option is opt-in.
+     */
+    private val _dnsFailPolicy = MutableStateFlow(readDnsFailPolicy())
+    val dnsFailPolicy: StateFlow<DnsFailPolicy> = _dnsFailPolicy.asStateFlow()
+
+    private fun readDnsFailPolicy(): DnsFailPolicy {
+        val name = prefs.getString(KEY_DNS_FAIL_POLICY, null) ?: return DnsFailPolicy.STAY
+        return runCatching { DnsFailPolicy.valueOf(name) }.getOrDefault(DnsFailPolicy.STAY)
+    }
+
+    fun setDnsFailPolicy(policy: DnsFailPolicy) {
+        _dnsFailPolicy.value = policy
+        prefs.edit().putString(KEY_DNS_FAIL_POLICY, policy.name).apply()
+    }
+
     /** True only when every part a tunnel cannot work without is present. */
     val dnsTunnelConfigured: Boolean
         get() = _dnsTunnelDomain.value.isNotBlank() &&
@@ -793,6 +814,7 @@ class ConfigStore private constructor(context: Context) {
         // public key deliberately does not: a backup is a file that gets
         // shared, and the key is the one part of this profile that is a
         // credential. It is retyped on the new device.
+        put("dnsFailPolicy", _dnsFailPolicy.value.name)
         put("dnsTunnelDomain", _dnsTunnelDomain.value)
         put("dnsTunnelResolver", _dnsTunnelResolver.value)
         put("dnsTunnelName", _dnsTunnelName.value)
@@ -858,6 +880,9 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("customDns")) setCustomDns(o.optString("customDns"))
         if (o.has("rotateMinutes")) setRotateMinutes(o.optInt("rotateMinutes", 0))
         if (o.has("zeptunTunnel")) setZeptunTunnel(o.getBoolean("zeptunTunnel"))
+        if (o.has("dnsFailPolicy")) runCatching {
+            setDnsFailPolicy(DnsFailPolicy.valueOf(o.optString("dnsFailPolicy")))
+        }
         if (o.has("dnsTunnelDomain")) setDnsTunnelDomain(o.optString("dnsTunnelDomain"))
         if (o.has("dnsTunnelResolver")) setDnsTunnelResolver(o.optString("dnsTunnelResolver"))
         if (o.has("dnsTunnelName")) setDnsTunnelName(o.optString("dnsTunnelName"))
@@ -1124,6 +1149,7 @@ class ConfigStore private constructor(context: Context) {
         const val SORT_FASTEST = "fastest"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_UI_THEME = "ui_theme"
+        private const val KEY_DNS_FAIL_POLICY = "dns_fail_policy"
         private const val KEY_DNSTT_DOMAIN = "dnstt_domain"
         private const val KEY_DNSTT_KEY = "dnstt_key"
         private const val KEY_DNSTT_RESOLVER = "dnstt_resolver"

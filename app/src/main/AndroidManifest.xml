@@ -192,6 +192,25 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="VPN tunneling client" />
         </service>
+        <!--
+            DNS-only mode's own VpnService.
+
+            Deliberately WITHOUT the android.net.VpnService intent-filter. VPN
+            consent is granted to the app by VpnService.prepare(), not to a
+            particular service, and that filter is what nominates a service as
+            the app's always-on VPN. Declaring it on two services leaves which
+            one the system picks for always-on ambiguous, and the tunnel is the
+            one that should win that.
+        -->
+        <service
+            android:name=".GhajarDnsOnlyService"
+            android:permission="android.permission.BIND_VPN_SERVICE"
+            android:foregroundServiceType="specialUse"
+            android:exported="false">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="DNS resolver selection" />
+        </service>
         <service
             android:name=".GhajarNotificationJob"
             android:permission="android.permission.BIND_JOB_SERVICE"

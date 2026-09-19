@@ -103,11 +103,43 @@ fun DnsLabScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     val verdicts by labStore.verdicts.collectAsState()
     val progress by DnsScanEngine.progress.collectAsState()
     val customDns by store.customDns.collectAsState()
+    val dnsPhase by DnsOnlyState.phase.collectAsState()
+    val dnsResolverInUse by DnsOnlyState.resolver.collectAsState()
+    val dnsServed by DnsOnlyState.served.collectAsState()
+    val privateDnsConflict by DnsOnlyState.privateDnsConflict.collectAsState()
+    val tunnelState by VpnState.state.collectAsState()
+    val tunnelPhase by DnsTunnelController.phase.collectAsState()
+    val tunnelDetail by DnsTunnelController.detail.collectAsState()
+    val failPolicy by store.dnsFailPolicy.collectAsState()
 
     var sort by remember { mutableStateOf(DnsSort.FASTEST) }
     var filter by remember { mutableStateOf(DnsFilter.ALL) }
     var status by remember { mutableStateOf("") }
     var manualOpen by remember { mutableStateOf(false) }
+    // The address DNS-only mode should start on once consent comes back. Held
+    // rather than recomputed, because between asking and being granted the
+    // user may have changed the chosen resolver.
+    var pendingDnsOnly by remember { mutableStateOf<String?>(null) }
+
+    val vpnConsent = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val address = pendingDnsOnly
+        pendingDnsOnly = null
+        if (result.resultCode == android.app.Activity.RESULT_OK && address != null) {
+            GhajarDnsOnlyService.start(context, address)
+        }
+    }
+
+    fun startDnsOnly(address: String) {
+        val consent = GhajarDnsOnlyService.prepareOrNull(context)
+        if (consent != null) {
+            pendingDnsOnly = address
+            vpnConsent.launch(consent)
+        } else {
+            GhajarDnsOnlyService.start(context, address)
+        }
+    }
 
     // The tunnel domain, if the user has a profile with one. It is what makes
     // the tunnel-path test possible at all: with no domain there is nothing to
@@ -383,6 +415,74 @@ fun DnsLabScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                         onClick = { store.setCustomDns(""); labStore.choose(null) }
                     )
                 }
+            }
+        }
+
+        item(key = "dnsonly") {
+            Rail(t("dnsonly_title"))
+            DnsOnlyCard(
+                phase = dnsPhase,
+                resolverInUse = dnsResolverInUse,
+                served = dnsServed,
+                privateDnsConflict = privateDnsConflict,
+                tunnelUp = tunnelState != Connection.DISCONNECTED &&
+                    tunnelState != Connection.ERROR,
+                chosenAddress = customDns,
+                lang = lang,
+                onStart = { startDnsOnly(it) },
+                onStop = { GhajarDnsOnlyService.stop(context) }
+            )
+        }
+
+        item(key = "tunnel") {
+            Rail(t("dnstun_title"))
+            DnsTunnelSection(
+                store = store,
+                labStore = labStore,
+                phase = tunnelPhase,
+                detail = tunnelDetail,
+                engineAvailable = remember { DnsTunnelController.available(context) },
+                lang = lang
+            )
+        }
+
+        item(key = "policy") {
+            Rail(t("dnspolicy_title"))
+            Slab(spacing = GhajarSpacing.sm) {
+                Text(
+                    t("dnspolicy_explain"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textSecondary
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Chip(
+                        label = t("dnspolicy_stay"),
+                        selected = failPolicy == DnsFailPolicy.STAY,
+                        onClick = {
+                            store.setDnsFailPolicy(DnsFailPolicy.STAY)
+                            DnsSmartSelect.reset()
+                        }
+                    )
+                    Chip(
+                        label = t("dnspolicy_next"),
+                        selected = failPolicy == DnsFailPolicy.NEXT_HEALTHY,
+                        onClick = {
+                            store.setDnsFailPolicy(DnsFailPolicy.NEXT_HEALTHY)
+                            DnsSmartSelect.reset()
+                        }
+                    )
+                }
+                Text(
+                    when (failPolicy) {
+                        DnsFailPolicy.STAY -> t("dnspolicy_stay_sub")
+                        DnsFailPolicy.NEXT_HEALTHY -> t("dnspolicy_next_sub")
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textMuted
+                )
             }
         }
 
@@ -976,6 +1076,267 @@ private fun DnsManualDialog(
                         modifier = Modifier.weight(1f)
                     )
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The DNS-only card: use the chosen resolver for lookups, with no tunnel.
+ *
+ * Every word here is chosen so nobody can read it as a VPN. It says "DNS
+ * active", it names the resolver, it counts the queries it actually answered -
+ * and the count is the honest part, because a mode that claims to be on while
+ * serving nothing is indistinguishable from one that works until you look.
+ */
+@Composable
+private fun DnsOnlyCard(
+    phase: DnsOnlyPhase,
+    resolverInUse: String?,
+    served: Long,
+    privateDnsConflict: Boolean,
+    tunnelUp: Boolean,
+    chosenAddress: String,
+    lang: Lang,
+    onStart: (String) -> Unit,
+    onStop: () -> Unit
+) {
+    val t: (String) -> String = { Strings.get(lang, it) }
+    val c = ghajarColors
+    val accent = when (phase) {
+        DnsOnlyPhase.ACTIVE -> if (privateDnsConflict) c.warning else c.good
+        DnsOnlyPhase.FAILED -> c.error
+        DnsOnlyPhase.STARTING -> c.highlight
+        DnsOnlyPhase.OFF -> c.primary
+    }
+
+    Slab(accent = accent, spacing = GhajarSpacing.sm) {
+        Text(
+            when (phase) {
+                DnsOnlyPhase.ACTIVE -> t("dnsonly_active").format(resolverInUse.orEmpty())
+                DnsOnlyPhase.STARTING -> t("dnsonly_starting")
+                DnsOnlyPhase.FAILED -> t("dnsonly_failed")
+                DnsOnlyPhase.OFF -> t("dnsonly_off")
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = accent
+        )
+        Text(
+            t("dnsonly_explain"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textSecondary
+        )
+        if (phase == DnsOnlyPhase.ACTIVE) {
+            // The number that makes the claim checkable. Zero while active
+            // means something is wrong - most often the Private DNS below.
+            Text(
+                t("dnsonly_served").format(localizeDigits("$served", lang)),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (served > 0) c.good else c.warning
+            )
+        }
+        if (privateDnsConflict) {
+            Text(
+                t("dnsonly_private_dns"),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.warning
+            )
+        }
+        when {
+            // The tunnel owns the tun. Said rather than attempted: Android
+            // gives the tun to whoever established it last, so trying would
+            // take down the tunnel the user is relying on.
+            tunnelUp -> Text(
+                t("dnsonly_tunnel_first"),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.warning
+            )
+            phase == DnsOnlyPhase.ACTIVE || phase == DnsOnlyPhase.STARTING -> GhostPill(
+                text = t("dnsonly_stop"),
+                onClick = onStop,
+                accent = c.error
+            )
+            chosenAddress.isBlank() -> Text(
+                t("dnsonly_choose_first"),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted
+            )
+            else -> PillButton(
+                text = t("dnsonly_start"),
+                onClick = { onStart(chosenAddress) },
+                icon = Icons.Filled.Dns
+            )
+        }
+    }
+}
+
+/**
+ * The DNS Tunnel profile, and an honest account of its state.
+ *
+ * This section exists in full even though this build ships no tunnel engine,
+ * and that is deliberate: the profile, its validation, the per-resolver
+ * tunnel-path test and the selection rules are all real, and the one missing
+ * piece is named rather than papered over. See third_party/dnstt/README.md for
+ * exactly what has to be added and why it could not be added here.
+ *
+ * What it will not do, ever: show a tunnel as connected on the strength of a
+ * saved profile. "Configured" and "carrying traffic" are different facts.
+ */
+@Composable
+private fun DnsTunnelSection(
+    store: ConfigStore,
+    labStore: DnsResolverStore,
+    phase: DnsTunnelPhase,
+    detail: String,
+    engineAvailable: Boolean,
+    lang: Lang
+) {
+    val t: (String) -> String = { Strings.get(lang, it) }
+    val c = ghajarColors
+    val domain by store.dnsTunnelDomain.collectAsState()
+    val key by store.dnsTunnelKey.collectAsState()
+    val resolverId by store.dnsTunnelResolver.collectAsState()
+    val name by store.dnsTunnelName.collectAsState()
+    val reconnect by store.dnsTunnelAutoReconnect.collectAsState()
+    val resolvers by labStore.resolvers.collectAsState()
+    val verdicts by labStore.verdicts.collectAsState()
+    var open by remember { mutableStateOf(false) }
+
+    val chosenResolver = resolvers.firstOrNull { it.id == resolverId }
+    val complete = domain.isNotBlank() && key.isNotBlank() && chosenResolver != null
+
+    Slab(
+        accent = if (engineAvailable) c.primary else c.warning,
+        spacing = GhajarSpacing.sm
+    ) {
+        // The headline state, and the order matters: a missing engine is
+        // reported before an incomplete profile, because filling the profile
+        // in would not help until the engine is there.
+        Text(
+            when {
+                !engineAvailable -> t("dnstun_engine_missing")
+                !complete -> t("dnstun_incomplete")
+                phase == DnsTunnelPhase.CARRYING -> t("dnstun_carrying")
+                phase == DnsTunnelPhase.LISTENING -> t("dnstun_listening")
+                phase == DnsTunnelPhase.FAILED -> t("dnstun_failed").format(detail)
+                else -> t("dnstun_ready")
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Bold,
+            color = if (engineAvailable && complete) c.primary else c.warning
+        )
+        Text(
+            t("dnstun_explain"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textSecondary
+        )
+        if (!engineAvailable) {
+            Text(
+                t("dnstun_engine_note"),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted
+            )
+        }
+
+        GhostPill(
+            text = if (open) t("dnstun_hide") else t("dnstun_edit"),
+            onClick = { open = !open }
+        )
+
+        AnimatedVisibility(visible = open) {
+            Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                SlabDivider()
+                SkinField(
+                    value = name,
+                    onValueChange = { store.setDnsTunnelName(it) },
+                    label = t("dnstun_f_name"),
+                    placeholder = t("dnslab_f_name_hint")
+                )
+                SkinField(
+                    value = domain,
+                    onValueChange = { store.setDnsTunnelDomain(it) },
+                    label = t("dnstun_f_domain"),
+                    placeholder = "t.example.com",
+                    helper = t("dnstun_f_domain_help"),
+                    isError = domain.isNotBlank() && !DnsResolverImport.looksHostname(domain)
+                )
+                SkinField(
+                    value = key,
+                    onValueChange = { store.setDnsTunnelKey(it) },
+                    label = t("dnstun_f_key"),
+                    helper = t("dnstun_f_key_help"),
+                    singleLine = false,
+                    minLines = 2
+                )
+
+                Text(
+                    t("dnstun_f_resolver"),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.textSecondary
+                )
+                Text(
+                    chosenResolver?.let { "${it.name} · ${it.address}" }
+                        ?: t("dnstun_no_resolver"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (chosenResolver == null) c.textMuted else c.primary
+                )
+                // Only resolvers whose tunnel path was actually tested and
+                // worked are offered. Answering an ordinary query proves
+                // nothing about carrying a tunnel, and offering the rest here
+                // would be offering a list that mostly cannot work.
+                val usable = remember(resolvers, verdicts) {
+                    resolvers.filter { DnsTunnelController.resolverLooksUsable(verdicts[it.id]) }
+                }
+                if (usable.isEmpty()) {
+                    Text(
+                        t("dnstun_none_tested"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.warning
+                    )
+                } else {
+                    Row(
+                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        usable.take(24).forEach { r ->
+                            Chip(
+                                label = r.address,
+                                selected = r.id == resolverId,
+                                onClick = { store.setDnsTunnelResolver(r.id) }
+                            )
+                        }
+                    }
+                }
+
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            t("dnstun_reconnect"),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = c.textPrimary
+                        )
+                        Text(
+                            t("dnstun_reconnect_sub"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = c.textSecondary
+                        )
+                    }
+                    SkinSwitch(
+                        checked = reconnect,
+                        onCheckedChange = { store.setDnsTunnelAutoReconnect(it) }
+                    )
+                }
+
+                Text(
+                    t("dnstun_key_not_backed_up"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textMuted
+                )
             }
         }
     }
