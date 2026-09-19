@@ -149,7 +149,18 @@ class GozarVpnService : VpnService() {
                 .addAddress("10.10.0.2", 32)
                 .addRoute("0.0.0.0", 0)
 
-            val resolvers = if (options?.flag("overrideDns") == true)
+            val store = ConfigStore.get(applicationContext)
+            // In zeptun's fake-IP mode the engine runs its own resolver and
+            // hands out synthetic addresses, so the tun's DNS server has to be
+            // that resolver - pointing apps at a real one instead would send
+            // every query past the thing meant to answer it. The address is
+            // inside the tun's own 0.0.0.0/0 route, so nothing else changes.
+            val fakeIpDns = options?.proxyOnly == true &&
+                store.zeptunTunnel.value &&
+                ZeptunEngine.available &&
+                store.zeptunDns.value == ZeptunEngine.DnsMode.FAKE_IP
+            val resolvers = if (fakeIpDns) listOf(ZeptunEngine.FAKE_DNS_ADDRESS)
+                else if (options?.flag("overrideDns") == true)
                 listOf(options.text("dnsPrimary"),options.text("dnsSecondary")).filter { it.isNotBlank() }
                 else listOf("1.1.1.1")
             resolvers.forEach { builder.addDnsServer(it) }
@@ -164,7 +175,6 @@ class GozarVpnService : VpnService() {
             // own. Everything about the Xray path below is unchanged, and when
             // the setting is off or the engine is not in this build, pfd stays
             // null exactly as before.
-            val store = ConfigStore.get(applicationContext)
             val wantZeptun = options?.proxyOnly == true &&
                 store.zeptunTunnel.value &&
                 ZeptunEngine.available
@@ -241,7 +251,10 @@ class GozarVpnService : VpnService() {
                         ZeptunEngine.socksConfig(
                             socksPort = socksPort,
                             mtu = options?.number("mtu") ?: 1500,
-                            ipv6 = options != null && options.text("ipVersion") != "v4"
+                            ipv6 = options != null && options.text("ipVersion") != "v4",
+                            dnsMode = store.zeptunDns.value,
+                            dnsUpstream = store.zeptunDnsUpstream.value,
+                            profile = store.zeptunProfile.value
                         )
                     )
                     if (failure != null) {
@@ -339,6 +352,8 @@ class GozarVpnService : VpnService() {
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             customDns = store.customDns.value,
+            youtubeDirect = store.youtubeDirect.value,
+            noiseSpec = store.noiseSpec.value,
             fragmentPackets = store.fragmentPackets.value,
             fragmentLength = store.fragmentLength.value,
             fragmentInterval = store.fragmentInterval.value,

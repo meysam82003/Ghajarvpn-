@@ -60,44 +60,171 @@ object ZeptunEngine {
     val isRunning: Boolean get() = running
 
     /**
-     * A TOML configuration that routes a tun through a local SOCKS5 proxy.
+     * What the engine does with DNS queries that enter the tun.
      *
-     * Two details from zeptun's own Android notes are load-bearing and are why
-     * this is built here rather than left to a caller:
+     * [FORWARD] is the conservative default and the behaviour of every build
+     * before this setting existed: a query is just another flow through the
+     * proxy, so the app's own DNS configuration - encrypted DNS, the chosen
+     * resolver, fake DNS - stays in charge of it.
+     */
+    enum class DnsMode { FORWARD, HIJACK, FAKE_IP }
+
+    /**
+     * How much of the phone the engine is allowed to spend on throughput.
+     *
+     * [BALANCED] emits nothing at all and leaves zeptun's own mobile preset
+     * exactly as it is - which is what every build so far has used.
+     */
+    enum class Profile { BALANCED, THROUGHPUT, BATTERY }
+
+    /**
+     * The address the engine's own resolver answers on in FAKE_IP mode.
+     *
+     * It has to be an address the tun routes and nothing else claims. The tun
+     * this app establishes carries 0.0.0.0/0 and its own address is
+     * 10.10.0.2/32, so a second host in that same documentation range is
+     * reachable and cannot collide with a real server.
+     */
+    const val FAKE_DNS_ADDRESS = "10.10.0.53"
+
+    /**
+     * A TOML configuration for a tun that forwards to a local SOCKS5 proxy.
+     *
+     * Every key here is a field of zeptun's own config document, checked
+     * against src/config_json.zig at the pinned commit. That is not a style
+     * preference: its TOML parser returns ConfigError for a key or a section
+     * it does not know (see its "toml rejects unknown keys" test), so an
+     * invented name does not degrade - it stops the engine from starting at
+     * all.
+     *
+     * Two details from zeptun's Android notes are load-bearing:
      *
      * - The proxy runs in this same app, so its own upstream sockets must not
      *   be captured by the tunnel serving it. The engine calls VpnService
      *   .protect on every socket it opens through the callback the bridge
      *   installs, which covers the engine's own; the proxy's are covered
      *   because Android does not route a protected socket back into the tun.
-     * - IPv6 is left off the interface unless asked for. Giving the tun an
-     *   IPv6 address when the upstream has none makes every application spend
-     *   its connect timeout on an address family that cannot leave the phone.
+     * - Nothing here configures the interface or the routing table. With a
+     *   descriptor handed in rather than a device the engine opened, its route
+     *   layer returns early (engine.zig checks device_kind == .tun), and the
+     *   addresses, routes and MTU are the ones VpnService.Builder already set.
+     *   [mtu] is passed only so the stack segments to the same number.
      */
     fun socksConfig(
         socksHost: String = "127.0.0.1",
         socksPort: Int,
-        mtu: Int = 8500,
-        ipv6: Boolean = false
+        mtu: Int = 1500,
+        ipv6: Boolean = false,
+        dnsMode: DnsMode = DnsMode.FORWARD,
+        dnsUpstream: String = "",
+        profile: Profile = Profile.BALANCED
     ): String = buildString {
         appendLine("preset = \"mobile\"")
+        appendLine()
+        appendLine("[tun]")
         appendLine("mtu = $mtu")
         appendLine()
         appendLine("[handler]")
         appendLine("kind = \"socks5\"")
-        appendLine("address = \"$socksHost:$socksPort\"")
         appendLine()
-        appendLine("[dns]")
-        // Queries are forwarded like any other flow rather than answered here:
-        // the app's own DNS settings (encrypted DNS, the chosen resolver, fake
-        // DNS) live in the proxy's configuration, and a second resolver in
-        // front of it would silently override all three.
-        appendLine("mode = \"forward\"")
-        if (!ipv6) {
-            appendLine()
-            appendLine("[interface]")
-            appendLine("ipv6 = false")
+        appendLine("[handler.socks5]")
+        appendLine("server = \"$socksHost:$socksPort\"")
+        // UDP over SOCKS5 rather than tunnelled over its TCP control
+        // connection: without it QUIC, DNS and every game go nowhere, and
+        // both Psiphon's and Aether's local proxies speak UDP ASSOCIATE.
+        appendLine("udp = true")
+        appendLine("udp_mode = \"udp\"")
+        appendLine("pipeline = true")
+
+        // offload and multi_queue are deliberately absent. They exist in the
+        // document, but zeptun's Android device pins vnet_hdr and csum_offload
+        // to false (src/device/android.zig), because a descriptor from
+        // VpnService carries no virtio header and no second queue. Setting
+        // them would read as a feature and do nothing.
+
+        when (profile) {
+            // Nothing: the mobile preset's own numbers, unchanged.
+            Profile.BALANCED -> Unit
+            Profile.THROUGHPUT -> {
+                appendLine()
+                appendLine("[stack]")
+                appendLine("tcp_rx_window = 524288")
+                appendLine("tcp_tx_buffer = 1048576")
+                appendLine("max_tcp_sessions = 4096")
+                appendLine("max_udp_sessions = 2048")
+                appendLine()
+                appendLine("[io]")
+                appendLine("rx_parallel = 8")
+                appendLine("tx_slots = 512")
+                appendLine()
+                appendLine("[memory]")
+                appendLine("budget_bytes = 67108864")
+            }
+            Profile.BATTERY -> {
+                appendLine()
+                appendLine("[stack]")
+                appendLine("tcp_rx_window = 32768")
+                appendLine("tcp_tx_buffer = 65536")
+                appendLine("max_tcp_sessions = 512")
+                appendLine("max_udp_sessions = 256")
+                appendLine()
+                appendLine("[io]")
+                appendLine("rx_parallel = 2")
+                appendLine("tx_slots = 64")
+            }
         }
+
+        when (dnsMode) {
+            // No [dns] section at all: fake_ip and hijack both default to
+            // false, and the engine's resolver stays out of the way.
+            DnsMode.FORWARD -> Unit
+            DnsMode.HIJACK -> {
+                // hijack does nothing without an upstream - zeptun's own
+                // dnsActive() is `fake_ip or (hijack and upstream != null)` -
+                // so a blank one is not written as a half-configured section.
+                val upstream = withPort(dnsUpstream)
+                if (upstream != null) {
+                    appendLine()
+                    appendLine("[dns]")
+                    appendLine("hijack = true")
+                    appendLine("upstream = \"$upstream\"")
+                }
+            }
+            DnsMode.FAKE_IP -> {
+                appendLine()
+                appendLine("[dns]")
+                appendLine("fake_ip = true")
+                // Its own defaults are 198.18.0.0/15 and fc00::/18. The v4
+                // range is stated rather than inherited so the value in the
+                // log is the value in the code, and the v6 range is offered
+                // only when the tun actually has v6 - a synthetic address in a
+                // family that cannot leave the phone is a connect timeout.
+                append("fake_ranges = [\"198.18.0.0/15\"")
+                if (ipv6) append(", \"fc00::/18\"")
+                appendLine("]")
+                // The resolver needs an address of its own: with a /32 tun
+                // address zeptun cannot derive one (its dnsAddress4 gives up
+                // above /30), and the service adds this same address as the
+                // tun's DNS server so queries actually arrive here.
+                appendLine("address = [\"$FAKE_DNS_ADDRESS\"]")
+            }
+        }
+    }
+
+    /**
+     * A resolver as host:port, or null when there is nothing usable.
+     *
+     * zeptun parses upstream as an endpoint, so a bare address is rejected -
+     * and a bare address is exactly what a user types.
+     */
+    private fun withPort(raw: String): String? {
+        val text = raw.trim()
+        if (text.isEmpty()) return null
+        // An IPv6 literal has colons of its own, so only a bracketed form
+        // carries a port; "2606:4700::1111" is a host, not host:port.
+        val hasPort = if (text.startsWith("[")) text.contains("]:")
+            else text.count { it == ':' } == 1
+        return if (hasPort) text else if (text.contains(':')) "[$text]:53" else "$text:53"
     }
 
     /**

@@ -64,6 +64,8 @@ object VpnLauncher {
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             customDns = store.customDns.value,
+            youtubeDirect = store.youtubeDirect.value,
+            noiseSpec = store.noiseSpec.value,
             fragmentPackets = store.fragmentPackets.value,
             fragmentLength = store.fragmentLength.value,
             fragmentInterval = store.fragmentInterval.value,

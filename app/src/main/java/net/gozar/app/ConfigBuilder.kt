@@ -316,6 +316,20 @@ object ConfigBuilder {
          * same dns block as before this parameter existed.
          */
         customDns: String = "",
+        /**
+         * Send YouTube out directly instead of through the tunnel.
+         *
+         * Off by default. When it is off no rule is emitted at all, so the
+         * routing table is byte-for-byte what it was before this existed.
+         */
+        youtubeDirect: Boolean = false,
+        /**
+         * The noise preset for the direct outbound, or blank for none.
+         *
+         * See NoiseSpec. Blank emits no noises field, which is what every
+         * config that predates this option has.
+         */
+        noiseSpec: String = "",
         torBase: ProxyConfig? = null,
         chainBase: ProxyConfig? = null,
         onionRouting: Boolean = false,
@@ -471,7 +485,15 @@ object ConfigBuilder {
                     .put("length", fragmentLength.ifBlank { "10-20" })
                     .put("interval", fragmentInterval.ifBlank { "10-20" }))))
         }
-        outbounds.put(JSONObject().put("tag", "direct").put("protocol", "freedom"))
+        // The direct outbound carries the noises when they are asked for.
+        // This is the right place for them: they go out on the wire to the
+        // real destination, ahead of the real traffic, and the proxy outbound
+        // is already wrapped in whatever transport the server expects.
+        val direct = JSONObject().put("tag", "direct").put("protocol", "freedom")
+        NoiseSpec.build(noiseSpec)?.let {
+            direct.put("settings", JSONObject().put("noises", it))
+        }
+        outbounds.put(direct)
         outbounds.put(JSONObject().put("tag", "block").put("protocol", "blackhole"))
         if (onion) {
             outbounds.put(JSONObject().put("tag", "tor-out").put("protocol", "socks")
@@ -523,6 +545,23 @@ object ConfigBuilder {
                 .put("network", "udp")
                 .put("port", "443")
                 .put("outboundTag", "block"))
+        }
+        // Youtube Direct, from MahsaNG. Placed above the split-routing and
+        // catch-all rules so it actually decides, and expressed with the
+        // geosite list plus the domains that serve the video itself - the
+        // page and the stream come from different hosts, and sending only one
+        // of them direct gets a page that never plays.
+        if (youtubeDirect) {
+            rules.put(JSONObject().put("type", "field")
+                .put("domain", JSONArray()
+                    .put("geosite:youtube")
+                    .put("domain:youtube.com")
+                    .put("domain:youtu.be")
+                    .put("domain:ytimg.com")
+                    .put("domain:googlevideo.com")
+                    .put("domain:youtube-nocookie.com")
+                    .put("domain:yt3.ggpht.com"))
+                .put("outboundTag", "direct"))
         }
         if (splitRouting) {
             rules.put(JSONObject().put("type", "field")
@@ -659,15 +698,24 @@ object ConfigBuilder {
             .put("tlsSettings", tls)
             .put("hysteriaSettings", hy)
 
+        // Hysteria's obfuscation is a finalmask, under "finalmask".  This used
+        // to be emitted as a top-level "udpmasks" array, which is not a field
+        // of the core's StreamConfig - and Go's json decoder drops a field it
+        // does not know without a word, so the obfuscation password was being
+        // accepted in the UI, stored, shared in the link, and then silently
+        // discarded on every connect.
+        val udpMasks = JSONArray()
         if (config.hyObfsPassword.isNotBlank()) {
-            stream.put(
-                "udpmasks",
-                JSONArray().put(
-                    JSONObject()
-                        .put("type", config.hyObfs.ifBlank { "salamander" })
-                        .put("settings", JSONObject().put("password", config.hyObfsPassword))
-                )
+            udpMasks.put(
+                JSONObject()
+                    .put("type", config.hyObfs.ifBlank { "salamander" })
+                    .put("settings", JSONObject().put("password", config.hyObfsPassword))
             )
+        }
+        // Hysteria is QUIC, so it is a UDP transport and takes the udp masks.
+        maskEntry(config)?.let { udpMasks.put(it) }
+        if (udpMasks.length() > 0) {
+            stream.put("finalmask", JSONObject().put("udp", udpMasks))
         }
 
         return JSONObject().put("tag", "proxy").put("protocol", "hysteria")
@@ -747,6 +795,63 @@ object ConfigBuilder {
         val length = (5..9).random()
         val label = (1..length).map { alphabet.random() }.joinToString("")
         return "$label.$host"
+    }
+
+    /**
+     * The transports that ride on UDP, and so take the udp finalmask list.
+     *
+     * mKCP and QUIC-based Hysteria are the only ones this app builds. The
+     * distinction is not cosmetic: the core keeps two separate mask registries
+     * and a name in the wrong one is an unrecognised type, not a no-op.
+     */
+    private val UDP_NETWORKS = setOf("kcp", "hysteria")
+
+    /** The masks the core registers for TCP transports. */
+    private val TCP_MASKS = setOf("sudoku")
+
+    /**
+     * Which finalmask list this mask belongs in here, or null for neither.
+     *
+     * Separate from the emitting code so the decision can be tested without a
+     * logger or an Android runtime: it is the part that is easy to get wrong
+     * and impossible to notice, because a mask in the wrong list is an
+     * unrecognised type rather than a visible error.
+     */
+    internal fun maskSide(network: String, type: String): String? {
+        val net = normalizeNetwork(network)
+        if (net in UDP_NETWORKS) return "udp"
+        return if (type in TCP_MASKS) "tcp" else null
+    }
+
+    /**
+     * One finalmask entry for this config, or null when there is none to add.
+     *
+     * Returns null rather than an empty object for anything unusable - a blank
+     * setting, an xdns without a domain, a keyed mask without its password -
+     * because a half-filled mask is refused by the core and would take the
+     * whole connect down with it.
+     */
+    internal fun maskEntry(config: ProxyConfig): JSONObject? {
+        val type = config.maskType.trim().lowercase()
+        if (type.isEmpty()) return null
+        val settings = when (type) {
+            "xdns" -> {
+                val domain = config.maskDomain.trim()
+                if (domain.isEmpty()) return null
+                JSONObject().put("domain", domain)
+            }
+            "sudoku", "salamander" -> {
+                val password = config.maskPassword
+                if (password.isBlank()) return null
+                JSONObject().put("password", password)
+            }
+            "noise" -> {
+                val items = NoiseSpec.buildMaskNoise("standard") ?: return null
+                JSONObject().put("noise", items)
+            }
+            else -> return null
+        }
+        return JSONObject().put("type", type).put("settings", settings)
     }
 
     private fun buildStream(config: ProxyConfig): JSONObject {
@@ -837,9 +942,33 @@ object ConfigBuilder {
                     val arr = csvArray(config.alpn)
                     if (arr.length() > 0) tls.put("alpn", arr)
                 }
+                if (config.echConfigList.isNotBlank()) {
+                    tls.put("echConfigList", config.echConfigList.trim())
+                }
                 stream.put("security", "tls").put("tlsSettings", tls)
+            }
+        }
+
+        // The finalmask layer, below the transport and below TLS. It goes in
+        // the list that matches how this transport reaches the network: the
+        // core keeps a separate registry per side, and a name in the wrong one
+        // is an unknown type rather than a no-op.
+        maskEntry(config)?.let { entry ->
+            val side = maskSide(net, entry.optString("type"))
+            if (side != null) {
+                stream.put("finalmask", JSONObject().put(side, JSONArray().put(entry)))
+            } else {
+                // Named but not applicable here. Said out loud, because a
+                // silently dropped disguise is worse than one that is not
+                // offered: the user would believe it was on.
+                GhajarLog.i(
+                    TAG,
+                    "mask ${entry.optString("type")} needs a udp transport, not $net - not applied"
+                )
             }
         }
         return stream
     }
+
+    private const val TAG = "GhajarConfigBuilder"
 }

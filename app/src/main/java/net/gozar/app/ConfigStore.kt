@@ -103,6 +103,84 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_ZEPTUN, enabled).apply()
     }
 
+    /**
+     * What the zeptun engine does with DNS queries entering its tun.
+     *
+     * Stored as the enum's own name so an unreadable or future value falls
+     * back to FORWARD, which is what every build before this setting did.
+     */
+    private val _zeptunDns = MutableStateFlow(readZeptunDns())
+    val zeptunDns: StateFlow<ZeptunEngine.DnsMode> = _zeptunDns.asStateFlow()
+
+    private fun readZeptunDns(): ZeptunEngine.DnsMode {
+        val name = prefs.getString(KEY_ZEPTUN_DNS, null) ?: return ZeptunEngine.DnsMode.FORWARD
+        return runCatching { ZeptunEngine.DnsMode.valueOf(name) }
+            .getOrDefault(ZeptunEngine.DnsMode.FORWARD)
+    }
+
+    fun setZeptunDns(mode: ZeptunEngine.DnsMode) {
+        _zeptunDns.value = mode
+        prefs.edit().putString(KEY_ZEPTUN_DNS, mode.name).apply()
+    }
+
+    /** The resolver hijacked queries are sent to. Only read in HIJACK mode. */
+    private val _zeptunDnsUpstream =
+        MutableStateFlow(prefs.getString(KEY_ZEPTUN_DNS_UPSTREAM, "").orEmpty())
+    val zeptunDnsUpstream: StateFlow<String> = _zeptunDnsUpstream.asStateFlow()
+
+    fun setZeptunDnsUpstream(value: String) {
+        val clean = value.trim()
+        _zeptunDnsUpstream.value = clean
+        prefs.edit().putString(KEY_ZEPTUN_DNS_UPSTREAM, clean).apply()
+    }
+
+    /** How much of the phone the zeptun stack may spend on throughput. */
+    private val _zeptunProfile = MutableStateFlow(readZeptunProfile())
+    val zeptunProfile: StateFlow<ZeptunEngine.Profile> = _zeptunProfile.asStateFlow()
+
+    private fun readZeptunProfile(): ZeptunEngine.Profile {
+        val name = prefs.getString(KEY_ZEPTUN_PROFILE, null) ?: return ZeptunEngine.Profile.BALANCED
+        return runCatching { ZeptunEngine.Profile.valueOf(name) }
+            .getOrDefault(ZeptunEngine.Profile.BALANCED)
+    }
+
+    fun setZeptunProfile(profile: ZeptunEngine.Profile) {
+        _zeptunProfile.value = profile
+        prefs.edit().putString(KEY_ZEPTUN_PROFILE, profile.name).apply()
+    }
+
+    /**
+     * Send YouTube straight out instead of through the tunnel.
+     *
+     * MahsaNG calls this Youtube Direct. It is a bandwidth decision rather
+     * than a censorship one: video is the heaviest thing most people do, and a
+     * server paying per gigabyte would rather not carry it. Off by default,
+     * because where YouTube is blocked this makes it stop working.
+     */
+    private val _youtubeDirect = MutableStateFlow(prefs.getBoolean(KEY_YOUTUBE_DIRECT, false))
+    val youtubeDirect: StateFlow<Boolean> = _youtubeDirect.asStateFlow()
+
+    fun setYoutubeDirect(enabled: Boolean) {
+        _youtubeDirect.value = enabled
+        prefs.edit().putBoolean(KEY_YOUTUBE_DIRECT, enabled).apply()
+    }
+
+    /**
+     * Junk packets sent ahead of the real traffic on the direct outbound.
+     *
+     * Xray's freedom outbound calls these noises, and MahsaNG exposes them as
+     * a preset list. Blank - every existing config - emits no noises field.
+     * See NoiseSpec for the format and what each preset is for.
+     */
+    private val _noiseSpec = MutableStateFlow(prefs.getString(KEY_NOISE_SPEC, "").orEmpty())
+    val noiseSpec: StateFlow<String> = _noiseSpec.asStateFlow()
+
+    fun setNoiseSpec(value: String) {
+        val clean = value.trim()
+        _noiseSpec.value = clean
+        prefs.edit().putString(KEY_NOISE_SPEC, clean).apply()
+    }
+
     private val _splitRouting = MutableStateFlow(prefs.getBoolean(KEY_SPLIT, false))
     val splitRouting: StateFlow<Boolean> = _splitRouting.asStateFlow()
 
@@ -553,6 +631,11 @@ class ConfigStore private constructor(context: Context) {
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
         put("zeptunTunnel", _zeptunTunnel.value)
+        put("zeptunDns", _zeptunDns.value.name)
+        put("zeptunDnsUpstream", _zeptunDnsUpstream.value)
+        put("zeptunProfile", _zeptunProfile.value.name)
+        put("youtubeDirect", _youtubeDirect.value)
+        put("noiseSpec", _noiseSpec.value)
         put("fragmentPackets", _fragmentPackets.value)
         put("fragmentLength", _fragmentLength.value)
         put("fragmentInterval", _fragmentInterval.value)
@@ -604,6 +687,19 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("customDns")) setCustomDns(o.optString("customDns"))
         if (o.has("rotateMinutes")) setRotateMinutes(o.optInt("rotateMinutes", 0))
         if (o.has("zeptunTunnel")) setZeptunTunnel(o.getBoolean("zeptunTunnel"))
+        // Each of these is read only when present, and an unreadable enum name
+        // falls back to the setting's own default rather than failing the
+        // restore: a backup written before they existed has to come back
+        // exactly as it went in.
+        if (o.has("zeptunDns")) runCatching {
+            setZeptunDns(ZeptunEngine.DnsMode.valueOf(o.optString("zeptunDns")))
+        }
+        if (o.has("zeptunDnsUpstream")) setZeptunDnsUpstream(o.optString("zeptunDnsUpstream"))
+        if (o.has("zeptunProfile")) runCatching {
+            setZeptunProfile(ZeptunEngine.Profile.valueOf(o.optString("zeptunProfile")))
+        }
+        if (o.has("youtubeDirect")) setYoutubeDirect(o.getBoolean("youtubeDirect"))
+        if (o.has("noiseSpec")) setNoiseSpec(o.optString("noiseSpec"))
         if (o.has("adBlock")) setAdBlock(o.getBoolean("adBlock"))
         if (o.has("mixedPort")) setMixedPort(o.getInt("mixedPort"))
         if (o.has("sortMode")) setSortMode(o.getString("sortMode"))
@@ -806,6 +902,11 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_CONFIGS = "configs"
         private const val KEY_SUBS = "subscriptions"
         private const val KEY_ZEPTUN = "zeptun_tunnel"
+        private const val KEY_ZEPTUN_DNS = "zeptun_dns_mode"
+        private const val KEY_ZEPTUN_DNS_UPSTREAM = "zeptun_dns_upstream"
+        private const val KEY_ZEPTUN_PROFILE = "zeptun_profile"
+        private const val KEY_YOUTUBE_DIRECT = "youtube_direct"
+        private const val KEY_NOISE_SPEC = "noise_spec"
         private const val KEY_ROTATE_MINUTES = "rotate_minutes"
         private const val KEY_FRAGMENT = "fragment_enabled"
         private const val KEY_FRAG_PACKETS = "fragment_packets"

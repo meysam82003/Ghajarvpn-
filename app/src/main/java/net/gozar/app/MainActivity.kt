@@ -1042,6 +1042,8 @@ class MainActivity : ComponentActivity() {
         val json = ConfigBuilder.build(config, store.fragment.value, store.splitRouting.value, store.sniffing.value, store.sniffTypes.value, mux = store.mux.value, muxConcurrency = store.muxConcurrency.value, adBlock = store.adBlock.value, fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             customDns = store.customDns.value,
+            youtubeDirect = store.youtubeDirect.value,
+            noiseSpec = store.noiseSpec.value,
             fragmentPackets = store.fragmentPackets.value,
             fragmentLength = store.fragmentLength.value,
             fragmentInterval = store.fragmentInterval.value,
@@ -1129,6 +1131,8 @@ class MainActivity : ComponentActivity() {
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             customDns = store.customDns.value,
+            youtubeDirect = store.youtubeDirect.value,
+            noiseSpec = store.noiseSpec.value,
             fragmentPackets = store.fragmentPackets.value,
             fragmentLength = store.fragmentLength.value,
             fragmentInterval = store.fragmentInterval.value,
@@ -7421,6 +7425,11 @@ private fun ConnectionSettingsScreen(
     val fragmentInterval by store.fragmentInterval.collectAsState()
     val rotateMinutes by store.rotateMinutes.collectAsState()
     val zeptunTunnel by store.zeptunTunnel.collectAsState()
+    val zeptunDns by store.zeptunDns.collectAsState()
+    val zeptunDnsUpstream by store.zeptunDnsUpstream.collectAsState()
+    val zeptunProfile by store.zeptunProfile.collectAsState()
+    val youtubeDirect by store.youtubeDirect.collectAsState()
+    val noiseSpec by store.noiseSpec.collectAsState()
     val splitRouting by store.splitRouting.collectAsState()
     val sniffing by store.sniffing.collectAsState()
     val sniffTypes by store.sniffTypes.collectAsState()
@@ -7555,6 +7564,98 @@ private fun ConnectionSettingsScreen(
                 t("zeptun_note"),
                 style = MaterialTheme.typography.labelSmall,
                 color = ghajarColors.textMuted
+            )
+            // The engine's own options, shown only while it is actually in
+            // charge of a tunnel. Offering DNS modes for an engine that is
+            // switched off, or not in the build, would be four rows that
+            // cannot do anything.
+            AnimatedVisibility(visible = zeptunTunnel && zeptunVersion != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                    SlabRow(
+                        title = t("zeptun_dns_title"),
+                        subtitle = when (zeptunDns) {
+                            ZeptunEngine.DnsMode.FORWARD -> t("zeptun_dns_forward")
+                            ZeptunEngine.DnsMode.HIJACK ->
+                                if (zeptunDnsUpstream.isBlank()) t("zeptun_dns_hijack_unset")
+                                else t("zeptun_dns_hijack").format(zeptunDnsUpstream)
+                            ZeptunEngine.DnsMode.FAKE_IP -> t("zeptun_dns_fake")
+                        },
+                        icon = Icons.Filled.Dns,
+                        accent = if (zeptunDns == ZeptunEngine.DnsMode.FORWARD)
+                            ghajarColors.textMuted else ghajarColors.primary,
+                        chevron = true,
+                        onClick = {
+                            val modes = ZeptunEngine.DnsMode.entries
+                            store.setZeptunDns(modes[(modes.indexOf(zeptunDns) + 1) % modes.size])
+                        }
+                    )
+                    // Only asked for in the one mode that reads it: hijack
+                    // does nothing at all without an upstream.
+                    AnimatedVisibility(visible = zeptunDns == ZeptunEngine.DnsMode.HIJACK) {
+                        SkinField(
+                            value = zeptunDnsUpstream,
+                            onValueChange = { store.setZeptunDnsUpstream(it) },
+                            label = t("zeptun_dns_upstream"),
+                            placeholder = "1.1.1.1"
+                        )
+                    }
+                    SlabRow(
+                        title = t("zeptun_profile_title"),
+                        subtitle = when (zeptunProfile) {
+                            ZeptunEngine.Profile.BALANCED -> t("zeptun_profile_balanced")
+                            ZeptunEngine.Profile.THROUGHPUT -> t("zeptun_profile_throughput")
+                            ZeptunEngine.Profile.BATTERY -> t("zeptun_profile_battery")
+                        },
+                        icon = Icons.Filled.Speed,
+                        accent = if (zeptunProfile == ZeptunEngine.Profile.BALANCED)
+                            ghajarColors.textMuted else ghajarColors.primary,
+                        chevron = true,
+                        onClick = {
+                            val all = ZeptunEngine.Profile.entries
+                            store.setZeptunProfile(all[(all.indexOf(zeptunProfile) + 1) % all.size])
+                        }
+                    )
+                    Text(
+                        t("zeptun_dns_note"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ghajarColors.textMuted
+                    )
+                }
+            }
+            // Noise packets on the direct outbound, from MahsaNG. Off by
+            // default: a server that will not tolerate an unexpected leading
+            // packet fails rather than degrades.
+            SlabRow(
+                title = t("noise_title"),
+                subtitle = when (noiseSpec) {
+                    "", "off" -> t("noise_off")
+                    "light" -> t("noise_light")
+                    "standard" -> t("noise_standard")
+                    "aggressive" -> t("noise_aggressive")
+                    "quic" -> t("noise_quic")
+                    else -> t("noise_custom")
+                },
+                icon = Icons.Filled.GraphicEq,
+                accent = if (noiseSpec.isBlank() || noiseSpec == "off")
+                    ghajarColors.textMuted else ghajarColors.primary,
+                chevron = true,
+                onClick = {
+                    // Cycles the presets only. A hand-written spec is kept as
+                    // it is until the user taps, which then moves to "off"
+                    // rather than silently rewriting what they typed.
+                    val steps = listOf("off", "light", "standard", "aggressive", "quic")
+                    val here = steps.indexOf(noiseSpec.ifBlank { "off" })
+                    store.setNoiseSpec(steps[(here.coerceAtLeast(0) + 1) % steps.size])
+                }
+            )
+            // Youtube Direct, from MahsaNG. A bandwidth decision, not a
+            // censorship one - which is why the note says what it costs.
+            SettingRow(
+                title = t("youtube_direct_title"),
+                subtitle = if (youtubeDirect) t("youtube_direct_on") else t("youtube_direct_off"),
+                checked = youtubeDirect,
+                onCheckedChange = { store.setYoutubeDirect(it) },
+                icon = Icons.Filled.PlayCircle
             )
             // Rotating configs: off unless an interval is set, and it only
             // moves between servers that are already in the list.
