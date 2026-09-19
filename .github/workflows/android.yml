@@ -153,6 +153,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # First step in the job, on purpose. Run 35437309288 spent nine minutes
+      # building zeptun, sing-box and the whole app before Gradle died on an
+      # empty keystore, and the message it died with was
+      # "Tag number over 30 is not supported" - a DER parse error that says
+      # nothing about the actual cause. The four signing secrets are checked
+      # here, before anything expensive, and the failure names them.
+      #
+      # Only whether each secret is empty is tested. No value is ever echoed,
+      # compared against a literal, or written anywhere.
+      - name: Check the signing secrets are present
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          missing=
+          [ -n "$KEYSTORE_BASE64" ]   || missing="$missing KEYSTORE_BASE64"
+          [ -n "$KEYSTORE_PASSWORD" ] || missing="$missing KEYSTORE_PASSWORD"
+          [ -n "$KEY_ALIAS" ]         || missing="$missing KEY_ALIAS"
+          [ -n "$KEY_PASSWORD" ]      || missing="$missing KEY_PASSWORD"
+          if [ -n "$missing" ]; then
+            echo "::error::Cannot sign a release. These repository secrets are unset or empty:$missing"
+            echo "::error::Set them under Settings -> Secrets and variables -> Actions -> Repository secrets."
+            echo "::error::KEYSTORE_BASE64 must be the keystore file encoded with: base64 -w0 release.jks"
+            exit 1
+          fi
+          echo "All four signing secrets are present."
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -235,8 +264,44 @@ jobs:
             exit 1
           fi
 
-      - name: Decode keystore
-        run: echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.jks"
+      # base64 -d on empty input exits 0 and writes a zero-byte file, which is
+      # how run 35437309288 reached Gradle at all. Decoding is now checked, and
+      # so is the result: a file that is not a readable keystore, or one that
+      # does not contain KEY_ALIAS, is reported here rather than as an opaque
+      # ASN.1 error from the packaging task.
+      #
+      # keytool's output is discarded rather than printed. It lists the store's
+      # contents, and while that is not secret, there is no reason for a public
+      # log to carry it.
+      - name: Decode and verify the keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          set -o pipefail
+          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks" || {
+            echo "::error::KEYSTORE_BASE64 is not valid base64. Re-create it with: base64 -w0 release.jks"
+            exit 1
+          }
+          if [ ! -s "$RUNNER_TEMP/release.jks" ]; then
+            echo "::error::The decoded keystore is empty. KEYSTORE_BASE64 decoded to zero bytes."
+            exit 1
+          fi
+          echo "Decoded keystore: $(stat -c%s "$RUNNER_TEMP/release.jks") bytes."
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
+                 -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
+            echo "::error::The decoded file is not a keystore that opens with KEYSTORE_PASSWORD."
+            echo "::error::Either KEYSTORE_BASE64 is not a .jks/.p12 file, or KEYSTORE_PASSWORD is wrong."
+            exit 1
+          fi
+          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
+                 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
+            echo "::error::The keystore opened, but it contains no key under the alias in KEY_ALIAS."
+            echo "::error::List your aliases locally with: keytool -list -keystore release.jks"
+            exit 1
+          fi
+          echo "The keystore opens and contains the requested alias."
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -289,13 +354,29 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           V="${{ steps.version.outputs.name }}"
+          TITLE="GhajarVPN $V"
           NOTES=docs/release-notes/v$V.md
-          if [ -f "$NOTES" ]; then
-            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file "$NOTES"
+          # Create if it does not exist, otherwise update in place. The old
+          # form failed outright on a re-run, because `gh release create`
+          # errors when the release already exists - which meant one failed
+          # publish left the tag permanently unreleasable without hand
+          # intervention. --clobber replaces an asset of the same name.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            echo "Release $GITHUB_REF_NAME exists; updating its assets and notes."
+            if [ -f "$NOTES" ]; then
+              gh release edit "$GITHUB_REF_NAME" --title "$TITLE" --notes-file "$NOTES" --draft=false
+            else
+              gh release edit "$GITHUB_REF_NAME" --title "$TITLE" --draft=false
+            fi
+            gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+          elif [ -f "$NOTES" ]; then
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$TITLE" --notes-file "$NOTES"
           else
             echo "::warning::No release notes at $NOTES; publishing with generated notes."
-            gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --generate-notes
+            gh release create "$GITHUB_REF_NAME" dist/* --title "$TITLE" --generate-notes
           fi
+          gh release view "$GITHUB_REF_NAME" --json tagName,name,isDraft,assets \
+            --jq '{tag:.tagName, title:.name, draft:.isDraft, assets:[.assets[].name]}'
 
       - name: Clean up secrets from runner
         if: always()
