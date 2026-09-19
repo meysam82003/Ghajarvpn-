@@ -52,6 +52,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -77,8 +78,8 @@ import androidx.compose.ui.unit.sp
  *    filled surface with inset separators between rows, not N separate cards.
  *    Far fewer edges, so the eye follows content instead of counting borders.
  *  - **Light catches the top edge.** Every slab draws a 1px brand-tinted
- *    gradient along its top edge and nothing anywhere else. That single cue
- *    does the work a full border used to, at a fraction of the visual noise.
+ *    gradient along its top edge, with a low-contrast border and a subtle
+ *    surface gradient for depth.
  *  - **Headings are rails, not text.** A short vertical brand bar plus a rule
  *    that runs to the edge of the screen.
  *  - **Numbers live in strips.** Live values sit in one slab split by thin
@@ -94,7 +95,7 @@ import androidx.compose.ui.unit.sp
 private val SlabRadius = GhajarRadius.lg
 
 /**
- * The container. Filled, edgeless, with light along the top.
+ * The shared rounded container with a thin border and light along the top.
  *
  * [accent] tints that top edge for a state (pending, failed, active) without
  * changing the shape, so a slab never becomes a different kind of object.
@@ -998,6 +999,7 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
                             .weight(1f)
                             .height(54.dp)
                             .clip(RoundedCornerShape(GhajarRadius.lg))
+                            .testTag("root-nav-$index")
                             .clickable { item.onSelect() },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center

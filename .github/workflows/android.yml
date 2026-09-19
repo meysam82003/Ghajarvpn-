@@ -131,7 +131,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug test
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug :app:assembleDebugAndroidTest
 
       - name: Run unit tests
         run: ./gradlew --no-daemon --stacktrace test
@@ -142,6 +142,41 @@ jobs:
           name: Ghajarvpn-Android-debug
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
+
+  ui-runtime:
+    if: github.ref == 'refs/heads/ui-redesign-gpt'
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Ghajarvpn-Android-debug
+          path: device-apks
+      - name: Enable emulator acceleration
+        run: sudo chmod 666 /dev/kvm
+      - name: Validate real Android flows and capture screens
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 30
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          ram-size: 2048M
+          disable-animations: true
+          script: bash scripts/ui-redesign/run_device_smoke.sh
+      - name: Upload device evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-UI-device-evidence
+          path: device-evidence/
+          if-no-files-found: warn
 
   release:
     needs: build
