@@ -2013,7 +2013,12 @@ private fun ConnectionScreen(
                             else -> "⁦${cfg.address}:${cfg.port}⁩"
                         }
                         "$engine · $endpoint"
-                    } ?: t("home_openvpn_hint")
+                    }
+                    // Nothing selected means nothing to say. The row's title
+                    // already reads "no server chosen"; a paragraph explaining
+                    // where OpenVPN lives was a manual printed on the dashboard.
+                    // SlabRow skips a blank subtitle, so the row collapses to
+                    // one line instead of holding space for it.
                 }
                 SlabRow(
                     title = when {
@@ -2158,117 +2163,6 @@ private fun PickerStatsStrip(
 }
 
 
-/**
- * The card above the server list that flies the tunnel for you.
- *
- * Deliberately one card and not a switch in Settings: the question it answers
- * - "which of these thirty works right now" - is asked while looking at the
- * list, and an answer two screens away is an answer nobody reaches.
- *
- * Every state it can be in says something true and specific. It never says
- * connected while measuring, and it never claims a server it did not pick:
- * the phase comes from ServerAutoPilot, which only reports Engaged once the
- * tunnel is actually up.
- */
-@Composable
-private fun AutoPilotCard(
-    engaged: Boolean,
-    phase: AutoPilotPhase,
-    candidateCount: Int,
-    onEngage: () -> Unit,
-    onDisengage: () -> Unit
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val n: (String) -> String = { localizeDigits(it, lang) }
-    val c = ghajarColors
-    if (candidateCount == 0) return
-
-    val accent = when (phase) {
-        is AutoPilotPhase.Engaged -> c.good
-        is AutoPilotPhase.Failed -> c.error
-        is AutoPilotPhase.Measuring, is AutoPilotPhase.Connecting -> c.highlight
-        AutoPilotPhase.Off -> c.primary
-    }
-    val subtitle = when (phase) {
-        is AutoPilotPhase.Measuring ->
-            t("autopilot_measuring").format(n("${phase.done}"), n("${phase.total}"))
-        is AutoPilotPhase.Connecting ->
-            t("autopilot_connecting").format(phase.name)
-        is AutoPilotPhase.Engaged ->
-            t("autopilot_engaged_on").format(phase.name, n("${phase.ms}"))
-        is AutoPilotPhase.Failed -> t(phase.reasonKey)
-        AutoPilotPhase.Off -> t("autopilot_sub").format(n("$candidateCount"))
-    }
-    val busy = phase is AutoPilotPhase.Measuring || phase is AutoPilotPhase.Connecting
-
-    Slab(accent = accent, spacing = GhajarSpacing.sm) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-        ) {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(accent.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        color = accent,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else {
-                    Icon(
-                        Icons.Filled.Bolt,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-            Column(
-                Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    mixedText(t("autopilot_title")),
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = c.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    mixedText(subtitle),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (phase is AutoPilotPhase.Failed) c.error else c.textSecondary,
-                    maxLines = 3
-                )
-            }
-            // One control, and it is the one the current state needs. An
-            // "engage" button that is live while already engaged is how a user
-            // ends up re-measuring a working tunnel by accident.
-            if (engaged) {
-                BounceOutlinedButton(
-                    onClick = onDisengage,
-                    minHeight = 38.dp,
-                    contentPadding = PaddingValues(horizontal = 14.dp)
-                ) {
-                    Text(t("autopilot_release"), style = MaterialTheme.typography.labelMedium)
-                }
-            } else {
-                BounceButton(onClick = onEngage, enabled = !busy) {
-                    Text(t("autopilot_go"), style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConfigPickerScreen(
@@ -2302,11 +2196,6 @@ private fun ConfigPickerScreen(
     val activeId by VpnState.activeId.collectAsState()
     val conn by VpnState.state.collectAsState()
     fun toggleConnection(cfg: ProxyConfig) {
-        // Tapping a server by hand is the user taking the choice back. Leaving
-        // the autopilot engaged here would let its failover loop move the
-        // tunnel off the server they just picked, some seconds later, with no
-        // explanation on screen.
-        if (store.autoPilot.value) ServerAutoPilot.disengage(store)
         if (cfg.id == activeId && conn != Connection.DISCONNECTED) onDisconnect() else onConnect(cfg)
     }
     val clipboard = LocalClipboardManager.current
@@ -2391,27 +2280,7 @@ private fun ConfigPickerScreen(
 
     val allIds = remember(configs) { configs.map { it.id }.toSet() }
 
-    // The autopilot card, above the list.
-    val autoPilotOn by store.autoPilot.collectAsState()
-    val autoPilotPhase by ServerAutoPilot.phase.collectAsState()
     val newestFirst by store.newestFirst.collectAsState()
-    val activeName = remember(activeId, configs) {
-        configs.firstOrNull { it.id == activeId }?.name
-    }
-    // Tells the card a tunnel actually came up, so it stops saying
-    // "connecting". Keyed on both because a reconnect to the same server is
-    // still a transition the card has to follow.
-    LaunchedEffect(conn, activeName) {
-        if (conn == Connection.CONNECTED && activeName != null) {
-            ServerAutoPilot.onConnected(activeName)
-        }
-    }
-    LaunchedEffect(Unit) {
-        ServerAutoPilot.restore(
-            store,
-            if (conn == Connection.CONNECTED) activeName else null
-        )
-    }
 
     // Newest-first is applied on top of the sort rather than as a fourth sort
     // mode, because it answers a different question: the sort is how you want
@@ -2660,31 +2529,19 @@ private fun ConfigPickerScreen(
             PickerStatsStrip(configs = configs, pings = pings)
         }
 
-        AnimatedVisibility(visible = !addMenu) {
-            AutoPilotCard(
-                engaged = autoPilotOn,
-                phase = autoPilotPhase,
-                candidateCount = remember(configs) {
-                    AutoSelector.interchangeable(configs).size
-                },
-                onEngage = {
-                    pickerScope.launch {
-                        ServerAutoPilot.engage(pickerContext, store) { onConnect(it) }
-                    }
-                },
-                onDisengage = { ServerAutoPilot.disengage(store) }
-            )
-        }
-
-        // The four actions and the sub-update button used to float loose above
-        // the list as five separate boxes. They are one slab now: the test is
-        // the primary action on its row, the three tools are glyphs beside it,
-        // and the two list-wide jobs share the row underneath - including the
-        // free-projects entry, which was previously only reachable by first
-        // expanding "افزودن سرور" and was being missed entirely.
+        // The toolbar, rebuilt around what fits.
+        //
+        // It was three rows of mixed-width outlined buttons: a labelled button
+        // sharing its row with four 42dp glyphs, then one labelled button on a
+        // row of its own, then two more. At Persian text width that put
+        // "اتصال به سریع‌ترین" through an ellipsis and left a half-empty row
+        // above it. Labels and glyphs are separated now - two labelled jobs on
+        // one row, the connect action full width beneath them, and the five
+        // list tools as one evenly spread glyph rail - so nothing is truncated
+        // and every glyph is the same size.
         AnimatedVisibility(visible = !addMenu) {
         Slab(spacing = GhajarSpacing.sm) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
             BounceOutlinedButton(
                 onClick = {
                     val snapshot = configs
@@ -2719,43 +2576,182 @@ private fun ConfigPickerScreen(
                         }
                     }
                 },
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                modifier = Modifier.weight(1f).height(42.dp)
+                minHeight = 46.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f).height(46.dp)
             ) {
                 Icon(painterResource(R.drawable.signal), contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     when (testAllState) {
                         1 -> t("testing")
                         2 -> t("test_completed")
                         else -> t("test_all")
                     },
+                    style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Box {
-                BounceOutlinedButton(
-                    onClick = { purgeMenu = true },
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.DeleteSweep,
-                        contentDescription = t("delete_all"),
-                        modifier = Modifier.size(20.dp)
-                    )
+            BounceOutlinedButton(
+                onClick = {
+                    if (updateSubsState != 1) {
+                        updateSubsState = 1
+                        scope.launch {
+                            // The same refresher the app-entry path uses, forced
+                            // and with no floor: a button press means refresh
+                            // now. It handles the free-configs source and a dead
+                            // URL per subscription, which the copy that used to
+                            // live here did not.
+                            val before = store.subscriptions.value
+                                .associate { it.id to it.lastUpdated }
+                            SubscriptionRefresher.refreshStale(store, force = true)
+                            updateSubsState = 0
+                            val after = store.subscriptions.value
+                            val refreshable = after.count { SubscriptionRefresher.refreshable(it) }
+                            val updated = after.count { (before[it.id] ?: 0L) < it.lastUpdated }
+                            when {
+                                refreshable == 0 -> subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
+                                updated >= refreshable -> addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
+                                updated > 0 -> addDone = n("$updated از $refreshable ساب بروزرسانی شد")
+                                else -> subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
+                            }
+                        }
+                    }
+                },
+                minHeight = 46.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f).height(46.dp)
+            ) {
+                if (updateSubsState == 1) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                } else {
+                    Icon(Icons.Filled.Autorenew, contentDescription = null, modifier = Modifier.size(18.dp))
                 }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    when (updateSubsState) {
+                        1 -> t("fetching_sub")
+                        else -> "آپدیت ساب‌ها"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Connect to the fastest server without first reading the list.
+        // AutoSelector already measures and ranks every candidate for the
+        // auto-connect path; this is the same call, on demand. Full width
+        // because its label is the longest one here and it is the row's point.
+        PillButton(
+            text = if (pickingFastest) t("finding_fastest") else t("picker_connect_fastest"),
+            icon = Icons.Filled.Bolt,
+            enabled = configs.isNotEmpty() && !pickingFastest,
+            onClick = {
+                if (!pickingFastest) {
+                    pickingFastest = true
+                    scope.launch {
+                        val best = runCatching {
+                            AutoSelector(context, store).pickFastest()
+                        }.getOrNull()
+                        pickingFastest = false
+                        if (best != null) onConnect(best)
+                        else subStatus = t("picker_no_fastest")
+                    }
+                }
+            }
+        )
+
+        // The five list tools, all the same size, evenly spread. Each one is a
+        // toggle or a menu, none of them needs a word, and putting them on a
+        // rail of their own is what stopped them squeezing the labels above.
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            PickerTool(
+                icon = if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
+                label = t("search_servers"),
+                active = searchOpen,
+                onClick = {
+                    searchOpen = !searchOpen
+                    if (!searchOpen) query = ""
+                }
+            )
+            PickerTool(
+                icon = if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
+                label = t("picker_favourites") +
+                    if (favouriteCount > 0) " (" + n("$favouriteCount") + ")" else "",
+                active = favoritesOnly,
+                enabled = favouriteCount > 0 || favoritesOnly,
+                onClick = { favoritesOnly = !favoritesOnly }
+            )
+            // Newest at the top, under the thumb. A toggle rather than a sort
+            // option because it is a layout preference that survives whichever
+            // sort you are reading the list in, and it is here rather than in
+            // Settings because the moment you want it is the moment you have
+            // just pasted a config in and cannot find it.
+            PickerTool(
+                icon = Icons.Filled.ArrowUpward,
+                label = t("newest_first"),
+                active = newestFirst,
+                onClick = { store.setNewestFirst(!newestFirst) }
+            )
+            Box {
+                PickerTool(
+                    icon = Icons.Filled.SwapVert,
+                    label = t("sort"),
+                    onClick = { sortMenu = true }
+                )
+                DropdownMenu(
+                    expanded = sortMenu,
+                    onDismissRequest = { sortMenu = false },
+                    offset = DpOffset(0.dp, 8.dp),
+                    shape = RoundedCornerShape(GhajarRadius.lg),
+                    containerColor = ghajarColors.card,
+                    border = null
+                ) {
+                    listOf(
+                        ConfigStore.SORT_ALPHA to t("sort_alpha"),
+                        ConfigStore.SORT_FASTEST to t("sort_fastest"),
+                        ConfigStore.SORT_ADDED to t("sort_added")
+                    ).forEach { (mode, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
+                            trailingIcon = {
+                                if (sortMode == mode)
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                            },
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                            modifier = Modifier.height(40.dp),
+                            onClick = { store.setSortMode(mode); sortMenu = false }
+                        )
+                    }
+                }
+            }
+            Box {
+                PickerTool(
+                    icon = Icons.Filled.DeleteSweep,
+                    label = t("delete_all"),
+                    destructive = true,
+                    onClick = { purgeMenu = true }
+                )
                 DropdownMenu(
                     expanded = purgeMenu,
                     onDismissRequest = { purgeMenu = false },
                     offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = ghajarColors.surface,
-                    border = BorderStroke(1.dp, ghajarColors.border)
+                    shape = RoundedCornerShape(GhajarRadius.lg),
+                    containerColor = ghajarColors.card,
+                    border = null
                 ) {
                     DropdownMenuItem(
                         text = { Text(t("delete_manual_configs"), style = MaterialTheme.typography.bodyMedium) },
@@ -2823,193 +2819,7 @@ private fun ConfigPickerScreen(
                     )
                 }
             }
-
-            // Newest at the top, under the thumb. A toggle rather than a sort
-            // option because it is a layout preference that survives whichever
-            // sort you are reading the list in, and it is here rather than in
-            // Settings because the moment you want it is the moment you have
-            // just pasted a config in and cannot find it.
-            BounceOutlinedButton(
-                onClick = { store.setNewestFirst(!newestFirst) },
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(42.dp)
-            ) {
-                Icon(
-                    Icons.Filled.ArrowUpward,
-                    contentDescription = t("newest_first"),
-                    tint = if (newestFirst) ghajarColors.primary else LocalContentColor.current,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Box {
-                BounceOutlinedButton(
-                    onClick = { sortMenu = true },
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(Icons.Filled.SwapVert, contentDescription = t("sort"), modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = sortMenu,
-                    onDismissRequest = { sortMenu = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = ghajarColors.surface,
-                    border = BorderStroke(1.dp, ghajarColors.border)
-                ) {
-                    listOf(
-                        ConfigStore.SORT_ALPHA to t("sort_alpha"),
-                        ConfigStore.SORT_FASTEST to t("sort_fastest"),
-                        ConfigStore.SORT_ADDED to t("sort_added")
-                    ).forEach { (mode, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
-                            trailingIcon = {
-                                if (sortMode == mode)
-                                    Icon(
-                                        Icons.Filled.Check,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { store.setSortMode(mode); sortMenu = false }
-                        )
-                    }
-                }
-            }
-
-            BounceOutlinedButton(
-                onClick = {
-                    searchOpen = !searchOpen
-                    if (!searchOpen) query = ""
-                },
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(42.dp)
-            ) {
-                Icon(
-                    if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
-                    contentDescription = t("search_servers"),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
         }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        BounceOutlinedButton(
-            onClick = {
-                if (updateSubsState != 1) {
-                    updateSubsState = 1
-                    scope.launch {
-                        // The same refresher the app-entry path uses, forced and
-                        // with no floor: a button press means refresh now. It
-                        // handles the free-configs source and a dead URL per
-                        // subscription, which the copy that used to live here
-                        // did not.
-                        val before = store.subscriptions.value
-                            .associate { it.id to it.lastUpdated }
-                        SubscriptionRefresher.refreshStale(store, force = true)
-                        updateSubsState = 0
-                        val after = store.subscriptions.value
-                        val refreshable = after.count { SubscriptionRefresher.refreshable(it) }
-                        val updated = after.count { (before[it.id] ?: 0L) < it.lastUpdated }
-                        when {
-                            refreshable == 0 -> subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
-                            updated >= refreshable -> addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
-                            updated > 0 -> addDone = n("$updated از $refreshable ساب بروزرسانی شد")
-                            else -> subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
-                        }
-                    }
-                }
-            },
-            minHeight = 42.dp,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            modifier = Modifier.weight(1f).height(42.dp)
-        ) {
-            if (updateSubsState == 1) {
-                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-            } else {
-                Icon(Icons.Filled.Autorenew, contentDescription = null, modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                when (updateSubsState) {
-                    1 -> t("fetching_sub")
-                    else -> "آپدیت ساب‌ها"
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        }
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Connect to the fastest server without first reading the list.
-                // AutoSelector already measures and ranks every candidate for
-                // the auto-connect path; this is the same call, on demand.
-                BounceOutlinedButton(
-                    onClick = {
-                        if (!pickingFastest) {
-                            pickingFastest = true
-                            scope.launch {
-                                val best = runCatching {
-                                    AutoSelector(context, store).pickFastest()
-                                }.getOrNull()
-                                pickingFastest = false
-                                if (best != null) onConnect(best)
-                                else subStatus = t("picker_no_fastest")
-                            }
-                        }
-                    },
-                    enabled = configs.isNotEmpty() && !pickingFastest,
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    modifier = Modifier.weight(1f).height(42.dp)
-                ) {
-                    if (pickingFastest) {
-                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                    } else {
-                        Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (pickingFastest) t("finding_fastest") else t("picker_connect_fastest"),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                // The favourites filter used to live inside the search row, so
-                // it only existed once you had opened search - which is not
-                // where anyone looks for it.
-                BounceOutlinedButton(
-                    onClick = { favoritesOnly = !favoritesOnly },
-                    enabled = favouriteCount > 0 || favoritesOnly,
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    accent = if (favoritesOnly) ghajarColors.highlight else ghajarColors.primary,
-                    modifier = Modifier.weight(1f).height(42.dp)
-                ) {
-                    Icon(
-                        if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        t("picker_favourites") + if (favouriteCount > 0) " (" + n("$favouriteCount") + ")" else "",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
         }
         }
 
@@ -3018,6 +2828,9 @@ private fun ConfigPickerScreen(
             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
+            // The favourites toggle used to be repeated here as well. It lives
+            // on the tool rail now, where it is visible without opening search
+            // first, so this row is the query and the protocol filter only.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = query,
@@ -3028,14 +2841,6 @@ private fun ConfigPickerScreen(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { favoritesOnly = !favoritesOnly }) {
-                    Icon(
-                        if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = "فقط موردعلاقه‌ها",
-                        tint = if (favoritesOnly) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
                 Box {
                     IconButton(onClick = { protocolMenu = true }) {
                         Icon(
@@ -11606,30 +11411,43 @@ private fun SubscriptionHeader(
                     )
                 }
             }
+            // The name gets the row. Three glyphs used to sit on this line
+            // beside it, so a subscription called after its panel host - which
+            // is what every delivered one is called - arrived truncated or
+            // crawling. The actions moved to their own line below, where they
+            // cost height rather than the name's width.
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 MarqueeName(
                     GhajarUiRules.brandedSubscriptionTitle(sub.total, WindscribeBrand.displayName(sub, lang)),
-                    MaterialTheme.typography.titleSmall
+                    MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
                 Text(
                     localizeDigits("$configCount", lang) + " " + t("count_configs"),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = c.textSecondary,
                     maxLines = 1
                 )
             }
-
-            // The two actions anyone actually uses on a subscription.
             if (pinging) {
                 CircularProgressIndicator(
                     strokeWidth = 2.dp,
                     color = c.primary,
                     modifier = Modifier.padding(6.dp).size(20.dp)
                 )
-            } else {
+            }
+        }
+
+        // The actions, on their own row at a real touch size.
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+        ) {
+            if (!pinging) {
                 SubHeaderGlyph(Icons.Filled.Speed, t("test_all")) { onPing() }
             }
             SubHeaderGlyph(Icons.Filled.Refresh, t("refresh")) { onRefresh() }
+            Spacer(Modifier.weight(1f))
 
             Box {
                 SubHeaderGlyph(Icons.Filled.MoreVert, t("more")) { shareMenu = true }
@@ -11775,7 +11593,12 @@ private fun formatStamp(millis: Long, lang: Lang): String {
     return localizeDigits(text, lang)
 }
 
-/** One action glyph in a subscription header: tinted tile, no outline. */
+/**
+ * One action glyph in a subscription header: tinted tile, no outline.
+ *
+ * 42dp rather than 34: these now sit on their own row instead of stealing the
+ * name's width, so there is no reason left for them to be undersized.
+ */
 @Composable
 private fun SubHeaderGlyph(
     icon: ImageVector,
@@ -11785,13 +11608,13 @@ private fun SubHeaderGlyph(
     val c = ghajarColors
     Box(
         Modifier
-            .size(34.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(42.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(c.primary.copy(alpha = 0.10f))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -12404,12 +12227,27 @@ private fun ConfigRow(
         label = "rowTint"
     )
 
-    Card(
-        modifier = (if (appear) modifier.appearOnce() else modifier)
+    // The row is two tiers, and that is the whole of this rebuild.
+    //
+    // It used to be one horizontal run: status dot, name, protocol, endpoint,
+    // ping, then up to seven icon buttons - all competing for the same width.
+    // The name lost every time, so a server called "Ghajarvpn • Psiphon"
+    // arrived as a marquee crawling through a 90dp gap, and opening the
+    // actions squeezed it to nothing. The fix is not a smaller font.
+    //
+    // Tier one is the name and only the two controls that are always there.
+    // Tier two is the protocol, the endpoint and the measurement. The five
+    // occasional actions open as a third row underneath, so revealing them
+    // costs height - which this list has - instead of the name's width, which
+    // it does not.
+    val rowShape = RoundedCornerShape(GhajarRadius.lg)
+    Box(
+        (if (appear) modifier.appearOnce() else modifier)
             .fillMaxWidth()
             .onSizeChanged { rowWidth = it.width }
             .offset { IntOffset(dragX.roundToInt(), 0) }
-            .clip(RoundedCornerShape(GhajarRadius.md))
+            .clip(rowShape)
+            .background(containerColor ?: c.secondaryCard)
             .draggable(
                 orientation = Orientation.Horizontal,
                 enabled = dragEnabled,
@@ -12435,198 +12273,333 @@ private fun ConfigRow(
                     }
                 }
             )
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
-        shape = RoundedCornerShape(GhajarRadius.lg),
-        // Server rows live in a scrolling list, not inside one slab, so each is
-        // its own small slab: filled, edgeless, on the nested card tone. The
-        // active one is marked by a leading accent bar (drawn below), not by a
-        // border - the skin has no borders.
-        colors = CardDefaults.cardColors(containerColor = containerColor ?: c.secondaryCard),
-        border = null
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
+            .background(rowTint)
     ) {
-        Row(
-            Modifier.fillMaxWidth().background(rowTint)
-                .padding(
-                    start = 8.dp,
-                    end = 9.dp,
-                    top = if (compact) 5.dp else 10.dp,
-                    bottom = if (compact) 5.dp else 10.dp
-                ),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // The leading accent bar: full height on the row that is connected,
-            // invisible otherwise. This is what replaced the border.
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(if (compact) 20.dp else 30.dp)
-                    .clip(RoundedCornerShape(GhajarRadius.pill))
-                    .background(if (isActive) c.primary else Color.Transparent)
-            )
-            Spacer(Modifier.width(6.dp))
-            if (checked) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            } else {
-                LivePingDot(ping)
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                if (config.locked) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(13.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Box(Modifier.weight(1f)) { MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface) }
-                    }
-                } else {
-                    MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface)
+        // The leading accent bar on the row carrying traffic: drawn, not laid
+        // out. A Box child with fillMaxHeight() would have measured to zero
+        // here, because a LazyColumn item's height constraint is unbounded and
+        // fillMaxHeight has nothing to fill against - the bar would silently
+        // not exist. drawBehind runs after measurement, so it knows the real
+        // height of whatever the two or three tiers came to, and it mirrors
+        // itself under RTL because "leading" is the right-hand edge there.
+        val barColor = if (isActive) c.primary else Color.Transparent
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    if (barColor == Color.Transparent) return@drawBehind
+                    val w = 3.dp.toPx()
+                    val inset = 10.dp.toPx()
+                    val h = (size.height - inset * 2).coerceAtLeast(w)
+                    drawRoundRect(
+                        color = barColor,
+                        topLeft = Offset(
+                            x = if (layoutDirection == LayoutDirection.Rtl) size.width - w else 0f,
+                            y = (size.height - h) / 2f
+                        ),
+                        size = Size(w, h),
+                        cornerRadius = CornerRadius(w / 2f)
+                    )
                 }
-                // Protocol and endpoint on one line: the tag first, because it
-                // is the shorter, fixed-width half and a long hostname should
-                // not be what pushes it off the row.
-                //
-                // Compact drops this whole line, not just the address: the tag
-                // moves up beside the name instead, so the protocol - which is
-                // how you tell two servers on the same host apart - survives
-                // the density change. The address does not; it is one tap away
-                // in edit, and it is what the second line was mostly made of.
-                if (!compact) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        ProtocolTag(config.protocol, isActive)
-                        Text(
-                            if (config.locked) AnnotatedString(t("locked_config"))
-                            else scriptRuns("${config.address}:${config.port}", LexendFont),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isActive) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                .padding(
+                    start = GhajarSpacing.md,
+                    end = GhajarSpacing.sm,
+                    top = if (compact) 8.dp else GhajarSpacing.md,
+                    bottom = if (compact) 8.dp else GhajarSpacing.md
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 6.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                // The state glyph in its own tinted tile, like every other
+                // leading glyph in this skin. In selection mode it becomes the
+                // checkmark, in the same tile, so a checked row does not change
+                // shape or shift its text.
+                Box(
+                    Modifier
+                        .size(if (compact) 28.dp else 34.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(
+                            (if (checked) c.primary else pingColor(ping)).copy(alpha = 0.14f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (checked) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = c.primary,
+                            modifier = Modifier.size(if (compact) 17.dp else 20.dp)
+                        )
+                    } else {
+                        LivePingDot(ping)
+                    }
+                }
+                // The name, with the row's width to itself. Locked configs keep
+                // their padlock, inline, because it explains why the endpoint
+                // line below says nothing.
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    if (config.locked) {
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = c.primary,
+                            modifier = Modifier.size(14.dp)
+                        )
+                    }
+                    Box(Modifier.weight(1f)) {
+                        MarqueeName(
+                            GhajarUiRules.brandedConfigName(config.name),
+                            style = MaterialTheme.typography.bodyLarge.copy(
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = if (isActive) c.primary else c.textPrimary
                         )
                     }
                 }
-            }
-            if (compact) {
-                Spacer(Modifier.width(6.dp))
-                ProtocolTag(config.protocol, isActive)
-            }
-            Spacer(Modifier.width(3.dp))
-            PingChip(ping)
-            AnimatedVisibility(
-                visible = actionsOpen && !checked && !selectionMode,
-                enter = fadeIn(tween(220)) + expandHorizontally(
-                    tween(300, easing = FastOutSlowInEasing),
-                    expandFrom = Alignment.End
-                ),
-                exit = fadeOut(tween(150)) + shrinkHorizontally(
-                    tween(260, easing = FastOutSlowInEasing),
-                    shrinkTowards = Alignment.End
-                )
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        if (config.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = "موردعلاقه",
-                        tint = if (config.favorite) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clip(CircleShape)
-                            .clickable { onToggleFavorite() }.padding(4.dp).size(21.dp)
+                // Connect/disconnect stays on the name's line: it is the reason
+                // the row exists, and it must not move when the actions open.
+                if (!checked && !selectionMode && onToggleConnection != null) {
+                    val connectedHere = isActive && conn == Connection.CONNECTED
+                    val connectingHere = isActive && conn == Connection.CONNECTING
+                    RowAction(
+                        icon = when {
+                            connectedHere -> Icons.Filled.Stop
+                            connectingHere -> Icons.Filled.Autorenew
+                            else -> Icons.Filled.PlayArrow
+                        },
+                        label = if (connectedHere) t("disconnect") else t("connect"),
+                        tint = if (connectedHere) c.error else c.primary,
+                        enabled = !connectingHere,
+                        onClick = { onToggleConnection() }
                     )
-                    Box {
-                        Icon(Icons.Filled.Share, contentDescription = t("share"),
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clip(CircleShape).clickable { shareMenu = true }.padding(4.dp).size(21.dp))
-                        DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
-                            if (!config.locked) {
-                                CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
-                                    shareMenu = false
-                                    clipboard.setText(AnnotatedString(ConfigShare.toLink(config)))
-                                    android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                                CompactMenuItem(Icons.Filled.Share, t("share_app")) {
-                                    shareMenu = false
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, ConfigShare.toLink(config))
-                                    }
-                                    context.startActivity(Intent.createChooser(send, config.name))
-                                }
-                                CompactMenuItem(Icons.Filled.QrCode2, t("qr_share")) {
-                                    shareMenu = false
-                                    qrFor = ConfigShare.toLink(config)
-                                }
-                            }
-                            CompactMenuItem(Icons.Filled.InsertDriveFile, t("share_file")) {
-                                shareMenu = false
-                                onShareFile()
-                            }
+                }
+                if (!checked && !selectionMode) {
+                    Box(
+                        Modifier.size(if (compact) 32.dp else 36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = swiping,
+                            enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
+                            exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = t("delete"),
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !swiping,
+                            enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
+                            exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
+                        ) {
+                            RowAction(
+                                icon = Icons.Filled.MoreVert,
+                                label = t("more"),
+                                tint = if (actionsOpen) c.primary else c.textSecondary,
+                                onClick = onToggleActions
+                            )
                         }
                     }
-                    Icon(
-                        Icons.Filled.Layers,
-                        contentDescription = t("chain_through"),
-                        tint = if (config.chainId.isNotEmpty()) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clip(CircleShape).clickable { onChain() }
-                            .padding(4.dp).size(21.dp)
-                    )
-                    Icon(Icons.Filled.Edit, contentDescription = t("edit"),
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(CircleShape).clickable { onEdit() }.padding(4.dp).size(21.dp))
-                    Icon(Icons.Filled.Delete, contentDescription = t("delete"),
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.clip(CircleShape).clickable { onDelete() }.padding(4.dp).size(21.dp))
                 }
             }
-            if (!checked && !selectionMode && onToggleConnection != null) {
-                val connectedHere = isActive && conn == Connection.CONNECTED
-                val connectingHere = isActive && conn == Connection.CONNECTING
-                Icon(
-                    when {
-                        connectedHere -> Icons.Filled.Stop
-                        connectingHere -> Icons.Filled.Autorenew
-                        else -> Icons.Filled.PlayArrow
-                    },
-                    contentDescription = if (connectedHere) "قطع اتصال" else "اتصال",
-                    tint = if (connectedHere) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(CircleShape)
-                        .clickable(enabled = !connectingHere) { onToggleConnection() }
-                        .padding(4.dp).size(21.dp)
-                )
+
+            // Tier two: what this server is and how it measured. Compact keeps
+            // it - dropping the whole line was what made a compact row
+            // indistinguishable from the one above it - but drops the endpoint,
+            // which is the long half and one tap away in edit.
+            Row(
+                Modifier.fillMaxWidth().padding(start = if (compact) 36.dp else 42.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                ProtocolTag(config.protocol, isActive)
+                if (!compact) {
+                    Text(
+                        if (config.locked) AnnotatedString(t("locked_config"))
+                        else scriptRuns("${config.address}:${config.port}", LexendFont),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isActive) c.primary else c.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                PingChip(ping)
             }
-            if (!checked && !selectionMode) {
-                Box(Modifier.size(29.dp), contentAlignment = Alignment.Center) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = swiping,
-                        enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
-                        exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
+
+            // Tier three, on demand. Five actions at a real touch size, evenly
+            // spread, with the destructive one last and in the error colour.
+            AnimatedVisibility(
+                visible = actionsOpen && !checked && !selectionMode,
+                enter = fadeIn(tween(200)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(140)) + shrinkVertically(tween(220, easing = FastOutSlowInEasing))
+            ) {
+                Column {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp, bottom = 4.dp)
+                            .height(1.dp)
+                            .background(c.border)
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = t("delete"),
-                            tint = Color.White,
-                            modifier = Modifier.size(21.dp)
+                        RowAction(
+                            icon = if (config.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            label = t("picker_favourites"),
+                            tint = if (config.favorite) c.premium else c.textSecondary,
+                            onClick = onToggleFavorite
                         )
-                    }
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = !swiping,
-                        enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
-                        exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
-                    ) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = null,
-                            tint = if (actionsOpen) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(CircleShape)
-                                .clickable { onToggleActions() }
-                                .padding(4.dp).size(21.dp)
+                        Box {
+                            RowAction(
+                                icon = Icons.Filled.Share,
+                                label = t("share"),
+                                tint = c.primary,
+                                onClick = { shareMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = shareMenu,
+                                onDismissRequest = { shareMenu = false },
+                                shape = RoundedCornerShape(GhajarRadius.lg),
+                                containerColor = c.card,
+                                border = null
+                            ) {
+                                if (!config.locked) {
+                                    CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
+                                        shareMenu = false
+                                        clipboard.setText(AnnotatedString(ConfigShare.toLink(config)))
+                                        android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                    CompactMenuItem(Icons.Filled.Share, t("share_app")) {
+                                        shareMenu = false
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, ConfigShare.toLink(config))
+                                        }
+                                        context.startActivity(Intent.createChooser(send, config.name))
+                                    }
+                                    CompactMenuItem(Icons.Filled.QrCode2, t("qr_share")) {
+                                        shareMenu = false
+                                        qrFor = ConfigShare.toLink(config)
+                                    }
+                                }
+                                CompactMenuItem(Icons.Filled.InsertDriveFile, t("share_file")) {
+                                    shareMenu = false
+                                    onShareFile()
+                                }
+                            }
+                        }
+                        RowAction(
+                            icon = Icons.Filled.Layers,
+                            label = t("chain_through"),
+                            tint = if (config.chainId.isNotEmpty()) c.primary else c.textSecondary,
+                            onClick = onChain
+                        )
+                        RowAction(
+                            icon = Icons.Filled.Edit,
+                            label = t("edit"),
+                            tint = c.primary,
+                            onClick = onEdit
+                        )
+                        RowAction(
+                            icon = Icons.Filled.Delete,
+                            label = t("delete"),
+                            tint = c.error,
+                            onClick = onDelete
                         )
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * One tool on the picker's glyph rail: a square tinted tile, on when active.
+ *
+ * These were 42dp outlined buttons sharing a row with labelled ones, which is
+ * what made the toolbar wrap into three ragged lines. Same size for all five,
+ * and the tint is the state - a filled tile means the filter or the ordering
+ * it stands for is currently on.
+ */
+@Composable
+private fun PickerTool(
+    icon: ImageVector,
+    label: String,
+    active: Boolean = false,
+    enabled: Boolean = true,
+    destructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val c = ghajarColors
+    val accent = when {
+        !enabled -> c.onDisabled
+        destructive -> c.error
+        active -> c.highlight
+        else -> c.primary
+    }
+    val fill by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "pickerToolFill"
+    )
+    Box(
+        Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(accent.copy(alpha = 0.10f + 0.16f * fill))
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(21.dp))
+    }
+}
+
+/**
+ * One icon action in a config row, at a touch size that can actually be hit.
+ *
+ * The old rows drew these as a bare 21dp icon with 4dp of padding - a 29dp
+ * target, under the 48dp minimum, five of them side by side. This is a 36dp
+ * circle around a 20dp glyph, which is still compact and is no longer a game
+ * of skill.
+ */
+@Composable
+private fun RowAction(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (enabled) tint else ghajarColors.onDisabled,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }
 
