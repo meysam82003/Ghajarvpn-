@@ -91,7 +91,7 @@ import androidx.compose.ui.unit.sp
  */
 
 /** Slab radius - larger than the old cards on purpose, so the shape reads as new. */
-private val SlabRadius = 24.dp
+private val SlabRadius = GhajarRadius.lg
 
 /**
  * The container. Filled, edgeless, with light along the top.
@@ -115,7 +115,8 @@ fun Slab(
         modifier
             .fillMaxWidth()
             .clip(shape)
-            .background(c.secondaryCard)
+            .background(Brush.verticalGradient(listOf(c.card, c.surface)))
+            .border(1.dp, accent?.copy(alpha = .38f) ?: c.borderStrong, shape)
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
     ) {
         Column(
@@ -974,7 +975,8 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
             Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(GhajarRadius.xl))
-                .background(c.card)
+                .background(c.surface)
+                .border(1.dp, c.borderStrong, RoundedCornerShape(GhajarRadius.xl))
                 .padding(5.dp)
         ) {
             if (trackWidth > 0) {
@@ -984,7 +986,8 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
                         .width(cellWidth)
                         .height(54.dp)
                         .clip(RoundedCornerShape(GhajarRadius.lg))
-                        .background(c.primary)
+                        .background(c.primary.copy(alpha = .14f))
+                        .border(1.dp, c.primary.copy(alpha = .28f), RoundedCornerShape(GhajarRadius.lg))
                 )
             }
             Row(Modifier.fillMaxWidth().onSizeChanged { trackWidth = it.width }) {
@@ -1002,7 +1005,7 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
                         Icon(
                             androidx.compose.ui.res.painterResource(item.iconRes),
                             contentDescription = item.label,
-                            tint = if (active) c.onPrimary else c.textMuted,
+                            tint = if (active) c.highlight else c.textSecondary,
                             modifier = Modifier.size(23.dp)
                         )
                         Spacer(Modifier.height(2.dp))
@@ -1010,7 +1013,7 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
                             item.label,
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                            color = if (active) c.onPrimary else c.textMuted,
+                            color = if (active) c.highlight else c.textSecondary,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )

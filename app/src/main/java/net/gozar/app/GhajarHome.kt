@@ -132,19 +132,12 @@ fun ConnectOrb(
         label = "orbFill"
     )
 
-    val spin = rememberInfiniteTransition(label = "orb")
-    val sweepState = spin.animateFloat(
-        initialValue = -90f,
-        targetValue = 270f,
-        animationSpec = ghajarEndless(infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart)),
-        label = "orbSweep"
-    )
-    val breathState = spin.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = ghajarEndless(infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse)),
-        label = "orbBreath"
-    )
+    // A disconnected or settled tunnel needs no continuous animation.
+    val sweepState: androidx.compose.runtime.State<Float> = if (working && !LocalReduceMotion.current) {
+        val spin = rememberInfiniteTransition(label = "orb")
+        spin.animateFloat(-90f, 270f,
+            infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart), label = "orbSweep")
+    } else remember { mutableStateOf(-90f) }
 
     var pressed by remember { mutableStateOf(false) }
     val press by animateFloatAsState(
@@ -182,7 +175,7 @@ fun ConnectOrb(
             val topLeft = Offset(inset, inset)
 
             if (state == Connection.CONNECTED) {
-                val breath = breathState.value
+                val breath = 0.35f
                 drawCircle(
                     brush = Brush.radialGradient(
                         listOf(tint.copy(alpha = 0.16f + 0.09f * breath), Color.Transparent)
@@ -207,7 +200,7 @@ fun ConnectOrb(
             )
 
             drawArc(
-                color = c.border,
+                color = tint.copy(alpha = if (enabled) .35f else .12f),
                 startAngle = 0f,
                 sweepAngle = 360f,
                 useCenter = false,
@@ -240,11 +233,11 @@ fun ConnectOrb(
                     picking -> Icons.Filled.Close
                     state == Connection.CONNECTED -> Icons.Filled.PowerSettingsNew
                     state == Connection.CONNECTING -> Icons.Filled.Close
-                    else -> Icons.Filled.Bolt
+                    else -> Icons.Filled.PowerSettingsNew
                 },
                 contentDescription = null,
                 tint = tint,
-                modifier = Modifier.size(44.dp)
+                modifier = Modifier.size(52.dp)
             )
             Text(
                 when {
