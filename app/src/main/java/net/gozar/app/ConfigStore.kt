@@ -69,6 +69,24 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putString(KEY_FRAG_INTERVAL, v).apply()
     }
 
+    /**
+     * Switch to another server every N minutes, or 0 to never.
+     *
+     * Rotation is off by default and changes nothing until it is turned on. It
+     * exists because a single endpoint used for hours is the easiest thing on a
+     * network to notice and to throttle; moving between the servers that
+     * already answered spreads that out. It never adds or removes a server -
+     * it only changes which of yours is in use.
+     */
+    private val _rotateMinutes = MutableStateFlow(prefs.getInt(KEY_ROTATE_MINUTES, 0))
+    val rotateMinutes: StateFlow<Int> = _rotateMinutes.asStateFlow()
+
+    fun setRotateMinutes(value: Int) {
+        val clean = value.coerceIn(0, 720)
+        _rotateMinutes.value = clean
+        prefs.edit().putInt(KEY_ROTATE_MINUTES, clean).apply()
+    }
+
     private val _splitRouting = MutableStateFlow(prefs.getBoolean(KEY_SPLIT, false))
     val splitRouting: StateFlow<Boolean> = _splitRouting.asStateFlow()
 
@@ -517,6 +535,7 @@ class ConfigStore private constructor(context: Context) {
 
     fun settingsSnapshot(): JSONObject = JSONObject().apply {
         put("fragment", _fragment.value)
+        put("rotateMinutes", _rotateMinutes.value)
         put("fragmentPackets", _fragmentPackets.value)
         put("fragmentLength", _fragmentLength.value)
         put("fragmentInterval", _fragmentInterval.value)
@@ -566,6 +585,7 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("encryptedDns")) setEncryptedDns(o.getBoolean("encryptedDns"))
         if (o.has("fakeDns")) setFakeDns(o.getBoolean("fakeDns"))
         if (o.has("customDns")) setCustomDns(o.optString("customDns"))
+        if (o.has("rotateMinutes")) setRotateMinutes(o.optInt("rotateMinutes", 0))
         if (o.has("adBlock")) setAdBlock(o.getBoolean("adBlock"))
         if (o.has("mixedPort")) setMixedPort(o.getInt("mixedPort"))
         if (o.has("sortMode")) setSortMode(o.getString("sortMode"))
@@ -767,6 +787,7 @@ class ConfigStore private constructor(context: Context) {
 
         private const val KEY_CONFIGS = "configs"
         private const val KEY_SUBS = "subscriptions"
+        private const val KEY_ROTATE_MINUTES = "rotate_minutes"
         private const val KEY_FRAGMENT = "fragment_enabled"
         private const val KEY_FRAG_PACKETS = "fragment_packets"
         private const val KEY_FRAG_LENGTH = "fragment_length"

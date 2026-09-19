@@ -64,6 +64,9 @@ object QuickConnect {
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             customDns = store.customDns.value,
+            fragmentPackets = store.fragmentPackets.value,
+            fragmentLength = store.fragmentLength.value,
+            fragmentInterval = store.fragmentInterval.value,
             onionRouting = store.onionRouting.value,
             coreLogLevel = store.coreLogLevel.value
         )

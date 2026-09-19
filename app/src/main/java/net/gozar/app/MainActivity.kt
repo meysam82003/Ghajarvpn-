@@ -1042,6 +1042,9 @@ class MainActivity : ComponentActivity() {
         val json = ConfigBuilder.build(config, store.fragment.value, store.splitRouting.value, store.sniffing.value, store.sniffTypes.value, mux = store.mux.value, muxConcurrency = store.muxConcurrency.value, adBlock = store.adBlock.value, fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             customDns = store.customDns.value,
+            fragmentPackets = store.fragmentPackets.value,
+            fragmentLength = store.fragmentLength.value,
+            fragmentInterval = store.fragmentInterval.value,
             torBase = if (config.protocol == "tor" && config.torBaseId.isNotEmpty())
                 store.configs.value.find { it.id == config.torBaseId } else null,
             chainBase = if (config.chainId.isNotEmpty())
@@ -1126,6 +1129,9 @@ class MainActivity : ComponentActivity() {
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             customDns = store.customDns.value,
+            fragmentPackets = store.fragmentPackets.value,
+            fragmentLength = store.fragmentLength.value,
+            fragmentInterval = store.fragmentInterval.value,
             coreLogLevel = store.coreLogLevel.value
         )
         startTunnel(json, Strings.get(store.lang.value, "adblock_notif"), "", null)
@@ -3429,6 +3435,8 @@ private fun ManualConfigScreen(
     var mode by remember { mutableStateOf(existing?.mode ?: "") }
     var alpn by remember { mutableStateOf(existing?.alpn ?: "") }
     var fingerprint by remember { mutableStateOf(existing?.fingerprint ?: "chrome") }
+    var cipherSuites by remember { mutableStateOf(existing?.cipherSuites ?: "") }
+    var randomSubdomain by remember { mutableStateOf(existing?.randomSubdomain ?: false) }
     var allowInsecure by remember { mutableStateOf(existing?.allowInsecure ?: false) }
     var pinnedCert by remember { mutableStateOf(existing?.pinnedCertSha256 ?: "") }
     var pinning by remember { mutableStateOf(false) }
@@ -3564,6 +3572,25 @@ private fun ManualConfigScreen(
             }
             if (security == "tls")
                 SkinField(value = alpn, onValueChange = { alpn = it }, label = t("alpn"))
+            // From PattNG and MahsaNG: the exact cipher list and a varying
+            // hostname are both things a network fingerprints a client by.
+            // Both are blank/off on every existing config, so nothing changes
+            // until they are filled in.
+            if (security == "tls")
+                SkinField(
+                    value = cipherSuites,
+                    onValueChange = { cipherSuites = it },
+                    label = t("cipher_suites")
+                )
+            if (security == "tls" || security == "reality") {
+                SettingRow(
+                    title = t("random_subdomain"),
+                    subtitle = t("random_subdomain_sub"),
+                    checked = randomSubdomain,
+                    onCheckedChange = { randomSubdomain = it },
+                    icon = Icons.Filled.Shuffle
+                )
+            }
             if (security == "reality") {
                 SkinField(value = publicKey, onValueChange = { publicKey = it }, label = t("public_key"))
                 SkinField(value = shortId, onValueChange = { shortId = it }, label = t("short_id"))
@@ -3650,6 +3677,8 @@ private fun ManualConfigScreen(
                                 fingerprint = fingerprint.trim(),
                                 allowInsecure = allowInsecure,
                                 pinnedCertSha256 = pinnedCert,
+                                cipherSuites = cipherSuites.trim(),
+                                randomSubdomain = randomSubdomain,
                                 hyObfs = if (hyObfsPassword.isBlank()) "" else "salamander",
                                 hyObfsPassword = hyObfsPassword.trim(),
                                 hyUpMbps = hyUp.toIntOrNull() ?: 0,
@@ -7387,6 +7416,10 @@ private fun ConnectionSettingsScreen(
     val t = stringsFn()
     val lang = LocalLang.current
     val fragment by store.fragment.collectAsState()
+    val fragmentPackets by store.fragmentPackets.collectAsState()
+    val fragmentLength by store.fragmentLength.collectAsState()
+    val fragmentInterval by store.fragmentInterval.collectAsState()
+    val rotateMinutes by store.rotateMinutes.collectAsState()
     val splitRouting by store.splitRouting.collectAsState()
     val sniffing by store.sniffing.collectAsState()
     val sniffTypes by store.sniffTypes.collectAsState()
@@ -7448,6 +7481,73 @@ private fun ConnectionSettingsScreen(
                 checked = fragment,
                 onCheckedChange = { store.setFragment(it) },
                 icon = Icons.Filled.Shuffle
+            )
+            // The fragmentor's own parameters. They were already in the store
+            // with setters and a backup entry, but nothing showed them and
+            // nothing passed them to the core - so the fragmentor always ran
+            // on the built-in "tlshello / 10-20 / 10-20" whatever was saved.
+            // Both halves are fixed now: these are wired through every connect
+            // path, and the presets are the ones worth having.
+            AnimatedVisibility(visible = fragment) {
+                Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                    Text(
+                        t("fragment_tune"),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = ghajarColors.textSecondary
+                    )
+                    val presets = remember {
+                        listOf(
+                            Triple("tlshello", "10-20", "10-20"),
+                            Triple("tlshello", "40-60", "30-50"),
+                            Triple("1-3", "10-20", "10-20"),
+                            Triple("1-5", "1-3", "1-3")
+                        )
+                    }
+                    val labels = listOf(
+                        t("fragment_preset_default"),
+                        t("fragment_preset_wide"),
+                        t("fragment_preset_first"),
+                        t("fragment_preset_tiny")
+                    )
+                    presets.forEachIndexed { index, preset ->
+                        val (packets, length, interval) = preset
+                        val active = fragmentPackets == packets &&
+                            fragmentLength == length && fragmentInterval == interval
+                        SlabRow(
+                            title = labels[index],
+                            subtitle = "packets $packets · length $length · interval $interval",
+                            icon = if (active) Icons.Filled.Check else Icons.Filled.Shuffle,
+                            accent = if (active) ghajarColors.primary else ghajarColors.textMuted,
+                            onClick = {
+                                store.setFragmentPackets(packets)
+                                store.setFragmentLength(length)
+                                store.setFragmentInterval(interval)
+                            }
+                        )
+                    }
+                    Text(
+                        t("fragment_tune_note"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = ghajarColors.textMuted
+                    )
+                }
+            }
+            // Rotating configs: off unless an interval is set, and it only
+            // moves between servers that are already in the list.
+            SlabRow(
+                title = t("rotate_title"),
+                subtitle = if (rotateMinutes <= 0) t("rotate_off")
+                else t("rotate_every").format(localizeDigits("$rotateMinutes", lang)),
+                icon = Icons.Filled.Autorenew,
+                accent = if (rotateMinutes > 0) ghajarColors.primary else ghajarColors.textMuted,
+                chevron = true,
+                onClick = {
+                    // 0 -> 15 -> 30 -> 60 -> 120 -> off again.
+                    val steps = listOf(0, 15, 30, 60, 120)
+                    val next = steps[(steps.indexOf(rotateMinutes).coerceAtLeast(0) + 1) % steps.size]
+                    store.setRotateMinutes(next)
+                }
             )
             SettingRow(
                 title = t("sniffing_title"),

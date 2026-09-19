@@ -44,6 +44,24 @@ data class ProxyConfig(
     val hyDownMbps: Int = 0,
     val allowInsecure: Boolean = false,
     val pinnedCertSha256: String = "",
+    /**
+     * TLS cipher suites to offer, comma separated, or blank for the core's own.
+     *
+     * From PattNG: some networks fingerprint a client by the exact suite list
+     * in its handshake, and being able to change it is the whole point.
+     * Blank - the default on every existing config - emits no cipherSuites
+     * field at all, so a config that never set it behaves exactly as before.
+     */
+    val cipherSuites: String = "",
+    /**
+     * Prefix a random label to the SNI and Host on every connect.
+     *
+     * MahsaNG calls this a random subdomain: a server behind a wildcard
+     * certificate accepts any label, and varying it stops the exact same
+     * hostname appearing in every handshake. Off by default, because a server
+     * without a wildcard certificate will reject it.
+     */
+    val randomSubdomain: Boolean = false,
     val torCountry: String = "",
     val torThroughVpn: Boolean = false,
     val torBaseId: String = "",
@@ -78,6 +96,8 @@ data class ProxyConfig(
         .put("hyUpMbps", hyUpMbps).put("hyDownMbps", hyDownMbps)
         .put("allowInsecure", allowInsecure)
         .put("pinnedCertSha256", pinnedCertSha256)
+        .put("cipherSuites", cipherSuites)
+        .put("randomSubdomain", randomSubdomain)
         .put("torCountry", torCountry).put("torThroughVpn", torThroughVpn)
         .put("torBaseId", torBaseId).put("chainId", chainId)
         .put("psiphonMode", psiphonMode).put("psiphonCountry", psiphonCountry)
@@ -124,6 +144,8 @@ data class ProxyConfig(
             hyDownMbps = o.optInt("hyDownMbps", 0),
             allowInsecure = o.optBoolean("allowInsecure", false),
             pinnedCertSha256 = o.optString("pinnedCertSha256", ""),
+            cipherSuites = o.optString("cipherSuites", ""),
+            randomSubdomain = o.optBoolean("randomSubdomain", false),
             torCountry = o.optString("torCountry", ""),
             torThroughVpn = o.optBoolean("torThroughVpn", false),
             torBaseId = o.optString("torBaseId", ""),

@@ -64,6 +64,9 @@ object VpnLauncher {
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
             customDns = store.customDns.value,
+            fragmentPackets = store.fragmentPackets.value,
+            fragmentLength = store.fragmentLength.value,
+            fragmentInterval = store.fragmentInterval.value,
             onionRouting = store.onionRouting.value
         )
         VpnState.setConnecting(config.id)

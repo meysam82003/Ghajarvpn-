@@ -40,6 +40,9 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         // service registers its own connectivity listener for the tun's
         // underlying network, which is a separate concern from the rules.
         if (processName == packageName) NetworkAutoConnect.initialize(this)
+        // Off unless the user sets an interval; it re-reads the setting every
+        // tick, so switching it on or off needs no restart.
+        if (processName == packageName) ConfigRotator.initialize(this)
         GhajarLog.i("Startup", "phase: network rules ready")
         // The widget is pushed rather than polled: the platform's own update
         // period cannot be shorter than thirty minutes, which is useless for a

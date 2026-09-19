@@ -733,6 +733,22 @@ object ConfigBuilder {
         return arr
     }
 
+    /**
+     * A random label in front of a hostname, for a server behind a wildcard
+     * certificate.
+     *
+     * Short and alphanumeric: a label has to be a valid DNS label, and a long
+     * or unusual one is itself a fingerprint. Blank input stays blank - there
+     * is nothing to prefix.
+     */
+    internal fun randomLabel(host: String): String {
+        if (host.isBlank()) return host
+        val alphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
+        val length = (5..9).random()
+        val label = (1..length).map { alphabet.random() }.joinToString("")
+        return "$label.$host"
+    }
+
     private fun buildStream(config: ProxyConfig): JSONObject {
         val net = normalizeNetwork(config.network)
         val stream = JSONObject().put("network", net)
@@ -792,14 +808,28 @@ object ConfigBuilder {
 
         when (config.security) {
             "reality" -> stream.put("security", "reality").put("realitySettings", JSONObject()
-                .put("serverName", config.sni).put("publicKey", config.publicKey)
+                .put(
+                    "serverName",
+                    if (config.randomSubdomain) randomLabel(config.sni) else config.sni
+                )
+                .put("publicKey", config.publicKey)
                 .put("shortId", config.shortId).put("fingerprint", config.fingerprint).put("spiderX", "/"))
             "tls" -> {
+                val baseSni = config.sni.ifEmpty {
+                    config.host.substringBefore(",").trim().ifEmpty { config.address }
+                }
                 val tls = JSONObject()
-                    .put("serverName", config.sni.ifEmpty {
-                        config.host.substringBefore(",").trim().ifEmpty { config.address }
-                    })
+                    .put(
+                        "serverName",
+                        if (config.randomSubdomain) randomLabel(baseSni) else baseSni
+                    )
                     .put("fingerprint", config.fingerprint)
+                // Only when set: an empty cipherSuites field is not the same
+                // as an absent one, and every config that predates this option
+                // has it blank.
+                if (config.cipherSuites.isNotBlank()) {
+                    tls.put("cipherSuites", config.cipherSuites.trim())
+                }
                 if (CertPin.isValid(config.pinnedCertSha256)) {
                     tls.put("pinnedPeerCertSha256", config.pinnedCertSha256)
                 }
