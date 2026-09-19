@@ -3,6 +3,7 @@
 Upstream: <https://github.com/SagerNet/sing-box>
 Licence: GPL-3.0-or-later (see `LICENSE`), which this app is also under.
 Pinned commit: `8330820fa62505f9574e4c35cd969d9af6eb7769`
+Toolchain: Go 1.26.8, gomobile v0.1.13 (see below - not the versions in go.mod)
 
 ## Why a second core
 
@@ -45,6 +46,29 @@ built from source at the pinned commit above:
 Both run the same `gomobile bind` with the same build tags and then assert
 that the protocols this app needs are actually present in the artifact,
 because a typo in a build tag is otherwise completely silent.
+
+## The toolchain versions are not the ones in go.mod
+
+Read from sing-box's own CI, not from its `go.mod`, because the two disagree
+and the disagreement costs a failed build:
+
+| | go.mod says | what actually works |
+|---|---|---|
+| Go | `go 1.25.5` | **1.26.8** |
+| gomobile | `v0.1.12` | **v0.1.13** |
+
+`go 1.25.5` in go.mod is the minimum *language* version, not the toolchain
+their release is built with. `experimental/libbox/pidfd_android.go` has a
+`//go:linkname` to `os.checkPidfdOnce`, a private runtime symbol, and on Go
+1.25 the link fails with `invalid reference to os.checkPidfdOnce`. The
+`badlinkname` build tag does not rescue it.
+
+The gomobile difference is the same shape: go.mod pins v0.1.12 as a
+*library*, while their `Makefile`'s `lib_install` installs the v0.1.13
+*tool*. The tool is the one that has to match.
+
+`scripts/build-singbox-aar.sh` checks the toolchain up front and says exactly
+this, so the next person does not have to read a linker error to find out.
 
 ## The two things that will confuse the next person
 

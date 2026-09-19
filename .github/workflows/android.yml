@@ -121,72 +121,11 @@ jobs:
       # 100 MB binary nobody can reproduce is worse than a build step.
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26.8'
           cache: false
 
       - name: Build the sing-box core
-        env:
-          SINGBOX_COMMIT: 8330820fa62505f9574e4c35cd969d9af6eb7769
-          # The version its own go.mod pins. gomobile and gobind have to be the
-          # same version as each other and as the module, or the generated
-          # bindings do not match the runtime.
-          GOMOBILE_VERSION: v0.1.12
-        run: |
-          set -eux
-          git clone https://github.com/SagerNet/sing-box /tmp/sing-box
-          git -C /tmp/sing-box checkout "$SINGBOX_COMMIT"
-          go install "github.com/sagernet/gomobile/cmd/gomobile@$GOMOBILE_VERSION"
-          go install "github.com/sagernet/gomobile/cmd/gobind@$GOMOBILE_VERSION"
-          export PATH="$(go env GOPATH)/bin:$PATH"
-          cd /tmp/sing-box
-          # The build tags decide which protocols exist in the binary - a
-          # protocol whose registration is behind a tag is not merely disabled,
-          # it is absent (see its include/*_stub.go pairs). These are the ones
-          # gated behind a tag that this app wants:
-          #   with_quic        hysteria, hysteria2, tuic
-          #   with_wireguard   wireguard endpoints
-          #   with_utls        client hello fingerprinting
-          #   with_openconnect Cisco AnyConnect
-          #   with_openvpn     sing-box's own OpenVPN client
-          #   with_clash_api   the stats and selector API the UI reads
-          # snell, anytls, ssh, tor, shadowtls, shadowsocksr, vless, vmess,
-          # trojan and shadowsocks need no tag and are always in.
-          #
-          # with_tailscale, with_usbip and with_naive_outbound are left out on
-          # purpose: none of them was asked for and each pulls in a large
-          # dependency tree, and this APK is already 150 MB.
-          #
-          # badlinkname and tfogo_checklinkname0 are not features - they are the
-          # linkname workarounds sing-box's own release build passes, and the
-          # build fails on modern Go without them.
-          TAGS=with_quic,with_wireguard,with_utls,with_openconnect,with_openvpn,with_clash_api,badlinkname,tfogo_checklinkname0
-          # Only the two ABIs this app ships. The default "android" target
-          # builds four, which would add well over a hundred megabytes for
-          # emulator architectures no release targets.
-          gomobile bind -v \
-            -o "$GITHUB_WORKSPACE/app/libs/libbox.aar" \
-            -target android/arm64,android/arm \
-            -androidapi 24 \
-            -javapkg=io.nekohasekai \
-            -libname=box \
-            -tags "$TAGS" \
-            ./experimental/libbox
-          ls -lh "$GITHUB_WORKSPACE/app/libs/libbox.aar"
-          # Prove the protocols asked for are actually in the artifact rather
-          # than trusting the tag list: a tag typo is silent, and a core
-          # missing OpenConnect looks exactly like one that has it until the
-          # first connect fails.
-          cd "$GITHUB_WORKSPACE"
-          unzip -o -q app/libs/libbox.aar -d /tmp/libbox-check
-          for proto in openconnect snell anytls shadowtls ssh tor hysteria2 tuic; do
-            if strings -n 4 /tmp/libbox-check/jni/arm64-v8a/libgojni.so \
-                 | grep -q "protocol/$proto"; then
-              echo "ok: $proto"
-            else
-              echo "::error::sing-box core has no $proto - check the build tags"
-              exit 1
-            fi
-          done
+        run: sh scripts/build-singbox-aar.sh
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -271,7 +210,7 @@ jobs:
 
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.25'
+          go-version: '1.26.8'
           cache: false
 
       - name: Build the sing-box core

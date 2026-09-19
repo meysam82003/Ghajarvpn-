@@ -17,9 +17,20 @@ set -eu
 # meaningful against a known tree.
 SINGBOX_COMMIT=8330820fa62505f9574e4c35cd969d9af6eb7769
 SINGBOX_REPO=https://github.com/SagerNet/sing-box
-# The version sing-box's own go.mod pins. gomobile and gobind must match each
-# other and the module, or the generated bindings do not match the runtime.
-GOMOBILE_VERSION=v0.1.12
+
+# These two come from sing-box's OWN CI, not from its go.mod, and the
+# difference is not academic - reading go.mod instead cost a failed build:
+#
+#   go.mod says "go 1.25.5", which is the minimum LANGUAGE version. Their CI
+#   builds with 1.26.8. experimental/libbox/pidfd_android.go has a
+#   //go:linkname to os.checkPidfdOnce, a private runtime symbol, and on 1.25
+#   the link fails outright with "invalid reference to os.checkPidfdOnce".
+#
+#   go.mod pins gomobile v0.1.12 as a LIBRARY. Their Makefile's lib_install
+#   installs the v0.1.13 TOOL. Those are different things and the tool is the
+#   one that has to match.
+GO_VERSION=1.26.8
+GOMOBILE_VERSION=v0.1.13
 
 root=$(cd "$(dirname "$0")/.." && pwd)
 work=${SINGBOX_WORKDIR:-/tmp/sing-box}
@@ -53,6 +64,20 @@ if [ ! -d "$work/.git" ]; then
 fi
 git -C "$work" fetch --all --tags
 git -C "$work" checkout "$SINGBOX_COMMIT"
+
+# Say the toolchain out loud rather than hoping. A mismatch here fails at the
+# link step with a message about a runtime symbol, which reads like a compiler
+# bug rather than a version problem.
+have=$(go env GOVERSION)
+echo "go toolchain: $have (this core needs go$GO_VERSION or newer)"
+case "$have" in
+    go1.2[6-9]*|go[2-9]*) ;;
+    *)
+        echo "ERROR: sing-box needs go$GO_VERSION; $have will fail at the link" >&2
+        echo "step with 'invalid reference to os.checkPidfdOnce'." >&2
+        exit 1
+        ;;
+esac
 
 go install "github.com/sagernet/gomobile/cmd/gomobile@$GOMOBILE_VERSION"
 go install "github.com/sagernet/gomobile/cmd/gobind@$GOMOBILE_VERSION"
