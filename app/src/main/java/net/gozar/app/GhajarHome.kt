@@ -151,7 +151,7 @@ fun ConnectOrb(
     Box(
         modifier
             .testTag("home-connect")
-            .size(236.dp)
+            .size(192.dp)
             .graphicsLayer { scaleX = press; scaleY = press }
             .pointerInput(enabled, picking) {
                 awaitEachGesture {

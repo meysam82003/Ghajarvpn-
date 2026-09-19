@@ -1,5 +1,7 @@
 package net.gozar.app
 
+import androidx.compose.ui.platform.testTag
+
 import android.app.Activity
 import android.content.Context
 import android.widget.Toast
@@ -1675,6 +1677,7 @@ private fun GozarApp(
             userScrollEnabled = !subScreenOpen,
             beyondViewportPageCount = 2,
             modifier = Modifier
+                .testTag("screen-$screenKey")
                 .padding(
                     start = padding.calculateStartPadding(layoutDir),
                     end = padding.calculateEndPadding(layoutDir),
@@ -2095,7 +2098,7 @@ private fun ConnectionScreen(
                             else -> "⁦${cfg.address}:${cfg.port}⁩"
                         }
                         "$engine · $endpoint"
-                    } ?: t("home_openvpn_hint")
+                    } ?: t("home_select_server_hint")
                 }
                 SlabRow(
                     title = when {

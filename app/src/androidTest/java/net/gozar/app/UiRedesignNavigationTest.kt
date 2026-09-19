@@ -25,8 +25,31 @@ class UiRedesignNavigationTest {
         ui.waitForIdle()
     }
     private fun shot(name: String) {
+        val destination = when (name) {
+            "01-home" -> "connection"
+            "02-free-configs" -> "freeconfigs"
+            "03-servers" -> "picker"
+            "04-backup" -> "backup"
+            "05-store" -> "shop"
+            "06-settings" -> "settings"
+            "07-data-usage" -> "usage"
+            "08-vpn-sharing" -> "vpnshare"
+            "10-openvpn" -> "ovpnsettings"
+            "11-notifications" -> "notifications"
+            "12-appearance" -> "theme"
+            "13-ssh" -> "ssh"
+            "14-debugger" -> "debugger"
+            else -> error("Unknown screenshot destination")
+        }
+        ui.waitUntil(30_000) { ui.onAllNodesWithTag("screen-$destination").fetchSemanticsNodes().isNotEmpty() }
+        ui.onNodeWithTag("screen-$destination").assertIsDisplayed()
+        ui.mainClock.advanceTimeBy(600)
         ui.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.waitForIdleSync()
+        // Compose's virtual clock can be ahead of SurfaceFlinger/SwiftShader.
+        // Allow the real display to present the verified destination before capture.
+        android.os.SystemClock.sleep(1_200)
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
         val folder = File(instrumentation.targetContext.filesDir, "ui-redesign").apply { mkdirs() }
         File(folder, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
