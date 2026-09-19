@@ -11781,9 +11781,23 @@ private fun SubscriptionHeader(
             // crawling. The actions moved to their own line below, where they
             // cost height rather than the name's width.
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                MarqueeName(
-                    GhajarUiRules.brandedSubscriptionTitle(sub.total, WindscribeBrand.displayName(sub, lang)),
-                    MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                // Two lines rather than a marquee, for the same reason as the
+                // config rows: the whole name at once, and no endless animation
+                // per header in a scrolling list.
+                val subTitle = remember(sub.total, sub.name, lang) {
+                    GhajarUiRules.brandedSubscriptionTitle(
+                        sub.total,
+                        WindscribeBrand.displayName(sub, lang)
+                    )
+                }
+                Text(
+                    flagRuns(subTitle, LexendFont),
+                    inlineContent = flagInlineContent(subTitle, 17.sp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = c.textPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     localizeDigits("$configCount", lang) + " " + t("count_configs"),
@@ -12719,15 +12733,27 @@ private fun ConfigRow(
                             modifier = Modifier.size(14.dp)
                         )
                     }
-                    Box(Modifier.weight(1f)) {
-                        MarqueeName(
-                            GhajarUiRules.brandedConfigName(config.name),
-                            style = MaterialTheme.typography.bodyLarge.copy(
-                                fontWeight = FontWeight.SemiBold
-                            ),
-                            color = if (isActive) c.primary else c.textPrimary
-                        )
+                    // Wrapped, not scrolling. A marquee shows a long name one
+                    // chunk at a time and you have to wait for the rest, and it
+                    // is an endless Animatable per row that overflows - which,
+                    // with the old 90dp name box, was nearly every visible row
+                    // animating at once while you scrolled. Two lines show the
+                    // whole name at once and cost nothing per frame. Flags still
+                    // render inline, which is the one thing MarqueeName was
+                    // carrying that a plain Text would have dropped.
+                    val shown = remember(config.name) {
+                        GhajarUiRules.brandedConfigName(config.name)
                     }
+                    Text(
+                        flagRuns(shown, LexendFont),
+                        inlineContent = flagInlineContent(shown, 16.sp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isActive) c.primary else c.textPrimary,
+                        maxLines = if (compact) 1 else 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
                 }
                 // Connect/disconnect stays on the name's line: it is the reason
                 // the row exists, and it must not move when the actions open.
