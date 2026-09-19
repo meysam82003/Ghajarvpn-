@@ -37,6 +37,25 @@ object GhajarRenewRequest {
     fun consume() { _requested.value = null }
 }
 
+/**
+ * Whether the shop is open, as the server last reported it.
+ *
+ * The app is never *blocked* by the shop being switched off - its tunnel has
+ * nothing to do with the store, and breaking a working VPN because an operator
+ * is doing maintenance would be punishing users for someone else's window. It
+ * covers the store and says why.
+ */
+object GhajarShopStatus {
+    private val _enabled = MutableStateFlow(true)
+    val enabled = _enabled.asStateFlow()
+    private val _message = MutableStateFlow("")
+    val message = _message.asStateFlow()
+    fun publish(open: Boolean, why: String) {
+        _enabled.value = open
+        _message.value = why
+    }
+}
+
 object GhajarNoticeBus {
     private val _notice = MutableStateFlow<GhajarNotice?>(null)
     val notice = _notice.asStateFlow()
@@ -127,23 +146,53 @@ object GhajarNotificationMonitor {
         if (!deliveryLock.tryLock()) return true
         try {
             val key = accountKey(context) ?: run { GhajarNoticeBus.reset(); return true }
-            val notices = try { GhajarStoreApi(context).notices(forDelivery = true) }
+            val api = GhajarStoreApi(context)
+            val feed = try { api.noticeFeed() }
                 catch (e: kotlinx.coroutines.CancellationException) { throw e }
                 catch (_: Exception) { return false }
             if (accountKey(context) != key) return true
             createChannels(context)
+
+            // The shop's state, so the store screen can cover itself rather
+            // than letting someone start a purchase into a closed shop and
+            // discover it at the payment step.
+            GhajarShopStatus.publish(feed.shopEnabled, feed.shopMessage)
+
             val prefs = context.getSharedPreferences("ghajarvpn_notices_$key", Context.MODE_PRIVATE)
             val notified = prefs.getStringSet("notified", emptySet()).orEmpty().toMutableSet()
             val acknowledged = prefs.getStringSet("acknowledged", emptySet()).orEmpty()
-            val enriched = notices.map { it.withUsageSummary() }
-            GhajarNoticeBus.publish(key, enriched, acknowledged)
-            enriched.forEach { notice ->
+
+            // Only what the server says is due. A repeating warning - "your
+            // service ends tomorrow", every three hours until it is closed -
+            // comes back because the server's clock decides, not because this
+            // app kept its own timer.
+            val due = feed.notices.filter { it.shouldFloat }.map { it.withUsageSummary() }
+            GhajarNoticeBus.publish(key, due, acknowledged)
+
+            val posted = mutableListOf<String>()
+            due.forEach { notice ->
+                val repeating = notice.id.startsWith("notice:")
+                // A repeating notice is gated by the server, which is why the
+                // local fingerprint is skipped for it: keeping both would mean
+                // the second showing is suppressed here after the server has
+                // already decided it is due, and the repeat would never happen.
                 val fingerprint = notice.id + ":" + MessageDigest.getInstance("SHA-256")
                     .digest((notice.title + "\n" + notice.message).toByteArray())
                     .take(12).joinToString("") { "%02x".format(it) }
-                if (fingerprint !in notified && post(context, notice)) notified += fingerprint
+                val alreadySeen = !repeating && fingerprint in notified
+                if (!alreadySeen && post(context, notice)) {
+                    notified += fingerprint
+                    if (repeating) posted += notice.id
+                }
             }
             prefs.edit().putStringSet("notified", notified.toList().takeLast(500).toSet()).apply()
+
+            // Tells the server they were shown, which both clears the unread
+            // badge and starts the repeat interval running. Done after posting
+            // so a notification that failed to post does not start the clock.
+            if (posted.isNotEmpty()) {
+                runCatching { api.markNoticesShown(posted) }
+            }
             return true
         } finally { deliveryLock.unlock() }
     }

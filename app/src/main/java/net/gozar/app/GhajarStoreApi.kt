@@ -93,7 +93,46 @@ data class GhajarNotice(
     val important: Boolean,
     val serviceAlert: Boolean,
     val serviceUsername: String? = null,
-    val meta: GhajarNoticeMeta? = null
+    val meta: GhajarNoticeMeta? = null,
+    /**
+     * What the server says should be done about this one, and what it is
+     * about. `renew` with a non-blank [actionRef] is the expiry and volume
+     * warning the bot's cron produces; before the feed existed those reached
+     * Telegram and nowhere else.
+     */
+    val action: String = "none",
+    val actionRef: String = "",
+    /**
+     * Whether it is due to be shown *now*, decided by the server.
+     *
+     * Deliberately not computed here. The same notice is read by this app, the
+     * mini app and the browser page, and a "every three hours" repeat worked
+     * out against three different device clocks is three different answers -
+     * including on a phone whose clock is simply wrong.
+     */
+    val shouldFloat: Boolean = true,
+    /** Seconds between repeats; 0 means every time the app is opened. */
+    val repeatAfterSec: Int = 0,
+    val seen: Boolean = false
+)
+
+/**
+ * A feed read, which is more than a list of notices.
+ *
+ * The shop's state rides along because the app polls this anyway: it learns
+ * that the shop was switched off in the same round trip that brings it the
+ * notice saying so, instead of needing a second call to find out whether to
+ * cover its shop tab.
+ */
+data class GhajarNoticeFeed(
+    val notices: List<GhajarNotice>,
+    val unseen: Int,
+    val shopEnabled: Boolean,
+    val shopMessage: String,
+    /** "force_app", "shop_off", or empty. The app is never gated by either -
+     *  it reads this only so it can explain the state, not obey it. */
+    val gate: String,
+    val gateMessage: String
 )
 
 data class GhajarPaymentMethod(
@@ -464,7 +503,94 @@ class GhajarStoreApi(context: Context) {
         )
     }
 
+    /**
+     * The whole feed: this user's notices, and whether the shop is open.
+     *
+     * Reads `notices.php`, which is where the expiry and volume warnings now
+     * live. Before it existed, those warnings were Telegram messages and
+     * nothing else - so a user who read their services here, or who had the
+     * bot muted, was simply never told a service was about to end, and the
+     * renew button existed nowhere but inside a Telegram chat.
+     *
+     * Falls back to the two old broadcast endpoints when the feed is not
+     * there. That is not defensive padding: the bot and the app ship
+     * separately, and an app updated before its shop would otherwise lose the
+     * notifications it already had.
+     */
+    suspend fun noticeFeed(): GhajarNoticeFeed {
+        val raw = try {
+            withContext(Dispatchers.IO) {
+                requestJson(
+                    url = URL("${BrandConfig.NOTICES_API_URL}?action=feed&client=${BrandConfig.CLIENT_ID}"),
+                    method = "GET",
+                    bearer = requireToken(),
+                    body = null
+                )
+            }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (_: Exception) {
+            return legacyFeed()
+        }
+
+        if (!raw.optBoolean("status")) return legacyFeed()
+
+        val rows = raw.optJSONArray("notices").orEmpty().objects()
+        val shop = raw.optJSONObject("shop")
+        return GhajarNoticeFeed(
+            notices = rows.mapNotNull(::feedNotice),
+            unseen = raw.optInt("unseen"),
+            shopEnabled = shop?.optBoolean("enabled", true) ?: true,
+            shopMessage = shop?.optString("message").orEmpty(),
+            gate = raw.optString("gate"),
+            gateMessage = raw.optString("gate_message")
+        )
+    }
+
+    /** Kept so existing callers that only want the list still compile and work. */
     suspend fun notices(forDelivery: Boolean = false): List<GhajarNotice> {
+        val feed = noticeFeed()
+        return if (forDelivery) feed.notices.filter { it.shouldFloat } else feed.notices
+    }
+
+    private fun feedNotice(row: JSONObject): GhajarNotice? {
+        val body = visible(row.optString("body")).trim()
+        if (body.isBlank()) return null
+        val kind = row.optString("kind")
+        val serverId = row.optInt("id")
+        return GhajarNotice(
+            // Prefixed and signed by the row id, including the negative ids the
+            // server uses for the global broadcast, so the two id spaces cannot
+            // collide in the acknowledged set.
+            id = "notice:$serverId",
+            title = visible(row.optString("title")).ifBlank {
+                when (kind) {
+                    "service_time" -> "مهلت سرویس رو به پایان است"
+                    "service_volume" -> "حجم سرویس رو به پایان است"
+                    "shop_status" -> "وضعیت فروشگاه"
+                    else -> "اعلان قاجار وی پی ان"
+                }
+            },
+            message = body,
+            important = kind == "shop_status" || kind == "service_time" || kind == "service_volume",
+            serviceAlert = kind == "service_time" || kind == "service_volume",
+            // The renew action's reference is the invoice id, which is what the
+            // renewal dialog needs; a notice with an action but no reference
+            // would be a button that opens a list and asks the user to find the
+            // service again.
+            serviceUsername = row.optString("action_ref").takeIf {
+                it.isNotBlank() && row.optString("action") == "renew"
+            },
+            action = row.optString("action", "none"),
+            actionRef = row.optString("action_ref"),
+            shouldFloat = row.optBoolean("should_float", true),
+            repeatAfterSec = row.optInt("repeat_after"),
+            seen = row.optBoolean("seen")
+        )
+    }
+
+    /** The pre-feed endpoints, for a shop that has not been updated yet. */
+    private suspend fun legacyFeed(): GhajarNoticeFeed {
         var failure: Exception? = null
         var fetched = 0
         suspend fun fetchNotice(actionName: String): JSONObject? = try {
@@ -475,18 +601,49 @@ class GhajarStoreApi(context: Context) {
         val active = fetchNotice("notification_info")?.optJSONObject("notification")
         if (fetched == 0) throw (failure ?: GhajarApiException("دریافت اعلان ناموفق بود"))
         val now = System.currentTimeMillis() / 1000
-        fun deliverable(row: JSONObject) = !forDelivery ||
-            (!row.optBoolean("seen") && (row.optLong("expires_at") <= 0 || row.optLong("expires_at") > now))
-        return buildList {
+        fun deliverable(row: JSONObject) =
+            !row.optBoolean("seen") && (row.optLong("expires_at") <= 0 || row.optLong("expires_at") > now)
+        val list = buildList {
             active?.takeIf(::deliverable)?.let { noticeFrom(it, "notification", false) }
                 ?.let { add(it.copy(important = true)) }
             recent.filter(::deliverable).mapNotNullTo(this) { noticeFrom(it, "notification", false) }
         }.distinctBy { it.id }
+        // The old endpoints know nothing about the shop being switched off, and
+        // reporting it as closed on no evidence would hide a working store.
+        return GhajarNoticeFeed(list, list.count { !it.seen }, true, "", "", "")
     }
 
+    /**
+     * Records that notices were put in front of the user.
+     *
+     * `shown` rather than `dismiss`: it marks them seen *and* moves the repeat
+     * clock, so a warning with an interval comes back later. Only the close
+     * button is a dismissal.
+     */
+    suspend fun markNoticesShown(ids: List<String>) = stampNotices("shown", ids)
+
     suspend fun dismissNotice(id: String) {
+        if (id.startsWith("notice:")) {
+            stampNotices("dismiss", listOf(id))
+            return
+        }
         val serverId = id.removePrefix("notification:").toLongOrNull() ?: return
         action("notification_dismiss", "POST", body = JSONObject().put("id", serverId))
+    }
+
+    private suspend fun stampNotices(what: String, ids: List<String>) {
+        val serverIds = ids.mapNotNull { it.removePrefix("notice:").toIntOrNull() }
+        if (serverIds.isEmpty()) return
+        withContext(Dispatchers.IO) {
+            runCatching {
+                requestJson(
+                    url = URL("${BrandConfig.NOTICES_API_URL}?action=$what&client=${BrandConfig.CLIENT_ID}"),
+                    method = "POST",
+                    bearer = requireToken(),
+                    body = JSONObject().put("ids", JSONArray(serverIds))
+                )
+            }
+        }
     }
 
     suspend fun purchase(request: GhajarPurchaseRequest): GhajarPurchaseResult {
@@ -880,6 +1037,10 @@ class GhajarStoreApi(context: Context) {
             readTimeout = READ_TIMEOUT
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", userAgent())
+            // Identifies this as the app rather than the mini app. The server
+            // can be put into a mode that shows every other client "install the
+            // app" and nothing else; this is what keeps the app itself working.
+            setRequestProperty(BrandConfig.CLIENT_HEADER, BrandConfig.CLIENT_ID)
             bearer?.takeIf { it.isNotBlank() }?.let { setRequestProperty("Authorization", "Bearer $it") }
             if (body != null) {
                 doOutput = true

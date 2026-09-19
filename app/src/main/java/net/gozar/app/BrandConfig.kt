@@ -23,6 +23,29 @@ object BrandConfig {
     const val MINIAPP_API_URL = "$API_URL/miniapp.php"
     const val WEBLINK_API_URL = "$API_URL/weblink.php"
 
+    /**
+     * The notice feed: per-user notices, plus whether the shop is open.
+     *
+     * Separate from miniapp.php because it answers before a shop gate does. A
+     * client that has been told "install the app" or "the shop is off" still
+     * has to be able to read the message saying so, and miniapp.php refuses
+     * every other action while either is true.
+     */
+    const val NOTICES_API_URL = "$API_URL/notices.php"
+
+    /**
+     * Sent on every store request so the server knows this is the app.
+     *
+     * The bot can be put into a mode where the mini app and the browser are
+     * shown "install the app" and nothing else works, while the app keeps
+     * working in full - which needs the server to be able to tell them apart.
+     * This header is how, and it is not a security boundary: anyone can send
+     * it, and all it gets past is a nag screen. Everything that protects money
+     * or data is checked against the bearer token instead.
+     */
+    const val CLIENT_HEADER = "X-Ghajar-Client"
+    const val CLIENT_ID = "app"
+
     const val NOTIFICATION_CHANNEL_CONNECTION = "ghajarvpn_connection"
     const val NOTIFICATION_CHANNEL_GENERAL = "ghajarvpn_general"
     const val NOTIFICATION_CHANNEL_SERVICE = "ghajarvpn_service_alerts"

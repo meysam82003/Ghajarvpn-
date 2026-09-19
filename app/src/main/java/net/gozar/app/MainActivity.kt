@@ -1221,8 +1221,26 @@ private fun GozarApp(
     var showPsiphonHub by remember { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
     val updateCtx = LocalContext.current
+    /**
+     * The update check, on opening the app rather than once a day.
+     *
+     * It used to be gated to twenty-four hours, which meant a user could open
+     * the app repeatedly on the day a release went out and never be told - the
+     * owner's complaint exactly. The floor is fifteen minutes now, which is
+     * "every time you open it" for anybody who is not re-opening it in a loop,
+     * and still keeps a phone well inside GitHub's unauthenticated rate limit
+     * of sixty requests an hour per address.
+     *
+     * A note on what "automatic" can mean here: an app that is not the device
+     * owner cannot install a package without the system installer's own
+     * confirmation. So the automatic part is everything up to that - finding
+     * the release, downloading it, checking its SHA-256 and that its signature
+     * matches the installed app - and the last step is one tap on a button
+     * that says نصب. Claiming a silent install would be claiming something
+     * Android does not allow.
+     */
     LaunchedEffect(Unit) {
-        if (System.currentTimeMillis() - store.lastUpdateCheck() >= 24L * 60 * 60 * 1000L) {
+        if (System.currentTimeMillis() - store.lastUpdateCheck() >= 15L * 60 * 1000L) {
             val ver = runCatching {
                 updateCtx.packageManager.getPackageInfo(updateCtx.packageName, 0).versionName
             }.getOrNull() ?: ""

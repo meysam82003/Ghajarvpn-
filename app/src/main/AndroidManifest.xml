@@ -167,10 +167,37 @@
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="net.gozar.app.WIDGET_TOGGLE" />
+                <!--
+                    The three rail actions. Each one is declared so the
+                    PendingIntent the widget builds is actually deliverable;
+                    an undeclared action on an unexported receiver is dropped
+                    silently, which reads as a button that does nothing.
+                -->
+                <action android:name="net.gozar.app.WIDGET_PING" />
+                <action android:name="net.gozar.app.WIDGET_SUBS" />
+                <action android:name="net.gozar.app.WIDGET_NEXT" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/ghajar_widget_info" />
+        </receiver>
+
+        <!--
+            The one-cell widget: the logo, and the tunnel behind it. Its toggle
+            goes through the same handler as the full widget's, so there is one
+            implementation of turning the tunnel on and off, not two.
+        -->
+        <receiver
+            android:name=".GhajarWidgetSmall"
+            android:label="@string/widget_small_label"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="net.gozar.app.WIDGET_TOGGLE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/ghajar_widget_small_info" />
         </receiver>
         <activity
             android:name=".GhajarWidgetConnectActivity"

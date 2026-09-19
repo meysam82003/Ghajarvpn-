@@ -7,5 +7,7 @@
         language the user chose.
     -->
     <string name="widget_label">قاجار وی پی ان</string>
-    <string name="widget_description">وضعیت اتصال، سرور و پینگ، با دکمهٔ وصل و قطع — بدون باز کردن برنامه</string>
+    <string name="widget_small_label">قاجار — روشن/خاموش</string>
+    <string name="widget_description">وضعیت اتصال، سرویس، مصرف و پینگ — با وصل/قطع، تست پینگ، آپدیت ساب و تعویض سرویس، بدون باز کردن برنامه</string>
+    <string name="widget_small_description">فقط روشن و خاموش کردن اتصال، در یک خانه</string>
 </resources>

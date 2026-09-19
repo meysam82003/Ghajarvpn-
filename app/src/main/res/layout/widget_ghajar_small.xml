@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The one-button widget: the logo, and nothing else.
+
+    It exists because the full widget is a three-by-two block and the thing
+    people do ninety percent of the time is turn the tunnel on or off. This is
+    that, in one cell. The logo itself is the button - there is no second
+    target to miss - and its tint is the whole state readout: on, busy, off.
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ImageView
+        android:id="@+id/widget_small_button"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="6dp"
+        android:scaleType="fitCenter"
+        android:background="@drawable/widget_surface"
+        android:contentDescription="@string/widget_small_description"
+        android:src="@drawable/logo" />
+
+    <!--
+        A state dot in the corner, because a tinted logo alone is ambiguous
+        against a busy wallpaper - and "is it on?" is the only question this
+        widget exists to answer.
+    -->
+    <ImageView
+        android:id="@+id/widget_small_dot"
+        android:layout_width="12dp"
+        android:layout_height="12dp"
+        android:layout_gravity="top|end"
+        android:layout_margin="6dp"
+        android:contentDescription="@null"
+        android:src="@drawable/widget_dot_off" />
+</FrameLayout>
