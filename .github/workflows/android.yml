@@ -162,25 +162,51 @@ jobs:
       #
       # Only whether each secret is empty is tested. No value is ever echoed,
       # compared against a literal, or written anywhere.
-      - name: Check the signing secrets are present
+      # First step in the job, on purpose. Run 35437309288 spent nine minutes
+      # building zeptun, sing-box and the whole app before Gradle died on an
+      # empty keystore, with "Tag number over 30 is not supported" - a DER
+      # parse error that says nothing about the cause. The signing material is
+      # checked here, before anything expensive.
+      #
+      # Two accepted shapes, in this order:
+      #
+      #   SIGNING_BUNDLE   one secret, "<store-password>:<base64 of the .jks>".
+      #                    One secret is one paste, which is the whole point:
+      #                    four separate secrets is four chances to set none.
+      #                    Base64 has no ':' in its alphabet, so splitting at
+      #                    the first one is unambiguous.
+      #
+      #   KEYSTORE_BASE64 + KEYSTORE_PASSWORD + KEY_ALIAS + KEY_PASSWORD
+      #                    the original four. Still honoured, so a repository
+      #                    already configured that way keeps working.
+      #
+      # Only emptiness is tested. No value is echoed or compared to a literal.
+      - name: Check the signing material is present
         env:
+          SIGNING_BUNDLE: ${{ secrets.SIGNING_BUNDLE }}
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
+          if [ -n "$SIGNING_BUNDLE" ]; then
+            echo "Using SIGNING_BUNDLE."
+            echo "SIGNING_MODE=bundle" >> "$GITHUB_ENV"
+            exit 0
+          fi
           missing=
           [ -n "$KEYSTORE_BASE64" ]   || missing="$missing KEYSTORE_BASE64"
           [ -n "$KEYSTORE_PASSWORD" ] || missing="$missing KEYSTORE_PASSWORD"
           [ -n "$KEY_ALIAS" ]         || missing="$missing KEY_ALIAS"
           [ -n "$KEY_PASSWORD" ]      || missing="$missing KEY_PASSWORD"
           if [ -n "$missing" ]; then
-            echo "::error::Cannot sign a release. These repository secrets are unset or empty:$missing"
-            echo "::error::Set them under Settings -> Secrets and variables -> Actions -> Repository secrets."
-            echo "::error::KEYSTORE_BASE64 must be the keystore file encoded with: base64 -w0 release.jks"
+            echo "::error::Cannot sign a release. No SIGNING_BUNDLE, and these are unset or empty:$missing"
+            echo "::error::Simplest fix: add one secret named SIGNING_BUNDLE with the value <password>:<base64-of-release.jks>"
+            echo "::error::Settings -> Secrets and variables -> Actions -> New repository secret."
             exit 1
           fi
-          echo "All four signing secrets are present."
+          echo "Using the four classic signing secrets."
+          echo "SIGNING_MODE=classic" >> "$GITHUB_ENV"
 
       - uses: actions/setup-java@v4
         with:
@@ -265,53 +291,80 @@ jobs:
           fi
 
       # base64 -d on empty input exits 0 and writes a zero-byte file, which is
-      # how run 35437309288 reached Gradle at all. Decoding is now checked, and
-      # so is the result: a file that is not a readable keystore, or one that
-      # does not contain KEY_ALIAS, is reported here rather than as an opaque
-      # ASN.1 error from the packaging task.
+      # how run 35437309288 reached Gradle at all. Decoding is checked, and so
+      # is the result: a file that is not a readable keystore, or one without
+      # the expected alias, is reported here rather than as an opaque ASN.1
+      # error from the packaging task.
       #
-      # keytool's output is discarded rather than printed. It lists the store's
-      # contents, and while that is not secret, there is no reason for a public
-      # log to carry it.
-      - name: Decode and verify the keystore
+      # The material is written to keystore.properties rather than exported as
+      # environment variables, which app/build.gradle.kts already supports as
+      # its second path. That is deliberate: Actions prints a step's `env:`
+      # block into the log, and while a real secret renders as ***, a value
+      # this job derived itself would not be masked unless every branch
+      # remembers ::add-mask::. Not putting it there at all removes the
+      # question. The file is deleted in the cleanup step.
+      - name: Unpack and verify the signing material
         env:
+          SIGNING_BUNDLE: ${{ secrets.SIGNING_BUNDLE }}
           KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
           KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           set -o pipefail
-          printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks" || {
-            echo "::error::KEYSTORE_BASE64 is not valid base64. Re-create it with: base64 -w0 release.jks"
+          JKS="$RUNNER_TEMP/release.jks"
+          if [ "$SIGNING_MODE" = "bundle" ]; then
+            PW="${SIGNING_BUNDLE%%:*}"
+            B64="${SIGNING_BUNDLE#*:}"
+            ALIAS="${SIGNING_ALIAS:-ghajar}"
+            if [ -z "$PW" ] || [ "$B64" = "$SIGNING_BUNDLE" ]; then
+              echo "::error::SIGNING_BUNDLE must look like <password>:<base64-of-release.jks>"
+              exit 1
+            fi
+          else
+            PW="$KEYSTORE_PASSWORD"
+            B64="$KEYSTORE_BASE64"
+            ALIAS="$KEY_ALIAS"
+          fi
+          # Masked before it can reach any log line, whichever branch set it.
+          echo "::add-mask::$PW"
+
+          printf '%s' "$B64" | base64 -d > "$JKS" || {
+            echo "::error::The keystore is not valid base64. Produce it with: base64 -w0 release.jks"
             exit 1
           }
-          if [ ! -s "$RUNNER_TEMP/release.jks" ]; then
-            echo "::error::The decoded keystore is empty. KEYSTORE_BASE64 decoded to zero bytes."
+          if [ ! -s "$JKS" ]; then
+            echo "::error::The decoded keystore is empty (zero bytes)."
             exit 1
           fi
-          echo "Decoded keystore: $(stat -c%s "$RUNNER_TEMP/release.jks") bytes."
-          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
-                 -storepass "$KEYSTORE_PASSWORD" >/dev/null 2>&1; then
-            echo "::error::The decoded file is not a keystore that opens with KEYSTORE_PASSWORD."
-            echo "::error::Either KEYSTORE_BASE64 is not a .jks/.p12 file, or KEYSTORE_PASSWORD is wrong."
+          echo "Decoded keystore: $(stat -c%s "$JKS") bytes."
+          if ! keytool -list -keystore "$JKS" -storepass "$PW" >/dev/null 2>&1; then
+            echo "::error::The decoded file is not a keystore that opens with that password."
             exit 1
           fi
-          if ! keytool -list -keystore "$RUNNER_TEMP/release.jks" \
-                 -storepass "$KEYSTORE_PASSWORD" -alias "$KEY_ALIAS" >/dev/null 2>&1; then
-            echo "::error::The keystore opened, but it contains no key under the alias in KEY_ALIAS."
-            echo "::error::List your aliases locally with: keytool -list -keystore release.jks"
+          if ! keytool -list -keystore "$JKS" -storepass "$PW" -alias "$ALIAS" >/dev/null 2>&1; then
+            echo "::error::The keystore opened but has no key under alias '$ALIAS'."
             exit 1
           fi
-          echo "The keystore opens and contains the requested alias."
+          # Recorded so the release notes and the verify step can be checked
+          # against it. A certificate fingerprint is public by nature - it is
+          # what every installed copy of the app already shows.
+          keytool -list -keystore "$JKS" -storepass "$PW" -alias "$ALIAS" -v 2>/dev/null \
+            | grep -E 'SHA256:' | head -1
+          {
+            echo "storeFile=$JKS"
+            echo "storePassword=$PW"
+            echo "keyAlias=$ALIAS"
+            echo "keyPassword=$PW"
+          } > keystore.properties
+          echo "Signing material is ready."
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      # No signing variables in this step's environment. Gradle reads
+      # keystore.properties, written by the step above.
       - name: Build signed release
-        env:
-          KEYSTORE_FILE: ${{ runner.temp }}/release.jks
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease --no-daemon --stacktrace
 
       - name: Rename APKs and generate checksums
@@ -380,4 +433,4 @@ jobs:
 
       - name: Clean up secrets from runner
         if: always()
-        run: rm -f "$RUNNER_TEMP/release.jks"
+        run: rm -f "$RUNNER_TEMP/release.jks" keystore.properties
