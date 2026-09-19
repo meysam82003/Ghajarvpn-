@@ -28,9 +28,14 @@ class UiRedesignNavigationTest {
         ui.waitForIdle()
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
-        val folder = File(instrumentation.targetContext.getExternalFilesDir(null), "ui-redesign").apply { mkdirs() }
+        val folder = File(instrumentation.targetContext.filesDir, "ui-redesign").apply { mkdirs() }
         File(folder, "$name.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG, 100, it) }
         bitmap.recycle()
+        if (name == "14-debugger") {
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(
+                instrumentation.uiAutomation.executeShellCommand("dumpsys gfxinfo com.ghajarvpn.app framestats")
+            ).use { input -> File(folder, "navigation-frames.txt").outputStream().use { input.copyTo(it) } }
+        }
     }
     @Test fun realDestinationsAndBackNavigation() {
         val store = ConfigStore.get(ui.activity)

@@ -1,5 +1,7 @@
 package net.gozar.app
 
+import androidx.compose.ui.platform.testTag
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -148,6 +150,7 @@ fun ConnectOrb(
 
     Box(
         modifier
+            .testTag("home-connect")
             .size(236.dp)
             .graphicsLayer { scaleX = press; scaleY = press }
             .pointerInput(enabled, picking) {

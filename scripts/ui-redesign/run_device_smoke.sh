@@ -26,8 +26,17 @@ run_case() {
 }
 # An engine crash must not prevent inspection of independent UI/storage flows.
 run_case navigation net.gozar.app.UiRedesignNavigationTest
-adb shell dumpsys gfxinfo com.ghajarvpn.app framestats > device-evidence/navigation-frames.txt
-adb pull /sdcard/Android/data/com.ghajarvpn.app/files/ui-redesign device-evidence/screenshots || true
+# Scoped storage blocks shell reads of Android/data. The debuggable app can
+# export its own test-created files via run-as, without changing permissions.
+if adb exec-out run-as com.ghajarvpn.app tar -C files -cf - ui-redesign > device-evidence/screenshots.tar; then
+  mkdir -p device-evidence/screenshots
+  tar -xf device-evidence/screenshots.tar -C device-evidence/screenshots
+  rm device-evidence/screenshots.tar
+else failed=1; fi
+if [ "$(find device-evidence/screenshots -name '*.png' | wc -l)" -ne 13 ]; then
+  echo 'Expected all 13 real Android screenshots.'
+  failed=1
+fi
 run_case persistence net.gozar.app.RedesignStateTest,net.gozar.app.ExampleInstrumentedTest
 run_case backend 'net.gozar.app.RuntimeConnectionTest#storeReachesRealBackendAndPersistsLinkSession'
 run_case tunnel 'net.gozar.app.RuntimeConnectionTest#connectTransferDisconnectReconnectUsesExplicitServer'

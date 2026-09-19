@@ -3,12 +3,15 @@ package net.gozar.app
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createEmptyComposeRule
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
+import org.junit.Rule
 import org.junit.runner.RunWith
 import java.net.InetSocketAddress
 import java.net.Proxy
@@ -18,6 +21,7 @@ import java.net.Socket
  * The supplied SOCKS endpoint must forward real traffic; no responses are simulated. */
 @RunWith(AndroidJUnit4::class)
 class RuntimeConnectionTest {
+    @get:Rule val ui = createEmptyComposeRule()
     @Test fun storeReachesRealBackendAndPersistsLinkSession() = runBlocking {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         assumeTrue(InstrumentationRegistry.getArguments().getString("realBackend") == "true")
@@ -52,7 +56,9 @@ class RuntimeConnectionTest {
             try {
                 store.restoreBackup(listOf(other, chosen), emptyList(), settings)
                 store.selectExplicitly(chosen.id)
-                assertEquals(QuickConnectResult.STARTED, QuickConnect.start(context))
+                ui.waitUntil(30_000) { ui.onAllNodesWithTag("home-connect").fetchSemanticsNodes().isNotEmpty() }
+                ui.waitUntil(30_000) { ui.onAllNodesWithTag("launch-intro").fetchSemanticsNodes().isEmpty() }
+                ui.onNodeWithTag("home-connect").performClick()
                 awaitState(Connection.CONNECTED)
                 assertEquals(chosen.id, VpnState.activeId.value)
                 // Explicitly traverse the running core because the app itself is
@@ -64,13 +70,13 @@ class RuntimeConnectionTest {
                     val status = socket.getInputStream().bufferedReader().readLine().orEmpty()
                     assertTrue("No real HTTP response through the core: $status", Regex("^HTTP/1\\.[01] [23][0-9]{2}.*").matches(status))
                 }
-                QuickConnect.stop(context) {}
+                ui.onNodeWithTag("home-connect").performClick()
                 awaitState(Connection.DISCONNECTED)
                 assertEquals(chosen.id, store.selectedId.value)
-                assertEquals(QuickConnectResult.STARTED, QuickConnect.start(context))
+                ui.onNodeWithTag("home-connect").performClick()
                 awaitState(Connection.CONNECTED)
                 assertEquals(chosen.id, VpnState.activeId.value)
-                QuickConnect.stop(context) {}
+                ui.onNodeWithTag("home-connect").performClick()
                 awaitState(Connection.DISCONNECTED)
             } finally {
                 QuickConnect.stop(context) {}
