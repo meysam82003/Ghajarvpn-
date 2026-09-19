@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -118,7 +119,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val delivery by checkoutModel.delivery
     val receiptSent by checkoutModel.receiptSent
     val walletTopUp by checkoutModel.walletTopUp
-    var walletAmount by remember { mutableStateOf("") }
+    var walletAmount by rememberSaveable { mutableStateOf("") }
     val requestedUrl by checkoutModel.openUrl
 
     var linked by remember { mutableStateOf(api.isLinked) }
@@ -140,6 +141,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var confirmationTitle by remember { mutableStateOf("") }
     var confirmationPrice by remember { mutableStateOf<Long?>(null) }
 
+    var savedPanelId by rememberSaveable { mutableStateOf<String?>(null) }
+    var savedCategoryId by rememberSaveable { mutableStateOf<String?>(null) }
+    var savedTimeDays by rememberSaveable { mutableStateOf<Int?>(null) }
     var panels by remember { mutableStateOf<List<GhajarPanel>>(emptyList()) }
     var selectedPanel by remember { mutableStateOf<GhajarPanel?>(null) }
     var categories by remember { mutableStateOf<List<GhajarCategory>>(emptyList()) }
@@ -156,12 +160,12 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
     var customMode by remember { mutableStateOf(false) }
     var comparePlans by remember { mutableStateOf(false) }
-    var customTraffic by remember { mutableStateOf("") }
-    var customDays by remember { mutableStateOf("") }
+    var customTraffic by rememberSaveable { mutableStateOf("") }
+    var customDays by rememberSaveable { mutableStateOf("") }
     var customQuote by remember { mutableStateOf<GhajarCustomQuote?>(null) }
-    var customUsername by remember { mutableStateOf("") }
-    var customNote by remember { mutableStateOf("") }
-    var discountCode by remember { mutableStateOf("") }
+    var customUsername by rememberSaveable { mutableStateOf("") }
+    var customNote by rememberSaveable { mutableStateOf("") }
+    var discountCode by rememberSaveable { mutableStateOf("") }
 
     val checkoutVisible by checkoutModel.checkoutVisible
     val pendingPurchase = checkoutModel.purchase.value.takeIf { checkoutVisible }
@@ -297,7 +301,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 val panelsDeferred = async { api.countries() }
                 val ownedNoticesDeferred = async { refreshOwnedAndNotices() }
                 panels = panelsDeferred.await()
-                if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull()
+                if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull { it.id == savedPanelId } ?: panels.firstOrNull()
                 ownedNoticesDeferred.await()
             }
         }.onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در دریافت فروشگاه") }
@@ -334,6 +338,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     timeRanges = timeRangesDeferred.await()
                     products = productsDeferred.await()
                     unfilteredProducts = products
+                    selectedCategory = categories.firstOrNull { it.id == savedCategoryId }
+                    selectedTime = timeRanges.firstOrNull { it.days == savedTimeDays }
                     loadedPanelId = panel.id
                 }
             }
@@ -501,6 +507,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 )
             }
         } else {
+            item(key = "shop-wallet-summary") {
+                Slab(accent = ghajarColors.primary) {
+                    SlabRow(title = "موجودی کیف پول",
+                        subtitle = paymentOptions?.let { "${formatPrice(it.balance)} ${it.currency}" } ?: "در حال دریافت از پنل…",
+                        icon = Icons.Filled.AccountBalanceWallet,
+                        trailing = { TextButton(onClick = { section = 3 }) { Text("افزایش موجودی") } })
+                }
+            }
             item(key = "shop-header") {
                 ScreenHeader(
                     title = Strings.get(store.lang.value, "shop"),
@@ -679,7 +693,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         selected = selectedPanel,
                         label = { it.name },
                         icon = { panelIcon(it.name) },
-                        onSelect = { selectedPanel = it }
+                        onSelect = { savedPanelId = it.id; savedCategoryId = null; savedTimeDays = null; selectedPanel = it }
                     )
                 }
             }
@@ -690,7 +704,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         items = categories,
                         selected = selectedCategory,
                         label = { it.name },
-                        onSelect = { selectedCategory = it }
+                        onSelect = { savedCategoryId = it?.id; selectedCategory = it }
                     )
                 }
             }
@@ -701,7 +715,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         items = timeRanges,
                         selected = selectedTime,
                         label = { it.name },
-                        onSelect = { selectedTime = it }
+                        onSelect = { savedTimeDays = it?.days; selectedTime = it }
                     )
                 }
             }
@@ -769,7 +783,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                             icon = Icons.Filled.ShoppingCart,
                             actionText = if (selectedCategory != null || selectedTime != null) "برداشتن فیلترها" else null,
                             onAction = if (selectedCategory != null || selectedTime != null) {
-                                { selectedCategory = null; selectedTime = null }
+                                { savedCategoryId = null; savedTimeDays = null; selectedCategory = null; selectedTime = null }
                             } else null
                         )
                     }
@@ -777,15 +791,18 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 if (products.isEmpty() && busy) {
                     item(key = "shop-plans-loading") { SkinLoading("در حال دریافت پلن‌ها از پنل…") }
                 }
-                items(products, key = { "product:${it.id}" }) { product ->
-                    ProductCard(
-                        product,
-                        enabled = !busy && !checkoutBusy,
-                        bestValue = product.id == bestValueId
-                    ) {
-                        confirmationTitle = product.name
-                        confirmationPrice = product.price
-                        confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
+                item(key = "shop-plan-cards") {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        items(products, key = { it.id }) { product ->
+                            Box(Modifier.width(280.dp)) {
+                                ProductCard(product, enabled = !busy && !checkoutBusy,
+                                    bestValue = product.id == bestValueId) {
+                                    confirmationTitle = product.name
+                                    confirmationPrice = product.price
+                                    confirmation = GhajarPurchaseRequest(countryId = product.countryId, serviceId = product.id)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -985,7 +1002,7 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)) {
             Text(
-                "خزانهٔ قاجار",
+                "فروشگاه قاجار",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.Bold,
                 color = c.textPrimary
@@ -1003,7 +1020,7 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
                         .background(if (linked) c.good else c.warning)
                 )
                 Text(
-                    if (linked) "حساب متصل و همگام است" else "برای خرید، حساب ربات را یک‌بار متصل کن",
+                    if (linked) "حساب متصل است" else "برای خرید، حساب ربات را یک‌بار متصل کن",
                     style = MaterialTheme.typography.bodySmall,
                     color = c.textSecondary
                 )
@@ -1567,6 +1584,9 @@ private fun ProductCard(
             }
         }
 
+        Text(product.price?.let { "${formatPrice(it)} تومان" } ?: "قیمت در دسترس نیست",
+            style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold,
+            color = c.textPrimary)
         StatStrip(
             listOfNotNull(
                 product.trafficGb?.let {
@@ -1576,14 +1596,7 @@ private fun ProductCard(
                         c.info
                     )
                 },
-                product.days?.let { StatCell("مدت", "$it روز", c.premium) },
-                product.price?.let {
-                    StatCell(
-                        "قیمت",
-                        if (it == 0L) "رایگان" else "${formatPrice(it)} تومان",
-                        if (enabled) c.highlight else c.onDisabled
-                    )
-                }
+                product.days?.let { StatCell("مدت", "$it روز", c.premium) }
             )
         )
 
