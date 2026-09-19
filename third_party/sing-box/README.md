@@ -3,7 +3,7 @@
 Upstream: <https://github.com/SagerNet/sing-box>
 Licence: GPL-3.0-or-later (see `LICENSE`), which this app is also under.
 Pinned commit: `8330820fa62505f9574e4c35cd969d9af6eb7769`
-Toolchain: Go 1.26.8, gomobile v0.1.13 (see below - not the versions in go.mod)
+Built with: Go 1.26.8 (see below — not the version in its go.mod)
 
 ## Why a second core
 
@@ -25,40 +25,66 @@ It does not cover, and cannot be made to cover, these:
 sing-box implements all of them in one core, so it is added as one core
 rather than six separate integrations.
 
-## What this does NOT replace
+## Why a subprocess and NOT a gomobile AAR
 
-Nothing. The Xray path is untouched and is still what every existing config
-uses. sing-box is reached only by a config whose protocol only it can speak.
-The app also keeps its own OpenVPN engine (ics-openvpn, a real native
-OpenVPN) and its own IKEv2 engine (strongSwan); sing-box's `openvpn-client`
-is built in as well, but it is the second way to do something the app could
-already do, so nothing routes to it by default.
+This is the important part of this file, and it was learned the hard way: the
+first attempt built sing-box as a `gomobile bind` AAR, exactly the way its own
+Android client does. That builds fine and then fails at
+`:app:checkDebugDuplicateClasses`:
 
-## How it is built
+```
+Duplicate class go.Seq found in modules
+  ca.psiphon.aar -> ca.psiphon-runtime  and  libbox.aar -> libbox-runtime
+```
 
-It is **not** vendored. `libbox.aar` is roughly a hundred megabytes and a
-committed binary nobody can reproduce is worse than a build step, so it is
-built from source at the pinned commit above:
+**Two gomobile AARs cannot coexist in one Android app.** Every gomobile
+binding ships the same `go.Seq`, `go.Universe` and `go.error` support classes,
+and they are not interchangeable: `go.Seq`'s static initialiser loads its own
+library by name (`gojni` for one, `box` for the other, from `-libname`), and
+each `.so` registers JNI natives against that same class. Keeping one and
+dropping the other does not work either — the surviving `go.Seq` would route
+one core's calls into the other core's Go runtime.
 
-- CI: the "Build the sing-box core" step in `.github/workflows/android.yml`
-- locally: `sh scripts/build-singbox-aar.sh`
+This app already ships one gomobile AAR and cannot drop it: `ca.psiphon.aar`
+is the Xray+Psiphon engine, committed as a prebuilt binary with no Go source
+in this repository to rebuild from. So the second core cannot be a binding.
 
-Both run the same `gomobile bind` with the same build tags and then assert
-that the protocols this app needs are actually present in the artifact,
-because a typo in a build tag is otherwise completely silent.
+A plain executable has none of this. It is its own process with its own Go
+runtime, no JNI, no shared classes — and it is the pattern this app already
+uses for Aether (`AetherController` execs `libaether.so` from
+`nativeLibraryDir` with `ProcessBuilder`). sing-box is built and run the same
+way.
+
+Two things follow from that choice, both good:
+
+- **No `PlatformInterface`.** libbox's is a thirty-method interface, all of
+  which would have had to be implemented and none of which can be verified
+  without building the AAR first.
+- **zeptun carries the tun.** sing-box runs with a `mixed` inbound — a local
+  SOCKS5/HTTP proxy — and the zeptun engine already in this app forwards a
+  VpnService tun into exactly that. The two engines added in this branch turn
+  out to fit together.
+
+## The `.so` name is load-bearing
+
+The binary is installed as `app/src/main/jniLibs/<abi>/libsingbox.so` even
+though it is an executable and not a library. Android only extracts files
+matching `lib*.so` from an APK's ABI directories and only those come out with
+the executable bit set, so a Go binary has to be named this way to be runnable
+from `nativeLibraryDir` at all. `libaether.so` in this same app is the same
+trick.
 
 ## `-checklinkname=0` is not optional
 
-If the build ends, after about ten minutes of compiling, with:
+If the build ends, after several minutes of compiling, with:
 
 ```
 link: experimental/libbox: invalid reference to os.checkPidfdOnce
 ```
 
-the `-ldflags` are missing. `libbox/pidfd_android.go` pulls the private
-`os.checkPidfdOnce` in with `//go:linkname` to switch pidfd off on Android
-(their issue 3233), and since Go 1.23 the linker refuses a pull-linkname to
-an unmarked symbol unless `-checklinkname=0` is passed.
+the `-ldflags` are missing. sing-box pulls private runtime symbols in with
+`//go:linkname`, and since Go 1.23 the linker refuses a pull-linkname to an
+unmarked symbol unless `-checklinkname=0` is passed.
 
 Two things this is easy to get wrong, and both cost a failed build here:
 
@@ -66,53 +92,50 @@ Two things this is easy to get wrong, and both cost a failed build here:
   are different mechanisms and the tag does not substitute for the flag.
   Passing the full tag list with no ldflags fails in exactly the same way.
 - **It is not a Go version problem.** The same failure happens on 1.26.8. The
-  Go version below is pinned to match upstream, not to fix this.
+  Go version is pinned to match upstream, not to fix this.
 
-The flags come from their `cmd/internal/build_shared/flags.go`.
+The flags come from their `cmd/internal/build_shared/flags.go`. `go.mod`'s
+`go 1.25.5` is the minimum *language* version, not the toolchain their release
+is built with.
 
-## The toolchain versions are not the ones in go.mod
+## How it is built
 
-Read from sing-box's own CI, because `go.mod` describes what the module needs
-rather than what its release is built with:
+Not vendored — built from source at the pinned commit:
 
-| | go.mod says | upstream CI uses |
-|---|---|---|
-| Go | `go 1.25.5` | **1.26.8** |
-| gomobile | `v0.1.12` | **v0.1.13** |
+- CI: the "Build the sing-box core" step in `.github/workflows/android.yml`,
+  in **both** the build and release jobs
+- locally: `sh scripts/build-singbox.sh`
 
-`go 1.25.5` is the minimum *language* version. The gomobile difference is the
-same shape: go.mod pins v0.1.12 as a *library*, while their `Makefile`'s
-`lib_install` installs the v0.1.13 *tool*, and the tool is the one that
-generates the bindings.
+Both run the same `go build` with the same tags and ldflags, then assert two
+things about the result rather than trusting the invocation:
 
-## The two things that will confuse the next person
-
-**1. This is a compile-time dependency, unlike zeptun.** zeptun's absence is a
-normal runtime state - `ZeptunEngine.available` answers for it and the app
-builds and runs without it. `libbox.aar` is different: the Kotlin wrapper
-imports `io.nekohasekai.libbox`, so a checkout without the AAR does not
-compile at all. Run the script once before building locally.
-
-**2. `io.nekohasekai.libbox` is not a package name we chose.** It comes from
-`-javapkg=io.nekohasekai` in the build, which is what sing-box's own client
-uses. Changing it means changing the build and every import together.
+1. that the protocols this app needs are actually present in the binary,
+   because a typo in a build tag is completely silent
+2. that each ABI's file is an ELF for the machine it claims, because a binary
+   built for the wrong `GOARCH` lands in the right directory and fails only at
+   exec time on a real phone
 
 ## Build tags
 
-Which protocols exist in the binary is decided by build tags, and a
-tag-gated protocol that is left out is *absent* rather than disabled -
-sing-box ships an `include/<name>_stub.go` for each one.
+Which protocols exist in the binary is decided by build tags, and a tag-gated
+protocol that is left out is *absent* rather than disabled — sing-box ships an
+`include/<name>_stub.go` for each one.
 
 Included: `with_quic` (hysteria, hysteria2, tuic), `with_wireguard`,
 `with_utls`, `with_openconnect`, `with_openvpn`, `with_clash_api`.
 
-Always present with no tag: snell, anytls, ssh, tor, shadowtls,
-shadowsocksr, vless, vmess, trojan, shadowsocks.
+Always present with no tag: snell, anytls, ssh, tor, shadowtls, shadowsocksr,
+vless, vmess, trojan, shadowsocks.
 
 Deliberately left out: `with_tailscale`, `with_usbip`,
 `with_naive_outbound`. None of them was asked for and each pulls in a large
 dependency tree, against an APK that is already about 150 MB.
 
-`badlinkname` and `tfogo_checklinkname0` are not features. They are the
-linkname workarounds sing-box's own release build passes, and the build fails
-on a current Go toolchain without them.
+## What this does NOT replace
+
+Nothing. The Xray path is untouched and is still what every existing config
+uses. sing-box is reached only by a config whose protocol only it can speak.
+The app keeps its own OpenVPN engine (ics-openvpn, a real native OpenVPN) and
+its own IKEv2 engine (strongSwan); sing-box's `openvpn-client` is compiled in
+as well, but it is a second way to do something the app could already do, so
+nothing routes to it by default.

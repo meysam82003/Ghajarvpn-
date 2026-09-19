@@ -39,6 +39,6 @@ keystore.b64
 Thumbs.db
 *.log
 
-# The sing-box core, built by scripts/build-singbox-aar.sh rather than
+# The sing-box core, built by scripts/build-singbox.sh rather than
 # committed: it is around a hundred megabytes. See third_party/sing-box/.
-app/libs/libbox.aar
+app/src/main/jniLibs/*/libsingbox.so

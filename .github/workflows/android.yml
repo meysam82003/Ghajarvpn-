@@ -125,7 +125,7 @@ jobs:
           cache: false
 
       - name: Build the sing-box core
-        run: sh scripts/build-singbox-aar.sh
+        run: sh scripts/build-singbox.sh
 
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
@@ -214,7 +214,7 @@ jobs:
           cache: false
 
       - name: Build the sing-box core
-        run: sh scripts/build-singbox-aar.sh
+        run: sh scripts/build-singbox.sh
 
       - name: Remove any committed local signing config
         run: rm -f keystore.properties
