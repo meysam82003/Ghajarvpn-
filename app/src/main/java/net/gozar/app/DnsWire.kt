@@ -15,6 +15,7 @@ internal object DnsWire {
 
     const val TYPE_A = 1
     const val TYPE_AAAA = 28
+    const val TYPE_TXT = 16
 
     /** Response codes worth naming when a resolver answers but refuses. */
     const val RCODE_NOERROR = 0
@@ -28,7 +29,28 @@ internal object DnsWire {
         val rcode: Int,
         val addresses: List<String>,
         /** True when the reply's question did not match the one we asked. */
-        val mismatched: Boolean = false
+        val mismatched: Boolean = false,
+        /**
+         * The RA flag: this server says it will resolve names it is not
+         * authoritative for.
+         *
+         * The one thing that separates a resolver from an authoritative
+         * nameserver that happens to be listening on 53. A scan of arbitrary
+         * IPs finds plenty of the latter, and they answer their own zone
+         * perfectly while being useless as a resolver. RA alone is not proof -
+         * it is a claim the server makes - so it is reported alongside whether
+         * an off-zone name actually resolved, not instead of it.
+         */
+        val recursionAvailable: Boolean = false,
+
+        /** The TC flag: the answer did not fit and should be retried over TCP. */
+        val truncated: Boolean = false,
+
+        /** TXT strings, joined per record. Empty unless TXT was asked for. */
+        val texts: List<String> = emptyList(),
+
+        /** How many answer records the header claimed, before parsing them. */
+        val answerCount: Int = 0
     )
 
     class Malformed(message: String) : IllegalArgumentException(message)
@@ -99,6 +121,7 @@ internal object DnsWire {
         }
 
         val found = mutableListOf<String>()
+        val texts = mutableListOf<String>()
         repeat(answers) {
             reader.name()
             val type = reader.short()
@@ -115,10 +138,36 @@ internal object DnsWire {
                         val lo = packet[start + i * 2 + 1].toInt() and 0xFF
                         "%x".format((hi shl 8) or lo)
                     }
+                type == TYPE_TXT && length > 0 -> {
+                    // A TXT record is a sequence of length-prefixed strings,
+                    // each at most 255 bytes. Joined without a separator,
+                    // which is what a reassembled payload expects - a client
+                    // that split on a boundary would corrupt anything longer
+                    // than 255 bytes.
+                    val sb = StringBuilder()
+                    var at = start
+                    val end = start + length
+                    while (at < end) {
+                        val runLength = packet[at].toInt() and 0xFF
+                        at++
+                        if (at + runLength > end || at + runLength > packet.size) break
+                        sb.append(String(packet, at, runLength, Charsets.ISO_8859_1))
+                        at += runLength
+                    }
+                    texts += sb.toString()
+                }
             }
             reader.position = start + length
         }
-        return Answer(rcode, found, mismatched)
+        return Answer(
+            rcode = rcode,
+            addresses = found,
+            mismatched = mismatched,
+            recursionAvailable = flags and 0x0080 != 0,
+            truncated = flags and 0x0200 != 0,
+            texts = texts,
+            answerCount = answers
+        )
     }
 
     fun rcodeName(rcode: Int): String = when (rcode) {
