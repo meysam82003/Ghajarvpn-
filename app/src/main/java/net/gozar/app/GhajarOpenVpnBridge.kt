@@ -371,6 +371,13 @@ object GhajarOpenVpnBridge {
     fun importProfiles(context: Context, blobs: List<ByteArray>, merge: Boolean): GhajarOvpnImportOutcome {
         val app = context.applicationContext
         val manager = ProfileManager.getInstance(app)
+        // Parse every profile before deleting anything. A malformed later entry
+        // must not turn a replace operation into partial data loss.
+        val decoded = blobs.map { bytes -> runCatching {
+            java.io.ObjectInputStream(java.io.ByteArrayInputStream(bytes)).use { it.readObject() as VpnProfile }
+        }.getOrNull() }
+        val invalid = decoded.count { it == null }
+        if (invalid > 0) return GhajarOvpnImportOutcome(0, 0, invalid)
         if (!merge) {
             manager.getProfiles().toList().forEach { profile ->
                 runCatching { delete(app, profile.getUUIDString()) }
@@ -379,14 +386,7 @@ object GhajarOpenVpnBridge {
         var added = 0
         var duplicates = 0
         var failed = 0
-        blobs.forEach { bytes ->
-            val profile = runCatching {
-                java.io.ObjectInputStream(java.io.ByteArrayInputStream(bytes)).use { it.readObject() as VpnProfile }
-            }.getOrNull()
-            if (profile == null) {
-                failed++
-                return@forEach
-            }
+        decoded.filterNotNull().forEach { profile ->
             val existing = manager.getProfiles().firstOrNull {
                 it.getUUIDString() == profile.getUUIDString() ||
                     (!it.importedProfileHash.isNullOrBlank() && it.importedProfileHash == profile.importedProfileHash)

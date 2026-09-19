@@ -39,6 +39,11 @@ object QuickConnect {
     fun start(context: Context): QuickConnectResult {
         val store = ConfigStore.get(context.applicationContext)
         val selectedId = store.selectedId.value
+        if (selectedId.orEmpty().startsWith("ovpn:")) {
+            if (VpnService.prepare(context) != null) return QuickConnectResult.NEEDS_CONSENT
+            val result = GhajarOpenVpnBridge.connectSaved(context, selectedId!!.removePrefix("ovpn:"))
+            return if (result.isSuccess) QuickConnectResult.STARTED else QuickConnectResult.FAILED
+        }
         val config = store.configs.value.firstOrNull { it.id == selectedId }
             ?: store.configs.value.firstOrNull()
             ?: return QuickConnectResult.NO_CONFIG

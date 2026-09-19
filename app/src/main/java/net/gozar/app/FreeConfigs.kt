@@ -32,6 +32,8 @@ object FreeConfigs {
     val busy: StateFlow<Boolean> = _busy.asStateFlow()
     private val _incomplete = MutableStateFlow(false)
     val incomplete: StateFlow<Boolean> = _incomplete.asStateFlow()
+    private val _measuredLatency = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val measuredLatency: StateFlow<Map<String, Int>> = _measuredLatency.asStateFlow()
     private val refreshLock = Mutex()
     fun subscriptionOf(store: ConfigStore): Subscription? = store.subscriptions.value.firstOrNull { it.url == SOURCE_URL }
     fun isAdded(store: ConfigStore): Boolean = subscriptionOf(store) != null
@@ -68,6 +70,7 @@ object FreeConfigs {
                 val now = System.currentTimeMillis()
                 if (!final && (passed.isEmpty() || now - lastPublish < 1500)) return@withContext
                 lastPublish = now
+                _measuredLatency.value = passed.mapValues { it.value.second }
                 val healthy = passed.values.sortedBy { it.second }.map { it.first }
                 val combined = FreeFeedRules.reconcile(previous, healthy, completed, final && failures.get() == 0)
                 // Keep refresh eligibility when some feeds could not be checked.

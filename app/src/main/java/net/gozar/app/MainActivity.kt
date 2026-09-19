@@ -266,6 +266,8 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -718,6 +720,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectSavedOpenVpn(uuid: String) {
+        store.selectExplicitly("ovpn:$uuid")
         // Routed through the same coordinator as the core tunnel: this is what
         // gives OpenVPN a connect watchdog (so a hung/crashed engine can never
         // leave the UI stuck on "در حال اتصال…" forever) and a mutex so rapid
@@ -1211,14 +1214,19 @@ private fun GozarApp(
     val pagerState = rememberPagerState(initialPage = PAGE_HOME, pageCount = { PAGE_COUNT })
     val settingsScroll = rememberScrollState()
 
-    var showPicker by remember { mutableStateOf(false) }
-    var showManual by remember { mutableStateOf(false) }
-    var showProjects by remember { mutableStateOf(false) }
-    var showTorNodes by remember { mutableStateOf(false) }
-    var showWindscribe by remember { mutableStateOf(false) }
-    var showScanner by remember { mutableStateOf(false) }
-    var showOpenVpnHub by remember { mutableStateOf(false) }
-    var showPsiphonHub by remember { mutableStateOf(false) }
+    val destinationState = rememberSaveableStateHolder()
+    var showFree by rememberSaveable { mutableStateOf(false) }
+    var backupDetail by rememberSaveable { mutableStateOf(false) }
+    var shareDetail by rememberSaveable { mutableStateOf(false) }
+    var ovpnSettingsDetail by rememberSaveable { mutableStateOf(false) }
+    var showPicker by rememberSaveable { mutableStateOf(false) }
+    var showManual by rememberSaveable { mutableStateOf(false) }
+    var showProjects by rememberSaveable { mutableStateOf(false) }
+    var showTorNodes by rememberSaveable { mutableStateOf(false) }
+    var showWindscribe by rememberSaveable { mutableStateOf(false) }
+    var showScanner by rememberSaveable { mutableStateOf(false) }
+    var showOpenVpnHub by rememberSaveable { mutableStateOf(false) }
+    var showPsiphonHub by rememberSaveable { mutableStateOf(false) }
     var editingConfig by remember { mutableStateOf<ProxyConfig?>(null) }
     val updateCtx = LocalContext.current
     LaunchedEffect(Unit) {
@@ -1233,26 +1241,26 @@ private fun GozarApp(
     }
     val pendingUpdate by GhajarUpdateFlow.available.collectAsState()
     pendingUpdate?.let { upd -> UpdateFlowDialog(upd, onDismiss = { GhajarUpdateFlow.clear() }) }
-    var usageDetail by remember { mutableStateOf(false) }
-    var perAppDetail by remember { mutableStateOf(false) }
-    var logsDetail by remember { mutableStateOf(false) }
-    var stabilityDetail by remember { mutableStateOf(false) }
-    var aboutDetail by remember { mutableStateOf(false) }
-    var themeDetail by remember { mutableStateOf(false) }
-    var cleanIpDetail by remember { mutableStateOf(false) }
-    var dnsLabDetail by remember { mutableStateOf(false) }
-    var mapDetail by remember { mutableStateOf(false) }
-    var netMonDetail by remember { mutableStateOf(false) }
-    var netCatDetail by remember { mutableStateOf(false) }
+    var usageDetail by rememberSaveable { mutableStateOf(false) }
+    var perAppDetail by rememberSaveable { mutableStateOf(false) }
+    var logsDetail by rememberSaveable { mutableStateOf(false) }
+    var stabilityDetail by rememberSaveable { mutableStateOf(false) }
+    var aboutDetail by rememberSaveable { mutableStateOf(false) }
+    var themeDetail by rememberSaveable { mutableStateOf(false) }
+    var cleanIpDetail by rememberSaveable { mutableStateOf(false) }
+    var dnsLabDetail by rememberSaveable { mutableStateOf(false) }
+    var mapDetail by rememberSaveable { mutableStateOf(false) }
+    var netMonDetail by rememberSaveable { mutableStateOf(false) }
+    var netCatDetail by rememberSaveable { mutableStateOf(false) }
     var netCatIndex by remember { mutableStateOf(-1) }
-    var checkHostDetail by remember { mutableStateOf(false) }
-    var toolsDetail by remember { mutableStateOf(false) }
-    var connDetail by remember { mutableStateOf(false) }
-    var prefsDetail by remember { mutableStateOf(false) }
+    var checkHostDetail by rememberSaveable { mutableStateOf(false) }
+    var toolsDetail by rememberSaveable { mutableStateOf(false) }
+    var connDetail by rememberSaveable { mutableStateOf(false) }
+    var prefsDetail by rememberSaveable { mutableStateOf(false) }
     // Notification settings used to be buried inside the shop's third
     // section. The brief puts notifications in categorized Settings, so they
     // get a page of their own here.
-    var notifDetail by remember { mutableStateOf(false) }
+    var notifDetail by rememberSaveable { mutableStateOf(false) }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
     val sortMode by store.sortMode.collectAsState()
     val selectedId by store.selectedId.collectAsState()
@@ -1367,14 +1375,14 @@ private fun GozarApp(
         }
     }
 
-    var sshSubScreen by remember { mutableStateOf(false) }
+    var sshSubScreen by rememberSaveable { mutableStateOf(false) }
     // SSH and the debugger moved out of the tab bar into Settings; they keep
     // their own screens and every capability, just reached from there.
-    var sshDetail by remember { mutableStateOf(false) }
-    var debugDetail by remember { mutableStateOf(false) }
+    var sshDetail by rememberSaveable { mutableStateOf(false) }
+    var debugDetail by rememberSaveable { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
+    val subScreenOpen = (page == PAGE_HOME && (showFree || showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (backupDetail || shareDetail || ovpnSettingsDetail || notifDetail || usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
@@ -1387,7 +1395,11 @@ private fun GozarApp(
         page == PAGE_HOME && showOpenVpnHub -> "openvpnhub"
         page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
+        page == PAGE_HOME && showFree -> "freeconfigs"
         page == PAGE_HOME -> "connection"
+        onSettingsTab && backupDetail -> "backup"
+        onSettingsTab && shareDetail -> "vpnshare"
+        onSettingsTab && ovpnSettingsDetail -> "ovpnsettings"
         onSettingsTab && sshDetail -> "ssh"
         onSettingsTab && debugDetail -> "debugger"
         onSettingsTab && usageDetail -> "usage"
@@ -1421,6 +1433,10 @@ private fun GozarApp(
             showOpenVpnHub -> showOpenVpnHub = false
             showPsiphonHub -> showPsiphonHub = false
             showPicker -> showPicker = false
+            showFree -> showFree = false
+            backupDetail -> backupDetail = false
+            shareDetail -> shareDetail = false
+            ovpnSettingsDetail -> ovpnSettingsDetail = false
             usageDetail -> usageDetail = false
             perAppDetail -> perAppDetail = false
             logsDetail -> logsDetail = false
@@ -1500,6 +1516,11 @@ private fun GozarApp(
                             mixedText(when (screenKey) {
                                 "manual" -> if (editingConfig != null) t("edit_config_title") else t("add_config_title")
                                 "export" -> t("export_title")
+                                "freeconfigs" -> t("free_configs")
+                                "backup" -> t("backup_title")
+                                "vpnshare" -> "VPN Share"
+                                "ovpnsettings" -> "OpenVPN"
+                                "notifications" -> t("notifications")
                                 "picker" -> t("choose_server")
                                 "projects" -> t("free_projects")
                                 "tornodes" -> t("tor_nodes")
@@ -1532,6 +1553,11 @@ private fun GozarApp(
                 },
                 navigationIcon = {
                     when (screenKey) {
+                        "freeconfigs" -> BounceIconButton(onClick = { showFree = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "backup" -> BounceIconButton(onClick = { backupDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "vpnshare" -> BounceIconButton(onClick = { shareDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "notifications" -> BounceIconButton(onClick = { notifDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "ovpnsettings" -> BounceIconButton(onClick = { ovpnSettingsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "manual" -> BounceIconButton(onClick = { showManual = false; editingConfig = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "export" -> BounceIconButton(onClick = { exportConfigs = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "picker" -> BounceIconButton(onClick = { showPicker = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1586,6 +1612,7 @@ private fun GozarApp(
                 selected = page,
                 items = listOf(
                     SkinNavItem(R.drawable.ic_royal_home, t("home")) {
+                        showFree = false; showOpenVpnHub = false; showPsiphonHub = false; showScanner = false; exportConfigs = null
                         showPicker = false; showManual = false; showProjects = false
                         showTorNodes = false; showWindscribe = false; editingConfig = null
                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
@@ -1594,6 +1621,7 @@ private fun GozarApp(
                         scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
                     },
                     SkinNavItem(R.drawable.ic_royal_settings, t("settings")) {
+                        backupDetail = false; shareDetail = false; ovpnSettingsDetail = false
                         usageDetail = false
                         perAppDetail = false
                         logsDetail = false
@@ -1624,6 +1652,7 @@ private fun GozarApp(
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = !subScreenOpen,
+            beyondViewportPageCount = 2,
             modifier = Modifier
                 .padding(
                     start = padding.calculateStartPadding(layoutDir),
@@ -1650,6 +1679,7 @@ private fun GozarApp(
                     showOpenVpnHub -> "openvpnhub"
                     showPsiphonHub -> "psiphonhub"
                     showPicker -> "picker"
+                    showFree -> "freeconfigs"
                     else -> "connection"
                 }
                 AnimatedContent(
@@ -1660,6 +1690,7 @@ private fun GozarApp(
                     },
                     label = "connTab"
                 ) { key ->
+                  destinationState.SaveableStateProvider(key) {
                     when (key) {
                         "export" -> ExportConfigScreen(
                             configs = exportConfigs ?: emptyList(),
@@ -1673,13 +1704,15 @@ private fun GozarApp(
                             },
                             onCancel = { showManual = false; editingConfig = null }
                         )
+                        "freeconfigs" -> GhajarFreeConfigsScreen(store, onBrowse = { showPicker = true },
+                            onConnect = onConnect, onDisconnect = onDisconnect)
                         "picker" -> ConfigPickerScreen(
                             store = store,
                             selectedId = selectedId,
                             sortMode = sortMode,
                             pings = pings,
                             onSelect = { id ->
-                                store.setSelectedId(id)
+                                store.selectExplicitly(id)
                                 showPicker = false
                                 val st = VpnState.state.value
                                 if ((st == Connection.CONNECTED || st == Connection.CONNECTING) && id != VpnState.activeId.value) {
@@ -1736,12 +1769,19 @@ private fun GozarApp(
                             onOpenPicker = { showPicker = true },
                             onConnect = onConnect,
                             onDisconnect = onDisconnect,
-                            onCancelPick = onCancelPick
+                            onCancelPick = onCancelPick,
+                            onOpenFree = { showFree = true },
+                            onOpenFavorites = { store.setPickerFavorites(true); showPicker = true },
+                            onConnectOpenVpn = onConnectOpenVpn
                         )
                     }
+                  }
                 }
             } else {
                 val setKey = when {
+                    backupDetail -> "backup"
+                    shareDetail -> "vpnshare"
+                    ovpnSettingsDetail -> "ovpnsettings"
                     sshDetail -> "ssh"
                     debugDetail -> "debugger"
                     usageDetail -> "usage"
@@ -1776,7 +1816,15 @@ private fun GozarApp(
                     },
                     label = "setTab"
                 ) { key ->
+                  destinationState.SaveableStateProvider(key) {
                     when (key) {
+                        "backup" -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            ScreenHeader(title = t("backup_title"), context = t("backup_header_sub"))
+                            BackupRow(store)
+                        }
+                        "vpnshare" -> VpnShareContent(store, onSwitch)
+                        "ovpnsettings" -> OpenVpnHubScreen(onConnectOpenVpn, onDisconnectOpenVpn, onTestOpenVpn)
                         "ssh" -> SshScreen(
                             store = SshStore.get(LocalContext.current),
                             onSubScreenChange = { sshSubScreen = it }
@@ -1829,9 +1877,15 @@ private fun GozarApp(
                             onOpenConnection = { connDetail = true },
                             onOpenPreferences = { prefsDetail = true },
                             onOpenAbout = { aboutDetail = true },
-                            onOpenNetMon = { netMonDetail = true }
+                            onOpenNetMon = { netMonDetail = true },
+                            onOpenBackup = { backupDetail = true },
+                            onOpenShare = { shareDetail = true },
+                            onOpenOpenVpn = { ovpnSettingsDetail = true },
+                            onOpenTheme = { themeDetail = true },
+                            onOpenNotifications = { notifDetail = true }
                         )
                     }
+                  }
                 }
             }
         }
@@ -1854,6 +1908,9 @@ private fun ConnectionScreen(
     onConnect: (ProxyConfig) -> Unit,
     onDisconnect: () -> Unit,
     onCancelPick: () -> Unit = {},
+    onOpenFree: () -> Unit,
+    onOpenFavorites: () -> Unit,
+    onConnectOpenVpn: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -1869,7 +1926,9 @@ private fun ConnectionScreen(
     LaunchedEffect(mixedPortValue) { MixedPort.value = mixedPortValue }
 
     LaunchedEffect(activeCfgId, configs) {
-        UsageStore.currentConfigKey = configs.find { it.id == activeCfgId }?.name
+        if (!activeCfgId.orEmpty().startsWith("ovpn:")) {
+            UsageStore.currentConfigKey = configs.find { it.id == activeCfgId }?.name
+        }
     }
 
     LaunchedEffect(conn) {
@@ -1907,23 +1966,30 @@ private fun ConnectionScreen(
     // session showed live traffic in its own notification and a flat zero here.
     val ovpnActiveUuid by GhajarOpenVpnBridge.activeUuid.collectAsState()
     val ovpnCounters by GhajarOpenVpnBridge.counters.collectAsState()
-    val onOpenVpn = activeCfgId.orEmpty().startsWith("ovpn:")
-    val ovpnProfile = remember(ovpnActiveUuid, conn) {
-        ovpnActiveUuid?.let { uuid ->
+    val activeOpenVpn = activeCfgId.orEmpty().startsWith("ovpn:") &&
+        (conn == Connection.CONNECTED || conn == Connection.CONNECTING)
+    val selectedOpenVpn = selectedId?.takeIf { it.startsWith("ovpn:") }?.removePrefix("ovpn:")
+    val onOpenVpn = activeOpenVpn || selectedOpenVpn != null
+    val ovpnProfile = remember(ovpnActiveUuid, selectedOpenVpn, conn) {
+        (if (activeOpenVpn) ovpnActiveUuid else selectedOpenVpn)?.let { uuid ->
             runCatching { GhajarOpenVpnBridge.profiles(context).find { it.uuid == uuid } }.getOrNull()
         }
     }
 
-    LaunchedEffect(Unit) {
-        VpnBridge.counters.collect { c ->
-            totalUp = c.totalUp; totalDown = c.totalDown
-            upSpeed = c.upSpeed; downSpeed = c.downSpeed
+    LaunchedEffect(activeOpenVpn, conn) {
+        if (conn != Connection.CONNECTED) {
+            upSpeed = 0; downSpeed = 0
+        } else if (activeOpenVpn) {
+            GhajarOpenVpnBridge.counters.collect { counters ->
+                totalUp = counters.totalUp; totalDown = counters.totalDown
+                upSpeed = counters.upSpeed; downSpeed = counters.downSpeed
+            }
+        } else {
+            VpnBridge.counters.collect { counters ->
+                totalUp = counters.totalUp; totalDown = counters.totalDown
+                upSpeed = counters.upSpeed; downSpeed = counters.downSpeed
+            }
         }
-    }
-    LaunchedEffect(onOpenVpn, ovpnCounters) {
-        if (!onOpenVpn) return@LaunchedEffect
-        totalUp = ovpnCounters.totalUp; totalDown = ovpnCounters.totalDown
-        upSpeed = ovpnCounters.upSpeed; downSpeed = ovpnCounters.downSpeed
     }
     LaunchedEffect(conn) {
         if (conn != Connection.CONNECTED) delayResult = null
@@ -1939,8 +2005,10 @@ private fun ConnectionScreen(
     val deadTunnel = conn == Connection.CONNECTED && alive == false
     // A tap does something when a tunnel is up (disconnect) or when a server is
     // selected (connect); cancelling an auto-pick is handled on its own.
-    val canAct = conn != Connection.DISCONNECTING && (connected || selectedConfig != null)
+    val canAct = conn != Connection.DISCONNECTING && (connected || selectedConfig != null || ovpnProfile != null)
     val c = ghajarColors
+    var fastestBusy by remember { mutableStateOf(false) }
+    var fastestError by remember { mutableStateOf<String?>(null) }
 
     // One column centred on the connect control. It scrolls only when it must
     // - a short screen, or a large system font - so the orb stays centred
@@ -1953,9 +2021,11 @@ private fun ConnectionScreen(
                 .verticalScroll(rememberScrollState())
                 .heightIn(min = floor)
                 .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically),
+            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            HomeSubscriptionSummary(store, selectedId, onOpenPicker)
+            PremiumStatus(statusText(conn, error, lang), conn == Connection.CONNECTED)
             ConnectOrb(
                 state = conn,
                 picking = picking,
@@ -1966,6 +2036,7 @@ private fun ConnectionScreen(
                     when {
                         picking -> onCancelPick()
                         connected -> onDisconnect()
+                        selectedOpenVpn != null -> onConnectOpenVpn(selectedOpenVpn)
                         else -> selectedConfig?.let { onConnect(it) }
                     }
                 },
@@ -1973,9 +2044,17 @@ private fun ConnectionScreen(
                 // OpenVPN path has no ProxyConfig to hand back, so it drops the
                 // tunnel and the engine's own reconnect takes it from there.
                 onReconnect = {
-                    when {
-                        onOpenVpn -> onDisconnect()
-                        else -> activeConfig?.let { onConnect(it) } ?: onDisconnect()
+                    val target = selectedConfig
+                    val ovpn = if (activeOpenVpn) ovpnActiveUuid else selectedOpenVpn
+                    scope.launch {
+                        onDisconnect()
+                        val stopped = withTimeoutOrNull(8_000L) {
+                            VpnState.state.first { it == Connection.DISCONNECTED }
+                        }
+                        if (stopped != null) {
+                            if (ovpn != null) onConnectOpenVpn(ovpn)
+                            else target?.let(onConnect)
+                        }
                     }
                 }
             )
@@ -2049,6 +2128,20 @@ private fun ConnectionScreen(
                     )
                 )
             )
+
+            HomeShortcuts(onOpenPicker, onOpenFavorites, onOpenFree, onFastest = {
+                if (!fastestBusy) scope.launch {
+                    fastestBusy = true; fastestError = null
+                    try {
+                        val best = AutoSelector(context, store).pickFastest()
+                        if (best != null) { store.selectExplicitly(best.id); onConnect(best) }
+                        else fastestError = t("picker_no_fastest")
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { fastestError = t("picker_no_fastest") }
+                    finally { fastestBusy = false }
+                }
+            }, fastestBusy = fastestBusy, hasServers = configs.isNotEmpty())
+            fastestError?.let { SkinError(it) }
 
             // Measured facts. The latency row doubles as the real-delay test:
             // tapping it replaces the passive handshake reading with a measured
@@ -2306,7 +2399,7 @@ private fun ConfigPickerScreen(
         // the autopilot engaged here would let its failover loop move the
         // tunnel off the server they just picked, some seconds later, with no
         // explanation on screen.
-        if (store.autoPilot.value) ServerAutoPilot.disengage(store)
+        store.selectExplicitly(cfg.id)
         if (cfg.id == activeId && conn != Connection.DISCONNECTED) onDisconnect() else onConnect(cfg)
     }
     val clipboard = LocalClipboardManager.current
@@ -2361,12 +2454,12 @@ private fun ConfigPickerScreen(
     var confirmPurgeDupes by remember { mutableStateOf(false) }
     var confirmPurgeAll by remember { mutableStateOf(false) }
     var confirmPurgeDead by remember { mutableStateOf(false) }
-    var searchOpen by remember { mutableStateOf(false) }
+    var searchOpen by rememberSaveable { mutableStateOf(true) }
     var pingingSubs by remember { mutableStateOf(emptySet<String>()) }
-    var query by remember { mutableStateOf("") }
-    var favoritesOnly by remember { mutableStateOf(false) }
+    val query by store.pickerQuery.collectAsState()
+    val favoritesOnly by store.pickerFavorites.collectAsState()
     var pickingFastest by remember { mutableStateOf(false) }
-    var protocolFilter by remember { mutableStateOf<String?>(null) }
+    val protocolFilter by store.pickerProtocol.collectAsState()
     var protocolMenu by remember { mutableStateOf(false) }
     val expandedSubs by store.expandedSubs.collectAsState()
     val scope = rememberCoroutineScope()
@@ -2887,7 +2980,7 @@ private fun ConfigPickerScreen(
             BounceOutlinedButton(
                 onClick = {
                     searchOpen = !searchOpen
-                    if (!searchOpen) query = ""
+                    if (!searchOpen) store.setPickerQuery("")
                 },
                 minHeight = 42.dp,
                 contentPadding = PaddingValues(0.dp),
@@ -2990,7 +3083,7 @@ private fun ConfigPickerScreen(
                 // it only existed once you had opened search - which is not
                 // where anyone looks for it.
                 BounceOutlinedButton(
-                    onClick = { favoritesOnly = !favoritesOnly },
+                    onClick = { store.setPickerFavorites(!favoritesOnly) },
                     enabled = favouriteCount > 0 || favoritesOnly,
                     minHeight = 42.dp,
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
@@ -3021,14 +3114,14 @@ private fun ConfigPickerScreen(
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = query,
-                    onValueChange = { query = it },
+                    onValueChange = { store.setPickerQuery(it) },
                     singleLine = true,
                     label = { Text(t("search_servers")) },
                     leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { favoritesOnly = !favoritesOnly }) {
+                IconButton(onClick = { store.setPickerFavorites(!favoritesOnly) }) {
                     Icon(
                         if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
                         contentDescription = "فقط موردعلاقه‌ها",
@@ -3047,11 +3140,11 @@ private fun ConfigPickerScreen(
                     }
                     DropdownMenu(expanded = protocolMenu, onDismissRequest = { protocolMenu = false }) {
                         DropdownMenuItem(text = { Text("همهٔ پروتکل‌ها") }, onClick = {
-                            protocolFilter = null; protocolMenu = false
+                            store.setPickerProtocol(null); protocolMenu = false
                         })
                         configs.map { it.protocol }.distinct().sorted().forEach { proto ->
                             DropdownMenuItem(text = { Text(proto) }, onClick = {
-                                protocolFilter = proto; protocolMenu = false
+                                store.setPickerProtocol(proto); protocolMenu = false
                             })
                         }
                     }
@@ -6156,6 +6249,11 @@ private fun SettingsScreen(
     onOpenNetMon: () -> Unit,
     onOpenSsh: () -> Unit,
     onOpenDebugger: () -> Unit,
+    onOpenBackup: () -> Unit,
+    onOpenShare: () -> Unit,
+    onOpenOpenVpn: () -> Unit,
+    onOpenTheme: () -> Unit,
+    onOpenNotifications: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -6209,6 +6307,9 @@ private fun SettingsScreen(
             )
         }
 
+        SettingsHubCard(Icons.Filled.Security, "OpenVPN", "پروفایل‌ها، اتصال و تنظیمات OpenVPN", onOpenOpenVpn)
+        SettingsHubCard(Icons.Filled.Share, "اشتراک‌گذاری VPN", "اتصال دستگاه دیگر با پراکسی HTTP و SOCKS5", onOpenShare)
+
         Rail(t("sec_diagnostics"))
         // The debugger and SSH used to be top-level tabs. Same screens, same
         // capabilities, reached from here so the bar can stay at three.
@@ -6249,7 +6350,10 @@ private fun SettingsScreen(
             )
         }
 
+        SettingsHubCard(Icons.Filled.Inventory2, t("backup_title"), t("backup_header_sub"), onOpenBackup)
         Rail(t("sec_app"))
+        SettingsHubCard(Icons.Filled.Notifications, t("notifications"), "مدیریت اعلان‌ها و هشدارهای برنامه", onOpenNotifications)
+        SettingsHubCard(Icons.Filled.Palette, t("theme_settings"), "پوسته، رنگ‌ها و کاهش حرکت", onOpenTheme)
         Slab(spacing = 0.dp) {
             SlabRow(
                 title = t("preferences"),
@@ -6268,8 +6372,7 @@ private fun SettingsScreen(
             )
         }
 
-        Rail(t("sec_data"))
-        BackupRow(store)
+
     }
 }
 
@@ -6280,7 +6383,8 @@ private fun BackupRow(store: ConfigStore) {
     val scope = rememberCoroutineScope()
 
     var status by remember { mutableStateOf("") }
-    var statusOwner by remember { mutableStateOf("") }
+    var exportPassword by remember { mutableStateOf("") }
+    var recoveryError by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
     var pending by remember { mutableStateOf<ByteArray?>(null) }
     // A password-protected backup can't be told apart from "not a backup at
@@ -6291,9 +6395,6 @@ private fun BackupRow(store: ConfigStore) {
     var backupPassword by remember { mutableStateOf("") }
     var backupPasswordError by remember { mutableStateOf("") }
 
-    LaunchedEffect(status) {
-        if (status.isNotEmpty()) { delay(3500); status = "" }
-    }
 
     val saver = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument(ConfigFile.MIME)
@@ -6308,9 +6409,9 @@ private fun BackupRow(store: ConfigStore) {
                             store.configs.value,
                             store.subscriptions.value,
                             store.settingsSnapshot(),
-                            null
+                            exportPassword
                         )
-                        context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
+                        requireNotNull(context.contentResolver.openOutputStream(uri)).use { it.write(data) }
                         true
                     }.getOrDefault(false)
                 }
@@ -6327,7 +6428,7 @@ private fun BackupRow(store: ConfigStore) {
             scope.launch {
                 val bytes = withContext(Dispatchers.IO) {
                     runCatching {
-                        context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                        context.contentResolver.openInputStream(uri)?.use(GhajarBackupRestore::readBounded)
                     }.getOrNull()
                 }
                 when {
@@ -6342,7 +6443,7 @@ private fun BackupRow(store: ConfigStore) {
                         // Every failure used to collapse into "this is a shared
                         // config, not a backup", which was wrong for every cause
                         // except one. The real ones are distinguishable.
-                        val outcome = runCatching { ConfigFile.isBackup(context, bytes, null) }
+                        val outcome = withContext(Dispatchers.IO) { runCatching { ConfigFile.isBackup(context, bytes, null) } }
                         when (outcome.getOrNull()) {
                             true -> { needsPassword = false; pending = bytes }
                             false -> status = t("backup_not_backup")
@@ -6373,18 +6474,26 @@ private fun BackupRow(store: ConfigStore) {
         )
         // What a written file actually carries, counted from live state so the
         // numbers are never a guess.
-        val configCount = store.configs.value.size
-        val subCount = store.subscriptions.value.size
+        val currentConfigs by store.configs.collectAsState()
+        val currentSubs by store.subscriptions.collectAsState()
+        val configCount = currentConfigs.size
+        val subCount = currentSubs.size
         StatStrip(
             listOf(
                 StatCell(t("count_configs"), localizeDigits("$configCount", store.lang.value), c.info),
                 StatCell(t("count_subs"), localizeDigits("$subCount", store.lang.value), c.premium)
             )
         )
+        Text("کانفیگ‌ها، اشتراک‌های محلی، تنظیمات و پروفایل‌های OpenVPN در فایل رمزدار ذخیره می‌شوند. موجودی و وضعیت پرداخت از بکاپ بازیابی نمی‌شوند.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        OutlinedTextField(exportPassword, { exportPassword = it }, label = { Text("رمز بکاپ (حداقل ۸ نویسه)") },
+            visualTransformation = PasswordVisualTransformation(), singleLine = true, modifier = Modifier.fillMaxWidth())
+        Text("فایل با AES-GCM و رمز انتخابی شما محافظت می‌شود؛ بدون این رمز قابل بازیابی نیست.",
+            style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
         PillButton(
             text = t("backup_export"),
             icon = Icons.Filled.FileUpload,
-            enabled = !busy,
+            enabled = !busy && exportPassword.length >= 8,
             onClick = {
                 if (!busy) {
                     val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
@@ -6396,8 +6505,10 @@ private fun BackupRow(store: ConfigStore) {
         GhostPill(
             text = t("backup_import"),
             icon = Icons.Filled.FileDownload,
-            onClick = { opener.launch(arrayOf("*/*")) }
+            onClick = { if (!busy) opener.launch(arrayOf("*/*")) }, enabled = !busy
         )
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        recoveryError?.let { SkinError(it) }
         AnimatedVisibility(visible = status.isNotEmpty()) {
             Text(
                 mixedText(status),
@@ -6442,16 +6553,13 @@ private fun BackupRow(store: ConfigStore) {
                     val result = preview
                     pending = null
                     needsPassword = false
-                    if (result != null) {
-                        store.restoreBackup(result.configs, result.subs, result.settings)
-                        GhajarOpenVpnSettings.restore(context, result.openVpnSettings)
-                        NetworkRules.restore(context, result.networkRules)
-                        val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, result.openVpnProfiles, merge = false)
-                        status = localizeDigits(
-                            t("backup_restored").format(result.configs.size, result.subs.size) +
-                                if (result.openVpnProfiles.isNotEmpty()) " + ${ovpnOutcome.added} پروفایل OpenVPN" else "",
-                            store.lang.value
-                        )
+                    if (result != null && !busy) {
+                        busy = true; recoveryError = null
+                        scope.launch {
+                            try { status = GhajarBackupRestore.apply(context, store, result, merge = false) }
+                            catch (failure: Exception) { recoveryError = failure.message ?: t("import_bad_file") }
+                            finally { busy = false }
+                        }
                     } else status = t("import_bad_file")
                 }
             }
@@ -6501,13 +6609,14 @@ private fun BackupRow(store: ConfigStore) {
                         BounceOutlinedButton(
                             onClick = {
                                 pending = null
-                                val report = store.mergeBackup(p.configs, p.subs)
-                                val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, p.openVpnProfiles, merge = true)
-                                status = localizeDigits(
-                                    "افزوده شد: ${report.addedConfigs} کانفیگ، ${report.addedSubscriptions} اشتراک، ${ovpnOutcome.added} پروفایل OpenVPN" +
-                                        " (تکراری نادیده گرفته شد: ${report.duplicateConfigs} کانفیگ، ${report.duplicateSubscriptions} اشتراک، ${ovpnOutcome.duplicates} پروفایل)",
-                                    store.lang.value
-                                )
+                                if (!busy) {
+                                    busy = true; recoveryError = null
+                                    scope.launch {
+                                        try { status = GhajarBackupRestore.apply(context, store, p, merge = true) }
+                                        catch (failure: Exception) { recoveryError = failure.message ?: t("import_bad_file") }
+                                        finally { busy = false }
+                                    }
+                                }
                             },
                             minHeight = 38.dp,
                             modifier = Modifier.fillMaxWidth()
@@ -6693,6 +6802,13 @@ private fun ToolsScreen(
  */
 @Composable
 private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, onDismiss: () -> Unit) {
+    GlassDialog(onDismiss = onDismiss, title = "VPN Share", confirmLabel = "بستن", onConfirm = onDismiss) {
+        VpnShareContent(store, onSwitch, Modifier.heightIn(max = LocalConfiguration.current.screenHeightDp.dp * 0.65f))
+    }
+}
+
+@Composable
+private fun VpnShareContent(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val enabled by store.vpnShareEnabled.collectAsState()
@@ -6733,20 +6849,39 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
     // the user it's active there would be a real IP/port that never works.
     val activeProtocol = configs.find { it.id == activeId }?.protocol
     val xraySupported = !activeId.orEmpty().startsWith("ovpn:") && activeProtocol != "ikev2"
-    val live = enabled && connected == Connection.CONNECTED && xraySupported
+    var portsListening by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled, connected, xraySupported, hotspotIp, socksPort, httpPort) {
+        portsListening = false
+        val ip = hotspotIp
+        if (!enabled || connected != Connection.CONNECTED || !xraySupported || ip == null) return@LaunchedEffect
+        while (true) {
+            portsListening = withContext(Dispatchers.IO) {
+                listOf(socksPort, httpPort).all { port ->
+                    runCatching { java.net.Socket().use { it.connect(java.net.InetSocketAddress(ip, port), 1200) }; true }.getOrDefault(false)
+                }
+            }
+            delay(3000)
+        }
+    }
+    val live = enabled && connected == Connection.CONNECTED && xraySupported && portsListening
 
     fun copy(label: String, value: String) {
         clipboard.setText(AnnotatedString(value))
         android.widget.Toast.makeText(context, "$label کپی شد", android.widget.Toast.LENGTH_SHORT).show()
     }
 
-    GlassDialog(
-        onDismiss = onDismiss,
-        title = "VPN Share",
-        confirmLabel = "بستن",
-        onConfirm = onDismiss
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Slab {
+            SlabRow(title = "اشتراک‌گذاری VPN", subtitle = "HTTP / SOCKS5", icon = Icons.Filled.Share)
+            PremiumStatus(if (live) "آمادهٔ اتصال دستگاه دیگر" else "اشتراک‌گذاری فعال نیست", live)
+            if (enabled && connected == Connection.CONNECTED && xraySupported && !portsListening) {
+                Text(if (hotspotIp == null) "هات‌اسپات یا رابط شبکه در دسترس نیست." else "در حال بررسی دسترسی به پورت‌های پراکسی…",
+                    color = ghajarColors.warning, style = MaterialTheme.typography.bodySmall)
+            }
+            GhostPill("تنظیمات هات‌اسپات و شبکه", onClick = {
+                runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)) }
+            }, icon = Icons.Filled.Settings)
             Text("اشتراک‌گذاری اتصال VPN با دستگاه دیگر", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Row(
@@ -9950,7 +10085,12 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
     val dailyCfg by UsageStore.dailyCfg.collectAsState()
     val hourlyCfg by UsageStore.hourlyCfg.collectAsState()
     val context = LocalContext.current
-    var mode by remember { mutableStateOf(RangeMode.TODAY) }
+    var mode by rememberSaveable { mutableStateOf(RangeMode.TODAY) }
+    var usageProfile by rememberSaveable { mutableStateOf<String?>(null) }
+    var profileMenu by remember { mutableStateOf(false) }
+    val profileNames = remember(dailyCfg, hourlyCfg) {
+        (dailyCfg.values.flatMap { it.keys } + hourlyCfg.values.flatMap { it.keys }).distinct().sorted()
+    }
     var menuOpen by remember { mutableStateOf(false) }
     var fromDate by remember { mutableStateOf(LocalDate.now().minusDays(6)) }
     var toDate by remember { mutableStateOf(LocalDate.now()) }
@@ -9958,7 +10098,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
     var toHour by remember { mutableStateOf(23) }
     var detailConfig by remember { mutableStateOf<String?>(null) }
 
-    val bars = remember(daily, hourly, mode, fromDate, toDate, fromHour, toHour) {
+    val allBars = remember(daily, hourly, mode, fromDate, toDate, fromHour, toHour) {
         when (mode) {
             RangeMode.TODAY -> UsageStore.hourlyToday(hourly)
             RangeMode.WEEK -> UsageStore.dailyBars(daily, 7)
@@ -9978,22 +10118,29 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
             }
         }
     }
-    val total = remember(bars) { UsageStore.sum(bars) }
     val hourlyMode = mode == RangeMode.TODAY ||
             (mode == RangeMode.CUSTOM &&
                     java.time.temporal.ChronoUnit.DAYS.between(
                         if (fromDate.isAfter(toDate)) toDate else fromDate,
                         if (fromDate.isAfter(toDate)) fromDate else toDate
                     ) <= 2)
+    val bars = remember(allBars, usageProfile, dailyCfg, hourlyCfg, hourlyMode) {
+        if (usageProfile == null) allBars else allBars.map { bar ->
+            val counters = (if (hourlyMode) hourlyCfg else dailyCfg)[bar.key]?.get(usageProfile)
+            bar.copy(up = counters?.get(0) ?: 0L, down = counters?.get(1) ?: 0L)
+        }
+    }
+    val total = remember(bars) { UsageStore.sum(bars) }
     val directOf: (UsageStore.Bar) -> Long = { bar ->
         val src = if (hourlyMode) hourlyCfg else dailyCfg
-        src[bar.key]?.get(UsageStore.DIRECT_KEY)?.let { it[0] + it[1] } ?: 0L
+        if (usageProfile != null && usageProfile != UsageStore.DIRECT_KEY) 0L
+        else src[bar.key]?.get(UsageStore.DIRECT_KEY)?.let { it[0] + it[1] } ?: 0L
     }
     val rangeDirect = remember(bars, dailyCfg, hourlyCfg, hourlyMode) { bars.sumOf(directOf) }
     val rangeVpn = (total[0] + total[1] - rangeDirect).coerceAtLeast(0L)
 
-    val ranged = remember(dailyCfg, hourlyCfg, bars, hourlyMode) {
-        UsageStore.configTotalsRange(dailyCfg, hourlyCfg, bars, hourlyMode)
+    val ranged = remember(dailyCfg, hourlyCfg, bars, hourlyMode, usageProfile) {
+        UsageStore.configTotalsRange(dailyCfg, hourlyCfg, bars, hourlyMode).filter { usageProfile == null || it.first == usageProfile }
     }
     val configDirect = ranged.firstOrNull { it.first == UsageStore.DIRECT_KEY }?.second
         ?: longArrayOf(0L, 0L)
@@ -10004,48 +10151,22 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(
-                t("range"),
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Box {
-                OutlinedButton(
-                    onClick = { menuOpen = true },
-                    shape = RoundedCornerShape(14.dp),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(t(mode.key), modifier = Modifier.weight(1f))
-                    Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = menuOpen,
-                    onDismissRequest = { menuOpen = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = ghajarColors.surface,
-                    border = BorderStroke(1.dp, ghajarColors.border)
-                ) {
-                    RangeMode.values().forEach { m ->
-                        DropdownMenuItem(
-                            text = { Text(t(m.key), style = MaterialTheme.typography.bodyMedium) },
-                            trailingIcon = {
-                                if (mode == m) Icon(
-                                    Icons.Filled.Check,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { mode = m; menuOpen = false }
-                        )
-                    }
+        ScreenHeader(title = t("data_usage"), context = "آمار ثبت‌شدهٔ واقعی این دستگاه")
+        Slab {
+            SlabRow(title = "انتخاب پیکربندی", subtitle = usageProfile?.let {
+                if (it == UsageStore.DIRECT_KEY) "بدون VPN" else it
+            } ?: "همهٔ اتصال‌ها", icon = Icons.Filled.Dns, chevron = true, onClick = { profileMenu = true })
+            DropdownMenu(expanded = profileMenu, onDismissRequest = { profileMenu = false }) {
+                DropdownMenuItem(text = { Text("همهٔ اتصال‌ها") }, onClick = { usageProfile = null; profileMenu = false })
+                profileNames.forEach { name ->
+                    DropdownMenuItem(text = { Text(if (name == UsageStore.DIRECT_KEY) "بدون VPN" else name) },
+                        onClick = { usageProfile = name; profileMenu = false })
                 }
             }
+            TabRail(RangeMode.entries.map { RailTab(t(it.key)) }, mode.ordinal, { mode = RangeMode.entries[it] })
+        }
+        if (total[0] + total[1] == 0L) {
+            SkinEmpty("داده‌ای در این بازه ثبت نشده", hint = "پس از عبور ترافیک، نمودار از اندازه‌گیری‌های دستگاه ساخته می‌شود.")
         }
 
         AnimatedVisibility(
@@ -10122,7 +10243,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(22.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f)
+                containerColor = ghajarColors.card
             ),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.25f))
         ) {
@@ -10132,7 +10253,7 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
                         icon = Icons.Filled.ArrowDownward,
                         label = t("download"),
                         bytes = total[1],
-                        tint = ghajarColors.info,
+                        tint = ghajarColors.highlight,
                         lang = lang,
                         modifier = Modifier.weight(1f)
                     )
@@ -10479,7 +10600,9 @@ private fun ConfigUsageDetailDialog(
                 }
             }
             HorizontalDivider(color = ghajarColors.border)
-            Text("مصرف به تفکیک برنامه", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+            Text("مصرف برنامه‌ها در ساعت‌های استفاده از این اتصال", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+            Text("آمار اندروید مربوط به این بازهٔ زمانی است؛ الزاماً تمام ترافیک هر برنامه از همین VPN عبور نکرده است.",
+                style = MaterialTheme.typography.labelSmall, color = ghajarColors.textSecondary)
             when {
                 longRange -> Text(
                     "تفکیک برنامه‌ای فقط برای «امروز» یا یک بازهٔ سفارشی کوتاه (حداکثر ۲ روز) در دسترس است؛ برای بازه‌های هفتگی و ماهانه فقط دقت روزانه ذخیره می‌شود.",
@@ -12441,8 +12564,8 @@ private fun ConfigRow(
         // its own small slab: filled, edgeless, on the nested card tone. The
         // active one is marked by a leading accent bar (drawn below), not by a
         // border - the skin has no borders.
-        colors = CardDefaults.cardColors(containerColor = containerColor ?: c.secondaryCard),
-        border = null
+        colors = CardDefaults.cardColors(containerColor = containerColor ?: c.card),
+        border = BorderStroke(1.dp, if (isActive) c.highlight else if (isSelected) c.primary else c.borderStrong)
     ) {
         Row(
             Modifier.fillMaxWidth().background(rowTint)
@@ -12480,6 +12603,11 @@ private fun ConfigRow(
                     }
                 } else {
                     MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface)
+                }
+                if (isActive || isSelected) {
+                    Text(if (isActive) { if (lang == Lang.FA) "متصل" else "Connected" }
+                        else { if (lang == Lang.FA) "انتخاب‌شده" else "Selected" },
+                        style = MaterialTheme.typography.labelSmall, color = if (isActive) c.successGlow else c.highlight)
                 }
                 // Protocol and endpoint on one line: the tag first, because it
                 // is the shorter, fixed-width half and a long hostname should

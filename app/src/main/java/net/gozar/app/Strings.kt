@@ -13,6 +13,8 @@ fun localizeDigits(text: String, lang: Lang): String {
 object Strings {
 
     private val en = mapOf(
+        "free_configs" to "Free configs",
+        "notifications" to "Notifications",
         "connection" to "Connection",
         "shop" to "Shop",
         "ssh" to "SSH",
@@ -1078,6 +1080,8 @@ object Strings {
     )
 
     private val fa = mapOf(
+        "free_configs" to "کانفیگ‌های رایگان",
+        "notifications" to "اعلان‌ها",
         "connection" to "اتصال",
         "shop" to "فروشگاه",
         "ssh" to "SSH",

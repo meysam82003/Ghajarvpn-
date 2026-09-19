@@ -194,6 +194,7 @@ object ConfigFile {
     fun decodeBackup(context: Context, bytes: ByteArray, password: String?): Backup {
         val root = open(bytes, password) { signingHash(context) }
         if (root.optString("kind") != "backup") throw NotABackup()
+        validateBackupVersion(root.optInt("v", 1))
         val cfgArr = root.optJSONArray("configs") ?: throw BadFile()
         val configs = (0 until cfgArr.length()).map {
             ProxyConfig.fromJson(cfgArr.getJSONObject(it))
@@ -203,13 +204,18 @@ object ConfigFile {
             Subscription.fromJson(subArr.getJSONObject(it))
         }
         val profilesArr = root.optJSONArray("openVpnProfiles") ?: JSONArray()
-        val profiles = (0 until profilesArr.length()).mapNotNull { i ->
-            runCatching { Base64.decode(profilesArr.getString(i), Base64.NO_WRAP) }.getOrNull()
+        val profiles = (0 until profilesArr.length()).map { i ->
+            try { Base64.decode(profilesArr.getString(i), Base64.NO_WRAP) }
+            catch (_: Exception) { throw BadFile() }
         }
         return Backup(
             configs, subs, root.optJSONObject("settings"), root.optJSONObject("openVpnSettings"), profiles,
             root.optJSONObject("networkRules")
         )
+    }
+
+    internal fun validateBackupVersion(version: Int) {
+        if (version !in 1..5) throw BadFile()
     }
 
     internal fun open(bytes: ByteArray, password: String?, certProvider: () -> String?): JSONObject {

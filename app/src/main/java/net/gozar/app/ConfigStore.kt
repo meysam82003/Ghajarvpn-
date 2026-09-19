@@ -612,6 +612,22 @@ class ConfigStore private constructor(context: Context) {
     private val _selectedId = MutableStateFlow(prefs.getString(KEY_SELECTED, null))
     val selectedId: StateFlow<String?> = _selectedId.asStateFlow()
 
+    /** Manual choice also disables automatic selection/failover. */
+    fun selectExplicitly(id: String) {
+        ServerAutoPilot.disengage(this)
+        setSelectedId(id)
+    }
+
+    private val _pickerQuery = MutableStateFlow(prefs.getString("picker_query", "").orEmpty())
+    val pickerQuery = _pickerQuery.asStateFlow()
+    fun setPickerQuery(value: String) { _pickerQuery.value = value; prefs.edit().putString("picker_query", value).apply() }
+    private val _pickerFavorites = MutableStateFlow(prefs.getBoolean("picker_favorites", false))
+    val pickerFavorites = _pickerFavorites.asStateFlow()
+    fun setPickerFavorites(value: Boolean) { _pickerFavorites.value = value; prefs.edit().putBoolean("picker_favorites", value).apply() }
+    private val _pickerProtocol = MutableStateFlow(prefs.getString("picker_protocol", null))
+    val pickerProtocol = _pickerProtocol.asStateFlow()
+    fun setPickerProtocol(value: String?) { _pickerProtocol.value = value; prefs.edit().putString("picker_protocol", value).apply() }
+
     fun setSelectedId(id: String?) {
         _selectedId.value = id
         prefs.edit().putString(KEY_SELECTED, id).apply()
