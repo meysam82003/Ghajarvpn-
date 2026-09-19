@@ -49,8 +49,7 @@ class AutoSelector(
         loopJob = null
     }
 
-    private fun selectable(all: List<ProxyConfig>): List<ProxyConfig> =
-        all.filter { it.protocol.trim().lowercase() !in SKIP_PROTOCOLS }
+    private fun selectable(all: List<ProxyConfig>): List<ProxyConfig> = interchangeable(all)
 
     private suspend fun measureAll(configs: List<ProxyConfig>) = coroutineScope {
         val marking = _results.value.toMutableMap()
@@ -147,11 +146,23 @@ class AutoSelector(
         VpnLauncher.relaunch(appContext, store, config)
     }
 
-    private companion object {
-        val SKIP_PROTOCOLS = setOf("tor", "aether")
-        const val TAG = "GhajarAuto"
-        const val INTERVAL_MS = 60_000L
-        const val MAX_CONCURRENCY = 4
-        const val SWITCH_MARGIN_MS = 40
+    companion object {
+        /**
+         * The servers that can stand in for one another.
+         *
+         * Tor and Aether are engines rather than endpoints - swapping one for
+         * the other is not "a faster server", it is a different product. This
+         * is public because the autopilot card ranks the same set, and two
+         * definitions of "candidate" is how a screen ends up promising to
+         * measure something the selector will never pick.
+         */
+        fun interchangeable(all: List<ProxyConfig>): List<ProxyConfig> =
+            all.filter { it.protocol.trim().lowercase() !in SKIP_PROTOCOLS }
+
+        private val SKIP_PROTOCOLS = setOf("tor", "aether")
+        private const val TAG = "GhajarAuto"
+        private const val INTERVAL_MS = 60_000L
+        private const val MAX_CONCURRENCY = 4
+        private const val SWITCH_MARGIN_MS = 40
     }
 }

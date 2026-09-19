@@ -2157,6 +2157,118 @@ private fun PickerStatsStrip(
     )
 }
 
+
+/**
+ * The card above the server list that flies the tunnel for you.
+ *
+ * Deliberately one card and not a switch in Settings: the question it answers
+ * - "which of these thirty works right now" - is asked while looking at the
+ * list, and an answer two screens away is an answer nobody reaches.
+ *
+ * Every state it can be in says something true and specific. It never says
+ * connected while measuring, and it never claims a server it did not pick:
+ * the phase comes from ServerAutoPilot, which only reports Engaged once the
+ * tunnel is actually up.
+ */
+@Composable
+private fun AutoPilotCard(
+    engaged: Boolean,
+    phase: AutoPilotPhase,
+    candidateCount: Int,
+    onEngage: () -> Unit,
+    onDisengage: () -> Unit
+) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val n: (String) -> String = { localizeDigits(it, lang) }
+    val c = ghajarColors
+    if (candidateCount == 0) return
+
+    val accent = when (phase) {
+        is AutoPilotPhase.Engaged -> c.good
+        is AutoPilotPhase.Failed -> c.error
+        is AutoPilotPhase.Measuring, is AutoPilotPhase.Connecting -> c.highlight
+        AutoPilotPhase.Off -> c.primary
+    }
+    val subtitle = when (phase) {
+        is AutoPilotPhase.Measuring ->
+            t("autopilot_measuring").format(n("${phase.done}"), n("${phase.total}"))
+        is AutoPilotPhase.Connecting ->
+            t("autopilot_connecting").format(phase.name)
+        is AutoPilotPhase.Engaged ->
+            t("autopilot_engaged_on").format(phase.name, n("${phase.ms}"))
+        is AutoPilotPhase.Failed -> t(phase.reasonKey)
+        AutoPilotPhase.Off -> t("autopilot_sub").format(n("$candidateCount"))
+    }
+    val busy = phase is AutoPilotPhase.Measuring || phase is AutoPilotPhase.Connecting
+
+    Slab(accent = accent, spacing = GhajarSpacing.sm) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+        ) {
+            Box(
+                Modifier
+                    .size(44.dp)
+                    .clip(RoundedCornerShape(15.dp))
+                    .background(accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(
+                        strokeWidth = 2.dp,
+                        color = accent,
+                        modifier = Modifier.size(20.dp)
+                    )
+                } else {
+                    Icon(
+                        Icons.Filled.Bolt,
+                        contentDescription = null,
+                        tint = accent,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+            }
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Text(
+                    mixedText(t("autopilot_title")),
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = c.textPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    mixedText(subtitle),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (phase is AutoPilotPhase.Failed) c.error else c.textSecondary,
+                    maxLines = 3
+                )
+            }
+            // One control, and it is the one the current state needs. An
+            // "engage" button that is live while already engaged is how a user
+            // ends up re-measuring a working tunnel by accident.
+            if (engaged) {
+                BounceOutlinedButton(
+                    onClick = onDisengage,
+                    minHeight = 38.dp,
+                    contentPadding = PaddingValues(horizontal = 14.dp)
+                ) {
+                    Text(t("autopilot_release"), style = MaterialTheme.typography.labelMedium)
+                }
+            } else {
+                BounceButton(onClick = onEngage, enabled = !busy) {
+                    Text(t("autopilot_go"), style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConfigPickerScreen(
@@ -2190,6 +2302,11 @@ private fun ConfigPickerScreen(
     val activeId by VpnState.activeId.collectAsState()
     val conn by VpnState.state.collectAsState()
     fun toggleConnection(cfg: ProxyConfig) {
+        // Tapping a server by hand is the user taking the choice back. Leaving
+        // the autopilot engaged here would let its failover loop move the
+        // tunnel off the server they just picked, some seconds later, with no
+        // explanation on screen.
+        if (store.autoPilot.value) ServerAutoPilot.disengage(store)
         if (cfg.id == activeId && conn != Connection.DISCONNECTED) onDisconnect() else onConnect(cfg)
     }
     val clipboard = LocalClipboardManager.current
@@ -2274,10 +2391,37 @@ private fun ConfigPickerScreen(
 
     val allIds = remember(configs) { configs.map { it.id }.toSet() }
 
+    // The autopilot card, above the list.
+    val autoPilotOn by store.autoPilot.collectAsState()
+    val autoPilotPhase by ServerAutoPilot.phase.collectAsState()
+    val newestFirst by store.newestFirst.collectAsState()
+    val activeName = remember(activeId, configs) {
+        configs.firstOrNull { it.id == activeId }?.name
+    }
+    // Tells the card a tunnel actually came up, so it stops saying
+    // "connecting". Keyed on both because a reconnect to the same server is
+    // still a transition the card has to follow.
+    LaunchedEffect(conn, activeName) {
+        if (conn == Connection.CONNECTED && activeName != null) {
+            ServerAutoPilot.onConnected(activeName)
+        }
+    }
+    LaunchedEffect(Unit) {
+        ServerAutoPilot.restore(
+            store,
+            if (conn == Connection.CONNECTED) activeName else null
+        )
+    }
+
+    // Newest-first is applied on top of the sort rather than as a fourth sort
+    // mode, because it answers a different question: the sort is how you want
+    // the list read, this is where the one you just added went. Only the
+    // stored order can be reversed - reversing "fastest" would put the slowest
+    // server under the thumb, which is the opposite of the point.
     fun sortMaybe(list: List<ProxyConfig>): List<ProxyConfig> = when (sortMode) {
         ConfigStore.SORT_FASTEST -> list.sortedBy { pingRank(pings[it.id]) }
         ConfigStore.SORT_ALPHA -> list.sortedBy { it.name.lowercase() }
-        else -> list
+        else -> if (newestFirst) list.asReversed() else list
     }
     val pingSortKey = if (sortMode == ConfigStore.SORT_FASTEST) {
         remember(configs, pings.toList()) {
@@ -2294,7 +2438,7 @@ private fun ConfigPickerScreen(
         cfg.name.contains(q, true) ||
         cfg.address.contains(q, true) ||
         cfg.protocol.contains(q, true)
-    val grouped = remember(configs, subscriptions, sortMode, pingSortKey, q, favoritesOnly, protocolFilter) {
+    val grouped = remember(configs, subscriptions, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter) {
         subscriptions.map { sub ->
             val all = sortMaybe(configs.filter { it.subId == sub.id && matchesFilters(it) })
             sub to when {
@@ -2304,7 +2448,7 @@ private fun ConfigPickerScreen(
         }.filter { (sub, list) -> q.isEmpty() || list.isNotEmpty() || sub.name.contains(q, true) }
             .sortedByDescending { (sub, _) -> WindscribeBrand.isWindscribe(sub) }
     }
-    val loose = remember(configs, sortMode, pingSortKey, q, favoritesOnly, protocolFilter) {
+    val loose = remember(configs, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter) {
         sortMaybe(configs.filter {
             it.subId.isEmpty() && matchesFilters(it) && matchesQuery(it)
         })
@@ -2516,6 +2660,22 @@ private fun ConfigPickerScreen(
             PickerStatsStrip(configs = configs, pings = pings)
         }
 
+        AnimatedVisibility(visible = !addMenu) {
+            AutoPilotCard(
+                engaged = autoPilotOn,
+                phase = autoPilotPhase,
+                candidateCount = remember(configs) {
+                    AutoSelector.interchangeable(configs).size
+                },
+                onEngage = {
+                    pickerScope.launch {
+                        ServerAutoPilot.engage(pickerContext, store) { onConnect(it) }
+                    }
+                },
+                onDisengage = { ServerAutoPilot.disengage(store) }
+            )
+        }
+
         // The four actions and the sub-update button used to float loose above
         // the list as five separate boxes. They are one slab now: the test is
         // the primary action on its row, the three tools are glyphs beside it,
@@ -2662,6 +2822,25 @@ private fun ConfigPickerScreen(
                         onClick = { purgeMenu = false; confirmPurgeAll = true }
                     )
                 }
+            }
+
+            // Newest at the top, under the thumb. A toggle rather than a sort
+            // option because it is a layout preference that survives whichever
+            // sort you are reading the list in, and it is here rather than in
+            // Settings because the moment you want it is the moment you have
+            // just pasted a config in and cannot find it.
+            BounceOutlinedButton(
+                onClick = { store.setNewestFirst(!newestFirst) },
+                minHeight = 42.dp,
+                contentPadding = PaddingValues(0.dp),
+                modifier = Modifier.size(42.dp)
+            ) {
+                Icon(
+                    Icons.Filled.ArrowUpward,
+                    contentDescription = t("newest_first"),
+                    tint = if (newestFirst) ghajarColors.primary else LocalContentColor.current,
+                    modifier = Modifier.size(20.dp)
+                )
             }
 
             Box {

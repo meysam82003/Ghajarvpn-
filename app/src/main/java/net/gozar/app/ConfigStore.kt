@@ -421,6 +421,39 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_AUTOSELECT, enabled).apply()
     }
 
+    /**
+     * The autopilot card is flying the tunnel.
+     *
+     * Kept apart from [autoSelect] although engaging sets both. autoSelect is
+     * the mechanism - a failover loop in the service - and it has always been
+     * settable on its own from Settings. This is the user having handed the
+     * choice of server over from the list, which is what the card reflects and
+     * what a manual tap on a server has to be able to take back.
+     */
+    private val _autoPilot = MutableStateFlow(prefs.getBoolean(KEY_AUTOPILOT, false))
+    val autoPilot: StateFlow<Boolean> = _autoPilot.asStateFlow()
+
+    fun setAutoPilot(enabled: Boolean) {
+        _autoPilot.value = enabled
+        prefs.edit().putBoolean(KEY_AUTOPILOT, enabled).apply()
+    }
+
+    /**
+     * Newest server at the top of the list, under the thumb.
+     *
+     * A config is added because it is about to be used, and the list is
+     * ordered oldest-first, so the one just pasted in landed at the bottom of
+     * thirty rows - the furthest point on the screen from where it was pasted.
+     * Off by default: the existing order is what people have learnt.
+     */
+    private val _newestFirst = MutableStateFlow(prefs.getBoolean(KEY_NEWEST_FIRST, false))
+    val newestFirst: StateFlow<Boolean> = _newestFirst.asStateFlow()
+
+    fun setNewestFirst(enabled: Boolean) {
+        _newestFirst.value = enabled
+        prefs.edit().putBoolean(KEY_NEWEST_FIRST, enabled).apply()
+    }
+
     private val _autoRefreshHours = MutableStateFlow(prefs.getInt(KEY_AUTOREFRESH, DEFAULT_AUTOREFRESH))
     val autoRefreshHours: StateFlow<Int> = _autoRefreshHours.asStateFlow()
 
@@ -677,6 +710,8 @@ class ConfigStore private constructor(context: Context) {
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
         put("zeptunTunnel", _zeptunTunnel.value)
+        put("autoPilot", _autoPilot.value)
+        put("newestFirst", _newestFirst.value)
         put("reduceMotion", _reduceMotion.value)
         put("dynamicAccent", _dynamicAccent.value)
         put("listDensity", _listDensity.value.name)
@@ -736,6 +771,8 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("customDns")) setCustomDns(o.optString("customDns"))
         if (o.has("rotateMinutes")) setRotateMinutes(o.optInt("rotateMinutes", 0))
         if (o.has("zeptunTunnel")) setZeptunTunnel(o.getBoolean("zeptunTunnel"))
+        if (o.has("autoPilot")) setAutoPilot(o.getBoolean("autoPilot"))
+        if (o.has("newestFirst")) setNewestFirst(o.getBoolean("newestFirst"))
         if (o.has("reduceMotion")) setReduceMotion(o.getBoolean("reduceMotion"))
         if (o.has("dynamicAccent")) setDynamicAccent(o.getBoolean("dynamicAccent"))
         if (o.has("listDensity")) runCatching {
@@ -994,6 +1031,8 @@ class ConfigStore private constructor(context: Context) {
         const val SORT_FASTEST = "fastest"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_UI_THEME = "ui_theme"
+        private const val KEY_AUTOPILOT = "auto_pilot"
+        private const val KEY_NEWEST_FIRST = "newest_first"
         private const val KEY_AETHER_SEED_CLEANED = "aether_seed_cleaned_v1"
         private const val KEY_AUTOREFRESH = "auto_refresh_hours"
         private const val DEFAULT_AUTOREFRESH = 1
