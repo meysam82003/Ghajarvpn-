@@ -2,13 +2,19 @@ package net.gozar.app
 
 import android.content.Context
 import android.os.Build
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationSpec
+import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.InfiniteRepeatableSpec
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.State
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 
@@ -92,6 +98,56 @@ fun <T> ghajarEndless(spec: InfiniteRepeatableSpec<T>): InfiniteRepeatableSpec<T
     } else {
         spec
     }
+
+/**
+ * An endless animation that stops existing when it has nothing to say.
+ *
+ * This is the difference between an animation that is invisible and one that
+ * is not running, and on this app it is most of why the UI felt like a
+ * twenty-four frame video.
+ *
+ * `rememberInfiniteTransition` keeps a frame callback scheduled for as long as
+ * it is in the composition, whatever its value is doing and whether or not
+ * anything reads it. The connect button's two transitions were created on
+ * every composition of the home screen, so the app held the frame loop open
+ * from launch: idle, disconnected, nothing moving, still waking the main
+ * thread every 16ms to interpolate two numbers nobody was drawing. Any scroll
+ * or gesture then had to share the frame with that, which is exactly what
+ * "the screen is 30Hz when it could be 144" feels like.
+ *
+ * An [Animatable] driven from a gated [LaunchedEffect] has the property the
+ * transition does not: when [active] is false the effect's body returns, no
+ * coroutine is suspended on a frame, and the frame loop goes back to sleep.
+ * When it turns true the animation starts from [from] with no jump.
+ *
+ * Reduced motion holds the value at [from] by the same mechanism - nothing
+ * scheduled at all - which is stricter than the frozen-spec path above.
+ */
+@Composable
+fun ghajarPulse(
+    active: Boolean,
+    durationMillis: Int,
+    from: Float = 0f,
+    to: Float = 1f,
+    reverse: Boolean = true,
+    easing: Easing = LinearEasing
+): State<Float> {
+    val reduce = LocalReduceMotion.current
+    val value = remember { Animatable(from) }
+    LaunchedEffect(active, reduce, durationMillis, from, to, reverse, easing) {
+        if (!active || reduce) {
+            value.snapTo(from)
+            return@LaunchedEffect
+        }
+        val spec = tween<Float>(durationMillis, easing = easing)
+        while (true) {
+            value.snapTo(from)
+            value.animateTo(to, spec)
+            if (reverse) value.animateTo(from, spec)
+        }
+    }
+    return value.asState()
+}
 
 /**
  * The accent pulled from the system wallpaper, or null.

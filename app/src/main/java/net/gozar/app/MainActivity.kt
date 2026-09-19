@@ -1694,6 +1694,22 @@ private fun GozarApp(
                             onShareFile = { exportConfigs = it },
                             onOpenVpnHub = { showOpenVpnHub = true },
                             onPsiphonHub = { showPsiphonHub = true },
+                            onTor = { showPicker = false; showTorNodes = true },
+                            // SSH and the DNS laboratory are screens on the
+                            // settings tab. Adding a server is the moment
+                            // somebody wants them, so the entry points are in
+                            // the add panel and the navigation crosses tabs
+                            // rather than duplicating either screen.
+                            onSsh = {
+                                showPicker = false
+                                sshDetail = true
+                                scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
+                            },
+                            onDnsLab = {
+                                showPicker = false
+                                dnsLabDetail = true
+                                scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
+                            },
                             onConnectOpenVpn = onConnectOpenVpn,
                             onDisconnectOpenVpn = onDisconnectOpenVpn,
                             onTestOpenVpn = onTestOpenVpn,
@@ -1720,7 +1736,8 @@ private fun GozarApp(
                         )
                         "projects" -> FreeProjectsScreen(
                             store = store,
-                            onOpenTor = { showTorNodes = true }
+                            onOpenTor = { showTorNodes = true },
+                            onAddManually = { showProjects = false; showManual = true }
                         )
                         "windscribe" -> WindscribeScreen(store = store)
                         "scanqr" -> QrScannerScreen(
@@ -1861,6 +1878,7 @@ private fun ConnectionScreen(
     val n: (String) -> String = { localizeDigits(it, lang) }
     val context = LocalContext.current
     val configs by store.configs.collectAsState()
+    val subscriptions by store.subscriptions.collectAsState()
     val conn by VpnState.state.collectAsState()
     val activeCfgId by VpnState.activeId.collectAsState()
     val picking by VpnState.picking.collectAsState()
@@ -2013,7 +2031,12 @@ private fun ConnectionScreen(
                             else -> "⁦${cfg.address}:${cfg.port}⁩"
                         }
                         "$engine · $endpoint"
-                    } ?: t("home_openvpn_hint")
+                    }
+                    // Nothing selected means nothing to say. The row's title
+                    // already reads "no server chosen"; a paragraph explaining
+                    // where OpenVPN lives was a manual printed on the dashboard.
+                    // SlabRow skips a blank subtitle, so the row collapses to
+                    // one line instead of holding space for it.
                 }
                 SlabRow(
                     title = when {
@@ -2028,6 +2051,27 @@ private fun ConnectionScreen(
                     chevron = true,
                     onClick = onOpenPicker
                 )
+            }
+
+            // What is left of the service this server came from.
+            //
+            // Every config that arrived from a subscription carries its subId,
+            // and the subscription carries the quota and the expiry the panel
+            // reported. Until now that pair was only readable by opening the
+            // picker and finding the right header - so the number people check
+            // most often was two screens from the connect button.
+            //
+            // Keyed on the server actually carrying traffic, falling back to
+            // the selected one, because "how much is left" is a question about
+            // the service in use. It draws nothing at all when the config is a
+            // hand-pasted one (no subId) or when the panel reported neither a
+            // quota nor an expiry: a card with two dashes on it is a decoration.
+            val routeSub = remember(activeConfig, subscriptions) {
+                activeConfig?.subId?.takeIf { it.isNotBlank() }
+                    ?.let { id -> subscriptions.firstOrNull { it.id == id } }
+            }
+            if (routeSub != null && (routeSub.total > 0 || routeSub.expire > 0)) {
+                SubscriptionQuotaCard(routeSub)
             }
 
             // Throughput: one object, two readings, totals underneath.
@@ -2114,6 +2158,96 @@ private fun ConnectionScreen(
 }
 
 /**
+ * What is left of the service the current server belongs to: its name, the
+ * data remaining and the days remaining, on the home screen.
+ *
+ * Every number here comes from the panel's own reply to the subscription
+ * fetch - `total`, `used` and `expire` on the [Subscription] - and nothing is
+ * derived beyond the subtraction. A field the panel did not send reads
+ * "unlimited" rather than a made-up figure, because an unmetered service and
+ * one whose quota failed to parse must not look the same.
+ *
+ * The caller only draws this when at least one of the two is real, so there
+ * is no empty state to design.
+ */
+@Composable
+private fun SubscriptionQuotaCard(sub: Subscription) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val c = ghajarColors
+
+    val remaining = if (sub.total > 0) (sub.total - sub.used).coerceAtLeast(0L) else 0L
+    val daysLeft = if (sub.expire > 0) {
+        (sub.expire * 1000L - System.currentTimeMillis()) / 86_400_000L
+    } else null
+
+    // The accent is the worse of the two readings, so one glance at the card's
+    // top edge says whether anything is about to run out.
+    val volumeLevel = if (sub.total > 0) remaining.toFloat() / sub.total else 1f
+    val timeLevel = when {
+        daysLeft == null -> 1f
+        daysLeft <= 1L -> 0f
+        daysLeft <= 3L -> 0.2f
+        daysLeft <= 7L -> 0.5f
+        else -> 1f
+    }
+    val worst = minOf(volumeLevel, timeLevel)
+    val accent = when {
+        worst <= 0.10f -> c.error
+        worst <= 0.30f -> c.warning
+        else -> c.premium
+    }
+
+    Slab(accent = accent, spacing = GhajarSpacing.md) {
+        SlabRow(
+            title = GhajarUiRules.brandedSubscriptionTitle(
+                sub.total,
+                BrandConfig.sanitizePublicText(sub.name)
+            ),
+            subtitle = t("home_sub_card"),
+            icon = Icons.Filled.DataUsage,
+            accent = accent
+        )
+        StatStrip(
+            listOf(
+                StatCell(
+                    label = t("home_sub_data_left"),
+                    value = if (sub.total > 0) formatBytes(remaining, lang)
+                    else t("home_sub_unlimited"),
+                    accent = if (sub.total > 0) usageLevelColor(remaining, sub.total) else c.premium,
+                    sub = if (sub.total > 0) t("home_total").format(formatBytes(sub.total, lang))
+                    else null
+                ),
+                StatCell(
+                    label = t("home_sub_time_left"),
+                    value = when {
+                        daysLeft == null -> t("home_sub_unlimited")
+                        daysLeft < 0L -> t("home_sub_expired")
+                        else -> t("home_sub_days").format(localizeDigits("$daysLeft", lang))
+                    },
+                    accent = when {
+                        daysLeft == null -> c.premium
+                        daysLeft < 0L -> c.error
+                        daysLeft <= 3L -> c.error
+                        daysLeft <= 7L -> c.warning
+                        else -> c.info
+                    }
+                )
+            )
+        )
+        if (sub.total > 0) {
+            UsageBar(used = sub.used, total = sub.total)
+        } else {
+            Text(
+                t("home_sub_unmetered"),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted
+            )
+        }
+    }
+}
+
+/**
  * The three readings above the server list: how many configs there are, how
  * many answered their ping, and the best time seen.
  *
@@ -2158,117 +2292,6 @@ private fun PickerStatsStrip(
 }
 
 
-/**
- * The card above the server list that flies the tunnel for you.
- *
- * Deliberately one card and not a switch in Settings: the question it answers
- * - "which of these thirty works right now" - is asked while looking at the
- * list, and an answer two screens away is an answer nobody reaches.
- *
- * Every state it can be in says something true and specific. It never says
- * connected while measuring, and it never claims a server it did not pick:
- * the phase comes from ServerAutoPilot, which only reports Engaged once the
- * tunnel is actually up.
- */
-@Composable
-private fun AutoPilotCard(
-    engaged: Boolean,
-    phase: AutoPilotPhase,
-    candidateCount: Int,
-    onEngage: () -> Unit,
-    onDisengage: () -> Unit
-) {
-    val t = stringsFn()
-    val lang = LocalLang.current
-    val n: (String) -> String = { localizeDigits(it, lang) }
-    val c = ghajarColors
-    if (candidateCount == 0) return
-
-    val accent = when (phase) {
-        is AutoPilotPhase.Engaged -> c.good
-        is AutoPilotPhase.Failed -> c.error
-        is AutoPilotPhase.Measuring, is AutoPilotPhase.Connecting -> c.highlight
-        AutoPilotPhase.Off -> c.primary
-    }
-    val subtitle = when (phase) {
-        is AutoPilotPhase.Measuring ->
-            t("autopilot_measuring").format(n("${phase.done}"), n("${phase.total}"))
-        is AutoPilotPhase.Connecting ->
-            t("autopilot_connecting").format(phase.name)
-        is AutoPilotPhase.Engaged ->
-            t("autopilot_engaged_on").format(phase.name, n("${phase.ms}"))
-        is AutoPilotPhase.Failed -> t(phase.reasonKey)
-        AutoPilotPhase.Off -> t("autopilot_sub").format(n("$candidateCount"))
-    }
-    val busy = phase is AutoPilotPhase.Measuring || phase is AutoPilotPhase.Connecting
-
-    Slab(accent = accent, spacing = GhajarSpacing.sm) {
-        Row(
-            Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-        ) {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(15.dp))
-                    .background(accent.copy(alpha = 0.16f)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (busy) {
-                    CircularProgressIndicator(
-                        strokeWidth = 2.dp,
-                        color = accent,
-                        modifier = Modifier.size(20.dp)
-                    )
-                } else {
-                    Icon(
-                        Icons.Filled.Bolt,
-                        contentDescription = null,
-                        tint = accent,
-                        modifier = Modifier.size(22.dp)
-                    )
-                }
-            }
-            Column(
-                Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(3.dp)
-            ) {
-                Text(
-                    mixedText(t("autopilot_title")),
-                    style = MaterialTheme.typography.bodyLarge,
-                    fontWeight = FontWeight.Bold,
-                    color = c.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    mixedText(subtitle),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (phase is AutoPilotPhase.Failed) c.error else c.textSecondary,
-                    maxLines = 3
-                )
-            }
-            // One control, and it is the one the current state needs. An
-            // "engage" button that is live while already engaged is how a user
-            // ends up re-measuring a working tunnel by accident.
-            if (engaged) {
-                BounceOutlinedButton(
-                    onClick = onDisengage,
-                    minHeight = 38.dp,
-                    contentPadding = PaddingValues(horizontal = 14.dp)
-                ) {
-                    Text(t("autopilot_release"), style = MaterialTheme.typography.labelMedium)
-                }
-            } else {
-                BounceButton(onClick = onEngage, enabled = !busy) {
-                    Text(t("autopilot_go"), style = MaterialTheme.typography.labelMedium)
-                }
-            }
-        }
-    }
-}
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ConfigPickerScreen(
@@ -2285,6 +2308,9 @@ private fun ConfigPickerScreen(
     onShareFile: (List<ProxyConfig>) -> Unit,
     onOpenVpnHub: () -> Unit = {},
     onPsiphonHub: () -> Unit = {},
+    onTor: () -> Unit = {},
+    onSsh: () -> Unit = {},
+    onDnsLab: () -> Unit = {},
     onConnectOpenVpn: (String) -> Unit = {},
     onDisconnectOpenVpn: () -> Unit = {},
     onTestOpenVpn: (String) -> Unit = {},
@@ -2302,11 +2328,6 @@ private fun ConfigPickerScreen(
     val activeId by VpnState.activeId.collectAsState()
     val conn by VpnState.state.collectAsState()
     fun toggleConnection(cfg: ProxyConfig) {
-        // Tapping a server by hand is the user taking the choice back. Leaving
-        // the autopilot engaged here would let its failover loop move the
-        // tunnel off the server they just picked, some seconds later, with no
-        // explanation on screen.
-        if (store.autoPilot.value) ServerAutoPilot.disengage(store)
         if (cfg.id == activeId && conn != Connection.DISCONNECTED) onDisconnect() else onConnect(cfg)
     }
     val clipboard = LocalClipboardManager.current
@@ -2388,30 +2409,16 @@ private fun ConfigPickerScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var chainFor by remember { mutableStateOf<ProxyConfig?>(null) }
     var openActionsId by remember { mutableStateOf<String?>(null) }
+    // Adding a subscription by its link. The clipboard path already handled a
+    // URL, but only if you had first put one on the clipboard and knew the app
+    // would treat it as a subscription rather than a config - which is not a
+    // thing the panel said anywhere.
+    var subDialog by remember { mutableStateOf(false) }
+    var subDraftUrl by remember { mutableStateOf("") }
 
     val allIds = remember(configs) { configs.map { it.id }.toSet() }
 
-    // The autopilot card, above the list.
-    val autoPilotOn by store.autoPilot.collectAsState()
-    val autoPilotPhase by ServerAutoPilot.phase.collectAsState()
     val newestFirst by store.newestFirst.collectAsState()
-    val activeName = remember(activeId, configs) {
-        configs.firstOrNull { it.id == activeId }?.name
-    }
-    // Tells the card a tunnel actually came up, so it stops saying
-    // "connecting". Keyed on both because a reconnect to the same server is
-    // still a transition the card has to follow.
-    LaunchedEffect(conn, activeName) {
-        if (conn == Connection.CONNECTED && activeName != null) {
-            ServerAutoPilot.onConnected(activeName)
-        }
-    }
-    LaunchedEffect(Unit) {
-        ServerAutoPilot.restore(
-            store,
-            if (conn == Connection.CONNECTED) activeName else null
-        )
-    }
 
     // Newest-first is applied on top of the sort rather than as a fourth sort
     // mode, because it answers a different question: the sort is how you want
@@ -2423,11 +2430,30 @@ private fun ConfigPickerScreen(
         ConfigStore.SORT_ALPHA -> list.sortedBy { it.name.lowercase() }
         else -> if (newestFirst) list.asReversed() else list
     }
-    val pingSortKey = if (sortMode == ConfigStore.SORT_FASTEST) {
-        remember(configs, pings.toList()) {
-            configs.joinToString(",") { "${it.id}:${pingRank(pings[it.id])}" }
+    // The single worst thing this screen did per frame.
+    //
+    // It was `remember(configs, pings.toList()) { configs.joinToString(...) }`,
+    // and every part of that was expensive in a different way. `pings.toList()`
+    // ran on every composition of the picker - a full copy of the map, which on
+    // an imported list is nine hundred entries - purely to serve as a remember
+    // key. Building it read every entry, which subscribed *the whole screen* to
+    // the whole map, so one ping result arriving invalidated the picker rather
+    // than the row it belonged to. Then the body built a comma-joined string of
+    // nine hundred "id:rank" pairs, about twenty kilobytes, and threw it away.
+    // Test-all fires a few hundred of those results in a couple of seconds, and
+    // each one bought a map copy, a 20KB string, two re-sorts and two
+    // re-groupings of the entire list. That is the twenty-four-frames feel.
+    //
+    // The same job is an Int hash computed inside derivedStateOf: the map reads
+    // happen in the derived scope, so a ping invalidates that and nothing else,
+    // and the screen only recomposes when the ordering key actually changes
+    // value - which is the amount of work the sort genuinely needs.
+    val pingSortKey by remember(sortMode) {
+        derivedStateOf {
+            if (sortMode != ConfigStore.SORT_FASTEST) 0
+            else configs.fold(7) { acc, cfg -> acc * 31 + pingRank(pings[cfg.id]) }
         }
-    } else 0
+    }
     val q = query.trim()
     fun matchesFilters(cfg: ProxyConfig): Boolean =
         (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter)
@@ -2642,7 +2668,11 @@ private fun ConfigPickerScreen(
             onScanQr = { addMenu = false; onScanQr() },
             onQrFromImage = { addMenu = false; qrImagePicker.launch("image/*") },
             onOpenVpn = { addMenu = false; onOpenVpnHub() },
-            onPsiphon = { addMenu = false; onPsiphonHub() }
+            onPsiphon = { addMenu = false; onPsiphonHub() },
+            onTor = { addMenu = false; onTor() },
+            onSsh = { addMenu = false; onSsh() },
+            onDnsLab = { addMenu = false; onDnsLab() },
+            onSubscription = { addMenu = false; subDialog = true }
         )
         }
 
@@ -2660,31 +2690,19 @@ private fun ConfigPickerScreen(
             PickerStatsStrip(configs = configs, pings = pings)
         }
 
-        AnimatedVisibility(visible = !addMenu) {
-            AutoPilotCard(
-                engaged = autoPilotOn,
-                phase = autoPilotPhase,
-                candidateCount = remember(configs) {
-                    AutoSelector.interchangeable(configs).size
-                },
-                onEngage = {
-                    pickerScope.launch {
-                        ServerAutoPilot.engage(pickerContext, store) { onConnect(it) }
-                    }
-                },
-                onDisengage = { ServerAutoPilot.disengage(store) }
-            )
-        }
-
-        // The four actions and the sub-update button used to float loose above
-        // the list as five separate boxes. They are one slab now: the test is
-        // the primary action on its row, the three tools are glyphs beside it,
-        // and the two list-wide jobs share the row underneath - including the
-        // free-projects entry, which was previously only reachable by first
-        // expanding "افزودن سرور" and was being missed entirely.
+        // The toolbar, rebuilt around what fits.
+        //
+        // It was three rows of mixed-width outlined buttons: a labelled button
+        // sharing its row with four 42dp glyphs, then one labelled button on a
+        // row of its own, then two more. At Persian text width that put
+        // "اتصال به سریع‌ترین" through an ellipsis and left a half-empty row
+        // above it. Labels and glyphs are separated now - two labelled jobs on
+        // one row, the connect action full width beneath them, and the five
+        // list tools as one evenly spread glyph rail - so nothing is truncated
+        // and every glyph is the same size.
         AnimatedVisibility(visible = !addMenu) {
         Slab(spacing = GhajarSpacing.sm) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
             BounceOutlinedButton(
                 onClick = {
                     val snapshot = configs
@@ -2719,43 +2737,182 @@ private fun ConfigPickerScreen(
                         }
                     }
                 },
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                modifier = Modifier.weight(1f).height(42.dp)
+                minHeight = 46.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f).height(46.dp)
             ) {
                 Icon(painterResource(R.drawable.signal), contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
+                Spacer(Modifier.width(6.dp))
                 Text(
                     when (testAllState) {
                         1 -> t("testing")
                         2 -> t("test_completed")
                         else -> t("test_all")
                     },
+                    style = MaterialTheme.typography.labelLarge,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             }
 
-            Box {
-                BounceOutlinedButton(
-                    onClick = { purgeMenu = true },
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(
-                        Icons.Filled.DeleteSweep,
-                        contentDescription = t("delete_all"),
-                        modifier = Modifier.size(20.dp)
-                    )
+            BounceOutlinedButton(
+                onClick = {
+                    if (updateSubsState != 1) {
+                        updateSubsState = 1
+                        scope.launch {
+                            // The same refresher the app-entry path uses, forced
+                            // and with no floor: a button press means refresh
+                            // now. It handles the free-configs source and a dead
+                            // URL per subscription, which the copy that used to
+                            // live here did not.
+                            val before = store.subscriptions.value
+                                .associate { it.id to it.lastUpdated }
+                            SubscriptionRefresher.refreshStale(store, force = true)
+                            updateSubsState = 0
+                            val after = store.subscriptions.value
+                            val refreshable = after.count { SubscriptionRefresher.refreshable(it) }
+                            val updated = after.count { (before[it.id] ?: 0L) < it.lastUpdated }
+                            when {
+                                refreshable == 0 -> subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
+                                updated >= refreshable -> addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
+                                updated > 0 -> addDone = n("$updated از $refreshable ساب بروزرسانی شد")
+                                else -> subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
+                            }
+                        }
+                    }
+                },
+                minHeight = 46.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                modifier = Modifier.weight(1f).height(46.dp)
+            ) {
+                if (updateSubsState == 1) {
+                    CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
+                } else {
+                    Icon(Icons.Filled.Autorenew, contentDescription = null, modifier = Modifier.size(18.dp))
                 }
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    when (updateSubsState) {
+                        1 -> t("fetching_sub")
+                        else -> "آپدیت ساب‌ها"
+                    },
+                    style = MaterialTheme.typography.labelLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+
+        // Connect to the fastest server without first reading the list.
+        // AutoSelector already measures and ranks every candidate for the
+        // auto-connect path; this is the same call, on demand. Full width
+        // because its label is the longest one here and it is the row's point.
+        PillButton(
+            text = if (pickingFastest) t("finding_fastest") else t("picker_connect_fastest"),
+            icon = Icons.Filled.Bolt,
+            enabled = configs.isNotEmpty() && !pickingFastest,
+            onClick = {
+                if (!pickingFastest) {
+                    pickingFastest = true
+                    scope.launch {
+                        val best = runCatching {
+                            AutoSelector(context, store).pickFastest()
+                        }.getOrNull()
+                        pickingFastest = false
+                        if (best != null) onConnect(best)
+                        else subStatus = t("picker_no_fastest")
+                    }
+                }
+            }
+        )
+
+        // The five list tools, all the same size, evenly spread. Each one is a
+        // toggle or a menu, none of them needs a word, and putting them on a
+        // rail of their own is what stopped them squeezing the labels above.
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            PickerTool(
+                icon = if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
+                label = t("search_servers"),
+                active = searchOpen,
+                onClick = {
+                    searchOpen = !searchOpen
+                    if (!searchOpen) query = ""
+                }
+            )
+            PickerTool(
+                icon = if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
+                label = t("picker_favourites") +
+                    if (favouriteCount > 0) " (" + n("$favouriteCount") + ")" else "",
+                active = favoritesOnly,
+                enabled = favouriteCount > 0 || favoritesOnly,
+                onClick = { favoritesOnly = !favoritesOnly }
+            )
+            // Newest at the top, under the thumb. A toggle rather than a sort
+            // option because it is a layout preference that survives whichever
+            // sort you are reading the list in, and it is here rather than in
+            // Settings because the moment you want it is the moment you have
+            // just pasted a config in and cannot find it.
+            PickerTool(
+                icon = Icons.Filled.ArrowUpward,
+                label = t("newest_first"),
+                active = newestFirst,
+                onClick = { store.setNewestFirst(!newestFirst) }
+            )
+            Box {
+                PickerTool(
+                    icon = Icons.Filled.SwapVert,
+                    label = t("sort"),
+                    onClick = { sortMenu = true }
+                )
+                DropdownMenu(
+                    expanded = sortMenu,
+                    onDismissRequest = { sortMenu = false },
+                    offset = DpOffset(0.dp, 8.dp),
+                    shape = RoundedCornerShape(GhajarRadius.lg),
+                    containerColor = ghajarColors.card,
+                    border = null
+                ) {
+                    listOf(
+                        ConfigStore.SORT_ALPHA to t("sort_alpha"),
+                        ConfigStore.SORT_FASTEST to t("sort_fastest"),
+                        ConfigStore.SORT_ADDED to t("sort_added")
+                    ).forEach { (mode, label) ->
+                        DropdownMenuItem(
+                            text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
+                            trailingIcon = {
+                                if (sortMode == mode)
+                                    Icon(
+                                        Icons.Filled.Check,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                            },
+                            contentPadding = PaddingValues(horizontal = 14.dp),
+                            modifier = Modifier.height(40.dp),
+                            onClick = { store.setSortMode(mode); sortMenu = false }
+                        )
+                    }
+                }
+            }
+            Box {
+                PickerTool(
+                    icon = Icons.Filled.DeleteSweep,
+                    label = t("delete_all"),
+                    destructive = true,
+                    onClick = { purgeMenu = true }
+                )
                 DropdownMenu(
                     expanded = purgeMenu,
                     onDismissRequest = { purgeMenu = false },
                     offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = ghajarColors.surface,
-                    border = BorderStroke(1.dp, ghajarColors.border)
+                    shape = RoundedCornerShape(GhajarRadius.lg),
+                    containerColor = ghajarColors.card,
+                    border = null
                 ) {
                     DropdownMenuItem(
                         text = { Text(t("delete_manual_configs"), style = MaterialTheme.typography.bodyMedium) },
@@ -2823,193 +2980,7 @@ private fun ConfigPickerScreen(
                     )
                 }
             }
-
-            // Newest at the top, under the thumb. A toggle rather than a sort
-            // option because it is a layout preference that survives whichever
-            // sort you are reading the list in, and it is here rather than in
-            // Settings because the moment you want it is the moment you have
-            // just pasted a config in and cannot find it.
-            BounceOutlinedButton(
-                onClick = { store.setNewestFirst(!newestFirst) },
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(42.dp)
-            ) {
-                Icon(
-                    Icons.Filled.ArrowUpward,
-                    contentDescription = t("newest_first"),
-                    tint = if (newestFirst) ghajarColors.primary else LocalContentColor.current,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-
-            Box {
-                BounceOutlinedButton(
-                    onClick = { sortMenu = true },
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(0.dp),
-                    modifier = Modifier.size(42.dp)
-                ) {
-                    Icon(Icons.Filled.SwapVert, contentDescription = t("sort"), modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = sortMenu,
-                    onDismissRequest = { sortMenu = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = ghajarColors.surface,
-                    border = BorderStroke(1.dp, ghajarColors.border)
-                ) {
-                    listOf(
-                        ConfigStore.SORT_ALPHA to t("sort_alpha"),
-                        ConfigStore.SORT_FASTEST to t("sort_fastest"),
-                        ConfigStore.SORT_ADDED to t("sort_added")
-                    ).forEach { (mode, label) ->
-                        DropdownMenuItem(
-                            text = { Text(label, style = MaterialTheme.typography.bodyMedium) },
-                            trailingIcon = {
-                                if (sortMode == mode)
-                                    Icon(
-                                        Icons.Filled.Check,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                            },
-                            contentPadding = PaddingValues(horizontal = 14.dp),
-                            modifier = Modifier.height(40.dp),
-                            onClick = { store.setSortMode(mode); sortMenu = false }
-                        )
-                    }
-                }
-            }
-
-            BounceOutlinedButton(
-                onClick = {
-                    searchOpen = !searchOpen
-                    if (!searchOpen) query = ""
-                },
-                minHeight = 42.dp,
-                contentPadding = PaddingValues(0.dp),
-                modifier = Modifier.size(42.dp)
-            ) {
-                Icon(
-                    if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
-                    contentDescription = t("search_servers"),
-                    modifier = Modifier.size(20.dp)
-                )
-            }
         }
-
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-        BounceOutlinedButton(
-            onClick = {
-                if (updateSubsState != 1) {
-                    updateSubsState = 1
-                    scope.launch {
-                        // The same refresher the app-entry path uses, forced and
-                        // with no floor: a button press means refresh now. It
-                        // handles the free-configs source and a dead URL per
-                        // subscription, which the copy that used to live here
-                        // did not.
-                        val before = store.subscriptions.value
-                            .associate { it.id to it.lastUpdated }
-                        SubscriptionRefresher.refreshStale(store, force = true)
-                        updateSubsState = 0
-                        val after = store.subscriptions.value
-                        val refreshable = after.count { SubscriptionRefresher.refreshable(it) }
-                        val updated = after.count { (before[it.id] ?: 0L) < it.lastUpdated }
-                        when {
-                            refreshable == 0 -> subStatus = "ساب اینترنتی برای بروزرسانی وجود ندارد"
-                            updated >= refreshable -> addDone = n("همهٔ ساب‌ها بروزرسانی شد ($updated)")
-                            updated > 0 -> addDone = n("$updated از $refreshable ساب بروزرسانی شد")
-                            else -> subStatus = "${t("fetch_failed")}: هیچ سابی بروزرسانی نشد"
-                        }
-                    }
-                }
-            },
-            minHeight = 42.dp,
-            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-            modifier = Modifier.weight(1f).height(42.dp)
-        ) {
-            if (updateSubsState == 1) {
-                CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-            } else {
-                Icon(Icons.Filled.Autorenew, contentDescription = null, modifier = Modifier.size(18.dp))
-            }
-            Spacer(Modifier.width(8.dp))
-            Text(
-                when (updateSubsState) {
-                    1 -> t("fetching_sub")
-                    else -> "آپدیت ساب‌ها"
-                },
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
-
-        }
-
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                // Connect to the fastest server without first reading the list.
-                // AutoSelector already measures and ranks every candidate for
-                // the auto-connect path; this is the same call, on demand.
-                BounceOutlinedButton(
-                    onClick = {
-                        if (!pickingFastest) {
-                            pickingFastest = true
-                            scope.launch {
-                                val best = runCatching {
-                                    AutoSelector(context, store).pickFastest()
-                                }.getOrNull()
-                                pickingFastest = false
-                                if (best != null) onConnect(best)
-                                else subStatus = t("picker_no_fastest")
-                            }
-                        }
-                    },
-                    enabled = configs.isNotEmpty() && !pickingFastest,
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    modifier = Modifier.weight(1f).height(42.dp)
-                ) {
-                    if (pickingFastest) {
-                        CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
-                    } else {
-                        Icon(Icons.Filled.Bolt, contentDescription = null, modifier = Modifier.size(18.dp))
-                    }
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (pickingFastest) t("finding_fastest") else t("picker_connect_fastest"),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-
-                // The favourites filter used to live inside the search row, so
-                // it only existed once you had opened search - which is not
-                // where anyone looks for it.
-                BounceOutlinedButton(
-                    onClick = { favoritesOnly = !favoritesOnly },
-                    enabled = favouriteCount > 0 || favoritesOnly,
-                    minHeight = 42.dp,
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                    accent = if (favoritesOnly) ghajarColors.highlight else ghajarColors.primary,
-                    modifier = Modifier.weight(1f).height(42.dp)
-                ) {
-                    Icon(
-                        if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        t("picker_favourites") + if (favouriteCount > 0) " (" + n("$favouriteCount") + ")" else "",
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-            }
         }
         }
 
@@ -3018,6 +2989,9 @@ private fun ConfigPickerScreen(
             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
             exit = fadeOut(tween(200)) + shrinkVertically(tween(200))
         ) {
+            // The favourites toggle used to be repeated here as well. It lives
+            // on the tool rail now, where it is visible without opening search
+            // first, so this row is the query and the protocol filter only.
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = query,
@@ -3028,14 +3002,6 @@ private fun ConfigPickerScreen(
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(onClick = { favoritesOnly = !favoritesOnly }) {
-                    Icon(
-                        if (favoritesOnly) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = "فقط موردعلاقه‌ها",
-                        tint = if (favoritesOnly) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
                 Box {
                     IconButton(onClick = { protocolMenu = true }) {
                         Icon(
@@ -3348,6 +3314,42 @@ private fun ConfigPickerScreen(
                 },
                 onDelete = { confirmDelete = true }
             )
+        }
+    }
+
+    if (subDialog) {
+        GlassDialog(
+            onDismiss = { subDialog = false },
+            title = t("add_sub_row"),
+            confirmLabel = t("add"),
+            dismissLabel = t("cancel"),
+            onConfirm = {
+                val url = subDraftUrl.trim()
+                subDialog = false
+                if (url.isNotEmpty()) {
+                    subDraftUrl = ""
+                    // The same import path the clipboard uses, so a link
+                    // behaves identically however it arrived - including the
+                    // per-error messages for an HTTP failure, an empty list
+                    // and a Clash file.
+                    doAdd(url)
+                }
+            }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                Text(
+                    t("add_sub_row_sub"),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = ghajarColors.textSecondary
+                )
+                SkinField(
+                    value = subDraftUrl,
+                    onValueChange = { subDraftUrl = it },
+                    label = t("add_sub_url"),
+                    placeholder = "https://",
+                    singleLine = true
+                )
+            }
         }
     }
 
@@ -3950,6 +3952,10 @@ private fun AddServerPanel(
     onQrFromImage: () -> Unit = {},
     onOpenVpn: () -> Unit = {},
     onPsiphon: () -> Unit = {},
+    onTor: () -> Unit = {},
+    onSsh: () -> Unit = {},
+    onDnsLab: () -> Unit = {},
+    onSubscription: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -4076,7 +4082,10 @@ private fun AddServerPanel(
                     }
                 }
 
-                Rail(t("add_group_engines"))
+                // Engines that carry traffic without a config of their own.
+                // Psiphon first because nobody finds it by looking for
+                // somewhere to paste something.
+                Rail(t("add_group_tunnels"))
                 SlabRow(
                     title = "Psiphon",
                     subtitle = t("add_psiphon_sub"),
@@ -4088,6 +4097,44 @@ private fun AddServerPanel(
                 )
                 SlabDivider()
                 SlabRow(
+                    title = "Tor",
+                    subtitle = t("add_tor_sub"),
+                    iconRes = R.drawable.tor,
+                    accent = c.premium,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onTor
+                )
+                SlabDivider()
+                SlabRow(
+                    title = "SSH",
+                    subtitle = t("add_ssh_sub"),
+                    icon = Icons.Filled.Terminal,
+                    accent = c.highlight,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onSsh
+                )
+
+                // DNS is its own kind of thing: the laboratory measures
+                // resolvers and the tunnel rides on one, and neither is a
+                // server you paste in.
+                Rail(t("add_group_dns"))
+                SlabRow(
+                    title = t("dnslab_title"),
+                    subtitle = t("add_dnslab_sub"),
+                    icon = Icons.Filled.Dns,
+                    accent = c.info,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onDnsLab
+                )
+
+                // The two full VPN protocols. OpenVPN reads a profile file;
+                // IKEv2 is typed in, and the manual form already has it in its
+                // protocol list - this is the entry point that says so.
+                Rail(t("add_group_vpn"))
+                SlabRow(
                     title = "OpenVPN",
                     subtitle = t("add_ovpn_sub"),
                     icon = Icons.Filled.Security,
@@ -4095,6 +4142,30 @@ private fun AddServerPanel(
                     chevron = true,
                     enabled = !busy,
                     onClick = onOpenVpn
+                )
+                SlabDivider()
+                SlabRow(
+                    title = "IKEv2 / IPsec",
+                    subtitle = t("add_ikev2_sub"),
+                    icon = Icons.Filled.Lock,
+                    accent = c.warning,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onManual
+                )
+
+                // A link that maintains its own list. It was only reachable by
+                // pasting one into the clipboard path and hoping the app
+                // recognised it as a subscription rather than a config.
+                Rail(t("add_group_sub"))
+                SlabRow(
+                    title = t("add_sub_row"),
+                    subtitle = t("add_sub_row_sub"),
+                    icon = Icons.Filled.Hub,
+                    accent = c.primary,
+                    chevron = true,
+                    enabled = !busy,
+                    onClick = onSubscription
                 )
 
                 Rail(t("add_group_providers"))
@@ -4126,9 +4197,12 @@ private fun AddServerPanel(
 private fun FreeProjectsScreen(
     store: ConfigStore,
     onOpenTor: () -> Unit,
+    onAddManually: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
+    val lang = LocalLang.current
+    val n: (String) -> String = { localizeDigits(it, lang) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var busy by remember { mutableStateOf(false) }
@@ -4136,6 +4210,7 @@ private fun FreeProjectsScreen(
     var statusOwner by remember { mutableStateOf("") }
     var aetherMode by remember { mutableStateOf("masque") }
     var aetherH2 by remember { mutableStateOf(true) }
+    val c = ghajarColors
 
     LaunchedEffect(status) {
         if (status.isNotEmpty()) { delay(4000); status = ""; statusOwner = "" }
@@ -4144,112 +4219,167 @@ private fun FreeProjectsScreen(
     Column(
         modifier.fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Bolt,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(t("legacy_warp"), style = MaterialTheme.typography.titleMedium)
-                }
-                Text(
-                    accentText(
-                        t("proj_warp_desc"),
-                        "use Aether instead there",
-                        "\u062f\u0631 \u0627\u06cc\u0631\u0627\u0646 \u0627\u0632 Aether \u0627\u0633\u062a\u0641\u0627\u062f\u0647 \u06a9\u0646\u06cc\u062f"
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                BounceButton(
-                    onClick = {
-                        if (busy) return@BounceButton
-                        busy = true; status = ""; statusOwner = "warp"
-                        scope.launch {
-                            val result = withContext(Dispatchers.IO) { Warp.register() }
-                            status = when (result) {
-                                is Warp.Result.Success -> {
-                                    result.configs.forEach { store.add(it) }
-                                    t("warp_added")
-                                }
-                                is Warp.Result.Failure -> t("warp_failed")
-                            }
-                            busy = false
-                        }
+        // Free configs first, and rebuilt.
+        //
+        // This screen was the last one still made of Material cards with
+        // borders inside a skin that has none, and the free-config block was
+        // the part people came here for buried third. It says what it will do
+        // before it does it - the window it reads, the cap, the latency it
+        // accepts - because every one of those is a real rule in FreeConfigs
+        // and not knowing them made "I got 6 configs" look like a failure.
+        val freeBusy by FreeConfigs.busy.collectAsState()
+        val freeProgress by FreeConfigs.progress.collectAsState()
+        val freeIncomplete by FreeConfigs.incomplete.collectAsState()
+        val subs by store.subscriptions.collectAsState()
+        val configs by store.configs.collectAsState()
+        val freeSub = remember(subs) { subs.firstOrNull { it.url == FreeConfigs.SOURCE_URL } }
+        val savedCount = remember(configs, freeSub) {
+            freeSub?.let { s -> configs.count { it.subId == s.id } } ?: 0
+        }
+
+        Slab(accent = if (freeBusy) c.highlight else c.premium, spacing = GhajarSpacing.md) {
+            SlabRow(
+                title = t("proj_free"),
+                subtitle = "@" + FreeConfigs.CHANNEL,
+                icon = Icons.Filled.CardGiftcard,
+                accent = c.premium
+            )
+            // The state of the source, as one chip. "Not checked yet" and
+            // "checked, found nothing" are different things and used to read
+            // the same.
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                QuotaChip(
+                    label = when {
+                        freeBusy -> t("proj_free_working")
+                        freeSub == null || freeSub.lastUpdated <= 0L -> t("free_never")
+                        else -> t("sub_updated_at").format(formatStamp(freeSub.lastUpdated, lang))
                     },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    ProjectButtonLabel(
-                        status = if (statusOwner == "warp") status else "",
-                        label = if (busy) t("adding") else t("add_warp")
-                    )
+                    level = if (freeSub == null || freeSub.lastUpdated <= 0L) 1 else 0
+                )
+            }
+            // The rules this fetch runs under, each one read from the code that
+            // enforces it rather than typed out here as a claim.
+            Text(
+                listOf(
+                    t("free_src_window"),
+                    t("free_src_cap").format(n("${net.gozar.app.freecfg.FreeFeedRules.MAX_MANAGED_CONFIGS}")),
+                    t("free_src_latency").format(n("${FreeConfigs.MAX_LATENCY_MS}")),
+                    t("free_src_dedupe")
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted
+            )
+            val p = freeProgress
+            if (p != null && freeBusy) {
+                Text(
+                    (if (p.collecting) n("دریافت پیام‌ها (${p.pages} صفحه)") + " · " else "") +
+                        localizeDigits(t("proj_free_testing").format(p.tested, p.total, p.alive), lang),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.highlight
+                )
+            }
+            PillButton(
+                text = when {
+                    freeBusy -> t("proj_free_working")
+                    freeSub != null -> t("refresh")
+                    else -> t("add")
+                },
+                icon = Icons.Filled.Autorenew,
+                enabled = !freeBusy,
+                onClick = {
+                    scope.launch {
+                        val kept = FreeConfigs.refreshMultiSource(store, t("proj_free"))
+                        statusOwner = "free"
+                        status = when {
+                            kept > 0 -> localizeDigits(t("proj_free_added").format(kept), lang) +
+                                if (FreeConfigs.incomplete.value) "؛ بعضی منابع در دسترس نبودند، موارد قبلی حفظ شدند." else ""
+                            kept == FreeConfigs.UNREACHABLE -> t("proj_free_unreachable")
+                            kept == FreeConfigs.NO_CONFIGS -> t("proj_free_nocfg")
+                            kept == FreeConfigs.BUSY -> t("proj_free_working")
+                            else -> t("proj_free_none")
+                        }
+                    }
                 }
+            )
+            GhostPill(
+                text = t("free_add_config"),
+                icon = Icons.Filled.Add,
+                onClick = onAddManually
+            )
+            if (statusOwner == "free" && status.isNotEmpty()) {
+                Text(
+                    mixedText(status),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.primary
+                )
+            }
+            if (freeIncomplete) {
+                Text(
+                    t("free_needs_tunnel"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.warning
+                )
             }
         }
 
-        SettingsGroup {
-            Text(
-                t("proj_aether_title"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
+        Rail(
+            n(t("free_saved").format("$savedCount")) +
+                if (savedCount > 0) " · " + t("free_sorted") else ""
+        )
+        if (savedCount == 0) {
+            SkinEmpty(
+                title = t("free_empty_title"),
+                hint = t("free_empty_hint"),
+                icon = Icons.Filled.FileDownload
             )
-            Text(
-                accentText(
-                    t("proj_aether_desc"),
-                    "MASQUE, WireGuard and nested WireGuard tunnels",
-                    "\u062a\u0648\u0646\u0644 MASQUE\u060c \u0648\u0627\u06cc\u0631\u06af\u0627\u0631\u062f \u0648 \u0648\u0627\u06cc\u0631\u06af\u0627\u0631\u062f \u062a\u0648\u062f\u0631\u062a\u0648"
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+        Rail(t("proj_aether"))
+        Slab(spacing = GhajarSpacing.md) {
+            SlabRow(
+                title = t("proj_aether_title"),
+                subtitle = t("proj_aether_desc"),
+                icon = Icons.Filled.Bolt,
+                accent = c.info
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
                 listOf("masque" to "MASQUE", "wg" to "WireGuard", "gool" to "gool").forEach { (key, label) ->
                     val on = aetherMode == key
-                    BounceOutlinedButton(
+                    GhostPill(
+                        text = label,
+                        accent = if (on) c.highlight else c.textSecondary,
                         onClick = {
                             aetherMode = key
                             aetherH2 = key == "masque"
                         },
-                        minHeight = 40.dp,
-                        contentPadding = PaddingValues(horizontal = 4.dp),
-                        accent = if (on) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f).height(40.dp)
-                    ) {
-                        Text(mixedText(label), maxLines = 1, softWrap = false,
-                            style = MaterialTheme.typography.labelMedium)
-                    }
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
-            SettingRow(
+            SlabRow(
                 title = t("proj_aether_h2"),
                 subtitle = t("proj_aether_h2_sub"),
-                checked = aetherH2 && aetherMode == "masque",
-                onCheckedChange = { aetherH2 = it },
+                icon = Icons.Filled.Bolt,
+                accent = c.highlight,
                 enabled = aetherMode == "masque",
-                icon = Icons.Filled.Bolt
+                trailing = {
+                    SkinSwitch(
+                        checked = aetherH2 && aetherMode == "masque",
+                        onCheckedChange = { aetherH2 = it },
+                        enabled = aetherMode == "masque"
+                    )
+                }
             )
-            BounceButton(
+            PillButton(
+                text = if (statusOwner == "aether" && status.isNotEmpty()) status else t("add"),
+                icon = Icons.Filled.Add,
                 onClick = {
                     if (!AetherController.available(context)) {
                         status = t("proj_aether_missing"); statusOwner = "aether"
-                        return@BounceButton
-                    }
+                    } else {
                     val cfg = ProxyConfig(
                         name = "Aether (${aetherMode.uppercase()})",
                         protocol = "aether",
@@ -4262,114 +4392,64 @@ private fun FreeProjectsScreen(
                     )
                     store.add(cfg)
                     status = t("proj_aether_added"); statusOwner = "aether"
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                ProjectButtonLabel(
-                    status = if (statusOwner == "aether") status else "",
-                    label = t("add")
-                )
-            }
-        }
-
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val freeBusy by FreeConfigs.busy.collectAsState()
-            val freeProgress by FreeConfigs.progress.collectAsState()
-            val subs by store.subscriptions.collectAsState()
-            val added = subs.any { it.url == FreeConfigs.SOURCE_URL }
-
-            Column(
-                Modifier.fillMaxWidth().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    t("proj_free"),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    t("proj_free_desc"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                val p = freeProgress
-                if (p != null) {
-                    Text(
-                        (if (p.collecting) "دریافت پیام‌های سه روز اخیر (${p.pages} صفحه) • " else "") +
-                            t("proj_free_testing").format(p.tested, p.total, p.alive),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    }
                 }
-                BounceButton(
-                    onClick = {
-                        scope.launch {
-                            val kept = FreeConfigs.refreshMultiSource(store, t("proj_free"))
-                            statusOwner = "free"
-                            status = when {
-                                kept > 0 -> t("proj_free_added").format(kept) + if (FreeConfigs.incomplete.value) "؛ بعضی منابع در دسترس نبودند، موارد قبلی حفظ شدند." else ""
-                                kept == FreeConfigs.UNREACHABLE -> t("proj_free_unreachable")
-                                kept == FreeConfigs.NO_CONFIGS -> t("proj_free_nocfg")
-                                kept == FreeConfigs.BUSY -> t("proj_free_working")
-                                else -> t("proj_free_none")
-                            }
-                        }
-                    },
-                    enabled = !freeBusy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    ProjectButtonLabel(
-                        status = if (statusOwner == "free") status else "",
-                        label = when {
-                            freeBusy -> t("proj_free_working")
-                            added -> t("refresh")
-                            else -> t("add")
-                        }
-                    )
-                }
-            }
-        }
-
-        SettingsHubCard(
-            iconRes = R.drawable.tor,
-            title = "Tor",
-            subtitle = t("proj_tor_desc"),
-            onClick = onOpenTor,
-            accents = listOf(
-                "Slow but very resilient",
-                "\u06a9\u0646\u062f \u0627\u0645\u0627 \u0628\u0633\u06cc\u0627\u0631 \u0645\u0642\u0627\u0648\u0645"
             )
-        )
+        }
+
+        Rail(t("legacy_warp"))
+        Slab(spacing = GhajarSpacing.md) {
+            SlabRow(
+                title = t("legacy_warp"),
+                subtitle = t("proj_warp_desc"),
+                icon = Icons.Filled.Public,
+                accent = c.warning
+            )
+            PillButton(
+                text = when {
+                    busy -> t("adding")
+                    statusOwner == "warp" && status.isNotEmpty() -> status
+                    else -> t("add_warp")
+                },
+                icon = Icons.Filled.Add,
+                enabled = !busy,
+                onClick = {
+                    if (!busy) {
+                    busy = true; status = ""; statusOwner = "warp"
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) { Warp.register() }
+                        status = when (result) {
+                            is Warp.Result.Success -> {
+                                result.configs.forEach { store.add(it) }
+                                t("warp_added")
+                            }
+                            is Warp.Result.Failure -> t("warp_failed")
+                        }
+                        busy = false
+                    }
+                    }
+                }
+            )
+        }
+
+        Rail("Tor")
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = "Tor",
+                subtitle = t("proj_tor_desc"),
+                iconRes = R.drawable.tor,
+                accent = c.premium,
+                chevron = true,
+                onClick = onOpenTor
+            )
+        }
 
         Text(
             t("proj_more_soon"),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textMuted,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-private fun ProjectButtonLabel(status: String, label: String) {
-    AnimatedContent(
-        targetState = status.ifBlank { label },
-        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
-        label = "projectButton"
-    ) { text ->
-        Text(
-            text,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
         )
     }
 }
@@ -5931,12 +6011,15 @@ private fun NetRadarRow(site: NetMonitor.Site, st: NetMonitor.State) {
 
 @Composable
 private fun RadarDot(tint: Color, pulsing: Boolean) {
-    val transition = rememberInfiniteTransition(label = "radarDot")
-    val ripple by transition.animateFloat(
-        initialValue = 0f,
-        targetValue = 1f,
-        animationSpec = ghajarEndless(infiniteRepeatable(tween(1700, easing = LinearEasing))),
-        label = "radarRipple"
+    // The ripple was created whether or not this dot was pulsing, and these
+    // dots sit in lists - the site monitor draws one per row. That was a frame
+    // callback per visible row, forever, for a ripple most of them were not
+    // drawing. Now the animation exists only while the row is actually being
+    // tested.
+    val ripple by ghajarPulse(
+        active = pulsing,
+        durationMillis = 1700,
+        reverse = false
     )
     Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
         if (pulsing) {
@@ -6291,6 +6374,17 @@ private fun BackupRow(store: ConfigStore) {
     var backupPassword by remember { mutableStateOf("") }
     var backupPasswordError by remember { mutableStateOf("") }
 
+    // The password the *export* is sealed with, kept apart from the one an
+    // import is unlocked with. Sharing one field between the two meant the
+    // password you had just typed to open somebody's file was still sitting
+    // there as the password for the next file you wrote.
+    var newPassword by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    // Which password the file being written should carry. Set at the moment the
+    // button is pressed, because the file picker comes back later and the field
+    // may have been cleared by then.
+    var exportPassword by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(status) {
         if (status.isNotEmpty()) { delay(3500); status = "" }
     }
@@ -6300,6 +6394,7 @@ private fun BackupRow(store: ConfigStore) {
     ) { uri ->
         if (uri != null) {
             busy = true
+            val password = exportPassword
             scope.launch {
                 val ok = withContext(Dispatchers.IO) {
                     runCatching {
@@ -6308,7 +6403,7 @@ private fun BackupRow(store: ConfigStore) {
                             store.configs.value,
                             store.subscriptions.value,
                             store.settingsSnapshot(),
-                            null
+                            password
                         )
                         context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
                         true
@@ -6316,7 +6411,10 @@ private fun BackupRow(store: ConfigStore) {
                 }
                 status = if (ok) t("backup_done") else t("backup_failed")
                 busy = false
+                exportPassword = null
             }
+        } else {
+            exportPassword = null
         }
     }
 
@@ -6364,6 +6462,15 @@ private fun BackupRow(store: ConfigStore) {
     // primary action to write one, a ghost action to read one back, and the
     // outcome as a proper state rather than a grey caption.
     val c = ghajarColors
+    val lang = store.lang.value
+    // What a written file actually carries, counted from live state so the
+    // numbers are never a guess. The OpenVPN count is read here rather than
+    // assumed: a backup that silently carried no profiles used to be
+    // indistinguishable from one that carried them all.
+    val configCount = store.configs.value.size
+    val subCount = store.subscriptions.value.size
+    val ovpnCount = remember { runCatching { GhajarOpenVpnBridge.exportProfiles(context).size }.getOrDefault(0) }
+
     Slab(spacing = GhajarSpacing.md) {
         SlabRow(
             title = t("backup_title"),
@@ -6371,28 +6478,91 @@ private fun BackupRow(store: ConfigStore) {
             icon = Icons.Filled.Inventory2,
             accent = c.premium
         )
-        // What a written file actually carries, counted from live state so the
-        // numbers are never a guess.
-        val configCount = store.configs.value.size
-        val subCount = store.subscriptions.value.size
         StatStrip(
             listOf(
-                StatCell(t("count_configs"), localizeDigits("$configCount", store.lang.value), c.info),
-                StatCell(t("count_subs"), localizeDigits("$subCount", store.lang.value), c.premium)
+                StatCell(t("count_configs"), localizeDigits("$configCount", lang), c.info),
+                StatCell(t("count_subs"), localizeDigits("$subCount", lang), c.premium),
+                StatCell(t("count_ovpn"), localizeDigits("$ovpnCount", lang), c.accentAlt)
             )
         )
-        PillButton(
-            text = t("backup_export"),
-            icon = Icons.Filled.FileUpload,
-            enabled = !busy,
-            onClick = {
-                if (!busy) {
-                    val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
-                        .format(java.util.Date())
-                    saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
-                }
+        // Two sentences that used to be nowhere: what is in the file, and the
+        // one thing people assume is in it and is not. Someone who restores a
+        // backup expecting their wallet balance back has lost nothing, but they
+        // have spent an evening looking for it.
+        Text(
+            t("backup_contents"),
+            style = MaterialTheme.typography.labelMedium,
+            color = c.textSecondary
+        )
+        Text(
+            t("backup_excludes"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textMuted
+        )
+
+        SlabDivider()
+
+        // The password. It is the file's only protection: a backup is not
+        // bound to the signing certificate any more (that change is what made
+        // old backups portable at all), so an unsealed file is readable by any
+        // build of this app that can open it. Hence a real field, the minimum
+        // spelled out, and the unprotected path kept but demoted to a ghost
+        // action with the consequence written next to it.
+        SkinField(
+            value = newPassword,
+            onValueChange = { newPassword = it },
+            label = t("backup_pw_label"),
+            helper = t("backup_pw_note"),
+            singleLine = true,
+            visualTransformation = if (showPassword) VisualTransformation.None
+            else PasswordVisualTransformation(),
+            trailing = {
+                Icon(
+                    if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = null,
+                    tint = c.textSecondary,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable { showPassword = !showPassword }
+                        .padding(6.dp)
+                        .size(20.dp)
+                )
             }
         )
+
+        val strongEnough = newPassword.length >= 8
+        fun writeBackup(password: String?) {
+            if (busy) return
+            exportPassword = password
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                .format(java.util.Date())
+            saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
+        }
+
+        PillButton(
+            text = if (strongEnough || newPassword.isEmpty()) t("backup_export")
+            else t("backup_pw_short"),
+            icon = Icons.Filled.FileUpload,
+            enabled = !busy && strongEnough,
+            onClick = { writeBackup(newPassword) }
+        )
+        // Still offered, because removing it would break every existing
+        // workflow that restores a file without a password, and because the
+        // password is the user's risk to take.
+        GhostPill(
+            text = t("backup_no_pw"),
+            enabled = !busy,
+            accent = c.textSecondary,
+            onClick = { writeBackup(null) }
+        )
+        Text(
+            t("backup_no_pw_warn"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.warning
+        )
+
+        SlabDivider()
+
         GhostPill(
             text = t("backup_import"),
             icon = Icons.Filled.FileDownload,
@@ -9721,11 +9891,10 @@ private fun QualityStartButton(running: Boolean, onClick: () -> Unit, modifier: 
 
 @Composable
 private fun ConnectSweep(color: Color, active: Boolean, modifier: Modifier = Modifier) {
-    val phase = rememberInfiniteTransition(label = "connSweep").animateFloat(
-        initialValue = 0f, targetValue = 1f,
-        animationSpec = ghajarEndless(infiniteRepeatable(tween(1500, easing = LinearEasing))),
-        label = "connSweepV"
-    )
+    // It already knew whether it was wanted - `active` - and animated anyway,
+    // returning early from the draw once the fade reached zero. The band was
+    // invisible; the frame callback was not.
+    val phase = ghajarPulse(active = active, durationMillis = 1500, reverse = false)
     val fade by animateFloatAsState(
         targetValue = if (active) 1f else 0f,
         animationSpec = tween(260, easing = FastOutSlowInEasing),
@@ -11606,30 +11775,57 @@ private fun SubscriptionHeader(
                     )
                 }
             }
+            // The name gets the row. Three glyphs used to sit on this line
+            // beside it, so a subscription called after its panel host - which
+            // is what every delivered one is called - arrived truncated or
+            // crawling. The actions moved to their own line below, where they
+            // cost height rather than the name's width.
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                MarqueeName(
-                    GhajarUiRules.brandedSubscriptionTitle(sub.total, WindscribeBrand.displayName(sub, lang)),
-                    MaterialTheme.typography.titleSmall
+                // Two lines rather than a marquee, for the same reason as the
+                // config rows: the whole name at once, and no endless animation
+                // per header in a scrolling list.
+                val subTitle = remember(sub.total, sub.name, lang) {
+                    GhajarUiRules.brandedSubscriptionTitle(
+                        sub.total,
+                        WindscribeBrand.displayName(sub, lang)
+                    )
+                }
+                Text(
+                    flagRuns(subTitle, LexendFont),
+                    inlineContent = flagInlineContent(subTitle, 17.sp),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = c.textPrimary,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
                 )
                 Text(
                     localizeDigits("$configCount", lang) + " " + t("count_configs"),
-                    style = MaterialTheme.typography.labelSmall,
+                    style = MaterialTheme.typography.labelMedium,
                     color = c.textSecondary,
                     maxLines = 1
                 )
             }
-
-            // The two actions anyone actually uses on a subscription.
             if (pinging) {
                 CircularProgressIndicator(
                     strokeWidth = 2.dp,
                     color = c.primary,
                     modifier = Modifier.padding(6.dp).size(20.dp)
                 )
-            } else {
+            }
+        }
+
+        // The actions, on their own row at a real touch size.
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+        ) {
+            if (!pinging) {
                 SubHeaderGlyph(Icons.Filled.Speed, t("test_all")) { onPing() }
             }
             SubHeaderGlyph(Icons.Filled.Refresh, t("refresh")) { onRefresh() }
+            Spacer(Modifier.weight(1f))
 
             Box {
                 SubHeaderGlyph(Icons.Filled.MoreVert, t("more")) { shareMenu = true }
@@ -11775,7 +11971,12 @@ private fun formatStamp(millis: Long, lang: Lang): String {
     return localizeDigits(text, lang)
 }
 
-/** One action glyph in a subscription header: tinted tile, no outline. */
+/**
+ * One action glyph in a subscription header: tinted tile, no outline.
+ *
+ * 42dp rather than 34: these now sit on their own row instead of stealing the
+ * name's width, so there is no reason left for them to be undersized.
+ */
 @Composable
 private fun SubHeaderGlyph(
     icon: ImageVector,
@@ -11785,13 +11986,13 @@ private fun SubHeaderGlyph(
     val c = ghajarColors
     Box(
         Modifier
-            .size(34.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(42.dp)
+            .clip(RoundedCornerShape(14.dp))
             .background(c.primary.copy(alpha = 0.10f))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -12404,12 +12605,27 @@ private fun ConfigRow(
         label = "rowTint"
     )
 
-    Card(
-        modifier = (if (appear) modifier.appearOnce() else modifier)
+    // The row is two tiers, and that is the whole of this rebuild.
+    //
+    // It used to be one horizontal run: status dot, name, protocol, endpoint,
+    // ping, then up to seven icon buttons - all competing for the same width.
+    // The name lost every time, so a server called "Ghajarvpn • Psiphon"
+    // arrived as a marquee crawling through a 90dp gap, and opening the
+    // actions squeezed it to nothing. The fix is not a smaller font.
+    //
+    // Tier one is the name and only the two controls that are always there.
+    // Tier two is the protocol, the endpoint and the measurement. The five
+    // occasional actions open as a third row underneath, so revealing them
+    // costs height - which this list has - instead of the name's width, which
+    // it does not.
+    val rowShape = RoundedCornerShape(GhajarRadius.lg)
+    Box(
+        (if (appear) modifier.appearOnce() else modifier)
             .fillMaxWidth()
             .onSizeChanged { rowWidth = it.width }
             .offset { IntOffset(dragX.roundToInt(), 0) }
-            .clip(RoundedCornerShape(GhajarRadius.md))
+            .clip(rowShape)
+            .background(containerColor ?: c.secondaryCard)
             .draggable(
                 orientation = Orientation.Horizontal,
                 enabled = dragEnabled,
@@ -12435,198 +12651,345 @@ private fun ConfigRow(
                     }
                 }
             )
-            .combinedClickable(onClick = onClick, onLongClick = onLongPress),
-        shape = RoundedCornerShape(GhajarRadius.lg),
-        // Server rows live in a scrolling list, not inside one slab, so each is
-        // its own small slab: filled, edgeless, on the nested card tone. The
-        // active one is marked by a leading accent bar (drawn below), not by a
-        // border - the skin has no borders.
-        colors = CardDefaults.cardColors(containerColor = containerColor ?: c.secondaryCard),
-        border = null
+            .combinedClickable(onClick = onClick, onLongClick = onLongPress)
+            .background(rowTint)
     ) {
-        Row(
-            Modifier.fillMaxWidth().background(rowTint)
-                .padding(
-                    start = 8.dp,
-                    end = 9.dp,
-                    top = if (compact) 5.dp else 10.dp,
-                    bottom = if (compact) 5.dp else 10.dp
-                ),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            // The leading accent bar: full height on the row that is connected,
-            // invisible otherwise. This is what replaced the border.
-            Box(
-                Modifier
-                    .width(3.dp)
-                    .height(if (compact) 20.dp else 30.dp)
-                    .clip(RoundedCornerShape(GhajarRadius.pill))
-                    .background(if (isActive) c.primary else Color.Transparent)
-            )
-            Spacer(Modifier.width(6.dp))
-            if (checked) {
-                Icon(Icons.Filled.CheckCircle, contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
-            } else {
-                LivePingDot(ping)
-            }
-            Spacer(Modifier.width(10.dp))
-            Column(Modifier.weight(1f)) {
-                if (config.locked) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(13.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Box(Modifier.weight(1f)) { MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface) }
-                    }
-                } else {
-                    MarqueeName(GhajarUiRules.brandedConfigName(config.name), color = MaterialTheme.colorScheme.onSurface)
+        // The leading accent bar on the row carrying traffic: drawn, not laid
+        // out. A Box child with fillMaxHeight() would have measured to zero
+        // here, because a LazyColumn item's height constraint is unbounded and
+        // fillMaxHeight has nothing to fill against - the bar would silently
+        // not exist. drawBehind runs after measurement, so it knows the real
+        // height of whatever the two or three tiers came to, and it mirrors
+        // itself under RTL because "leading" is the right-hand edge there.
+        val barColor = if (isActive) c.primary else Color.Transparent
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .drawBehind {
+                    if (barColor == Color.Transparent) return@drawBehind
+                    val w = 3.dp.toPx()
+                    val inset = 10.dp.toPx()
+                    val h = (size.height - inset * 2).coerceAtLeast(w)
+                    drawRoundRect(
+                        color = barColor,
+                        topLeft = Offset(
+                            x = if (layoutDirection == LayoutDirection.Rtl) size.width - w else 0f,
+                            y = (size.height - h) / 2f
+                        ),
+                        size = Size(w, h),
+                        cornerRadius = CornerRadius(w / 2f)
+                    )
                 }
-                // Protocol and endpoint on one line: the tag first, because it
-                // is the shorter, fixed-width half and a long hostname should
-                // not be what pushes it off the row.
-                //
-                // Compact drops this whole line, not just the address: the tag
-                // moves up beside the name instead, so the protocol - which is
-                // how you tell two servers on the same host apart - survives
-                // the density change. The address does not; it is one tap away
-                // in edit, and it is what the second line was mostly made of.
-                if (!compact) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(5.dp)
-                    ) {
-                        ProtocolTag(config.protocol, isActive)
-                        Text(
-                            if (config.locked) AnnotatedString(t("locked_config"))
-                            else scriptRuns("${config.address}:${config.port}", LexendFont),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = if (isActive) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                .padding(
+                    start = GhajarSpacing.md,
+                    end = GhajarSpacing.sm,
+                    top = if (compact) 8.dp else GhajarSpacing.md,
+                    bottom = if (compact) 8.dp else GhajarSpacing.md
+                ),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 6.dp)
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                // The state glyph in its own tinted tile, like every other
+                // leading glyph in this skin. In selection mode it becomes the
+                // checkmark, in the same tile, so a checked row does not change
+                // shape or shift its text.
+                Box(
+                    Modifier
+                        .size(if (compact) 28.dp else 34.dp)
+                        .clip(RoundedCornerShape(11.dp))
+                        .background(
+                            (if (checked) c.primary else pingColor(ping)).copy(alpha = 0.14f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (checked) {
+                        Icon(
+                            Icons.Filled.CheckCircle,
+                            contentDescription = null,
+                            tint = c.primary,
+                            modifier = Modifier.size(if (compact) 17.dp else 20.dp)
+                        )
+                    } else {
+                        LivePingDot(ping)
+                    }
+                }
+                // The name, with the row's width to itself. Locked configs keep
+                // their padlock, inline, because it explains why the endpoint
+                // line below says nothing.
+                Row(
+                    Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp)
+                ) {
+                    if (config.locked) {
+                        Icon(
+                            Icons.Filled.Lock,
+                            contentDescription = null,
+                            tint = c.primary,
+                            modifier = Modifier.size(14.dp)
                         )
                     }
-                }
-            }
-            if (compact) {
-                Spacer(Modifier.width(6.dp))
-                ProtocolTag(config.protocol, isActive)
-            }
-            Spacer(Modifier.width(3.dp))
-            PingChip(ping)
-            AnimatedVisibility(
-                visible = actionsOpen && !checked && !selectionMode,
-                enter = fadeIn(tween(220)) + expandHorizontally(
-                    tween(300, easing = FastOutSlowInEasing),
-                    expandFrom = Alignment.End
-                ),
-                exit = fadeOut(tween(150)) + shrinkHorizontally(
-                    tween(260, easing = FastOutSlowInEasing),
-                    shrinkTowards = Alignment.End
-                )
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        if (config.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
-                        contentDescription = "موردعلاقه",
-                        tint = if (config.favorite) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clip(CircleShape)
-                            .clickable { onToggleFavorite() }.padding(4.dp).size(21.dp)
+                    // Wrapped, not scrolling. A marquee shows a long name one
+                    // chunk at a time and you have to wait for the rest, and it
+                    // is an endless Animatable per row that overflows - which,
+                    // with the old 90dp name box, was nearly every visible row
+                    // animating at once while you scrolled. Two lines show the
+                    // whole name at once and cost nothing per frame. Flags still
+                    // render inline, which is the one thing MarqueeName was
+                    // carrying that a plain Text would have dropped.
+                    val shown = remember(config.name) {
+                        GhajarUiRules.brandedConfigName(config.name)
+                    }
+                    Text(
+                        flagRuns(shown, LexendFont),
+                        inlineContent = flagInlineContent(shown, 16.sp),
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.SemiBold,
+                        color = if (isActive) c.primary else c.textPrimary,
+                        maxLines = if (compact) 1 else 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
                     )
-                    Box {
-                        Icon(Icons.Filled.Share, contentDescription = t("share"),
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clip(CircleShape).clickable { shareMenu = true }.padding(4.dp).size(21.dp))
-                        DropdownMenu(expanded = shareMenu, onDismissRequest = { shareMenu = false }) {
-                            if (!config.locked) {
-                                CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
-                                    shareMenu = false
-                                    clipboard.setText(AnnotatedString(ConfigShare.toLink(config)))
-                                    android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
-                                }
-                                CompactMenuItem(Icons.Filled.Share, t("share_app")) {
-                                    shareMenu = false
-                                    val send = Intent(Intent.ACTION_SEND).apply {
-                                        type = "text/plain"
-                                        putExtra(Intent.EXTRA_TEXT, ConfigShare.toLink(config))
-                                    }
-                                    context.startActivity(Intent.createChooser(send, config.name))
-                                }
-                                CompactMenuItem(Icons.Filled.QrCode2, t("qr_share")) {
-                                    shareMenu = false
-                                    qrFor = ConfigShare.toLink(config)
-                                }
-                            }
-                            CompactMenuItem(Icons.Filled.InsertDriveFile, t("share_file")) {
-                                shareMenu = false
-                                onShareFile()
-                            }
+                }
+                // Connect/disconnect stays on the name's line: it is the reason
+                // the row exists, and it must not move when the actions open.
+                if (!checked && !selectionMode && onToggleConnection != null) {
+                    val connectedHere = isActive && conn == Connection.CONNECTED
+                    val connectingHere = isActive && conn == Connection.CONNECTING
+                    RowAction(
+                        icon = when {
+                            connectedHere -> Icons.Filled.Stop
+                            connectingHere -> Icons.Filled.Autorenew
+                            else -> Icons.Filled.PlayArrow
+                        },
+                        label = if (connectedHere) t("disconnect") else t("connect"),
+                        tint = if (connectedHere) c.error else c.primary,
+                        enabled = !connectingHere,
+                        onClick = { onToggleConnection() }
+                    )
+                }
+                if (!checked && !selectionMode) {
+                    Box(
+                        Modifier.size(if (compact) 32.dp else 36.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = swiping,
+                            enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
+                            exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
+                        ) {
+                            Icon(
+                                Icons.Filled.Delete,
+                                contentDescription = t("delete"),
+                                tint = Color.White,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        androidx.compose.animation.AnimatedVisibility(
+                            visible = !swiping,
+                            enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
+                            exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
+                        ) {
+                            RowAction(
+                                icon = Icons.Filled.MoreVert,
+                                label = t("more"),
+                                tint = if (actionsOpen) c.primary else c.textSecondary,
+                                onClick = onToggleActions
+                            )
                         }
                     }
-                    Icon(
-                        Icons.Filled.Layers,
-                        contentDescription = t("chain_through"),
-                        tint = if (config.chainId.isNotEmpty()) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.clip(CircleShape).clickable { onChain() }
-                            .padding(4.dp).size(21.dp)
-                    )
-                    Icon(Icons.Filled.Edit, contentDescription = t("edit"),
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.clip(CircleShape).clickable { onEdit() }.padding(4.dp).size(21.dp))
-                    Icon(Icons.Filled.Delete, contentDescription = t("delete"),
-                        tint = MaterialTheme.colorScheme.error,
-                        modifier = Modifier.clip(CircleShape).clickable { onDelete() }.padding(4.dp).size(21.dp))
                 }
             }
-            if (!checked && !selectionMode && onToggleConnection != null) {
-                val connectedHere = isActive && conn == Connection.CONNECTED
-                val connectingHere = isActive && conn == Connection.CONNECTING
-                Icon(
-                    when {
-                        connectedHere -> Icons.Filled.Stop
-                        connectingHere -> Icons.Filled.Autorenew
-                        else -> Icons.Filled.PlayArrow
-                    },
-                    contentDescription = if (connectedHere) "قطع اتصال" else "اتصال",
-                    tint = if (connectedHere) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.clip(CircleShape)
-                        .clickable(enabled = !connectingHere) { onToggleConnection() }
-                        .padding(4.dp).size(21.dp)
-                )
+
+            // Tier two: what this server is and how it measured. Compact keeps
+            // it - dropping the whole line was what made a compact row
+            // indistinguishable from the one above it - but drops the endpoint,
+            // which is the long half and one tap away in edit.
+            Row(
+                Modifier.fillMaxWidth().padding(start = if (compact) 36.dp else 42.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+            ) {
+                ProtocolTag(config.protocol, isActive)
+                if (!compact) {
+                    Text(
+                        if (config.locked) AnnotatedString(t("locked_config"))
+                        else scriptRuns("${config.address}:${config.port}", LexendFont),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = if (isActive) c.primary else c.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+                Spacer(Modifier.weight(1f))
+                PingChip(ping)
             }
-            if (!checked && !selectionMode) {
-                Box(Modifier.size(29.dp), contentAlignment = Alignment.Center) {
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = swiping,
-                        enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
-                        exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
+
+            // Tier three, on demand. Five actions at a real touch size, evenly
+            // spread, with the destructive one last and in the error colour.
+            AnimatedVisibility(
+                visible = actionsOpen && !checked && !selectionMode,
+                enter = fadeIn(tween(200)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(140)) + shrinkVertically(tween(220, easing = FastOutSlowInEasing))
+            ) {
+                Column {
+                    Box(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(top = 6.dp, bottom = 4.dp)
+                            .height(1.dp)
+                            .background(c.border)
+                    )
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceEvenly
                     ) {
-                        Icon(
-                            Icons.Filled.Delete,
-                            contentDescription = t("delete"),
-                            tint = Color.White,
-                            modifier = Modifier.size(21.dp)
+                        RowAction(
+                            icon = if (config.favorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                            label = t("picker_favourites"),
+                            tint = if (config.favorite) c.premium else c.textSecondary,
+                            onClick = onToggleFavorite
                         )
-                    }
-                    androidx.compose.animation.AnimatedVisibility(
-                        visible = !swiping,
-                        enter = fadeIn(tween(150)) + scaleIn(tween(180), initialScale = 0.65f),
-                        exit = fadeOut(tween(150)) + scaleOut(tween(180), targetScale = 0.65f)
-                    ) {
-                        Icon(
-                            Icons.Filled.MoreVert,
-                            contentDescription = null,
-                            tint = if (actionsOpen) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.clip(CircleShape)
-                                .clickable { onToggleActions() }
-                                .padding(4.dp).size(21.dp)
+                        Box {
+                            RowAction(
+                                icon = Icons.Filled.Share,
+                                label = t("share"),
+                                tint = c.primary,
+                                onClick = { shareMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = shareMenu,
+                                onDismissRequest = { shareMenu = false },
+                                shape = RoundedCornerShape(GhajarRadius.lg),
+                                containerColor = c.card,
+                                border = null
+                            ) {
+                                if (!config.locked) {
+                                    CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
+                                        shareMenu = false
+                                        clipboard.setText(AnnotatedString(ConfigShare.toLink(config)))
+                                        android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                    CompactMenuItem(Icons.Filled.Share, t("share_app")) {
+                                        shareMenu = false
+                                        val send = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, ConfigShare.toLink(config))
+                                        }
+                                        context.startActivity(Intent.createChooser(send, config.name))
+                                    }
+                                    CompactMenuItem(Icons.Filled.QrCode2, t("qr_share")) {
+                                        shareMenu = false
+                                        qrFor = ConfigShare.toLink(config)
+                                    }
+                                }
+                                CompactMenuItem(Icons.Filled.InsertDriveFile, t("share_file")) {
+                                    shareMenu = false
+                                    onShareFile()
+                                }
+                            }
+                        }
+                        RowAction(
+                            icon = Icons.Filled.Layers,
+                            label = t("chain_through"),
+                            tint = if (config.chainId.isNotEmpty()) c.primary else c.textSecondary,
+                            onClick = onChain
+                        )
+                        RowAction(
+                            icon = Icons.Filled.Edit,
+                            label = t("edit"),
+                            tint = c.primary,
+                            onClick = onEdit
+                        )
+                        RowAction(
+                            icon = Icons.Filled.Delete,
+                            label = t("delete"),
+                            tint = c.error,
+                            onClick = onDelete
                         )
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * One tool on the picker's glyph rail: a square tinted tile, on when active.
+ *
+ * These were 42dp outlined buttons sharing a row with labelled ones, which is
+ * what made the toolbar wrap into three ragged lines. Same size for all five,
+ * and the tint is the state - a filled tile means the filter or the ordering
+ * it stands for is currently on.
+ */
+@Composable
+private fun PickerTool(
+    icon: ImageVector,
+    label: String,
+    active: Boolean = false,
+    enabled: Boolean = true,
+    destructive: Boolean = false,
+    onClick: () -> Unit
+) {
+    val c = ghajarColors
+    val accent = when {
+        !enabled -> c.onDisabled
+        destructive -> c.error
+        active -> c.highlight
+        else -> c.primary
+    }
+    val fill by animateFloatAsState(
+        targetValue = if (active) 1f else 0f,
+        animationSpec = tween(240, easing = FastOutSlowInEasing),
+        label = "pickerToolFill"
+    )
+    Box(
+        Modifier
+            .size(46.dp)
+            .clip(RoundedCornerShape(15.dp))
+            .background(accent.copy(alpha = 0.10f + 0.16f * fill))
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(21.dp))
+    }
+}
+
+/**
+ * One icon action in a config row, at a touch size that can actually be hit.
+ *
+ * The old rows drew these as a bare 21dp icon with 4dp of padding - a 29dp
+ * target, under the 48dp minimum, five of them side by side. This is a 36dp
+ * circle around a 20dp glyph, which is still compact and is no longer a game
+ * of skill.
+ */
+@Composable
+private fun RowAction(
+    icon: ImageVector,
+    label: String,
+    tint: Color,
+    enabled: Boolean = true,
+    onClick: () -> Unit
+) {
+    Box(
+        Modifier
+            .size(36.dp)
+            .clip(CircleShape)
+            .clickable(enabled = enabled) { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            icon,
+            contentDescription = label,
+            tint = if (enabled) tint else ghajarColors.onDisabled,
+            modifier = Modifier.size(20.dp)
+        )
     }
 }
 
@@ -12985,6 +13348,7 @@ private fun AppProxyScreen(
     val focus = LocalFocusManager.current
     val mode by store.perAppMode.collectAsState()
     val selected by store.perAppList.collectAsState()
+    val c = ghajarColors
 
     var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
     var query by remember { mutableStateOf("") }
@@ -13016,55 +13380,63 @@ private fun AppProxyScreen(
     }
 
     Column(
-        modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.fillMaxSize().padding(GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Row(
-            Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(GhajarRadius.pill))
-                .background(ghajarColors.secondaryCard)
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
+        // The three modes, each with the sentence that says what it does.
+        //
+        // They were three words in a segmented capsule - "خاموش · فقط
+        // انتخاب‌شده · همه به‌جز" - and which way round the list worked was
+        // left to the reader. Getting that backwards means either the apps you
+        // wanted protected are the only ones exposed, or the reverse, and
+        // nothing on screen says which happened. Each mode now states its own
+        // consequence in a full sentence, and only the chosen one is filled.
+        Slab(spacing = 0.dp) {
+            Text(
+                t("per_app_pick_mode"),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = c.textSecondary
+            )
+            Spacer(Modifier.height(GhajarSpacing.sm))
             listOf(
-                PerAppMode.OFF to t("per_app_off"),
-                PerAppMode.ALLOWLIST to t("per_app_allow"),
-                PerAppMode.BLOCKLIST to t("per_app_block")
-            ).forEach { (value, label) ->
-                ModeSegment(
-                    label = label,
-                    active = mode == value,
+                Triple(PerAppMode.OFF, t("per_app_off"), t("per_app_off_desc")),
+                Triple(PerAppMode.ALLOWLIST, t("per_app_allow"), t("per_app_allow_desc")),
+                Triple(PerAppMode.BLOCKLIST, t("per_app_block"), t("per_app_block_desc"))
+            ).forEachIndexed { index, (value, label, desc) ->
+                if (index > 0) SlabDivider()
+                val on = mode == value
+                SlabRow(
+                    title = label,
+                    subtitle = desc,
+                    icon = when (value) {
+                        PerAppMode.OFF -> Icons.Filled.Public
+                        PerAppMode.ALLOWLIST -> Icons.Filled.CheckCircle
+                        PerAppMode.BLOCKLIST -> Icons.Filled.Block
+                    },
+                    accent = when (value) {
+                        PerAppMode.OFF -> c.info
+                        PerAppMode.ALLOWLIST -> c.primary
+                        PerAppMode.BLOCKLIST -> c.warning
+                    },
                     onClick = { store.setPerAppMode(value) },
-                    modifier = Modifier.weight(1f)
+                    trailing = {
+                        SmoothCheckbox(checked = on)
+                    }
                 )
             }
         }
 
         if (mode == PerAppMode.OFF) {
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        Modifier.size(58.dp).clip(RoundedCornerShape(18.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Apps,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Text(
-                        t("per_app_off_hint"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
+            // Off is a real answer, not an empty state, so the screen spends
+            // the space saying which engines would have honoured a rule - the
+            // one question this page could never answer before, and the reason
+            // the setting looked broken on an OpenVPN session.
+            Column(
+                Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+            ) {
+                PerAppCoverage()
             }
         } else {
             OutlinedTextField(
@@ -13073,11 +13445,7 @@ private fun AppProxyScreen(
                 label = { Text(t("search_apps")) },
                 singleLine = true,
                 leadingIcon = {
-                    Icon(
-                        Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Icon(Icons.Filled.Search, contentDescription = null, tint = c.textSecondary)
                 },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
@@ -13090,95 +13458,103 @@ private fun AppProxyScreen(
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(GhajarRadius.md),
                 modifier = Modifier.fillMaxWidth()
             )
 
             val list = apps
             if (list == null) {
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Text(
-                            t("loading_apps"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    SkinLoading(t("loading_apps"))
                 }
             } else {
                 val filtered = remember(list, query) {
                     if (query.isBlank()) list
                     else list.filter { it.label.contains(query, true) || it.pkg.contains(query, true) }
                 }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // The count, how many are ticked, and the two bulk actions that
+                // were missing - ticking forty apps one at a time was the only
+                // way to use the allowlist on a phone with forty apps.
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+                ) {
                     Text(
-                        localizeDigits("${filtered.size}", lang),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
+                        localizeDigits("${selected.size}", lang) + " / " +
+                            localizeDigits("${filtered.size}", lang),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c.primary
                     )
-                    Spacer(Modifier.weight(1f))
+                    GhostPill(
+                        text = t("per_app_select_all"),
+                        onClick = { store.setPerAppList(selected + filtered.map { it.pkg }) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GhostPill(
+                        text = t("per_app_clear"),
+                        onClick = { store.setPerAppList(emptySet()) },
+                        enabled = selected.isNotEmpty(),
+                        accent = c.error,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (selected.isEmpty()) {
                     Text(
-                        localizeDigits("${selected.size}", lang) + " " + t("selected"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        t("per_app_none_picked"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.warning
                     )
                 }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
                 ) {
                     items(filtered, key = { it.pkg }) { app ->
                         val checked = app.pkg in selected
-                        val tint by animateColorAsState(
-                            targetValue = if (checked) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            label = "appRowTint"
-                        )
-                        val fill by animateFloatAsState(
-                            targetValue = if (checked) 1f else 0f,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            label = "appRowFill"
-                        )
                         Row(
                             Modifier.fillMaxWidth()
                                 .clip(RoundedCornerShape(GhajarRadius.md))
-                                .background(ghajarColors.secondaryCard)
+                                .background(c.secondaryCard)
                                 .clickable { store.togglePerApp(app.pkg) }
                                 .animateItem()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.md),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Image(
                                 bitmap = app.icon,
                                 contentDescription = null,
-                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(11.dp))
+                                modifier = Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
                             )
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
+                            Spacer(Modifier.width(GhajarSpacing.md))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
                                     app.label,
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.bodyLarge,
                                     fontFamily = scriptFont(app.label),
+                                    color = if (checked) c.primary else c.textPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     app.pkg,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = c.textMuted,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(GhajarSpacing.sm))
                             SmoothCheckbox(checked = checked)
+                        }
+                    }
+                    item(key = "per-app-coverage") {
+                        Column(
+                            Modifier.padding(top = GhajarSpacing.md),
+                            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+                        ) {
+                            PerAppCoverage()
                         }
                     }
                 }
@@ -13187,35 +13563,53 @@ private fun AppProxyScreen(
     }
 }
 
+/**
+ * Which engines actually apply the per-app rules, and which cannot.
+ *
+ * This exists because the honest answer used to be "most of them", and the
+ * screen said nothing at all. Everything that runs on this app's own
+ * VpnService gets the rules from the tun builder; OpenVPN runs in its own
+ * process with its own tun and now gets them written onto the profile before
+ * each session; DNS-only mode is listed as not covered rather than left out,
+ * because a mode missing from a list of engines reads like an oversight.
+ */
 @Composable
-private fun ModeSegment(
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val fill by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = tween(320, easing = FastOutSlowInEasing),
-        label = "modeSegFill"
-    )
-    val primary = MaterialTheme.colorScheme.primary
-    val idle = MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier
-            .clip(RoundedCornerShape(13.dp))
-            .background(primary.copy(alpha = 0.20f * fill))
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
+private fun PerAppCoverage() {
+    val t = stringsFn()
+    val c = ghajarColors
+    Slab(spacing = 0.dp) {
+        Rail(t("per_app_engines"))
+        SlabRow(
+            title = t("per_app_engines_tun"),
+            subtitle = t("per_app_engines_tun_sub"),
+            icon = Icons.Filled.CheckCircle,
+            accent = c.good
+        )
+        SlabDivider()
+        SlabRow(
+            title = t("per_app_engines_ovpn"),
+            subtitle = t("per_app_engines_ovpn_sub"),
+            icon = Icons.Filled.CheckCircle,
+            accent = c.good
+        )
+        SlabDivider()
+        SlabRow(
+            title = t("per_app_engines_dns"),
+            subtitle = t("per_app_engines_dns_sub"),
+            icon = Icons.Filled.Block,
+            accent = c.textMuted
+        )
+        Spacer(Modifier.height(GhajarSpacing.sm))
         Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-            color = lerp(idle, primary, fill),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            t("per_app_restart_note"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textSecondary
+        )
+        Text(
+            t("per_app_in_backup"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textMuted
         )
     }
 }
+
