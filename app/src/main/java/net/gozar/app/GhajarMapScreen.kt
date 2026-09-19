@@ -226,10 +226,10 @@ private fun WorldCanvas(
     val phase by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             animation = tween(2600, easing = LinearEasing),
             repeatMode = RepeatMode.Restart
-        ),
+        )),
         label = "flow"
     )
 

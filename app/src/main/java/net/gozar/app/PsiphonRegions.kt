@@ -35,9 +35,6 @@ object PsiphonRegions {
     private val _fromEngine = MutableStateFlow(false)
     val fromEngine: StateFlow<Boolean> = _fromEngine.asStateFlow()
 
-    private val _regions = MutableStateFlow(FALLBACK)
-    val regions: StateFlow<List<String>> = _regions.asStateFlow()
-
     /**
      * Regions Psiphon has reported to this client at some point.
      *
@@ -45,6 +42,10 @@ object PsiphonRegions {
      * published region list; a country here that has no server today shows up
      * as a tunnel that will not establish, which is why the screen says the
      * list is provisional until the engine replaces it.
+     *
+     * Declared before [regions], not after: an object's properties initialise
+     * top to bottom, so reading this from an initialiser above it would be
+     * reading a null - which the compiler catches, and did.
      */
     val FALLBACK = listOf(
         "AT", "AU", "BE", "BG", "CA", "CH", "CZ", "DE", "DK", "EE", "ES",
@@ -52,6 +53,9 @@ object PsiphonRegions {
         "MX", "NL", "NO", "PL", "PT", "RO", "RS", "SE", "SG", "SI", "SK",
         "US"
     )
+
+    private val _regions = MutableStateFlow(FALLBACK)
+    val regions: StateFlow<List<String>> = _regions.asStateFlow()
 
     private const val KEY = "psiphon_regions"
 

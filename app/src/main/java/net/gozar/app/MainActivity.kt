@@ -518,10 +518,17 @@ class MainActivity : ComponentActivity() {
             val lang by store.lang.collectAsState()
             val direction = if (lang == Lang.FA) LayoutDirection.Rtl else LayoutDirection.Ltr
 
+            val reduceMotion by store.reduceMotion.collectAsState()
+            val useDynamicAccent by store.dynamicAccent.collectAsState()
+            val listDensity by store.listDensity.collectAsState()
+
             GhajarTheme(
                 theme = uiTheme,
                 typography = if (lang == Lang.FA) VazirTypography else LexendTypography,
-                shapes = GhajarSoftShapes
+                shapes = GhajarSoftShapes,
+                reduceMotion = reduceMotion,
+                useDynamicAccent = useDynamicAccent,
+                listDensity = listDensity
             ) {
                 CompositionLocalProvider(
                     LocalLang provides lang,
@@ -2188,6 +2195,23 @@ private fun ConfigPickerScreen(
     val clipboard = LocalClipboardManager.current
     val pickerContext = LocalContext.current
     val pickerScope = rememberCoroutineScope()
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            pickerScope.launch {
+                val bytes: ByteArray? = withContext(Dispatchers.IO) {
+                    runCatching {
+                        pickerContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    }.getOrNull()
+                }
+                if (bytes != null && bytes.isNotEmpty()) ImportBus.offer(bytes)
+            }
+        }
+    }
+
+    var subStatus by remember { mutableStateOf("") }
+
     // Reading a QR out of a saved image, without the camera.
     //
     // The scanner screen can already do this, but only after it has opened
@@ -2209,22 +2233,6 @@ private fun ConfigPickerScreen(
         }
     }
 
-    val filePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            pickerScope.launch {
-                val bytes: ByteArray? = withContext(Dispatchers.IO) {
-                    runCatching {
-                        pickerContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-                    }.getOrNull()
-                }
-                if (bytes != null && bytes.isNotEmpty()) ImportBus.offer(bytes)
-            }
-        }
-    }
-
-    var subStatus by remember { mutableStateOf("") }
     var addBusy by remember { mutableStateOf(false) }
     var addDone by remember { mutableStateOf("") }
     var testAllState by remember { mutableStateOf(0) }
@@ -3883,7 +3891,7 @@ private fun AddServerPanel(
                         // poster - and until now the only way to read one was
                         // to point the camera at another screen.
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-                            GlyphTile(Icons.Filled.QrCode, t("scan_qr_image"), onQrFromImage, Modifier.weight(1f), enabled = !busy)
+                            GlyphTile(Icons.Filled.QrCode2, t("scan_qr_image"), onQrFromImage, Modifier.weight(1f), enabled = !busy)
                             Spacer(Modifier.weight(1f))
                         }
                     }
@@ -5748,7 +5756,7 @@ private fun RadarDot(tint: Color, pulsing: Boolean) {
     val ripple by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1700, easing = LinearEasing))),
         label = "radarRipple"
     )
     Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) {
@@ -5810,9 +5818,9 @@ private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = 
             val angle by spin.animateFloat(
                 initialValue = 0f,
                 targetValue = 360f,
-                animationSpec = infiniteRepeatable(
+                animationSpec = ghajarEndless(infiniteRepeatable(
                     animation = tween(1100, easing = LinearEasing)
-                ),
+                )),
                 label = "radarSpinAngle"
             )
             BounceIconButton(onClick = { run() }, enabled = !running) {
@@ -8312,6 +8320,67 @@ private fun ThemeSettingsScreen(store: ConfigStore, modifier: Modifier = Modifie
             selected = selected == GhajarThemeId.SYSTEM,
             onClick = { store.setUiTheme(GhajarThemeId.SYSTEM) }
         )
+
+        Rail(t("appearance_more"))
+        Slab {
+            val reduceMotion by store.reduceMotion.collectAsState()
+            val useDynamicAccent by store.dynamicAccent.collectAsState()
+            val density by store.listDensity.collectAsState()
+
+            SlabRow(
+                title = t("reduce_motion"),
+                subtitle = t("reduce_motion_sub"),
+                icon = Icons.Filled.TimerOff,
+                onClick = { store.setReduceMotion(!reduceMotion) },
+                trailing = {
+                    SkinSwitch(
+                        checked = reduceMotion,
+                        onCheckedChange = { store.setReduceMotion(it) }
+                    )
+                }
+            )
+            SlabDivider()
+            // Disabled rather than hidden below Android 12: a setting that
+            // appears on one phone and not another reads as a missing feature,
+            // and the subtitle can say why it is unavailable here.
+            SlabRow(
+                title = t("dynamic_accent"),
+                subtitle = if (dynamicAccentSupported) t("dynamic_accent_sub")
+                else t("dynamic_accent_unsupported"),
+                icon = Icons.Filled.Palette,
+                enabled = dynamicAccentSupported,
+                onClick = if (dynamicAccentSupported) {
+                    { store.setDynamicAccent(!useDynamicAccent) }
+                } else null,
+                trailing = {
+                    SkinSwitch(
+                        checked = useDynamicAccent && dynamicAccentSupported,
+                        onCheckedChange = if (dynamicAccentSupported) {
+                            { store.setDynamicAccent(it) }
+                        } else null,
+                        enabled = dynamicAccentSupported
+                    )
+                }
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("list_density"),
+                subtitle = when (density) {
+                    ListDensity.ONE -> t("list_density_one_sub")
+                    ListDensity.TWO -> t("list_density_two_sub")
+                },
+                icon = Icons.Filled.Apps,
+                value = when (density) {
+                    ListDensity.ONE -> t("list_density_one")
+                    ListDensity.TWO -> t("list_density_two")
+                },
+                onClick = {
+                    store.setListDensity(
+                        if (density == ListDensity.ONE) ListDensity.TWO else ListDensity.ONE
+                    )
+                }
+            )
+        }
     }
 }
 
@@ -9218,10 +9287,10 @@ private fun SpeedTile(
     )
     val glow by rememberInfiniteTransition(label = "speedGlow").animateFloat(
         initialValue = 0.35f, targetValue = 0.9f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(900, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "speedGlowA"
     )
     val border = if (active) tint.copy(alpha = glow) else tint.copy(alpha = 0.22f)
@@ -9296,7 +9365,7 @@ private fun SpeedBar(
     val shimmer = rememberInfiniteTransition(label = "shimmer")
     val sweep by shimmer.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1100, easing = LinearEasing))),
         label = "sweep"
     )
 
@@ -9475,7 +9544,7 @@ private fun QualityStartButton(running: Boolean, onClick: () -> Unit, modifier: 
 private fun ConnectSweep(color: Color, active: Boolean, modifier: Modifier = Modifier) {
     val phase = rememberInfiniteTransition(label = "connSweep").animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1500, easing = LinearEasing))),
         label = "connSweepV"
     )
     val fade by animateFloatAsState(
@@ -9513,7 +9582,7 @@ private fun ConnectGlow(color: Color, modifier: Modifier = Modifier, alpha: Floa
     val tr = rememberInfiniteTransition(label = "connectBeam")
     val progress by tr.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2600, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(2600, easing = LinearEasing))),
         label = "beam"
     )
     Spacer(
@@ -9583,19 +9652,19 @@ private fun PulseHalo(color: Color, size: Dp, modifier: Modifier = Modifier) {
     val breath by tr.animateFloat(
         initialValue = 0.88f,
         targetValue = 1.12f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(2600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "haloBreath"
     )
     val strength by tr.animateFloat(
         initialValue = 0.75f,
         targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(2600, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "haloStrength"
     )
 
@@ -9624,15 +9693,15 @@ private fun PingLine(color: Color, size: Dp = 96.dp, modifier: Modifier = Modifi
     val tr = rememberInfiniteTransition(label = "ping")
     val t by tr.animateFloat(
         initialValue = 0f, targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1800, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1800, easing = LinearEasing))),
         label = "pingT"
     )
     val core by tr.animateFloat(
         initialValue = 0.85f, targetValue = 1.15f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(900, easing = FastOutSlowInEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "pingCore"
     )
 
@@ -11770,10 +11839,10 @@ private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
     val strokeAlpha by pulseTr.animateFloat(
         initialValue = 0.22f,
         targetValue = 0.55f,
-        animationSpec = infiniteRepeatable(
+        animationSpec = ghajarEndless(infiniteRepeatable(
             tween(900, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
-        ),
+        )),
         label = "qrStroke"
     )
 
@@ -12109,6 +12178,12 @@ private fun ConfigRow(
     }
 
     val c = ghajarColors
+    // Compact rows drop the endpoint line and tighten the padding, which is
+    // where a row's height actually goes. Two columns were the other option
+    // and were rejected: this list maps a drag's y position to a row id for
+    // paint-selection, and a second column makes that mapping select the
+    // wrong servers - silently, which is the worst way for it to be wrong.
+    val compact = LocalListDensity.current == ListDensity.TWO
     // Selection is a low-alpha brand wash rather than a filled container, so a
     // long list of selected rows stays readable instead of turning into a block
     // of solid colour.
@@ -12192,7 +12267,12 @@ private fun ConfigRow(
     ) {
         Row(
             Modifier.fillMaxWidth().background(rowTint)
-                .padding(start = 8.dp, end = 9.dp, top = 10.dp, bottom = 10.dp),
+                .padding(
+                    start = 8.dp,
+                    end = 9.dp,
+                    top = if (compact) 5.dp else 10.dp,
+                    bottom = if (compact) 5.dp else 10.dp
+                ),
             verticalAlignment = Alignment.CenterVertically
         ) {
             // The leading accent bar: full height on the row that is connected,
@@ -12200,7 +12280,7 @@ private fun ConfigRow(
             Box(
                 Modifier
                     .width(3.dp)
-                    .height(30.dp)
+                    .height(if (compact) 20.dp else 30.dp)
                     .clip(RoundedCornerShape(GhajarRadius.pill))
                     .background(if (isActive) c.primary else Color.Transparent)
             )
@@ -12225,20 +12305,32 @@ private fun ConfigRow(
                 // Protocol and endpoint on one line: the tag first, because it
                 // is the shorter, fixed-width half and a long hostname should
                 // not be what pushes it off the row.
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp)
-                ) {
-                    ProtocolTag(config.protocol, isActive)
-                    Text(
-                        if (config.locked) AnnotatedString(t("locked_config"))
-                        else scriptRuns("${config.address}:${config.port}", LexendFont),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (isActive) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis
-                    )
+                //
+                // Compact drops this whole line, not just the address: the tag
+                // moves up beside the name instead, so the protocol - which is
+                // how you tell two servers on the same host apart - survives
+                // the density change. The address does not; it is one tap away
+                // in edit, and it is what the second line was mostly made of.
+                if (!compact) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(5.dp)
+                    ) {
+                        ProtocolTag(config.protocol, isActive)
+                        Text(
+                            if (config.locked) AnnotatedString(t("locked_config"))
+                            else scriptRuns("${config.address}:${config.port}", LexendFont),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = if (isActive) MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                    }
                 }
+            }
+            if (compact) {
+                Spacer(Modifier.width(6.dp))
+                ProtocolTag(config.protocol, isActive)
             }
             Spacer(Modifier.width(3.dp))
             PingChip(ping)
@@ -12576,7 +12668,7 @@ private fun LivePingDot(ping: PingResult?) {
             val ripple by transition.animateFloat(
                 initialValue = 0f,
                 targetValue = 1f,
-                animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
+                animationSpec = ghajarEndless(infiniteRepeatable(tween(1700, easing = LinearEasing))),
                 label = "ripple"
             )
             Box(

@@ -104,6 +104,52 @@ class ConfigStore private constructor(context: Context) {
     }
 
     /**
+     * Stop the animations that never stop on their own.
+     *
+     * Nineteen infinite transitions redraw forever while their screen is up.
+     * That is liveliness for most people and a problem for two groups: anyone
+     * with vestibular sensitivity, for whom it is unusable, and anyone on a
+     * weak phone, for whom it is heat and battery spent on decoration.
+     */
+    private val _reduceMotion = MutableStateFlow(prefs.getBoolean(KEY_REDUCE_MOTION, false))
+    val reduceMotion: StateFlow<Boolean> = _reduceMotion.asStateFlow()
+
+    fun setReduceMotion(enabled: Boolean) {
+        _reduceMotion.value = enabled
+        prefs.edit().putBoolean(KEY_REDUCE_MOTION, enabled).apply()
+    }
+
+    /**
+     * Take the accent colour from the system wallpaper (Material You).
+     *
+     * Only the accent, never the whole scheme: this app's palette carries
+     * meaning - warning amber, error red, connected green - and handing all
+     * of it to the wallpaper would turn an error message green on somebody's
+     * phone. Off by default, and inert below Android 12.
+     */
+    private val _dynamicAccent = MutableStateFlow(prefs.getBoolean(KEY_DYNAMIC_ACCENT, false))
+    val dynamicAccent: StateFlow<Boolean> = _dynamicAccent.asStateFlow()
+
+    fun setDynamicAccent(enabled: Boolean) {
+        _dynamicAccent.value = enabled
+        prefs.edit().putBoolean(KEY_DYNAMIC_ACCENT, enabled).apply()
+    }
+
+    /** One or two columns in the server list. */
+    private val _listDensity = MutableStateFlow(readListDensity())
+    val listDensity: StateFlow<ListDensity> = _listDensity.asStateFlow()
+
+    private fun readListDensity(): ListDensity {
+        val name = prefs.getString(KEY_LIST_DENSITY, null) ?: return ListDensity.ONE
+        return runCatching { ListDensity.valueOf(name) }.getOrDefault(ListDensity.ONE)
+    }
+
+    fun setListDensity(density: ListDensity) {
+        _listDensity.value = density
+        prefs.edit().putString(KEY_LIST_DENSITY, density.name).apply()
+    }
+
+    /**
      * What the zeptun engine does with DNS queries entering its tun.
      *
      * Stored as the enum's own name so an unreadable or future value falls
@@ -631,6 +677,9 @@ class ConfigStore private constructor(context: Context) {
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
         put("zeptunTunnel", _zeptunTunnel.value)
+        put("reduceMotion", _reduceMotion.value)
+        put("dynamicAccent", _dynamicAccent.value)
+        put("listDensity", _listDensity.value.name)
         put("zeptunDns", _zeptunDns.value.name)
         put("zeptunDnsUpstream", _zeptunDnsUpstream.value)
         put("zeptunProfile", _zeptunProfile.value.name)
@@ -687,6 +736,11 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("customDns")) setCustomDns(o.optString("customDns"))
         if (o.has("rotateMinutes")) setRotateMinutes(o.optInt("rotateMinutes", 0))
         if (o.has("zeptunTunnel")) setZeptunTunnel(o.getBoolean("zeptunTunnel"))
+        if (o.has("reduceMotion")) setReduceMotion(o.getBoolean("reduceMotion"))
+        if (o.has("dynamicAccent")) setDynamicAccent(o.getBoolean("dynamicAccent"))
+        if (o.has("listDensity")) runCatching {
+            setListDensity(ListDensity.valueOf(o.optString("listDensity")))
+        }
         // Each of these is read only when present, and an unreadable enum name
         // falls back to the setting's own default rather than failing the
         // restore: a backup written before they existed has to come back
@@ -902,6 +956,9 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_CONFIGS = "configs"
         private const val KEY_SUBS = "subscriptions"
         private const val KEY_ZEPTUN = "zeptun_tunnel"
+        private const val KEY_REDUCE_MOTION = "reduce_motion"
+        private const val KEY_DYNAMIC_ACCENT = "dynamic_accent"
+        private const val KEY_LIST_DENSITY = "list_density"
         private const val KEY_ZEPTUN_DNS = "zeptun_dns_mode"
         private const val KEY_ZEPTUN_DNS_UPSTREAM = "zeptun_dns_upstream"
         private const val KEY_ZEPTUN_PROFILE = "zeptun_profile"

@@ -394,11 +394,27 @@ fun GhajarTheme(
     theme: GhajarThemeId,
     typography: androidx.compose.material3.Typography,
     shapes: androidx.compose.material3.Shapes,
+    reduceMotion: Boolean = false,
+    useDynamicAccent: Boolean = false,
+    listDensity: ListDensity = ListDensity.ONE,
     content: @Composable () -> Unit
 ) {
     val systemDark = isSystemInDarkTheme()
-    val palette = remember(theme, systemDark) { ghajarPaletteFor(theme, systemDark) }
-    CompositionLocalProvider(LocalGhajarPalette provides palette) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val base = remember(theme, systemDark) { ghajarPaletteFor(theme, systemDark) }
+    // The wallpaper replaces the accent and nothing else. The rest of this
+    // palette carries meaning - warning amber, error red, the connected green
+    // - and handing all of it to the wallpaper would make an error message
+    // green on somebody's phone. See GhajarAppearance.dynamicAccent.
+    val palette = remember(base, useDynamicAccent) {
+        if (!useDynamicAccent) base
+        else dynamicAccent(context)?.let { base.copy(primary = it, highlight = it) } ?: base
+    }
+    CompositionLocalProvider(
+        LocalGhajarPalette provides palette,
+        LocalReduceMotion provides reduceMotion,
+        LocalListDensity provides listDensity
+    ) {
         MaterialTheme(
             colorScheme = palette.toColorScheme(),
             typography = typography,
@@ -421,10 +437,19 @@ fun GhajarAppTheme(content: @Composable () -> Unit) {
     val store = remember { ConfigStore.get(context) }
     val theme by store.uiTheme.collectAsState()
     val lang by store.lang.collectAsState()
+    // These secondary windows read the same appearance settings as the main
+    // one. A "reduce motion" switch that the log viewer ignores is a switch
+    // the user cannot trust.
+    val reduceMotion by store.reduceMotion.collectAsState()
+    val useDynamicAccent by store.dynamicAccent.collectAsState()
+    val listDensity by store.listDensity.collectAsState()
     GhajarTheme(
         theme = theme,
         typography = if (lang == Lang.FA) VazirTypography else LexendTypography,
-        shapes = GhajarSoftShapes
+        shapes = GhajarSoftShapes,
+        reduceMotion = reduceMotion,
+        useDynamicAccent = useDynamicAccent,
+        listDensity = listDensity
     ) {
         CompositionLocalProvider(
             LocalLang provides lang,

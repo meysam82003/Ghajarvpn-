@@ -840,10 +840,10 @@ fun SkinLoading(label: String, modifier: Modifier = Modifier) {
         val head by move.animateFloat(
             initialValue = 0f,
             targetValue = 1f,
-            animationSpec = infiniteRepeatable(
+            animationSpec = ghajarEndless(infiniteRepeatable(
                 tween(1100, easing = FastOutSlowInEasing),
                 RepeatMode.Restart
-            ),
+            )),
             label = "loadHead"
         )
         Box(

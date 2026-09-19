@@ -136,13 +136,13 @@ fun ConnectOrb(
     val sweepState = spin.animateFloat(
         initialValue = -90f,
         targetValue = 270f,
-        animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Restart)),
         label = "orbSweep"
     )
     val breathState = spin.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(2600, easing = FastOutSlowInEasing), RepeatMode.Reverse)),
         label = "orbBreath"
     )
 

@@ -830,7 +830,7 @@ internal fun SshStateDot(active: Boolean, color: Color) {
     val ripple by transition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
+        animationSpec = ghajarEndless(infiniteRepeatable(tween(1700, easing = LinearEasing))),
         label = "sshRipple"
     )
     Box(Modifier.size(22.dp), contentAlignment = Alignment.Center) {
