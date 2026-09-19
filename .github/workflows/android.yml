@@ -17,7 +17,7 @@ env:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
 
@@ -110,6 +110,84 @@ jobs:
           done
           ls -lh "$GITHUB_WORKSPACE/app/src/main/jniLibs"/*/libzeptun*.so
 
+      # sing-box (SagerNet/sing-box, GPL-3.0), built from source at a pinned
+      # commit into the same kind of gomobile AAR its own Android client uses.
+      # This is a second core alongside Xray, not a replacement: it is the only
+      # way to get Snell, AnyTLS, ShadowTLS, ShadowsocksR and - the one that
+      # needed a whole engine rather than a config field - OpenConnect, which
+      # is Cisco AnyConnect's protocol and has nothing to do with Xray.
+      #
+      # Built rather than vendored for the same reason as zeptun: a committed
+      # 100 MB binary nobody can reproduce is worse than a build step.
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Build the sing-box core
+        env:
+          SINGBOX_COMMIT: 8330820fa62505f9574e4c35cd969d9af6eb7769
+          # The version its own go.mod pins. gomobile and gobind have to be the
+          # same version as each other and as the module, or the generated
+          # bindings do not match the runtime.
+          GOMOBILE_VERSION: v0.1.12
+        run: |
+          set -eux
+          git clone https://github.com/SagerNet/sing-box /tmp/sing-box
+          git -C /tmp/sing-box checkout "$SINGBOX_COMMIT"
+          go install "github.com/sagernet/gomobile/cmd/gomobile@$GOMOBILE_VERSION"
+          go install "github.com/sagernet/gomobile/cmd/gobind@$GOMOBILE_VERSION"
+          export PATH="$(go env GOPATH)/bin:$PATH"
+          cd /tmp/sing-box
+          # The build tags decide which protocols exist in the binary - a
+          # protocol whose registration is behind a tag is not merely disabled,
+          # it is absent (see its include/*_stub.go pairs). These are the ones
+          # gated behind a tag that this app wants:
+          #   with_quic        hysteria, hysteria2, tuic
+          #   with_wireguard   wireguard endpoints
+          #   with_utls        client hello fingerprinting
+          #   with_openconnect Cisco AnyConnect
+          #   with_openvpn     sing-box's own OpenVPN client
+          #   with_clash_api   the stats and selector API the UI reads
+          # snell, anytls, ssh, tor, shadowtls, shadowsocksr, vless, vmess,
+          # trojan and shadowsocks need no tag and are always in.
+          #
+          # with_tailscale, with_usbip and with_naive_outbound are left out on
+          # purpose: none of them was asked for and each pulls in a large
+          # dependency tree, and this APK is already 150 MB.
+          #
+          # badlinkname and tfogo_checklinkname0 are not features - they are the
+          # linkname workarounds sing-box's own release build passes, and the
+          # build fails on modern Go without them.
+          TAGS=with_quic,with_wireguard,with_utls,with_openconnect,with_openvpn,with_clash_api,badlinkname,tfogo_checklinkname0
+          # Only the two ABIs this app ships. The default "android" target
+          # builds four, which would add well over a hundred megabytes for
+          # emulator architectures no release targets.
+          gomobile bind -v \
+            -o "$GITHUB_WORKSPACE/app/libs/libbox.aar" \
+            -target android/arm64,android/arm \
+            -androidapi 24 \
+            -javapkg=io.nekohasekai \
+            -libname=box \
+            -tags "$TAGS" \
+            ./experimental/libbox
+          ls -lh "$GITHUB_WORKSPACE/app/libs/libbox.aar"
+          # Prove the protocols asked for are actually in the artifact rather
+          # than trusting the tag list: a tag typo is silent, and a core
+          # missing OpenConnect looks exactly like one that has it until the
+          # first connect fails.
+          cd "$GITHUB_WORKSPACE"
+          unzip -o -q app/libs/libbox.aar -d /tmp/libbox-check
+          for proto in openconnect snell anytls shadowtls ssh tor hysteria2 tuic; do
+            if strings -n 4 /tmp/libbox-check/jni/arm64-v8a/libgojni.so \
+                 | grep -q "protocol/$proto"; then
+              echo "ok: $proto"
+            else
+              echo "::error::sing-box core has no $proto - check the build tags"
+              exit 1
+            fi
+          done
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -130,7 +208,7 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 110
     env:
       GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dhttp.proxyHost= -Dhttps.proxyHost="
     steps:
@@ -161,6 +239,43 @@ jobs:
             echo "::error::app/libs/ca.psiphon.aar is missing. Build it with gomobile and commit it."
             exit 1
           fi
+
+      # Both built-from-source cores have to be built here too, not only in
+      # the build job. zeptun was missing from this job, which meant every
+      # signed release APK shipped without it while the debug artifact had it -
+      # the one build nobody would think to check. sing-box is a compile-time
+      # dependency on top of that, so without it this job cannot build at all.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build the zeptun tun engine
+        env:
+          ZEPTUN_COMMIT: 2798fc0ced2e39b2f55f3c1c1bcec45f91021400
+        run: |
+          git clone https://github.com/Noisemux/zeptun /tmp/zeptun
+          git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
+          cd /tmp/zeptun
+          ABIS="armeabi-v7a arm64-v8a" sh scripts/build_android.sh
+          for abi in armeabi-v7a arm64-v8a; do
+            dest="$GITHUB_WORKSPACE/app/src/main/jniLibs/$abi"
+            mkdir -p "$dest"
+            cp "zig-out/android/jniLibs/$abi/libzeptun.so" "$dest/"
+            cp "zig-out/android/jniLibs/$abi/libzeptun-jni.so" "$dest/"
+            for so in "$dest/libzeptun.so" "$dest/libzeptun-jni.so"; do
+              align=$(readelf -lW "$so" | awk '$1 == "LOAD" { print $NF; exit }')
+              echo "$so $align"
+              [ "$align" = "0x4000" ]
+            done
+          done
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: false
+
+      - name: Build the sing-box core
+        run: sh scripts/build-singbox-aar.sh
 
       - name: Remove any committed local signing config
         run: rm -f keystore.properties

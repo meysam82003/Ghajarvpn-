@@ -132,6 +132,12 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
     implementation(files("libs/ca.psiphon.aar"))
+    // The sing-box core. Built, not committed - see third_party/sing-box/ and
+    // scripts/build-singbox-aar.sh. Unlike zeptun this is a compile-time
+    // dependency, so a checkout without it does not build; the check below
+    // says that in one line instead of letting it surface as a hundred
+    // unresolved references to io.nekohasekai.libbox.
+    implementation(files("libs/libbox.aar"))
     implementation("androidx.compose.material:material-icons-extended")
     implementation("dev.chrisbanes.haze:haze:1.6.0")
     implementation("com.google.zxing:core:3.5.3")
@@ -149,4 +155,26 @@ dependencies {
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
     debugImplementation(libs.androidx.compose.ui.tooling)
+}
+
+// libbox.aar is built rather than committed, so a fresh checkout does not have
+// it. Without this, the first thing anyone sees is a wall of unresolved
+// references to io.nekohasekai.libbox with nothing saying why - so say why,
+// once, with the command that fixes it.
+gradle.taskGraph.whenReady {
+    val aar = layout.projectDirectory.file("libs/libbox.aar").asFile
+    if (!aar.exists() && allTasks.any { it.project == project }) {
+        throw org.gradle.api.GradleException(
+            """
+            app/libs/libbox.aar is missing.
+
+            It is the sing-box core and it is built from source, not committed
+            (see third_party/sing-box/README.md for why). Build it once with:
+
+                sh scripts/build-singbox-aar.sh
+
+            CI does the same thing in its "Build the sing-box core" step.
+            """.trimIndent()
+        )
+    }
 }
