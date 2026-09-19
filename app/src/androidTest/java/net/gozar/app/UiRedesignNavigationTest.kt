@@ -37,6 +37,7 @@ class UiRedesignNavigationTest {
         runBlocking { store.awaitReady() }
         ui.runOnUiThread { store.setLang(Lang.FA) }
         ui.waitUntil(30_000) { ui.onAllNodesWithTag("root-nav-0").fetchSemanticsNodes().isNotEmpty() }
+        ui.waitUntil(30_000) { ui.onAllNodesWithTag("launch-intro").fetchSemanticsNodes().isEmpty() }
         nav(0)
         shot("01-home")
         open("سرورها")

@@ -25,6 +25,9 @@ android {
 
 		ndk {
 			abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+			if (providers.gradleProperty("ghajar.emulatorTest").orNull == "true") {
+				abiFilters += "x86_64"
+			}
 		}
 
 		consumerProguardFiles("consumer-rules.pro")

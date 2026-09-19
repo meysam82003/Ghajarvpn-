@@ -1,5 +1,7 @@
 package net.gozar.app
 
+import androidx.compose.ui.platform.testTag
+
 import android.content.Context
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.Animatable
@@ -106,6 +108,7 @@ internal fun GhajarIntro(onDone: () -> Unit) {
 
     Box(
         Modifier
+            .testTag("launch-intro")
             .fillMaxSize()
             .background(c.background)
             .graphicsLayer { alpha = fade }

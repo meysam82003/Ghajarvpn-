@@ -26,6 +26,7 @@ run_case() {
 }
 # An engine crash must not prevent inspection of independent UI/storage flows.
 run_case navigation net.gozar.app.UiRedesignNavigationTest
+adb shell dumpsys gfxinfo com.ghajarvpn.app framestats > device-evidence/navigation-frames.txt
 adb pull /sdcard/Android/data/com.ghajarvpn.app/files/ui-redesign device-evidence/screenshots || true
 run_case persistence net.gozar.app.RedesignStateTest,net.gozar.app.ExampleInstrumentedTest
 run_case backend 'net.gozar.app.RuntimeConnectionTest#storeReachesRealBackendAndPersistsLinkSession'
