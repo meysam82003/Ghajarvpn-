@@ -182,6 +182,7 @@ object IkeController {
     }
 
     fun connect(context: Context, config: ProxyConfig): Boolean {
+        UsageStore.currentConfigKey = config.name
         active = true
         val uuid = profileFor(context, config)
         if (uuid == null) {

@@ -108,6 +108,7 @@ class GozarVpnService : VpnService() {
                 psiphonSpec = PsiphonSpec.parse(intent?.getStringExtra(EXTRA_PSIPHON))
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
                 configName = intent?.getStringExtra(EXTRA_NAME) ?: "VPN"
+                UsageStore.currentConfigKey = configName
                 configAddress = intent?.getStringExtra(EXTRA_ADDRESS).orEmpty()
                 configPort = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
                 lastPingMs = null

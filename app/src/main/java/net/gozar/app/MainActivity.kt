@@ -1668,6 +1668,10 @@ private fun GozarApp(
         ) { p ->
             if (p == PAGE_SHOP) {
                 GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
+            } else if (p != pagerState.currentPage && !pagerState.isScrollInProgress) {
+                // Preserve the shop's checkout composition, but stop hidden
+                // home/map/diagnostic collectors after a page transition.
+                Box(Modifier.fillMaxSize())
             } else if (p == PAGE_HOME) {
                 val connKey = when {
                     exportConfigs != null -> "export"
@@ -1925,12 +1929,6 @@ private fun ConnectionScreen(
     val mixedPortValue by store.mixedPort.collectAsState()
     LaunchedEffect(mixedPortValue) { MixedPort.value = mixedPortValue }
 
-    LaunchedEffect(activeCfgId, configs) {
-        if (!activeCfgId.orEmpty().startsWith("ovpn:")) {
-            UsageStore.currentConfigKey = configs.find { it.id == activeCfgId }?.name
-        }
-    }
-
     LaunchedEffect(conn) {
         val off = conn != Connection.CONNECTED && conn != Connection.CONNECTING
         if (android.net.TrafficStats.getTotalRxBytes() == android.net.TrafficStats.UNSUPPORTED.toLong())
@@ -1965,13 +1963,18 @@ private fun ConnectionScreen(
     // engine is a separate process that never broadcasts to VpnBridge, so a
     // session showed live traffic in its own notification and a flat zero here.
     val ovpnActiveUuid by GhajarOpenVpnBridge.activeUuid.collectAsState()
-    val ovpnCounters by GhajarOpenVpnBridge.counters.collectAsState()
     val activeOpenVpn = activeCfgId.orEmpty().startsWith("ovpn:") &&
         (conn == Connection.CONNECTED || conn == Connection.CONNECTING)
     val selectedOpenVpn = selectedId?.takeIf { it.startsWith("ovpn:") }?.removePrefix("ovpn:")
-    val onOpenVpn = activeOpenVpn || selectedOpenVpn != null
+    val selectedConfig = configs.find { it.id == selectedId }
+    val onOpenVpn = selectedOpenVpn != null || (selectedConfig == null && activeOpenVpn)
     val ovpnProfile = remember(ovpnActiveUuid, selectedOpenVpn, conn) {
-        (if (activeOpenVpn) ovpnActiveUuid else selectedOpenVpn)?.let { uuid ->
+        (selectedOpenVpn ?: ovpnActiveUuid.takeIf { activeOpenVpn })?.let { uuid ->
+            runCatching { GhajarOpenVpnBridge.profiles(context).find { it.uuid == uuid } }.getOrNull()
+        }
+    }
+    val activeOvpnProfile = remember(ovpnActiveUuid, activeOpenVpn) {
+        ovpnActiveUuid?.takeIf { activeOpenVpn }?.let { uuid ->
             runCatching { GhajarOpenVpnBridge.profiles(context).find { it.uuid == uuid } }.getOrNull()
         }
     }
@@ -1995,7 +1998,6 @@ private fun ConnectionScreen(
         if (conn != Connection.CONNECTED) delayResult = null
     }
 
-    val selectedConfig = configs.find { it.id == selectedId }
     val connected = conn == Connection.CONNECTED || conn == Connection.CONNECTING
 
     val connectedAt by VpnState.connectedAt.collectAsState()
@@ -2040,12 +2042,11 @@ private fun ConnectionScreen(
                         else -> selectedConfig?.let { onConnect(it) }
                     }
                 },
-                // Long press on a live tunnel redials the same server. The
-                // OpenVPN path has no ProxyConfig to hand back, so it drops the
-                // tunnel and the engine's own reconnect takes it from there.
+                // Reconnect respects the last explicit choice, even when it
+                // differs from the engine that currently owns the tunnel.
                 onReconnect = {
-                    val target = selectedConfig
-                    val ovpn = if (activeOpenVpn) ovpnActiveUuid else selectedOpenVpn
+                    val target = selectedConfig ?: configs.find { it.id == activeCfgId }
+                    val ovpn = selectedOpenVpn ?: ovpnActiveUuid.takeIf { selectedConfig == null && activeOpenVpn }
                     scope.launch {
                         onDisconnect()
                         val stopped = withTimeoutOrNull(8_000L) {
@@ -2148,14 +2149,14 @@ private fun ConnectionScreen(
             // one, so there is a single row about latency, not two.
             ConnectionFacts(
                 state = conn,
-                serverAddress = if (onOpenVpn) ovpnProfile?.host else activeConfig?.address,
-                serverPort = if (onOpenVpn) ovpnProfile?.port else activeConfig?.port,
+                serverAddress = if (activeOpenVpn) activeOvpnProfile?.host else activeConfig?.address,
+                serverPort = if (activeOpenVpn) activeOvpnProfile?.port else activeConfig?.port,
                 // ics-openvpn routes the whole device, so a plain request is
                 // already inside the tunnel. Asking through 127.0.0.1:MixedPort
                 // would reach an inbound only the Xray engine publishes, which
                 // is why the IP and location rows sat on a dash for an OpenVPN
                 // session that was carrying traffic perfectly well.
-                throughLocalProxy = !onOpenVpn,
+                throughLocalProxy = !activeOpenVpn,
                 measuredDelay = delayResult,
                 delayRunning = delayRunning,
                 onMeasureDelay = {
@@ -2165,8 +2166,8 @@ private fun ConnectionScreen(
                         // SpeedTest.delay() measures through gozarcore, which
                         // has no part in an OpenVPN session; that path gets a
                         // real TCP handshake against the profile's endpoint.
-                        val ms: Int? = if (onOpenVpn) {
-                            ovpnProfile?.let { p ->
+                        val ms: Int? = if (activeOpenVpn) {
+                            activeOvpnProfile?.let { p ->
                                 (Pinger.ping(p.host, p.port) as? PingResult.Ok)?.ms
                             }
                         } else SpeedTest.delay()
