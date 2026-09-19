@@ -450,11 +450,56 @@ class MainActivity : ComponentActivity() {
 
     private var pendingConnect: (() -> Unit)? = null
 
+    /**
+     * The notification permission, and what happens the moment it is granted.
+     *
+     * Two things run here rather than one. The connect that was waiting for it
+     * carries on as before - but a grant is also the first moment this app is
+     * *allowed* to put anything in the shade, and there is usually something
+     * waiting: an expiry warning that arrived while the permission was still
+     * missing was fetched, stored, and silently not posted. So a grant kicks
+     * the monitor immediately instead of leaving those until the next
+     * fifteen-minute pass, which is what made the first notification after
+     * granting take a quarter of an hour to show up.
+     */
     private val notificationPermission =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) {
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
             pendingConnect?.invoke()
             pendingConnect = null
+            if (granted) {
+                lifecycleScope.launch {
+                    GhajarNotificationMonitor.refresh(applicationContext)
+                }
+            }
         }
+
+    /**
+     * Asks for the notification permission when the app is first opened.
+     *
+     * It used to be asked only on the first connect, which is the wrong
+     * moment twice over: a user who opens the app to look at the shop is
+     * never asked at all, and the one thing that most needs the permission -
+     * being told a service is about to expire - has nothing to do with
+     * connecting.
+     *
+     * Asked once. Android stops showing the dialog after two refusals and
+     * returns "denied" instantly from then on, so re-launching it on every
+     * cold start would be an invisible no-op that still costs a frame; and a
+     * user who said no should be asked again from Settings, on purpose, not
+     * by the app repeating itself. The Settings screen already has that row.
+     */
+    private fun requestNotificationPermissionOnce() {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU) return
+        if (checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) return
+        val prefs = getSharedPreferences("ghajarvpn_perm", MODE_PRIVATE)
+        if (prefs.getBoolean("asked_post_notifications", false)) return
+        prefs.edit().putBoolean("asked_post_notifications", true).apply()
+        runCatching {
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }.onFailure { GhajarLog.e("Startup", "notification permission request failed: ${it.javaClass.simpleName}") }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -470,6 +515,10 @@ class MainActivity : ComponentActivity() {
         handleRenewIntent(intent)
         IkeController.bind(this)
         watchTunnel()
+        // At first launch, not at first connect. The warning this app most
+        // needs to deliver - "your service ends tomorrow" - has nothing to do
+        // with connecting, and a user who only opens the shop was never asked.
+        requestNotificationPermissionOnce()
         GhajarLog.i("Startup", "phase: services bound")
         lifecycleScope.launch {
             VpnState.state.collect { s ->
