@@ -1720,7 +1720,8 @@ private fun GozarApp(
                         )
                         "projects" -> FreeProjectsScreen(
                             store = store,
-                            onOpenTor = { showTorNodes = true }
+                            onOpenTor = { showTorNodes = true },
+                            onAddManually = { showProjects = false; showManual = true }
                         )
                         "windscribe" -> WindscribeScreen(store = store)
                         "scanqr" -> QrScannerScreen(
@@ -1861,6 +1862,7 @@ private fun ConnectionScreen(
     val n: (String) -> String = { localizeDigits(it, lang) }
     val context = LocalContext.current
     val configs by store.configs.collectAsState()
+    val subscriptions by store.subscriptions.collectAsState()
     val conn by VpnState.state.collectAsState()
     val activeCfgId by VpnState.activeId.collectAsState()
     val picking by VpnState.picking.collectAsState()
@@ -2035,6 +2037,27 @@ private fun ConnectionScreen(
                 )
             }
 
+            // What is left of the service this server came from.
+            //
+            // Every config that arrived from a subscription carries its subId,
+            // and the subscription carries the quota and the expiry the panel
+            // reported. Until now that pair was only readable by opening the
+            // picker and finding the right header - so the number people check
+            // most often was two screens from the connect button.
+            //
+            // Keyed on the server actually carrying traffic, falling back to
+            // the selected one, because "how much is left" is a question about
+            // the service in use. It draws nothing at all when the config is a
+            // hand-pasted one (no subId) or when the panel reported neither a
+            // quota nor an expiry: a card with two dashes on it is a decoration.
+            val routeSub = remember(activeConfig, subscriptions) {
+                activeConfig?.subId?.takeIf { it.isNotBlank() }
+                    ?.let { id -> subscriptions.firstOrNull { it.id == id } }
+            }
+            if (routeSub != null && (routeSub.total > 0 || routeSub.expire > 0)) {
+                SubscriptionQuotaCard(routeSub)
+            }
+
             // Throughput: one object, two readings, totals underneath.
             val downParts = formatBytesParts(downSpeed, lang)
             val upParts = formatBytesParts(upSpeed, lang)
@@ -2115,6 +2138,96 @@ private fun ConnectionScreen(
             tunnelUp = conn == Connection.CONNECTED,
             onDismiss = { showDoctor = false }
         )
+    }
+}
+
+/**
+ * What is left of the service the current server belongs to: its name, the
+ * data remaining and the days remaining, on the home screen.
+ *
+ * Every number here comes from the panel's own reply to the subscription
+ * fetch - `total`, `used` and `expire` on the [Subscription] - and nothing is
+ * derived beyond the subtraction. A field the panel did not send reads
+ * "unlimited" rather than a made-up figure, because an unmetered service and
+ * one whose quota failed to parse must not look the same.
+ *
+ * The caller only draws this when at least one of the two is real, so there
+ * is no empty state to design.
+ */
+@Composable
+private fun SubscriptionQuotaCard(sub: Subscription) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val c = ghajarColors
+
+    val remaining = if (sub.total > 0) (sub.total - sub.used).coerceAtLeast(0L) else 0L
+    val daysLeft = if (sub.expire > 0) {
+        (sub.expire * 1000L - System.currentTimeMillis()) / 86_400_000L
+    } else null
+
+    // The accent is the worse of the two readings, so one glance at the card's
+    // top edge says whether anything is about to run out.
+    val volumeLevel = if (sub.total > 0) remaining.toFloat() / sub.total else 1f
+    val timeLevel = when {
+        daysLeft == null -> 1f
+        daysLeft <= 1L -> 0f
+        daysLeft <= 3L -> 0.2f
+        daysLeft <= 7L -> 0.5f
+        else -> 1f
+    }
+    val worst = minOf(volumeLevel, timeLevel)
+    val accent = when {
+        worst <= 0.10f -> c.error
+        worst <= 0.30f -> c.warning
+        else -> c.premium
+    }
+
+    Slab(accent = accent, spacing = GhajarSpacing.md) {
+        SlabRow(
+            title = GhajarUiRules.brandedSubscriptionTitle(
+                sub.total,
+                BrandConfig.sanitizePublicText(sub.name)
+            ),
+            subtitle = t("home_sub_card"),
+            icon = Icons.Filled.DataUsage,
+            accent = accent
+        )
+        StatStrip(
+            listOf(
+                StatCell(
+                    label = t("home_sub_data_left"),
+                    value = if (sub.total > 0) formatBytes(remaining, lang)
+                    else t("home_sub_unlimited"),
+                    accent = if (sub.total > 0) usageLevelColor(remaining, sub.total) else c.premium,
+                    sub = if (sub.total > 0) t("home_total").format(formatBytes(sub.total, lang))
+                    else null
+                ),
+                StatCell(
+                    label = t("home_sub_time_left"),
+                    value = when {
+                        daysLeft == null -> t("home_sub_unlimited")
+                        daysLeft < 0L -> t("home_sub_expired")
+                        else -> t("home_sub_days").format(localizeDigits("$daysLeft", lang))
+                    },
+                    accent = when {
+                        daysLeft == null -> c.premium
+                        daysLeft < 0L -> c.error
+                        daysLeft <= 3L -> c.error
+                        daysLeft <= 7L -> c.warning
+                        else -> c.info
+                    }
+                )
+            )
+        )
+        if (sub.total > 0) {
+            UsageBar(used = sub.used, total = sub.total)
+        } else {
+            Text(
+                t("home_sub_unmetered"),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted
+            )
+        }
     }
 }
 
@@ -3931,9 +4044,12 @@ private fun AddServerPanel(
 private fun FreeProjectsScreen(
     store: ConfigStore,
     onOpenTor: () -> Unit,
+    onAddManually: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
+    val lang = LocalLang.current
+    val n: (String) -> String = { localizeDigits(it, lang) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     var busy by remember { mutableStateOf(false) }
@@ -3941,6 +4057,7 @@ private fun FreeProjectsScreen(
     var statusOwner by remember { mutableStateOf("") }
     var aetherMode by remember { mutableStateOf("masque") }
     var aetherH2 by remember { mutableStateOf(true) }
+    val c = ghajarColors
 
     LaunchedEffect(status) {
         if (status.isNotEmpty()) { delay(4000); status = ""; statusOwner = "" }
@@ -3949,112 +4066,167 @@ private fun FreeProjectsScreen(
     Column(
         modifier.fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+            .padding(GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        Icons.Filled.Bolt,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(22.dp)
-                    )
-                    Spacer(Modifier.width(10.dp))
-                    Text(t("legacy_warp"), style = MaterialTheme.typography.titleMedium)
-                }
-                Text(
-                    accentText(
-                        t("proj_warp_desc"),
-                        "use Aether instead there",
-                        "\u062f\u0631 \u0627\u06cc\u0631\u0627\u0646 \u0627\u0632 Aether \u0627\u0633\u062a\u0641\u0627\u062f\u0647 \u06a9\u0646\u06cc\u062f"
-                    ),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                BounceButton(
-                    onClick = {
-                        if (busy) return@BounceButton
-                        busy = true; status = ""; statusOwner = "warp"
-                        scope.launch {
-                            val result = withContext(Dispatchers.IO) { Warp.register() }
-                            status = when (result) {
-                                is Warp.Result.Success -> {
-                                    result.configs.forEach { store.add(it) }
-                                    t("warp_added")
-                                }
-                                is Warp.Result.Failure -> t("warp_failed")
-                            }
-                            busy = false
-                        }
+        // Free configs first, and rebuilt.
+        //
+        // This screen was the last one still made of Material cards with
+        // borders inside a skin that has none, and the free-config block was
+        // the part people came here for buried third. It says what it will do
+        // before it does it - the window it reads, the cap, the latency it
+        // accepts - because every one of those is a real rule in FreeConfigs
+        // and not knowing them made "I got 6 configs" look like a failure.
+        val freeBusy by FreeConfigs.busy.collectAsState()
+        val freeProgress by FreeConfigs.progress.collectAsState()
+        val freeIncomplete by FreeConfigs.incomplete.collectAsState()
+        val subs by store.subscriptions.collectAsState()
+        val configs by store.configs.collectAsState()
+        val freeSub = remember(subs) { subs.firstOrNull { it.url == FreeConfigs.SOURCE_URL } }
+        val savedCount = remember(configs, freeSub) {
+            freeSub?.let { s -> configs.count { it.subId == s.id } } ?: 0
+        }
+
+        Slab(accent = if (freeBusy) c.highlight else c.premium, spacing = GhajarSpacing.md) {
+            SlabRow(
+                title = t("proj_free"),
+                subtitle = "@" + FreeConfigs.CHANNEL,
+                icon = Icons.Filled.CardGiftcard,
+                accent = c.premium
+            )
+            // The state of the source, as one chip. "Not checked yet" and
+            // "checked, found nothing" are different things and used to read
+            // the same.
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                QuotaChip(
+                    label = when {
+                        freeBusy -> t("proj_free_working")
+                        freeSub == null || freeSub.lastUpdated <= 0L -> t("free_never")
+                        else -> t("sub_updated_at").format(formatStamp(freeSub.lastUpdated, lang))
                     },
-                    enabled = !busy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    ProjectButtonLabel(
-                        status = if (statusOwner == "warp") status else "",
-                        label = if (busy) t("adding") else t("add_warp")
-                    )
+                    level = if (freeSub == null || freeSub.lastUpdated <= 0L) 1 else 0
+                )
+            }
+            // The rules this fetch runs under, each one read from the code that
+            // enforces it rather than typed out here as a claim.
+            Text(
+                listOf(
+                    t("free_src_window"),
+                    t("free_src_cap").format(n("${net.gozar.app.freecfg.FreeFeedRules.MAX_MANAGED_CONFIGS}")),
+                    t("free_src_latency").format(n("${FreeConfigs.MAX_LATENCY_MS}")),
+                    t("free_src_dedupe")
+                ).joinToString(" · "),
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted
+            )
+            val p = freeProgress
+            if (p != null && freeBusy) {
+                Text(
+                    (if (p.collecting) n("دریافت پیام‌ها (${p.pages} صفحه)") + " · " else "") +
+                        localizeDigits(t("proj_free_testing").format(p.tested, p.total, p.alive), lang),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.highlight
+                )
+            }
+            PillButton(
+                text = when {
+                    freeBusy -> t("proj_free_working")
+                    freeSub != null -> t("refresh")
+                    else -> t("add")
+                },
+                icon = Icons.Filled.Autorenew,
+                enabled = !freeBusy,
+                onClick = {
+                    scope.launch {
+                        val kept = FreeConfigs.refreshMultiSource(store, t("proj_free"))
+                        statusOwner = "free"
+                        status = when {
+                            kept > 0 -> localizeDigits(t("proj_free_added").format(kept), lang) +
+                                if (FreeConfigs.incomplete.value) "؛ بعضی منابع در دسترس نبودند، موارد قبلی حفظ شدند." else ""
+                            kept == FreeConfigs.UNREACHABLE -> t("proj_free_unreachable")
+                            kept == FreeConfigs.NO_CONFIGS -> t("proj_free_nocfg")
+                            kept == FreeConfigs.BUSY -> t("proj_free_working")
+                            else -> t("proj_free_none")
+                        }
+                    }
                 }
+            )
+            GhostPill(
+                text = t("free_add_config"),
+                icon = Icons.Filled.Add,
+                onClick = onAddManually
+            )
+            if (statusOwner == "free" && status.isNotEmpty()) {
+                Text(
+                    mixedText(status),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = c.primary
+                )
+            }
+            if (freeIncomplete) {
+                Text(
+                    t("free_needs_tunnel"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.warning
+                )
             }
         }
 
-        SettingsGroup {
-            Text(
-                t("proj_aether_title"),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold
+        Rail(
+            n(t("free_saved").format("$savedCount")) +
+                if (savedCount > 0) " · " + t("free_sorted") else ""
+        )
+        if (savedCount == 0) {
+            SkinEmpty(
+                title = t("free_empty_title"),
+                hint = t("free_empty_hint"),
+                icon = Icons.Filled.FileDownload
             )
-            Text(
-                accentText(
-                    t("proj_aether_desc"),
-                    "MASQUE, WireGuard and nested WireGuard tunnels",
-                    "\u062a\u0648\u0646\u0644 MASQUE\u060c \u0648\u0627\u06cc\u0631\u06af\u0627\u0631\u062f \u0648 \u0648\u0627\u06cc\u0631\u06af\u0627\u0631\u062f \u062a\u0648\u062f\u0631\u062a\u0648"
-                ),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
+        }
+
+        Rail(t("proj_aether"))
+        Slab(spacing = GhajarSpacing.md) {
+            SlabRow(
+                title = t("proj_aether_title"),
+                subtitle = t("proj_aether_desc"),
+                icon = Icons.Filled.Bolt,
+                accent = c.info
             )
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
                 listOf("masque" to "MASQUE", "wg" to "WireGuard", "gool" to "gool").forEach { (key, label) ->
                     val on = aetherMode == key
-                    BounceOutlinedButton(
+                    GhostPill(
+                        text = label,
+                        accent = if (on) c.highlight else c.textSecondary,
                         onClick = {
                             aetherMode = key
                             aetherH2 = key == "masque"
                         },
-                        minHeight = 40.dp,
-                        contentPadding = PaddingValues(horizontal = 4.dp),
-                        accent = if (on) MaterialTheme.colorScheme.primary
-                        else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.weight(1f).height(40.dp)
-                    ) {
-                        Text(mixedText(label), maxLines = 1, softWrap = false,
-                            style = MaterialTheme.typography.labelMedium)
-                    }
+                        modifier = Modifier.weight(1f)
+                    )
                 }
             }
-            SettingRow(
+            SlabRow(
                 title = t("proj_aether_h2"),
                 subtitle = t("proj_aether_h2_sub"),
-                checked = aetherH2 && aetherMode == "masque",
-                onCheckedChange = { aetherH2 = it },
+                icon = Icons.Filled.Bolt,
+                accent = c.highlight,
                 enabled = aetherMode == "masque",
-                icon = Icons.Filled.Bolt
+                trailing = {
+                    SkinSwitch(
+                        checked = aetherH2 && aetherMode == "masque",
+                        onCheckedChange = { aetherH2 = it },
+                        enabled = aetherMode == "masque"
+                    )
+                }
             )
-            BounceButton(
+            PillButton(
+                text = if (statusOwner == "aether" && status.isNotEmpty()) status else t("add"),
+                icon = Icons.Filled.Add,
                 onClick = {
                     if (!AetherController.available(context)) {
                         status = t("proj_aether_missing"); statusOwner = "aether"
-                        return@BounceButton
-                    }
+                    } else {
                     val cfg = ProxyConfig(
                         name = "Aether (${aetherMode.uppercase()})",
                         protocol = "aether",
@@ -4067,114 +4239,64 @@ private fun FreeProjectsScreen(
                     )
                     store.add(cfg)
                     status = t("proj_aether_added"); statusOwner = "aether"
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                ProjectButtonLabel(
-                    status = if (statusOwner == "aether") status else "",
-                    label = t("add")
-                )
-            }
-        }
-
-        Card(
-            shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
-            ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.30f)),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            val freeBusy by FreeConfigs.busy.collectAsState()
-            val freeProgress by FreeConfigs.progress.collectAsState()
-            val subs by store.subscriptions.collectAsState()
-            val added = subs.any { it.url == FreeConfigs.SOURCE_URL }
-
-            Column(
-                Modifier.fillMaxWidth().padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Text(
-                    t("proj_free"),
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
-                )
-                Text(
-                    t("proj_free_desc"),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                val p = freeProgress
-                if (p != null) {
-                    Text(
-                        (if (p.collecting) "دریافت پیام‌های سه روز اخیر (${p.pages} صفحه) • " else "") +
-                            t("proj_free_testing").format(p.tested, p.total, p.alive),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.primary
-                    )
+                    }
                 }
-                BounceButton(
-                    onClick = {
-                        scope.launch {
-                            val kept = FreeConfigs.refreshMultiSource(store, t("proj_free"))
-                            statusOwner = "free"
-                            status = when {
-                                kept > 0 -> t("proj_free_added").format(kept) + if (FreeConfigs.incomplete.value) "؛ بعضی منابع در دسترس نبودند، موارد قبلی حفظ شدند." else ""
-                                kept == FreeConfigs.UNREACHABLE -> t("proj_free_unreachable")
-                                kept == FreeConfigs.NO_CONFIGS -> t("proj_free_nocfg")
-                                kept == FreeConfigs.BUSY -> t("proj_free_working")
-                                else -> t("proj_free_none")
-                            }
-                        }
-                    },
-                    enabled = !freeBusy,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    ProjectButtonLabel(
-                        status = if (statusOwner == "free") status else "",
-                        label = when {
-                            freeBusy -> t("proj_free_working")
-                            added -> t("refresh")
-                            else -> t("add")
-                        }
-                    )
-                }
-            }
-        }
-
-        SettingsHubCard(
-            iconRes = R.drawable.tor,
-            title = "Tor",
-            subtitle = t("proj_tor_desc"),
-            onClick = onOpenTor,
-            accents = listOf(
-                "Slow but very resilient",
-                "\u06a9\u0646\u062f \u0627\u0645\u0627 \u0628\u0633\u06cc\u0627\u0631 \u0645\u0642\u0627\u0648\u0645"
             )
-        )
+        }
+
+        Rail(t("legacy_warp"))
+        Slab(spacing = GhajarSpacing.md) {
+            SlabRow(
+                title = t("legacy_warp"),
+                subtitle = t("proj_warp_desc"),
+                icon = Icons.Filled.Public,
+                accent = c.warning
+            )
+            PillButton(
+                text = when {
+                    busy -> t("adding")
+                    statusOwner == "warp" && status.isNotEmpty() -> status
+                    else -> t("add_warp")
+                },
+                icon = Icons.Filled.Add,
+                enabled = !busy,
+                onClick = {
+                    if (!busy) {
+                    busy = true; status = ""; statusOwner = "warp"
+                    scope.launch {
+                        val result = withContext(Dispatchers.IO) { Warp.register() }
+                        status = when (result) {
+                            is Warp.Result.Success -> {
+                                result.configs.forEach { store.add(it) }
+                                t("warp_added")
+                            }
+                            is Warp.Result.Failure -> t("warp_failed")
+                        }
+                        busy = false
+                    }
+                    }
+                }
+            )
+        }
+
+        Rail("Tor")
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = "Tor",
+                subtitle = t("proj_tor_desc"),
+                iconRes = R.drawable.tor,
+                accent = c.premium,
+                chevron = true,
+                onClick = onOpenTor
+            )
+        }
 
         Text(
             t("proj_more_soon"),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textMuted,
             textAlign = TextAlign.Center,
             modifier = Modifier.fillMaxWidth()
-        )
-    }
-}
-
-@Composable
-private fun ProjectButtonLabel(status: String, label: String) {
-    AnimatedContent(
-        targetState = status.ifBlank { label },
-        transitionSpec = { fadeIn(tween(220)) togetherWith fadeOut(tween(140)) },
-        label = "projectButton"
-    ) { text ->
-        Text(
-            text,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            textAlign = TextAlign.Center
         )
     }
 }
@@ -6096,6 +6218,17 @@ private fun BackupRow(store: ConfigStore) {
     var backupPassword by remember { mutableStateOf("") }
     var backupPasswordError by remember { mutableStateOf("") }
 
+    // The password the *export* is sealed with, kept apart from the one an
+    // import is unlocked with. Sharing one field between the two meant the
+    // password you had just typed to open somebody's file was still sitting
+    // there as the password for the next file you wrote.
+    var newPassword by remember { mutableStateOf("") }
+    var showPassword by remember { mutableStateOf(false) }
+    // Which password the file being written should carry. Set at the moment the
+    // button is pressed, because the file picker comes back later and the field
+    // may have been cleared by then.
+    var exportPassword by remember { mutableStateOf<String?>(null) }
+
     LaunchedEffect(status) {
         if (status.isNotEmpty()) { delay(3500); status = "" }
     }
@@ -6105,6 +6238,7 @@ private fun BackupRow(store: ConfigStore) {
     ) { uri ->
         if (uri != null) {
             busy = true
+            val password = exportPassword
             scope.launch {
                 val ok = withContext(Dispatchers.IO) {
                     runCatching {
@@ -6113,7 +6247,7 @@ private fun BackupRow(store: ConfigStore) {
                             store.configs.value,
                             store.subscriptions.value,
                             store.settingsSnapshot(),
-                            null
+                            password
                         )
                         context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
                         true
@@ -6121,7 +6255,10 @@ private fun BackupRow(store: ConfigStore) {
                 }
                 status = if (ok) t("backup_done") else t("backup_failed")
                 busy = false
+                exportPassword = null
             }
+        } else {
+            exportPassword = null
         }
     }
 
@@ -6169,6 +6306,15 @@ private fun BackupRow(store: ConfigStore) {
     // primary action to write one, a ghost action to read one back, and the
     // outcome as a proper state rather than a grey caption.
     val c = ghajarColors
+    val lang = store.lang.value
+    // What a written file actually carries, counted from live state so the
+    // numbers are never a guess. The OpenVPN count is read here rather than
+    // assumed: a backup that silently carried no profiles used to be
+    // indistinguishable from one that carried them all.
+    val configCount = store.configs.value.size
+    val subCount = store.subscriptions.value.size
+    val ovpnCount = remember { runCatching { GhajarOpenVpnBridge.exportProfiles(context).size }.getOrDefault(0) }
+
     Slab(spacing = GhajarSpacing.md) {
         SlabRow(
             title = t("backup_title"),
@@ -6176,28 +6322,91 @@ private fun BackupRow(store: ConfigStore) {
             icon = Icons.Filled.Inventory2,
             accent = c.premium
         )
-        // What a written file actually carries, counted from live state so the
-        // numbers are never a guess.
-        val configCount = store.configs.value.size
-        val subCount = store.subscriptions.value.size
         StatStrip(
             listOf(
-                StatCell(t("count_configs"), localizeDigits("$configCount", store.lang.value), c.info),
-                StatCell(t("count_subs"), localizeDigits("$subCount", store.lang.value), c.premium)
+                StatCell(t("count_configs"), localizeDigits("$configCount", lang), c.info),
+                StatCell(t("count_subs"), localizeDigits("$subCount", lang), c.premium),
+                StatCell(t("count_ovpn"), localizeDigits("$ovpnCount", lang), c.accentAlt)
             )
         )
-        PillButton(
-            text = t("backup_export"),
-            icon = Icons.Filled.FileUpload,
-            enabled = !busy,
-            onClick = {
-                if (!busy) {
-                    val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
-                        .format(java.util.Date())
-                    saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
-                }
+        // Two sentences that used to be nowhere: what is in the file, and the
+        // one thing people assume is in it and is not. Someone who restores a
+        // backup expecting their wallet balance back has lost nothing, but they
+        // have spent an evening looking for it.
+        Text(
+            t("backup_contents"),
+            style = MaterialTheme.typography.labelMedium,
+            color = c.textSecondary
+        )
+        Text(
+            t("backup_excludes"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textMuted
+        )
+
+        SlabDivider()
+
+        // The password. It is the file's only protection: a backup is not
+        // bound to the signing certificate any more (that change is what made
+        // old backups portable at all), so an unsealed file is readable by any
+        // build of this app that can open it. Hence a real field, the minimum
+        // spelled out, and the unprotected path kept but demoted to a ghost
+        // action with the consequence written next to it.
+        SkinField(
+            value = newPassword,
+            onValueChange = { newPassword = it },
+            label = t("backup_pw_label"),
+            helper = t("backup_pw_note"),
+            singleLine = true,
+            visualTransformation = if (showPassword) VisualTransformation.None
+            else PasswordVisualTransformation(),
+            trailing = {
+                Icon(
+                    if (showPassword) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                    contentDescription = null,
+                    tint = c.textSecondary,
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .clickable { showPassword = !showPassword }
+                        .padding(6.dp)
+                        .size(20.dp)
+                )
             }
         )
+
+        val strongEnough = newPassword.length >= 8
+        fun writeBackup(password: String?) {
+            if (busy) return
+            exportPassword = password
+            val stamp = java.text.SimpleDateFormat("yyyyMMdd-HHmm", java.util.Locale.US)
+                .format(java.util.Date())
+            saver.launch("ghajarvpn-backup-$stamp.${ConfigFile.EXTENSION}")
+        }
+
+        PillButton(
+            text = if (strongEnough || newPassword.isEmpty()) t("backup_export")
+            else t("backup_pw_short"),
+            icon = Icons.Filled.FileUpload,
+            enabled = !busy && strongEnough,
+            onClick = { writeBackup(newPassword) }
+        )
+        // Still offered, because removing it would break every existing
+        // workflow that restores a file without a password, and because the
+        // password is the user's risk to take.
+        GhostPill(
+            text = t("backup_no_pw"),
+            enabled = !busy,
+            accent = c.textSecondary,
+            onClick = { writeBackup(null) }
+        )
+        Text(
+            t("backup_no_pw_warn"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.warning
+        )
+
+        SlabDivider()
+
         GhostPill(
             text = t("backup_import"),
             icon = Icons.Filled.FileDownload,
@@ -12958,6 +13167,7 @@ private fun AppProxyScreen(
     val focus = LocalFocusManager.current
     val mode by store.perAppMode.collectAsState()
     val selected by store.perAppList.collectAsState()
+    val c = ghajarColors
 
     var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
     var query by remember { mutableStateOf("") }
@@ -12989,55 +13199,63 @@ private fun AppProxyScreen(
     }
 
     Column(
-        modifier.fillMaxSize().padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
+        modifier.fillMaxSize().padding(GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        Row(
-            Modifier.fillMaxWidth()
-                .clip(RoundedCornerShape(GhajarRadius.pill))
-                .background(ghajarColors.secondaryCard)
-                .padding(4.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
+        // The three modes, each with the sentence that says what it does.
+        //
+        // They were three words in a segmented capsule - "خاموش · فقط
+        // انتخاب‌شده · همه به‌جز" - and which way round the list worked was
+        // left to the reader. Getting that backwards means either the apps you
+        // wanted protected are the only ones exposed, or the reverse, and
+        // nothing on screen says which happened. Each mode now states its own
+        // consequence in a full sentence, and only the chosen one is filled.
+        Slab(spacing = 0.dp) {
+            Text(
+                t("per_app_pick_mode"),
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.Bold,
+                color = c.textSecondary
+            )
+            Spacer(Modifier.height(GhajarSpacing.sm))
             listOf(
-                PerAppMode.OFF to t("per_app_off"),
-                PerAppMode.ALLOWLIST to t("per_app_allow"),
-                PerAppMode.BLOCKLIST to t("per_app_block")
-            ).forEach { (value, label) ->
-                ModeSegment(
-                    label = label,
-                    active = mode == value,
+                Triple(PerAppMode.OFF, t("per_app_off"), t("per_app_off_desc")),
+                Triple(PerAppMode.ALLOWLIST, t("per_app_allow"), t("per_app_allow_desc")),
+                Triple(PerAppMode.BLOCKLIST, t("per_app_block"), t("per_app_block_desc"))
+            ).forEachIndexed { index, (value, label, desc) ->
+                if (index > 0) SlabDivider()
+                val on = mode == value
+                SlabRow(
+                    title = label,
+                    subtitle = desc,
+                    icon = when (value) {
+                        PerAppMode.OFF -> Icons.Filled.Public
+                        PerAppMode.ALLOWLIST -> Icons.Filled.CheckCircle
+                        PerAppMode.BLOCKLIST -> Icons.Filled.Block
+                    },
+                    accent = when (value) {
+                        PerAppMode.OFF -> c.info
+                        PerAppMode.ALLOWLIST -> c.primary
+                        PerAppMode.BLOCKLIST -> c.warning
+                    },
                     onClick = { store.setPerAppMode(value) },
-                    modifier = Modifier.weight(1f)
+                    trailing = {
+                        SmoothCheckbox(checked = on)
+                    }
                 )
             }
         }
 
         if (mode == PerAppMode.OFF) {
-            Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Box(
-                        Modifier.size(58.dp).clip(RoundedCornerShape(18.dp))
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            Icons.Filled.Apps,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(26.dp)
-                        )
-                    }
-                    Text(
-                        t("per_app_off_hint"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-                }
+            // Off is a real answer, not an empty state, so the screen spends
+            // the space saying which engines would have honoured a rule - the
+            // one question this page could never answer before, and the reason
+            // the setting looked broken on an OpenVPN session.
+            Column(
+                Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+            ) {
+                PerAppCoverage()
             }
         } else {
             OutlinedTextField(
@@ -13046,11 +13264,7 @@ private fun AppProxyScreen(
                 label = { Text(t("search_apps")) },
                 singleLine = true,
                 leadingIcon = {
-                    Icon(
-                        Icons.Filled.Search,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    Icon(Icons.Filled.Search, contentDescription = null, tint = c.textSecondary)
                 },
                 trailingIcon = {
                     if (query.isNotEmpty()) {
@@ -13063,95 +13277,103 @@ private fun AppProxyScreen(
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                 keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(GhajarRadius.md),
                 modifier = Modifier.fillMaxWidth()
             )
 
             val list = apps
             if (list == null) {
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
-                        Text(
-                            t("loading_apps"),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
+                    SkinLoading(t("loading_apps"))
                 }
             } else {
                 val filtered = remember(list, query) {
                     if (query.isBlank()) list
                     else list.filter { it.label.contains(query, true) || it.pkg.contains(query, true) }
                 }
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                // The count, how many are ticked, and the two bulk actions that
+                // were missing - ticking forty apps one at a time was the only
+                // way to use the allowlist on a phone with forty apps.
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+                ) {
                     Text(
-                        localizeDigits("${filtered.size}", lang),
-                        style = MaterialTheme.typography.labelMedium,
-                        fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary
+                        localizeDigits("${selected.size}", lang) + " / " +
+                            localizeDigits("${filtered.size}", lang),
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c.primary
                     )
-                    Spacer(Modifier.weight(1f))
+                    GhostPill(
+                        text = t("per_app_select_all"),
+                        onClick = { store.setPerAppList(selected + filtered.map { it.pkg }) },
+                        modifier = Modifier.weight(1f)
+                    )
+                    GhostPill(
+                        text = t("per_app_clear"),
+                        onClick = { store.setPerAppList(emptySet()) },
+                        enabled = selected.isNotEmpty(),
+                        accent = c.error,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                if (selected.isEmpty()) {
                     Text(
-                        localizeDigits("${selected.size}", lang) + " " + t("selected"),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        t("per_app_none_picked"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.warning
                     )
                 }
                 LazyColumn(
                     modifier = Modifier.fillMaxWidth().weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
                 ) {
                     items(filtered, key = { it.pkg }) { app ->
                         val checked = app.pkg in selected
-                        val tint by animateColorAsState(
-                            targetValue = if (checked) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.onSurfaceVariant,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            label = "appRowTint"
-                        )
-                        val fill by animateFloatAsState(
-                            targetValue = if (checked) 1f else 0f,
-                            animationSpec = tween(300, easing = FastOutSlowInEasing),
-                            label = "appRowFill"
-                        )
                         Row(
                             Modifier.fillMaxWidth()
                                 .clip(RoundedCornerShape(GhajarRadius.md))
-                                .background(ghajarColors.secondaryCard)
+                                .background(c.secondaryCard)
                                 .clickable { store.togglePerApp(app.pkg) }
                                 .animateItem()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
+                                .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.md),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             Image(
                                 bitmap = app.icon,
                                 contentDescription = null,
-                                modifier = Modifier.size(38.dp).clip(RoundedCornerShape(11.dp))
+                                modifier = Modifier.size(42.dp).clip(RoundedCornerShape(13.dp))
                             )
-                            Spacer(Modifier.width(12.dp))
-                            Column(Modifier.weight(1f)) {
+                            Spacer(Modifier.width(GhajarSpacing.md))
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(
                                     app.label,
-                                    style = MaterialTheme.typography.bodyMedium,
+                                    style = MaterialTheme.typography.bodyLarge,
                                     fontFamily = scriptFont(app.label),
+                                    color = if (checked) c.primary else c.textPrimary,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                                 Text(
                                     app.pkg,
                                     style = MaterialTheme.typography.labelSmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    color = c.textMuted,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
                                 )
                             }
-                            Spacer(Modifier.width(10.dp))
+                            Spacer(Modifier.width(GhajarSpacing.sm))
                             SmoothCheckbox(checked = checked)
+                        }
+                    }
+                    item(key = "per-app-coverage") {
+                        Column(
+                            Modifier.padding(top = GhajarSpacing.md),
+                            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+                        ) {
+                            PerAppCoverage()
                         }
                     }
                 }
@@ -13160,35 +13382,53 @@ private fun AppProxyScreen(
     }
 }
 
+/**
+ * Which engines actually apply the per-app rules, and which cannot.
+ *
+ * This exists because the honest answer used to be "most of them", and the
+ * screen said nothing at all. Everything that runs on this app's own
+ * VpnService gets the rules from the tun builder; OpenVPN runs in its own
+ * process with its own tun and now gets them written onto the profile before
+ * each session; DNS-only mode is listed as not covered rather than left out,
+ * because a mode missing from a list of engines reads like an oversight.
+ */
 @Composable
-private fun ModeSegment(
-    label: String,
-    active: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier
-) {
-    val fill by animateFloatAsState(
-        targetValue = if (active) 1f else 0f,
-        animationSpec = tween(320, easing = FastOutSlowInEasing),
-        label = "modeSegFill"
-    )
-    val primary = MaterialTheme.colorScheme.primary
-    val idle = MaterialTheme.colorScheme.onSurfaceVariant
-    Box(
-        modifier
-            .clip(RoundedCornerShape(13.dp))
-            .background(primary.copy(alpha = 0.20f * fill))
-            .clickable { onClick() }
-            .padding(vertical = 10.dp),
-        contentAlignment = Alignment.Center
-    ) {
+private fun PerAppCoverage() {
+    val t = stringsFn()
+    val c = ghajarColors
+    Slab(spacing = 0.dp) {
+        Rail(t("per_app_engines"))
+        SlabRow(
+            title = t("per_app_engines_tun"),
+            subtitle = t("per_app_engines_tun_sub"),
+            icon = Icons.Filled.CheckCircle,
+            accent = c.good
+        )
+        SlabDivider()
+        SlabRow(
+            title = t("per_app_engines_ovpn"),
+            subtitle = t("per_app_engines_ovpn_sub"),
+            icon = Icons.Filled.CheckCircle,
+            accent = c.good
+        )
+        SlabDivider()
+        SlabRow(
+            title = t("per_app_engines_dns"),
+            subtitle = t("per_app_engines_dns_sub"),
+            icon = Icons.Filled.Block,
+            accent = c.textMuted
+        )
+        Spacer(Modifier.height(GhajarSpacing.sm))
         Text(
-            label,
-            style = MaterialTheme.typography.labelLarge,
-            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-            color = lerp(idle, primary, fill),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            t("per_app_restart_note"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textSecondary
+        )
+        Text(
+            t("per_app_in_backup"),
+            style = MaterialTheme.typography.labelSmall,
+            color = c.textMuted
         )
     }
 }
+

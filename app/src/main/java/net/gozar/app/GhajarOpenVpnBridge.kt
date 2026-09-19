@@ -408,6 +408,49 @@ object GhajarOpenVpnBridge {
     fun findProfile(context: Context, uuid: String): VpnProfile? =
         ProfileManager.getInstance(context.applicationContext).getProfiles().firstOrNull { it.getUUIDString() == uuid }
 
+    /**
+     * Copies this app's per-app routing choice onto an OpenVPN profile.
+     *
+     * Written every time a session starts rather than once at import, because
+     * the rules are a live setting: someone can change the mode while a
+     * profile sits saved, and the next connect has to use the new answer.
+     *
+     * OFF means every app goes through the tunnel, which for ics-openvpn is an
+     * empty disallow list - not an empty *allow* list, which would mean "no app
+     * at all" and produce a tunnel that carries nothing.
+     */
+    private fun applyPerAppRules(app: Context, profile: VpnProfile) {
+        runCatching {
+            val store = ConfigStore.get(app)
+            val list = store.perAppList.value.filter { it.isNotBlank() }
+            when (store.perAppMode.value) {
+                PerAppMode.OFF -> {
+                    profile.mAllowedAppsVpnAreDisallowed = true
+                    profile.mAllowedAppsVpn = HashSet()
+                }
+                PerAppMode.ALLOWLIST -> {
+                    // An allowlist with nothing in it would hand the tunnel to
+                    // no application at all. Treated as off, which is what the
+                    // tun builder does with the same case.
+                    if (list.isEmpty()) {
+                        profile.mAllowedAppsVpnAreDisallowed = true
+                        profile.mAllowedAppsVpn = HashSet()
+                    } else {
+                        profile.mAllowedAppsVpnAreDisallowed = false
+                        profile.mAllowedAppsVpn = HashSet(list)
+                    }
+                }
+                PerAppMode.BLOCKLIST -> {
+                    profile.mAllowedAppsVpnAreDisallowed = true
+                    profile.mAllowedAppsVpn = HashSet(list)
+                }
+            }
+            ProfileManager.saveProfile(app, profile)
+        }.onFailure {
+            GhajarLog.w("GhajarOvpn", "per-app rules not applied to the OpenVPN profile: ${it.message}")
+        }
+    }
+
     fun connectSaved(context: Context, uuid: String): Result<Unit> = runCatching {
         initialize(context)
         val app = context.applicationContext
@@ -426,6 +469,21 @@ object GhajarOpenVpnBridge {
         if (requestedUuid != null && requestedUuid != uuid || engineReallyConnected() && _activeUuid.value != uuid) {
             runCatching { stopEngineNow(app) }
         }
+
+        // The app's per-app rules, applied to this profile before the engine
+        // process reads it.
+        //
+        // OpenVPN runs in its own process with its own tun, built by
+        // ics-openvpn from the profile - it never goes through
+        // GozarVpnService.applyPerApp, so until now a user who had set "only
+        // these apps" watched every app go through an OpenVPN session anyway.
+        // A setting that half the engines ignore is a setting nobody can trust.
+        //
+        // VpnProfile carries exactly the two fields needed:
+        // mAllowedAppsVpnAreDisallowed = true makes the set a bypass list,
+        // false makes it the only apps that may use the tunnel. Which is the
+        // same pair of modes this app already stores.
+        applyPerAppRules(app, profile)
 
         requestedUuid = uuid
         connectedConfirmed = false
