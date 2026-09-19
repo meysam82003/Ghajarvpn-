@@ -127,9 +127,23 @@ ls -lh "$root/app/libs/libbox.aar"
 # indistinguishable from one with it until the first connect fails.
 check=$(mktemp -d)
 unzip -o -q "$root/app/libs/libbox.aar" -d "$check"
+
+# Find the library rather than assuming its name. -libname=box above makes it
+# libbox.so, not the libgojni.so gomobile produces by default, and guessing
+# that wrong turns this check into eight false "MISSING" lines about a core
+# that built perfectly well.
+so=$(find "$check/jni/arm64-v8a" -name '*.so' | head -1)
+if [ -z "$so" ]; then
+    echo "no .so under jni/arm64-v8a - the AAR layout is not what this expects:" >&2
+    find "$check/jni" -maxdepth 2 >&2
+    rm -rf "$check"
+    exit 1
+fi
+echo "checking $(basename "$so")"
+
 missing=0
 for proto in openconnect snell anytls shadowtls ssh tor hysteria2 tuic; do
-    if strings -n 4 "$check/jni/arm64-v8a/libgojni.so" | grep -q "protocol/$proto"; then
+    if strings -n 4 "$so" | grep -q "protocol/$proto"; then
         echo "ok: $proto"
     else
         echo "MISSING: $proto - check the build tags" >&2
