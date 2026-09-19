@@ -119,7 +119,29 @@ for proto in openconnect snell anytls shadowtls ssh tor hysteria2 tuic; do
         missing=1
     fi
 done
+[ "$missing" -eq 0 ] || { rm -rf "$check"; exit 1; }
+
+# Print the generated Java signatures for the types this app has to implement.
+#
+# This is not decoration. gomobile rewrites Go names on the way into Java -
+# the first letter is lowercased, `error` returns become `throws Exception`,
+# `(T, error)` becomes a T return that throws - and PlatformInterface alone
+# has thirty methods. Reading the Go source and guessing the Java shape is how
+# you get thirty compile errors at once, so the truth gets printed here and the
+# Kotlin is written against this output.
+#
+# Set SINGBOX_DUMP_API=0 to skip it.
+if [ "${SINGBOX_DUMP_API:-1}" = "1" ] && command -v javap >/dev/null 2>&1; then
+    echo "--- generated Java API ---"
+    for type in PlatformInterface CommandServerHandler CommandServer \
+                SetupOptions OverrideOptions TunOptions StringIterator \
+                NetworkInterface NetworkInterfaceIterator Libbox; do
+        echo "=== io.nekohasekai.libbox.$type ==="
+        javap -classpath "$check/classes.jar" "io.nekohasekai.libbox.$type" 2>&1 || true
+    done
+    echo "--- end generated Java API ---"
+fi
+
 rm -rf "$check"
-[ "$missing" -eq 0 ] || exit 1
 
 echo "built app/libs/libbox.aar at sing-box $SINGBOX_COMMIT"
