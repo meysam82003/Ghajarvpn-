@@ -7420,6 +7420,7 @@ private fun ConnectionSettingsScreen(
     val fragmentLength by store.fragmentLength.collectAsState()
     val fragmentInterval by store.fragmentInterval.collectAsState()
     val rotateMinutes by store.rotateMinutes.collectAsState()
+    val zeptunTunnel by store.zeptunTunnel.collectAsState()
     val splitRouting by store.splitRouting.collectAsState()
     val sniffing by store.sniffing.collectAsState()
     val sniffTypes by store.sniffTypes.collectAsState()
@@ -7533,6 +7534,28 @@ private fun ConnectionSettingsScreen(
                     )
                 }
             }
+            // The zeptun tun engine. The row reports what the library on
+            // this device actually says about itself rather than whether the
+            // build was supposed to include it - a version string here is
+            // proof it loaded, and its absence is proof it did not.
+            val zeptunVersion = remember { ZeptunEngine.version() }
+            SettingRow(
+                title = t("zeptun_title"),
+                subtitle = when {
+                    zeptunVersion == null -> t("zeptun_absent")
+                    zeptunTunnel -> t("zeptun_on").format(zeptunVersion)
+                    else -> t("zeptun_off").format(zeptunVersion)
+                },
+                checked = zeptunTunnel && zeptunVersion != null,
+                enabled = zeptunVersion != null,
+                onCheckedChange = { store.setZeptunTunnel(it) },
+                icon = Icons.Filled.Dns
+            )
+            Text(
+                t("zeptun_note"),
+                style = MaterialTheme.typography.labelSmall,
+                color = ghajarColors.textMuted
+            )
             // Rotating configs: off unless an interval is set, and it only
             // moves between servers that are already in the list.
             SlabRow(

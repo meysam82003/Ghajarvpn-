@@ -47,6 +47,8 @@ class GozarVpnService : VpnService() {
     private var autoSelector: AutoSelector? = null
     private var autoJob: Job? = null
     private var underlyingListener: ((NetKind?, android.net.Network?) -> Unit)? = null
+    /** True when the zeptun engine, not the Xray core, owns this session's tun. */
+    @Volatile private var zeptunOwnsTun = false
 
     override fun onCreate() {
         super.onCreate()
@@ -154,11 +156,31 @@ class GozarVpnService : VpnService() {
             if (options != null && options.text("ipVersion") != "v4") builder.addAddress("fd00::2",128).addRoute("::",0)
             applyPerApp(builder)
 
-            val pfd = if (options?.proxyOnly == true) null else builder.establish()
+            // Proxy-only modes (Aether or Psiphon with routingMode = proxy)
+            // deliberately establish no tun: those engines publish a local
+            // SOCKS5 proxy and the user points apps at it by hand. With the
+            // zeptun engine present and switched on, that proxy can carry the
+            // whole device instead - so a tun is established for zeptun to
+            // own. Everything about the Xray path below is unchanged, and when
+            // the setting is off or the engine is not in this build, pfd stays
+            // null exactly as before.
+            val store = ConfigStore.get(applicationContext)
+            val wantZeptun = options?.proxyOnly == true &&
+                store.zeptunTunnel.value &&
+                ZeptunEngine.available
+            val pfd = if (options?.proxyOnly == true) {
+                if (wantZeptun) builder.establish() else null
+            } else builder.establish()
             if (pfd == null && options?.proxyOnly != true) {
                 die("VPN permission not granted")
                 return@launch
             }
+            if (wantZeptun && pfd == null) {
+                // Asked for, and Android refused the tun. Say so rather than
+                // carrying on as a proxy the user is not expecting.
+                GhajarLog.e(TAG, "zeptun asked for but no tun was granted")
+            }
+            zeptunOwnsTun = wantZeptun && pfd != null
             tunFd = pfd
             if (pfd != null) { runCatching { blockFd?.close() }; blockFd = null }
             if (pfd != null) trackUnderlyingNetwork()
@@ -200,7 +222,35 @@ class GozarVpnService : VpnService() {
                 runCatching { Gozarcore.stop() }
                 ensureActive()
                 val readyJson = if (psi != null) PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT) else configJson
-                if (pfd != null) {
+                // zeptun's tun is not Xray's to take: in this mode Xray is not
+                // started at all (it never was in proxy-only mode), and the
+                // engine forwards the tun to whichever local SOCKS proxy the
+                // proxy-only engine published.
+                if (zeptunOwnsTun && pfd != null) {
+                    val socksPort = when {
+                        psi != null -> PsiphonController.SOCKS_PORT
+                        else -> AetherController.SOCKS_PORT
+                    }
+                    if (socksPort <= 0) {
+                        die("the proxy engine published no SOCKS port")
+                        return@launch
+                    }
+                    val failure = ZeptunEngine.start(
+                        this@GozarVpnService,
+                        pfd.fd,
+                        ZeptunEngine.socksConfig(
+                            socksPort = socksPort,
+                            mtu = options?.number("mtu") ?: 1500,
+                            ipv6 = options != null && options.text("ipVersion") != "v4"
+                        )
+                    )
+                    if (failure != null) {
+                        // No silent degrade to a proxy nobody is pointed at.
+                        die("zeptun did not start: $failure")
+                        return@launch
+                    }
+                }
+                if (pfd != null && !zeptunOwnsTun) {
                     val fd = pfd.detachFd().toLong()
                     var bindAttempt = 0
                     while (true) {
@@ -300,6 +350,7 @@ class GozarVpnService : VpnService() {
         )
         Log.d(TAG, "switching tunnel to ${config.name}")
         pollJob?.cancel(); pollJob = null
+        if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
         runCatching { Gozarcore.stop() }
         AetherController.stop()
         PsiphonController.stop()
@@ -423,6 +474,10 @@ class GozarVpnService : VpnService() {
             engineLock.withLock {
                 stopAutoSelect()
                 pollJob?.cancel(); pollJob = null
+                // Before the descriptor is closed: the engine is still reading
+                // from it, and closing it underneath a running engine is how a
+                // teardown turns into a crash.
+                if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
                 runCatching { Gozarcore.stop() }
                 PsiphonController.stop()
                 AetherController.stop()
@@ -480,6 +535,7 @@ class GozarVpnService : VpnService() {
 
     private fun enterKillSwitch(reason: String) {
         pollJob?.cancel(); pollJob = null
+        if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
         runCatching { Gozarcore.stop() }
         runCatching { tunFd?.close() }; tunFd = null
         val b = Builder()
@@ -504,6 +560,7 @@ class GozarVpnService : VpnService() {
         pollJob?.cancel()
         stopAutoSelect()
         untrackUnderlyingNetwork()
+        if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
         // Report completion only after native teardown. A new UI retry cannot
         // start a tunnel that this older service instance is still stopping.
         scope.launch {

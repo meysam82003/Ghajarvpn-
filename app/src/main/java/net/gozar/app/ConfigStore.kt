@@ -87,6 +87,22 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putInt(KEY_ROTATE_MINUTES, clean).apply()
     }
 
+    /**
+     * Route the whole device through a proxy-only engine, using zeptun.
+     *
+     * Only has any effect when the active engine is running in proxy mode
+     * (Aether or Psiphon with routingMode = proxy), which today establishes no
+     * tunnel at all. Off by default, and ignored entirely when the zeptun
+     * libraries are not in the build - see ZeptunEngine.available.
+     */
+    private val _zeptunTunnel = MutableStateFlow(prefs.getBoolean(KEY_ZEPTUN, false))
+    val zeptunTunnel: StateFlow<Boolean> = _zeptunTunnel.asStateFlow()
+
+    fun setZeptunTunnel(enabled: Boolean) {
+        _zeptunTunnel.value = enabled
+        prefs.edit().putBoolean(KEY_ZEPTUN, enabled).apply()
+    }
+
     private val _splitRouting = MutableStateFlow(prefs.getBoolean(KEY_SPLIT, false))
     val splitRouting: StateFlow<Boolean> = _splitRouting.asStateFlow()
 
@@ -536,6 +552,7 @@ class ConfigStore private constructor(context: Context) {
     fun settingsSnapshot(): JSONObject = JSONObject().apply {
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
+        put("zeptunTunnel", _zeptunTunnel.value)
         put("fragmentPackets", _fragmentPackets.value)
         put("fragmentLength", _fragmentLength.value)
         put("fragmentInterval", _fragmentInterval.value)
@@ -586,6 +603,7 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("fakeDns")) setFakeDns(o.getBoolean("fakeDns"))
         if (o.has("customDns")) setCustomDns(o.optString("customDns"))
         if (o.has("rotateMinutes")) setRotateMinutes(o.optInt("rotateMinutes", 0))
+        if (o.has("zeptunTunnel")) setZeptunTunnel(o.getBoolean("zeptunTunnel"))
         if (o.has("adBlock")) setAdBlock(o.getBoolean("adBlock"))
         if (o.has("mixedPort")) setMixedPort(o.getInt("mixedPort"))
         if (o.has("sortMode")) setSortMode(o.getString("sortMode"))
@@ -787,6 +805,7 @@ class ConfigStore private constructor(context: Context) {
 
         private const val KEY_CONFIGS = "configs"
         private const val KEY_SUBS = "subscriptions"
+        private const val KEY_ZEPTUN = "zeptun_tunnel"
         private const val KEY_ROTATE_MINUTES = "rotate_minutes"
         private const val KEY_FRAGMENT = "fragment_enabled"
         private const val KEY_FRAG_PACKETS = "fragment_packets"

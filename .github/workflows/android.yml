@@ -73,6 +73,43 @@ jobs:
           fi
           ls -lh app/libs/ca.psiphon.aar
 
+      # The zeptun tun engine (MIT, Noisemux/zeptun), pinned to one commit and
+      # built from source rather than vendored: it is Zig, and a committed
+      # binary nobody can reproduce is worse than a build step. Its own CI
+      # builds Android exactly this way. The engine is additive - the existing
+      # Xray tun path does not use it - so a failure here must not be able to
+      # break the app: the libraries simply will not be in the APK, and
+      # ZeptunEngine reports itself unavailable at runtime.
+      - uses: mlugg/setup-zig@v2
+        with:
+          version: 0.16.0
+
+      - name: Build the zeptun tun engine
+        env:
+          ZEPTUN_COMMIT: 2798fc0ced2e39b2f55f3c1c1bcec45f91021400
+        run: |
+          git clone https://github.com/Noisemux/zeptun /tmp/zeptun
+          git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
+          cd /tmp/zeptun
+          # Only the two ABIs this app ships; building x86 as well would double
+          # the step for emulators the release never targets.
+          ABIS="armeabi-v7a arm64-v8a" sh scripts/build_android.sh
+          for abi in armeabi-v7a arm64-v8a; do
+            dest="$GITHUB_WORKSPACE/app/src/main/jniLibs/$abi"
+            mkdir -p "$dest"
+            cp "zig-out/android/jniLibs/$abi/libzeptun.so" "$dest/"
+            cp "zig-out/android/jniLibs/$abi/libzeptun-jni.so" "$dest/"
+            # Android 15 requires 16 KB load alignment; zeptun's own CI checks
+            # this and so does this one, because a library that fails to load
+            # on a new phone would be indistinguishable from one not built.
+            for so in "$dest/libzeptun.so" "$dest/libzeptun-jni.so"; do
+              align=$(readelf -lW "$so" | awk '$1 == "LOAD" { print $NF; exit }')
+              echo "$so $align"
+              [ "$align" = "0x4000" ]
+            done
+          done
+          ls -lh "$GITHUB_WORKSPACE/app/src/main/jniLibs"/*/libzeptun*.so
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
