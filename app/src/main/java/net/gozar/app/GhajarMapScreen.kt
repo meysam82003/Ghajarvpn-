@@ -373,8 +373,10 @@ private fun EndpointChip(place: GhajarMapState.Place) {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
         ) {
+            // flags.kt's flagEmoji returns "" for anything that is not two
+            // letters, rather than null.
             val flag = flagEmoji(place.countryCode)
-            if (flag != null) {
+            if (flag.isNotEmpty()) {
                 Text(flag, fontSize = 18.sp)
             } else {
                 androidx.compose.material3.Icon(
@@ -391,20 +393,4 @@ private fun EndpointChip(place: GhajarMapState.Place) {
             )
         }
     }
-}
-
-/**
- * A two-letter country code as its flag emoji, or null.
- *
- * Regional indicator symbols are the letters A-Z offset to U+1F1E6, and a pair
- * of them is a flag. Anything that is not exactly two ASCII letters comes back
- * null rather than as two stray boxes.
- */
-internal fun flagEmoji(countryCode: String): String? {
-    val code = countryCode.trim().uppercase()
-    if (code.length != 2) return null
-    if (code.any { it !in 'A'..'Z' }) return null
-    val base = 0x1F1E6
-    return String(Character.toChars(base + (code[0] - 'A'))) +
-        String(Character.toChars(base + (code[1] - 'A')))
 }

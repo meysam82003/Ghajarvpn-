@@ -93,6 +93,21 @@ private class PsiphonRuntime(
 
         override fun onDiagnosticMessage(message: String) = onLog("[psiphon] [*] $message")
 
+        /**
+         * The exit countries this client can actually reach, straight from the
+         * engine.
+         *
+         * This is the only trustworthy source for that list. Psiphon's regions
+         * depend on the build, the propagation channel and what is reachable
+         * today, so a list written into the app would eventually offer a
+         * country with no server - and choosing one of those does not fail
+         * loudly, the tunnel just never establishes, which is
+         * indistinguishable from the network being blocked.
+         */
+        override fun onAvailableEgressRegions(regions: MutableList<String>?) {
+            PsiphonRegions.report(service.applicationContext, regions.orEmpty())
+        }
+
         override fun onListeningSocksProxyPort(port: Int) {
             if (!active.get()) return
             socksPort.set(port)

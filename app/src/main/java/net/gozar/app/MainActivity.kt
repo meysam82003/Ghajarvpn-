@@ -2188,6 +2188,27 @@ private fun ConfigPickerScreen(
     val clipboard = LocalClipboardManager.current
     val pickerContext = LocalContext.current
     val pickerScope = rememberCoroutineScope()
+    // Reading a QR out of a saved image, without the camera.
+    //
+    // The scanner screen can already do this, but only after it has opened
+    // and been granted camera permission - so the way most configs actually
+    // arrive, as a screenshot from a chat, required granting access to the
+    // camera first and then pointing it at nothing. This path asks for no
+    // permission at all.
+    val qrImagePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            pickerScope.launch {
+                val text = withContext(Dispatchers.IO) {
+                    decodeQrFromGallery(pickerContext, uri)
+                }
+                if (!text.isNullOrBlank()) ImportBus.offerScan(text)
+                else subStatus = t("scan_qr_image_none")
+            }
+        }
+    }
+
     val filePicker = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument()
     ) { uri ->
@@ -2467,6 +2488,7 @@ private fun ConfigPickerScreen(
             onProjects = { addMenu = false; onFreeProjects() },
             onWindscribe = { addMenu = false; onWindscribe() },
             onScanQr = { addMenu = false; onScanQr() },
+            onQrFromImage = { addMenu = false; qrImagePicker.launch("image/*") },
             onOpenVpn = { addMenu = false; onOpenVpnHub() },
             onPsiphon = { addMenu = false; onPsiphonHub() }
         )
@@ -3738,6 +3760,7 @@ private fun AddServerPanel(
     onProjects: () -> Unit,
     onWindscribe: () -> Unit,
     onScanQr: () -> Unit,
+    onQrFromImage: () -> Unit = {},
     onOpenVpn: () -> Unit = {},
     onPsiphon: () -> Unit = {},
     modifier: Modifier = Modifier
@@ -3817,7 +3840,18 @@ private fun AddServerPanel(
                 // four tiles, so all five entries are on screen at once. The
                 // panel scrolls now, so opening it shows all four tiles.
                 var haveOpen by remember { mutableStateOf(false) }
-                Rail(t("add_get_config"))
+                // Grouped rather than a flat run of rows. The entries fall
+                // into three genuinely different kinds of thing, and a list
+                // that does not say so makes the user read all of it to find
+                // out which kind they wanted: a config you already have, an
+                // engine that needs no config at all, and a provider that
+                // fetches configs for you.
+                //
+                // No group here is decorative. Every row below is wired to a
+                // handler that exists - a labelled section leading to rows
+                // that do nothing would be worse than the flat list it
+                // replaced.
+                Rail(t("add_group_have"))
                 SlabRow(
                     title = t("add_have_config"),
                     subtitle = t("add_have_config_sub"),
@@ -3844,9 +3878,18 @@ private fun AddServerPanel(
                             GlyphTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f), enabled = !busy)
                             GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
                         }
+                        // A QR in a screenshot or a saved photo is how most
+                        // configs actually arrive - through a chat app, not a
+                        // poster - and until now the only way to read one was
+                        // to point the camera at another screen.
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                            GlyphTile(Icons.Filled.QrCode, t("scan_qr_image"), onQrFromImage, Modifier.weight(1f), enabled = !busy)
+                            Spacer(Modifier.weight(1f))
+                        }
                     }
                 }
-                SlabDivider()
+
+                Rail(t("add_group_engines"))
                 SlabRow(
                     title = "Psiphon",
                     subtitle = t("add_psiphon_sub"),
@@ -3866,7 +3909,8 @@ private fun AddServerPanel(
                     enabled = !busy,
                     onClick = onOpenVpn
                 )
-                SlabDivider()
+
+                Rail(t("add_group_providers"))
                 SlabRow(
                     title = t("free_projects"),
                     subtitle = t("add_free_sub"),
@@ -10870,15 +10914,18 @@ private fun PsiphonHubScreen(
             }
         }
 
-        OutlinedTextField(
-            value = country,
-            onValueChange = {
-                country = it.take(2).uppercase(Locale.ROOT)
+        // Was a two-character text field. That asked the user to know both
+        // that DE means Germany and - the part that actually bites - whether
+        // Psiphon has a server there, which it does not tell you: an
+        // unserved region is not rejected, the tunnel just never establishes,
+        // and that is indistinguishable from the network being blocked. The
+        // list now comes from the engine's own AvailableEgressRegions notice.
+        PsiphonCountryRow(
+            selected = country,
+            onSelect = {
+                country = it
                 store.updatePsiphonSettings(config.id, mode, country)
-            },
-            label = { Text("کد کشور خروجی (اختیاری؛ مانند DE یا US)") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth()
+            }
         )
 
         OutlinedTextField(cdnIps, {
