@@ -7655,7 +7655,7 @@ private fun ConnectionSettingsScreen(
                 subtitle = if (youtubeDirect) t("youtube_direct_on") else t("youtube_direct_off"),
                 checked = youtubeDirect,
                 onCheckedChange = { store.setYoutubeDirect(it) },
-                icon = Icons.Filled.PlayCircle
+                icon = Icons.Filled.PlayArrow
             )
             // Rotating configs: off unless an interval is set, and it only
             // moves between servers that are already in the list.
