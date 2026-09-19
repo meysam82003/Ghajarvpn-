@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, ui-redesign-gpt]
     tags: ['v*', '1.0.0']
   pull_request:
     branches: [main]
@@ -131,7 +131,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug test
 
       - name: Run unit tests
         run: ./gradlew --no-daemon --stacktrace test
