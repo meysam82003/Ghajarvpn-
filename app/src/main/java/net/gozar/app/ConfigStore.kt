@@ -454,6 +454,85 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_NEWEST_FIRST, enabled).apply()
     }
 
+    /**
+     * The DNS Tunnel profile.
+     *
+     * Stored as separate values rather than one blob because each is
+     * independently missing in the common case: someone has a resolver and a
+     * domain but no key yet, and a screen that can only save a complete
+     * profile makes them retype the parts they already had.
+     *
+     * None of this is guessable. A resolver's IP alone cannot build a tunnel -
+     * the domain names a zone whose nameserver is the tunnel server, and the
+     * public key is what the client verifies the far end with. So the tunnel
+     * is offered only when all three exist, and never reported as connected
+     * on the strength of a resolver that merely answers.
+     */
+    private val _dnsTunnelDomain = MutableStateFlow(prefs.getString(KEY_DNSTT_DOMAIN, "") ?: "")
+    val dnsTunnelDomain: StateFlow<String> = _dnsTunnelDomain.asStateFlow()
+
+    fun setDnsTunnelDomain(value: String) {
+        val v = value.trim().trim('.')
+        _dnsTunnelDomain.value = v
+        prefs.edit().putString(KEY_DNSTT_DOMAIN, v).apply()
+    }
+
+    /**
+     * The tunnel server's public key, as the tunnel implementation prints it.
+     *
+     * Never defaulted and never generated here. A client that accepts any key
+     * has no way to tell the tunnel server from whoever is between them, which
+     * on the networks this app is used on is the whole threat.
+     */
+    private val _dnsTunnelKey = MutableStateFlow(prefs.getString(KEY_DNSTT_KEY, "") ?: "")
+    val dnsTunnelKey: StateFlow<String> = _dnsTunnelKey.asStateFlow()
+
+    fun setDnsTunnelKey(value: String) {
+        val v = value.trim()
+        _dnsTunnelKey.value = v
+        prefs.edit().putString(KEY_DNSTT_KEY, v).apply()
+    }
+
+    /** Which imported resolver the tunnel sends its queries through. */
+    private val _dnsTunnelResolver = MutableStateFlow(prefs.getString(KEY_DNSTT_RESOLVER, "") ?: "")
+    val dnsTunnelResolver: StateFlow<String> = _dnsTunnelResolver.asStateFlow()
+
+    fun setDnsTunnelResolver(id: String) {
+        _dnsTunnelResolver.value = id
+        prefs.edit().putString(KEY_DNSTT_RESOLVER, id).apply()
+    }
+
+    /** A name for the profile, so more than one can be told apart later. */
+    private val _dnsTunnelName = MutableStateFlow(prefs.getString(KEY_DNSTT_NAME, "") ?: "")
+    val dnsTunnelName: StateFlow<String> = _dnsTunnelName.asStateFlow()
+
+    fun setDnsTunnelName(value: String) {
+        _dnsTunnelName.value = value.trim()
+        prefs.edit().putString(KEY_DNSTT_NAME, value.trim()).apply()
+    }
+
+    /**
+     * Reconnect the tunnel by itself when the path drops.
+     *
+     * Off by default. An automatic reconnect that silently falls back to no
+     * tunnel is worse than a visible failure, so this only ever retries the
+     * tunnel - never a plain connection in its place.
+     */
+    private val _dnsTunnelAutoReconnect =
+        MutableStateFlow(prefs.getBoolean(KEY_DNSTT_RECONNECT, false))
+    val dnsTunnelAutoReconnect: StateFlow<Boolean> = _dnsTunnelAutoReconnect.asStateFlow()
+
+    fun setDnsTunnelAutoReconnect(enabled: Boolean) {
+        _dnsTunnelAutoReconnect.value = enabled
+        prefs.edit().putBoolean(KEY_DNSTT_RECONNECT, enabled).apply()
+    }
+
+    /** True only when every part a tunnel cannot work without is present. */
+    val dnsTunnelConfigured: Boolean
+        get() = _dnsTunnelDomain.value.isNotBlank() &&
+            _dnsTunnelKey.value.isNotBlank() &&
+            _dnsTunnelResolver.value.isNotBlank()
+
     private val _autoRefreshHours = MutableStateFlow(prefs.getInt(KEY_AUTOREFRESH, DEFAULT_AUTOREFRESH))
     val autoRefreshHours: StateFlow<Int> = _autoRefreshHours.asStateFlow()
 
@@ -710,6 +789,14 @@ class ConfigStore private constructor(context: Context) {
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
         put("zeptunTunnel", _zeptunTunnel.value)
+        // The tunnel's domain, resolver and name travel in a backup. Its
+        // public key deliberately does not: a backup is a file that gets
+        // shared, and the key is the one part of this profile that is a
+        // credential. It is retyped on the new device.
+        put("dnsTunnelDomain", _dnsTunnelDomain.value)
+        put("dnsTunnelResolver", _dnsTunnelResolver.value)
+        put("dnsTunnelName", _dnsTunnelName.value)
+        put("dnsTunnelAutoReconnect", _dnsTunnelAutoReconnect.value)
         put("autoPilot", _autoPilot.value)
         put("newestFirst", _newestFirst.value)
         put("reduceMotion", _reduceMotion.value)
@@ -771,6 +858,12 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("customDns")) setCustomDns(o.optString("customDns"))
         if (o.has("rotateMinutes")) setRotateMinutes(o.optInt("rotateMinutes", 0))
         if (o.has("zeptunTunnel")) setZeptunTunnel(o.getBoolean("zeptunTunnel"))
+        if (o.has("dnsTunnelDomain")) setDnsTunnelDomain(o.optString("dnsTunnelDomain"))
+        if (o.has("dnsTunnelResolver")) setDnsTunnelResolver(o.optString("dnsTunnelResolver"))
+        if (o.has("dnsTunnelName")) setDnsTunnelName(o.optString("dnsTunnelName"))
+        if (o.has("dnsTunnelAutoReconnect")) {
+            setDnsTunnelAutoReconnect(o.getBoolean("dnsTunnelAutoReconnect"))
+        }
         if (o.has("autoPilot")) setAutoPilot(o.getBoolean("autoPilot"))
         if (o.has("newestFirst")) setNewestFirst(o.getBoolean("newestFirst"))
         if (o.has("reduceMotion")) setReduceMotion(o.getBoolean("reduceMotion"))
@@ -1031,6 +1124,11 @@ class ConfigStore private constructor(context: Context) {
         const val SORT_FASTEST = "fastest"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_UI_THEME = "ui_theme"
+        private const val KEY_DNSTT_DOMAIN = "dnstt_domain"
+        private const val KEY_DNSTT_KEY = "dnstt_key"
+        private const val KEY_DNSTT_RESOLVER = "dnstt_resolver"
+        private const val KEY_DNSTT_NAME = "dnstt_name"
+        private const val KEY_DNSTT_RECONNECT = "dnstt_reconnect"
         private const val KEY_AUTOPILOT = "auto_pilot"
         private const val KEY_NEWEST_FIRST = "newest_first"
         private const val KEY_AETHER_SEED_CLEANED = "aether_seed_cleaned_v1"

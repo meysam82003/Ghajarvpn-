@@ -195,6 +195,31 @@ object GhajarDnsLab {
         }
     }
 
+    /**
+     * Sends one prepared query and returns the raw reply.
+     *
+     * Exposed so the scan engine can run its own probes - recursion checks,
+     * TCP fallbacks, TXT lookups - without a second copy of the socket code.
+     * A duplicate of this is how one path ends up with a timeout the other
+     * does not have, or a TLS check the other skips.
+     *
+     * [forceTcp] sends a UDP resolver's query over TCP on 53 instead, which is
+     * both a capability test and the correct retry for a truncated answer.
+     */
+    internal fun exchange(
+        resolver: DnsResolver,
+        request: ByteArray,
+        timeoutMs: Int,
+        forceTcp: Boolean = false
+    ): ByteArray = when {
+        forceTcp && (resolver.transport == DnsTransport.UDP || resolver.transport == DnsTransport.TCP) ->
+            overTcp(resolver.address, 53, request, timeoutMs, tls = false)
+        resolver.transport == DnsTransport.UDP -> overUdp(resolver.address, request, timeoutMs)
+        resolver.transport == DnsTransport.TCP -> overTcp(resolver.address, 53, request, timeoutMs, tls = false)
+        resolver.transport == DnsTransport.DOT -> overTcp(resolver.address, 853, request, timeoutMs, tls = true)
+        else -> overHttps(resolver.address, request, timeoutMs)
+    }
+
     /** An answer that is a sinkhole rather than the site. */
     internal fun looksManufactured(address: String): Boolean =
         SINKHOLE_PREFIXES.any { address == it || address.startsWith(it) }
