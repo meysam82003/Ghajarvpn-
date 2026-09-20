@@ -1,0 +1,17 @@
+# Ghajar Content Studio — block direct access to sensitive paths.
+Options -Indexes
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteRule ^(storage|src|tests)/ - [F,L]
+</IfModule>
+
+<FilesMatch "\.(sqlite|sqlite3|db|log|lock|json)$">
+  <IfModule mod_authz_core.c>
+    Require all denied
+  </IfModule>
+  <IfModule !mod_authz_core.c>
+    Order allow,deny
+    Deny from all
+  </IfModule>
+</FilesMatch>

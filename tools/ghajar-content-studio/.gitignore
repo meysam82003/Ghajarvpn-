@@ -1,0 +1,6 @@
+storage/config.php
+storage/installed.lock
+storage/install-claim.json
+storage/install-attempts.json
+storage/data/*.sqlite*
+storage/logs/*.log
