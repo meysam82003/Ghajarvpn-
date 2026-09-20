@@ -6,7 +6,7 @@ namespace Ghajar\Studio\Templates;
 use PDO;
 
 /**
- * The ten built-in templates shipped with Ghajar Content Studio.
+ * The built-in templates shipped with Ghajar Content Studio.
  * Every one of them is a normal row in `templates` and can be edited,
  * copied, renamed or deleted from inside the bot.
  */
@@ -22,25 +22,46 @@ final class DefaultTemplates
         'number_before_title'=> true,
     ];
 
-    private static function section(string $key, string $label, string $mode, string $template, bool $enabled = true): array
-    {
+    private static function section(
+        string $key,
+        string $label,
+        string $mode,
+        string $template,
+        bool $enabled = true,
+        string $quote = '',
+        bool $expandable = false
+    ): array {
         return [
-            'key'      => $key,
-            'label'    => $label,
-            'mode'     => $mode,      // fixed | variable
-            'enabled'  => $enabled,
-            'template' => $template,
+            'key'        => $key,
+            'label'      => $label,
+            'mode'       => $mode,      // fixed | variable
+            'enabled'    => $enabled,
+            'template'   => $template,
+            'quote'      => $quote,     // '' = no blockquote; same value = one shared quote
+            'expandable' => $expandable,
         ];
     }
 
-    /** Footer blocks shared by most templates. */
-    private static function footer(): array
+    /**
+     * Footer blocks shared by most templates.
+     * $quote groups them into one Telegram blockquote; $anchors shows a
+     * clickable phrase instead of a bare URL.
+     */
+    private static function footer(string $quote = '', bool $anchors = false): array
     {
+        if ($anchors) {
+            return [
+                self::section('channel_info', 'اطلاعات کانال و ربات', 'fixed', "📢 کانال: {channel_link}\n🤖 ربات تلگرام: {bot_link}", true, $quote),
+                self::section('download', 'لینک دانلود', 'fixed', '📥 {apk_link}', true, $quote),
+                self::section('release', 'لینک ریلیز', 'fixed', '🔗 {release_link}', true, $quote),
+                self::section('extra_links', 'لینک‌های اضافی', 'fixed', '{extra_links}', false, $quote),
+            ];
+        }
         return [
-            self::section('channel_info', 'اطلاعات کانال و ربات', 'fixed', "📢 کانال: {channel}\n🤖 ربات تلگرام: {bot}"),
-            self::section('download', 'لینک دانلود', 'fixed', "📥 دانلود مستقیم APK:\n{apk_url}"),
-            self::section('release', 'لینک ریلیز', 'fixed', "🔗 ریلیز گیت‌هاب و سایر فایل‌های نصب:\n{release_url}"),
-            self::section('extra_links', 'لینک‌های اضافی', 'fixed', '{extra_links}', false),
+            self::section('channel_info', 'اطلاعات کانال و ربات', 'fixed', "📢 کانال: {channel}\n🤖 ربات تلگرام: {bot}", true, $quote),
+            self::section('download', 'لینک دانلود', 'fixed', "📥 دانلود مستقیم APK:\n{apk_url}", true, $quote),
+            self::section('release', 'لینک ریلیز', 'fixed', "🔗 ریلیز گیت‌هاب و سایر فایل‌های نصب:\n{release_url}", true, $quote),
+            self::section('extra_links', 'لینک‌های اضافی', 'fixed', '{extra_links}', false, $quote),
         ];
     }
 
@@ -62,6 +83,37 @@ final class DefaultTemplates
                     self::section('summary', 'جمع‌بندی', 'variable', '👑 {summary}'),
                     self::section('slogan', 'شعار پایانی', 'fixed', 'قاجار VPN | انتخاب آگاهانه، اتصال ساده.'),
                 ], self::footer()),
+            ],
+        ];
+
+        $templates['ghajar-quote'] = [
+            'name'        => '❝ قاجار — نقل‌قولی (پیشنهادی)',
+            'description' => 'همان استایل پست‌های کانال: کل متن داخل نقل‌قول، فوتر در نقل‌قول جدا، و لینک‌ها روی متن (بدون نمایش آدرس خام).',
+            'structure'   => [
+                'rules'    => self::DEFAULT_RULES,
+                'sections' => array_merge([
+                    self::section('header', 'سرصفحه (شماره و عنوان)', 'variable', '📱[[ پست {number} |]] {title}[[ {title_emoji}]]', true, 'main'),
+                    self::section('intro', 'مقدمه', 'variable', '{intro}', true, 'main'),
+                    self::section('body', 'بدنه اصلی', 'variable', '{body}', true, 'main'),
+                    self::section('features', 'فهرست قابلیت‌ها', 'variable', '{features}', true, 'main'),
+                    self::section('summary', 'جمع‌بندی', 'variable', '👑 {summary}', true, 'main'),
+                    self::section('slogan', 'شعار پایانی', 'fixed', 'قاجار VPN؛ چندین ابزار، یک اپلیکیشن.', true, 'main'),
+                ], self::footer('footer', true)),
+            ],
+        ];
+
+        $templates['ghajar-quote-expandable'] = [
+            'name'        => '❝ قاجار — نقل‌قول بازشو',
+            'description' => 'مثل قالب نقل‌قولی، اما متن اصلی به‌صورت نقل‌قول بازشو (Expandable) نمایش داده می‌شود؛ مناسب پست‌های بلند.',
+            'structure'   => [
+                'rules'    => self::DEFAULT_RULES,
+                'sections' => array_merge([
+                    self::section('header', 'سرصفحه (شماره و عنوان)', 'variable', '📱[[ پست {number} |]] {title}[[ {title_emoji}]]', true, 'main', true),
+                    self::section('intro', 'مقدمه', 'variable', '{intro}', true, 'main', true),
+                    self::section('body', 'بدنه اصلی', 'variable', '{body}', true, 'main', true),
+                    self::section('features', 'فهرست قابلیت‌ها', 'variable', '{features}', true, 'main', true),
+                    self::section('summary', 'جمع‌بندی', 'variable', '👑 {summary}', true, 'main', true),
+                ], self::footer('footer', true)),
             ],
         ];
 
@@ -235,7 +287,7 @@ final class DefaultTemplates
                 ':slug'        => $slug,
                 ':description' => $definition['description'],
                 ':structure'   => json_encode($definition['structure'], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                ':is_default'  => $slug === 'ghajar-main' ? 1 : 0,
+                ':is_default'  => $slug === 'ghajar-quote' ? 1 : 0,
             ]);
         }
     }

@@ -5,7 +5,7 @@ use Ghajar\Studio\Telegram\Api;
 use Ghajar\Studio\Telegram\ApiException;
 
 /** Offline stand-in for the Telegram API used by the unit tests. */
-final class FakeApi extends Api
+class FakeApi extends Api
 {
     /** @var list<array{method:string,params:array<string,mixed>}> */
     public array $calls = [];
@@ -22,7 +22,7 @@ final class FakeApi extends Api
     public function call(string $method, array $params = []): mixed
     {
         $this->calls[] = ['method' => $method, 'params' => $params];
-        if ($this->throw !== null && in_array($method, ['sendMessage'], true)) {
+        if ($this->throw !== null && in_array($method, ['sendMessage', 'sendPhoto'], true)) {
             throw $this->throw;
         }
         if (array_key_exists($method, $this->responses)) {
@@ -32,8 +32,11 @@ final class FakeApi extends Api
             'getMe'             => ['id' => 777, 'is_bot' => true, 'username' => 'Ghajar_vpnbot', 'first_name' => 'Ghajar'],
             'getChat'           => ['id' => -1001, 'type' => 'channel', 'username' => 'Ghajarvpn'],
             'getChatMember'     => ['status' => 'administrator', 'can_post_messages' => true],
-            'sendMessage'       => ['message_id' => $this->nextMessageId++, 'chat' => ['username' => 'Ghajarvpn']],
-            'editMessageText'   => ['message_id' => 1, 'chat' => ['username' => 'Ghajarvpn']],
+            'sendMessage',
+            'sendPhoto'         => ['message_id' => $this->nextMessageId++, 'chat' => ['username' => 'Ghajarvpn']],
+            'editMessageText',
+            'editMessageCaption',
+            'editMessageMedia'  => ['message_id' => 1, 'chat' => ['username' => 'Ghajarvpn']],
             'deleteMessage'     => true,
             'setWebhook'        => true,
             'getWebhookInfo'    => ['url' => 'https://example.test/webhook.php', 'pending_update_count' => 0],

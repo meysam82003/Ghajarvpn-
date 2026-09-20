@@ -103,6 +103,13 @@ final class Migrations
                 assets TEXT NOT NULL DEFAULT \'[]\',
                 fetched_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
             )',
+            'CREATE TABLE IF NOT EXISTS custom_emoji (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                emoji_id TEXT NOT NULL,
+                fallback TEXT NOT NULL DEFAULT \'⭐️\',
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )',
             'CREATE TABLE IF NOT EXISTS processed_updates (
                 update_id INTEGER PRIMARY KEY,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -112,6 +119,45 @@ final class Migrations
         foreach ($statements as $sql) {
             $pdo->exec($sql);
         }
+
+        self::upgrade($pdo);
+    }
+
+    /**
+     * Columns added after 1.0.0. Adding a column that already exists throws,
+     * so each one is attempted independently — this keeps existing installs
+     * upgradable without any manual database work.
+     */
+    public static function upgrade(PDO $pdo): void
+    {
+        $columns = [
+            'links'           => [
+                'anchor' => 'TEXT NOT NULL DEFAULT \'\'',
+            ],
+            'drafts'          => [
+                'media_type'     => 'TEXT NOT NULL DEFAULT \'\'',
+                'media_file_id'  => 'TEXT NOT NULL DEFAULT \'\'',
+                'media_position' => 'TEXT NOT NULL DEFAULT \'above\'',
+            ],
+            'published_posts' => [
+                'media_file_id' => 'TEXT NOT NULL DEFAULT \'\'',
+                'has_media'     => 'INTEGER NOT NULL DEFAULT 0',
+            ],
+        ];
+        foreach ($columns as $table => $definitions) {
+            $existing = [];
+            foreach ($pdo->query('PRAGMA table_info(' . $table . ')')->fetchAll() as $row) {
+                $existing[] = (string) $row['name'];
+            }
+            foreach ($definitions as $name => $definition) {
+                if (in_array($name, $existing, true)) {
+                    continue;
+                }
+                $pdo->exec(sprintf('ALTER TABLE %s ADD COLUMN %s %s', $table, $name, $definition));
+            }
+        }
+        // Links created before 1.1 have no anchor text yet.
+        $pdo->exec('UPDATE links SET anchor = label WHERE anchor = \'\'');
     }
 
     /** Insert the initial settings, links and system templates. */
@@ -134,13 +180,13 @@ final class Migrations
         }
 
         $links = [
-            ['channel_link', 'کانال تلگرام', 'https://t.me/Ghajarvpn', 1, 10],
-            ['bot_link', 'ربات تلگرام', 'https://t.me/Ghajar_vpnbot', 1, 20],
-            ['apk_url', 'دانلود مستقیم APK', 'https://github.com/meysam82003/Ghajarvpn-/releases/download/1.0.4/Ghajarvpn-1.0.4-arm64-v8a.apk', 1, 30],
-            ['release_url', 'ریلیز گیت‌هاب', 'https://github.com/meysam82003/Ghajarvpn-/releases/tag/1.0.4', 1, 40],
-            ['repo_url', 'مخزن گیت‌هاب', 'https://github.com/meysam82003/Ghajarvpn-', 1, 50],
+            ['channel_link', 'کانال تلگرام', 'https://t.me/Ghajarvpn', 1, 10, '@Ghajarvpn'],
+            ['bot_link', 'ربات تلگرام', 'https://t.me/Ghajar_vpnbot', 1, 20, '@Ghajar_vpnbot'],
+            ['apk_url', 'دانلود مستقیم APK', 'https://github.com/meysam82003/Ghajarvpn-/releases/download/1.0.4/Ghajarvpn-1.0.4-arm64-v8a.apk', 1, 30, 'دانلود مستقیم APK'],
+            ['release_url', 'ریلیز گیت‌هاب', 'https://github.com/meysam82003/Ghajarvpn-/releases/tag/1.0.4', 1, 40, 'ریلیز گیت‌هاب و سایر فایل‌های نصب'],
+            ['repo_url', 'مخزن گیت‌هاب', 'https://github.com/meysam82003/Ghajarvpn-', 1, 50, 'مخزن گیت‌هاب'],
         ];
-        $stmt = $pdo->prepare('INSERT OR IGNORE INTO links (key, label, value, is_builtin, position) VALUES (?,?,?,?,?)');
+        $stmt = $pdo->prepare('INSERT OR IGNORE INTO links (key, label, value, is_builtin, position, anchor) VALUES (?,?,?,?,?,?)');
         foreach ($links as $row) {
             $stmt->execute($row);
         }

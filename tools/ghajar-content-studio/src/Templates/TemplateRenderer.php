@@ -34,6 +34,12 @@ final class TemplateRenderer
         'extra_links' => 'لینک‌های اضافی',
     ];
 
+    /** Placeholder suffixes every link key also provides. */
+    public const LINK_SUFFIXES = [
+        '_link' => 'لینک کلیک‌شدنی روی متن',
+        '_text' => 'فقط متن لینک',
+    ];
+
     /**
      * @param array<string,mixed>  $structure
      * @param array<string,string> $vars
@@ -50,20 +56,44 @@ final class TemplateRenderer
             $vars['title'] = '<b>' . $vars['title'] . '</b>';
         }
 
-        $blocks = [];
+        $glue = ($rules['blank_line_between'] ?? true) ? "\n\n" : "\n";
+
+        // Sections carrying the same non-empty "quote" group are rendered
+        // inside one shared Telegram blockquote, exactly like the channel
+        // posts where the body is one quote and the footer another.
+        $groups = [];
         foreach ($sections as $section) {
             if (!is_array($section) || ($section['enabled'] ?? true) === false) {
                 continue;
             }
-            $text = $this->substitute((string) ($section['template'] ?? ''), $vars);
-            $text = trim($text);
+            $text = trim($this->substitute((string) ($section['template'] ?? ''), $vars));
             if ($text === '') {
                 continue;
             }
-            $blocks[] = $text;
+            $quote = trim((string) ($section['quote'] ?? ''));
+            $last  = $groups === [] ? null : array_key_last($groups);
+            if ($last !== null && $groups[$last]['quote'] === $quote && $quote !== '') {
+                $groups[$last]['parts'][] = $text;
+                continue;
+            }
+            $groups[] = [
+                'quote'      => $quote,
+                'expandable' => (bool) ($section['expandable'] ?? false),
+                'parts'      => [$text],
+            ];
         }
 
-        $glue   = ($rules['blank_line_between'] ?? true) ? "\n\n" : "\n";
+        $blocks = [];
+        foreach ($groups as $group) {
+            $body = implode($glue, $group['parts']);
+            if ($group['quote'] === '') {
+                $blocks[] = $body;
+                continue;
+            }
+            $blocks[] = ($group['expandable'] ? '<blockquote expandable>' : '<blockquote>')
+                . $body . '</blockquote>';
+        }
+
         $output = implode($glue, $blocks);
         $output = (string) preg_replace('/[ \t]+\n/u', "\n", $output);
         $output = (string) preg_replace('/\n{3,}/u', "\n\n", $output);
@@ -104,7 +134,10 @@ final class TemplateRenderer
             }
             $mark = ($section['enabled'] ?? true) ? '✅' : '⛔️';
             $mode = ($section['mode'] ?? 'variable') === 'fixed' ? 'ثابت' : 'متغیر';
-            $lines[] = sprintf('%s %d. %s — %s', $mark, $index + 1, (string) ($section['label'] ?? '—'), $mode);
+            $quote = trim((string) ($section['quote'] ?? '')) !== ''
+                ? ' — ❝ نقل‌قول: ' . (string) $section['quote'] . (($section['expandable'] ?? false) ? ' (بازشو)' : '')
+                : '';
+            $lines[] = sprintf('%s %d. %s — %s%s', $mark, $index + 1, (string) ($section['label'] ?? '—'), $mode, $quote);
         }
         return implode("\n", $lines);
     }

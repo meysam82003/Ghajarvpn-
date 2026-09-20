@@ -18,6 +18,7 @@ use Ghajar\Studio\Support\Str;
 use Ghajar\Studio\Telegram\Api;
 use Ghajar\Studio\Telegram\ApiException;
 use Ghajar\Studio\Telegram\Keyboard;
+use Ghajar\Studio\Templates\CustomEmojiRepository;
 use Ghajar\Studio\Templates\MessageParser;
 use Ghajar\Studio\Templates\TemplateRenderer;
 use Ghajar\Studio\Templates\TemplateRepository;
@@ -32,6 +33,7 @@ final class Router
     private Publisher $publisher;
     private MessageParser $parser;
     private TemplateRenderer $renderer;
+    private CustomEmojiRepository $emoji;
 
     public function __construct(private Api $api)
     {
@@ -43,6 +45,7 @@ final class Router
         $this->publisher = new Publisher($api);
         $this->parser    = new MessageParser();
         $this->renderer  = new TemplateRenderer();
+        $this->emoji     = new CustomEmojiRepository();
     }
 
     // ---------------------------------------------------------------- entry
@@ -107,6 +110,13 @@ final class Router
             return;
         }
 
+        $photoId = $this->photoFileId($message);
+
+        if ($text === '' && $photoId !== '') {
+            $this->onPhotoOnly($chatId, $userId, $state, $photoId);
+            return;
+        }
+
         if ($text === '') {
             $this->safeSend(
                 $chatId,
@@ -127,6 +137,46 @@ final class Router
         }
 
         $this->createDraftFromMessage($chatId, $userId, $state, $message, $text, $html);
+    }
+
+    /** The largest photo in a message, if any. */
+    private function photoFileId(array $message): string
+    {
+        $photos = (array) ($message['photo'] ?? []);
+        if ($photos !== []) {
+            $last = end($photos);
+            return (string) ($last['file_id'] ?? '');
+        }
+        $document = (array) ($message['document'] ?? []);
+        if (str_starts_with((string) ($document['mime_type'] ?? ''), 'image/')) {
+            return (string) ($document['file_id'] ?? '');
+        }
+        return '';
+    }
+
+    /** A bare photo attaches itself to the draft the admin is working on. */
+    private function onPhotoOnly(int $chatId, int $userId, State $state, string $fileId): void
+    {
+        $current = $state->load();
+        $payload = $current['payload'];
+
+        if ($current['state'] === 'edit.await_photo') {
+            $this->applyChannelEditPhoto($chatId, $userId, $state, $payload, $fileId);
+            return;
+        }
+
+        $draftId = (int) ($payload['draft'] ?? 0);
+        if ($draftId === 0) {
+            $latest  = $this->drafts->listByStatus(DraftRepository::STATUS_DRAFT, 1);
+            $draftId = $latest === [] ? 0 : (int) $latest[0]['id'];
+        }
+        if ($draftId === 0) {
+            $this->safeSend($chatId, '🖼 عکس دریافت شد، اما هنوز پیش‌نویسی وجود ندارد. اول متن پست را بفرستید، بعد عکس را.');
+            return;
+        }
+        $this->drafts->setMedia($draftId, 'photo', $fileId);
+        $this->safeSend($chatId, '🖼 عکس به پیش‌نویس #' . $draftId . ' اضافه شد. متن به‌صورت کپشن زیر عکس منتشر می‌شود.');
+        $this->showDraft($chatId, $userId, null, $draftId);
     }
 
     private function onCommand(int $chatId, int $userId, State $state, string $command): void
@@ -160,13 +210,24 @@ final class Router
     private function createDraftFromMessage(int $chatId, int $userId, State $state, array $message, string $text, string $html): void
     {
         $content = $this->composer->parseIncoming($html);
-        $meta    = [
-            'forwarded'   => isset($message['forward_origin']) || isset($message['forward_date']),
-            'received_at' => gmdate('c'),
-            'message_id'  => (int) ($message['message_id'] ?? 0),
+        $entities = (array) ($message['entities'] ?? $message['caption_entities'] ?? []);
+        $emoji    = Html::customEmoji($text, $entities);
+        $meta     = [
+            'forwarded'    => isset($message['forward_origin']) || isset($message['forward_date']),
+            'received_at'  => gmdate('c'),
+            'message_id'   => (int) ($message['message_id'] ?? 0),
+            'custom_emoji' => $emoji,
         ];
         $template = $this->templates->default();
         $draftId  = $this->drafts->create($userId, $text, $html, $content, $template['id'] ?? null, $meta);
+
+        $photoId = $this->photoFileId($message);
+        if ($photoId !== '') {
+            $this->drafts->setMedia($draftId, 'photo', $photoId);
+        }
+        foreach ($emoji as $item) {
+            $this->emoji->save('emoji_' . $item['id'], (string) $item['id'], (string) $item['emoji']);
+        }
 
         $state->set('choose_template', ['draft' => $draftId]);
         $this->showTemplateChooser($chatId, $userId, null, $draftId);
@@ -204,6 +265,8 @@ final class Router
                 'v'   => $this->onVersionCallback($chatId, $userId, $state, $messageId, $parts, $queryId),
                 'n'   => $this->onNumberingCallback($chatId, $userId, $state, $messageId, $parts, $queryId),
                 's'   => $this->onSettingsCallback($chatId, $userId, $state, $messageId, $parts, $queryId),
+                'em'  => $this->onEmojiCallback($chatId, $userId, $state, $messageId, $parts, $queryId),
+                'edit' => $this->onChannelEditCallback($chatId, $userId, $state, $messageId, $parts, $queryId),
                 'st'  => $this->showStats($chatId, $userId, $messageId),
                 'x'   => $this->cancel($chatId, $userId, $state, $messageId),
                 default => $this->api->answerCallbackQuery($queryId, 'این دکمه دیگر معتبر نیست.', true),
@@ -275,6 +338,15 @@ final class Router
             case 'link.edit':
                 $this->applyLinkValue($chatId, $userId, $state, (int) $payload['link'], $value);
                 return;
+            case 'link.anchor':
+                $link = $this->links->find((int) $payload['link']);
+                if ($link !== null) {
+                    $this->links->setAnchor((string) $link['key'], Str::truncate($value, 60));
+                }
+                $state->clear();
+                $this->safeSend($chatId, '✅ متن نمایشی لینک به‌روزرسانی شد.');
+                $this->showLinkList($chatId, $userId, null);
+                return;
             case 'link.add_label':
                 $state->set('link.add_value', ['label' => Str::truncate($value, 40)]);
                 $this->safeSend($chatId, '🔗 حالا آدرس لینک را بفرستید (با http:// یا https://).');
@@ -283,6 +355,23 @@ final class Router
                 $this->addCustomLink($chatId, $userId, $state, (string) $payload['label'], $value);
                 return;
 
+            case 'emoji.capture':
+                $this->captureEmoji($chatId, $userId, $state, $text, $message);
+                return;
+            case 'edit.await_link':
+                $this->applyChannelEditLink($chatId, $userId, $state, $value);
+                return;
+            case 'edit.await_text':
+                $this->applyChannelEditText($chatId, $userId, $state, $payload, $html);
+                return;
+            case 'edit.menu':
+            case 'edit.await_photo':
+            case 'draft.await_photo':
+                // Waiting for a photo; a text message here just re-opens the menu.
+                $state->clear();
+                $this->safeSend($chatId, 'ℹ️ منتظر دریافت عکس بودم. عملیات لغو شد.');
+                $this->showHome($chatId, $userId, null);
+                return;
             case 'settings.channel':
                 $this->applyChannel($chatId, $userId, $state, $value);
                 return;
@@ -436,6 +525,22 @@ final class Router
                 $state->set('tpl.section_label', ['template' => $id, 'index' => $index]);
                 $this->safeSend($chatId, '🏷 نام جدید این بخش را بفرستید:');
                 return;
+            case 'secq':
+                $this->mutateSection($id, $index, static function (array $section): array {
+                    $order = ['', 'main', 'footer'];
+                    $current = array_search(trim((string) ($section['quote'] ?? '')), $order, true);
+                    $section['quote'] = $order[(((int) $current) + 1) % count($order)];
+                    return $section;
+                });
+                $this->showTemplateSection($chatId, $userId, $messageId, $id, $index);
+                return;
+            case 'secx':
+                $this->mutateSection($id, $index, static function (array $section): array {
+                    $section['expandable'] = !($section['expandable'] ?? false);
+                    return $section;
+                });
+                $this->showTemplateSection($chatId, $userId, $messageId, $id, $index);
+                return;
             case 'secadd':
                 $this->addSection($id);
                 $this->showTemplate($chatId, $userId, $messageId, $id);
@@ -504,16 +609,29 @@ final class Router
             $this->showTemplate($chatId, $userId, $messageId, $id);
             return;
         }
+        $quote = trim((string) ($section['quote'] ?? ''));
+        $quoteLabel = match ($quote) {
+            'main'   => '❝ نقل‌قول اصلی',
+            'footer' => '❝ نقل‌قول فوتر',
+            ''       => 'بدون نقل‌قول',
+            default  => '❝ ' . $quote,
+        };
         $text = '🧩 <b>بخش: ' . Html::escape((string) ($section['label'] ?? '')) . "</b>\n\n"
             . 'وضعیت: ' . (($section['enabled'] ?? true) ? '✅ فعال' : '⛔️ غیرفعال') . "\n"
-            . 'نوع: ' . ((($section['mode'] ?? 'variable') === 'fixed') ? '📌 ثابت' : '🔁 متغیر') . "\n\n"
-            . "<b>الگو:</b>\n<code>" . Html::escape((string) ($section['template'] ?? '')) . '</code>';
+            . 'نوع: ' . ((($section['mode'] ?? 'variable') === 'fixed') ? '📌 ثابت' : '🔁 متغیر') . "\n"
+            . 'نقل‌قول: ' . $quoteLabel . (($section['expandable'] ?? false) ? ' (بازشو)' : '') . "\n\n"
+            . "<b>الگو:</b>\n<code>" . Html::escape((string) ($section['template'] ?? '')) . '</code>'
+            . "\n\nℹ️ بخش‌هایی که نقل‌قول یکسان دارند، داخل یک نقل‌قول مشترک نمایش داده می‌شوند.";
 
         $kb = Keyboard::make()
             ->row([['✏️ ویرایش الگو', 'tpl|secedit|' . $id . '|' . $index], ['🏷 نام بخش', 'tpl|seclabel|' . $id . '|' . $index]])
             ->row([
                 [($section['enabled'] ?? true) ? '⛔️ غیرفعال کن' : '✅ فعال کن', 'tpl|sectog|' . $id . '|' . $index],
                 [(($section['mode'] ?? 'variable') === 'fixed') ? '🔁 متغیر کن' : '📌 ثابت کن', 'tpl|secmode|' . $id . '|' . $index],
+            ])
+            ->row([
+                ['❝ تغییر نقل‌قول', 'tpl|secq|' . $id . '|' . $index],
+                [($section['expandable'] ?? false) ? '🔽 نقل‌قول عادی' : '🔼 نقل‌قول بازشو', 'tpl|secx|' . $id . '|' . $index],
             ])
             ->row([['🔼 بالا', 'tpl|secup|' . $id . '|' . $index], ['🔽 پایین', 'tpl|secdown|' . $id . '|' . $index], ['🗑 حذف', 'tpl|secdel|' . $id . '|' . $index]])
             ->row([['↩️ بازگشت به قالب', 'tpl|v|' . $id], ['🏠 خانه', 'h']]);
@@ -643,7 +761,14 @@ final class Router
             $this->safeSend($chatId, 'پیش‌نویس پیدا نشد.');
             return;
         }
-        $structure  = $this->parser->toTemplateStructure((array) $draft['content']);
+        $map = [];
+        foreach ($this->links->all() as $link) {
+            $value = trim((string) $link['value']);
+            if ($value !== '') {
+                $map[$value] = (string) preg_replace('/_(url|link)$/', '', (string) $link['key']) . '_url';
+            }
+        }
+        $structure = $this->parser->toTemplateStructure((array) $draft['content'], $map);
         $templateId = $this->templates->create(Str::truncate($name, 60), $structure, 'ساخته‌شده از یک پیام نمونه.');
         $state->clear();
         $this->safeSend($chatId, '✅ قالب جدید ذخیره شد. می‌توانید بخش‌ها را ثابت یا متغیر کنید.');
@@ -760,6 +885,16 @@ final class Router
             case 'links':
                 $this->showLinkList($chatId, $userId, $messageId, $id);
                 return;
+            case 'media':
+                $state->set('draft.await_photo', ['draft' => $id]);
+                $this->showDraftMedia($chatId, $userId, $messageId, $id);
+                return;
+            case 'nomedia':
+                $this->drafts->setMedia($id, '', '', 'above');
+                $state->clear();
+                $this->api->answerCallbackQuery($queryId, '🗑 عکس حذف شد.');
+                $this->showDraft($chatId, $userId, $messageId, $id);
+                return;
             case 'copy':
                 $draft = $this->drafts->find($id);
                 if ($draft !== null) {
@@ -870,13 +1005,14 @@ final class Router
         }
         $rendered = $this->composer->render($draft);
         $this->drafts->setRendered($id, $rendered);
-        $warning = $this->composer->validate($rendered);
+        $warning = $this->composer->validate($rendered, (string) $draft['media_file_id'] !== '');
         $number  = $this->numbering->preview($draft);
         $template = $draft['template_id'] !== null ? $this->templates->find((int) $draft['template_id']) : null;
 
         $header = '📄 <b>پیش‌نویس #' . $id . "</b>\n"
             . '🎨 قالب: ' . Html::escape((string) ($template['name'] ?? 'پیش‌فرض')) . "\n"
             . '🔢 شماره: ' . ($number !== null ? Str::toPersianDigits((string) $number) : 'بدون شماره')
+            . "\n🖼 عکس: " . ((string) $draft['media_file_id'] !== '' ? 'دارد (متن به‌صورت کپشن ارسال می‌شود)' : 'ندارد')
             . ($draft['status'] === DraftRepository::STATUS_UNKNOWN ? "\n⚠️ وضعیت آخرین انتشار نامشخص است." : '')
             . ($warning !== null ? "\n⚠️ " . Html::escape($warning) : '')
             . "\n\n— — — پیش‌نمایش — — —\n\n";
@@ -886,7 +1022,8 @@ final class Router
             ->row([['✏️ ویرایش متن', 'd|et|' . $id], ['📝 ویرایش عنوان', 'd|eti|' . $id]])
             ->row([['😀 تغییر ایموجی', 'd|em|' . $id], ['🎨 تغییر قالب', 'd|tpl|' . $id]])
             ->row([['🔢 تغییر شماره', 'd|num|' . $id], ['🔗 ویرایش لینک‌ها', 'd|links|' . $id]])
-            ->row([['🧩 ویرایش بخش‌ها', 'd|sec|' . $id], ['📋 متن قابل کپی', 'd|copy|' . $id]])
+            ->row([['🧩 ویرایش بخش‌ها', 'd|sec|' . $id], ['🖼 عکس پست', 'd|media|' . $id]])
+            ->row([['📋 متن قابل کپی', 'd|copy|' . $id], ['❝ نقل‌قول قالب', 'tpl|v|' . (int) ($draft['template_id'] ?? 0)]])
             ->row([['💾 ذخیره پیش‌نویس', 'd|save|' . $id], ['↩️ بازگشت نسخه قبلی', 'd|undo|' . $id]])
             ->row([['💾 ذخیره به‌عنوان قالب', 'd|astpl|' . $id]])
             ->row([['❌ حذف', 'd|del|' . $id], ['📂 پیش‌نویس‌ها', 'd|list|0'], ['🏠 خانه', 'h']]);
@@ -1029,7 +1166,10 @@ final class Router
         $text = "✅ <b>پست با موفقیت منتشر شد.</b>\n\n"
             . '🔢 شماره پست: <b>' . ($result['number'] !== null ? Str::toPersianDigits((string) $result['number']) : '—') . "</b>\n"
             . '🆔 شناسه پیام: <code>' . (int) $result['message_id'] . '</code>'
-            . (($result['url'] ?? '') !== '' ? "\n🔗 لینک پیام: " . Html::escape((string) $result['url']) : '');
+            . (($result['url'] ?? '') !== '' ? "\n🔗 لینک پیام: " . Html::escape((string) $result['url']) : '')
+            . (($result['emoji_fallback'] ?? false)
+                ? "\n\nℹ️ تلگرام ایموجی پریمیوم این ربات را نپذیرفت، بنابراین ایموجی معمولی جایگزین شد."
+                : '');
 
         $kb = Keyboard::make();
         if (($result['url'] ?? '') !== '') {
@@ -1092,9 +1232,16 @@ final class Router
         if ($nav !== []) {
             $kb->row($nav);
         }
+        $kb->row([['✏️ ویرایش پیام با لینک', 'edit|start']]);
         $kb->button('🏠 خانه', 'h');
 
-        $this->screen($chatId, $userId, $messageId, "📢 <b>پست‌های منتشرشده</b>", $kb);
+        $this->screen(
+            $chatId,
+            $userId,
+            $messageId,
+            "📢 <b>پست‌های منتشرشده</b>\n\nبا «✏️ ویرایش پیام با لینک» می‌توانید هر پیام ربات در کانال را با متن یا عکس تازه جایگزین کنید.",
+            $kb
+        );
     }
 
     private function showPublished(int $chatId, int $userId, ?int $messageId, int $id): void
@@ -1167,6 +1314,26 @@ final class Router
                 $state->set('link.add_label', []);
                 $this->safeSend($chatId, '🏷 عنوان لینک جدید را بفرستید (مثلاً: کانال پشتیبانی)');
                 return;
+            case 'anchor':
+                $kb = Keyboard::make();
+                foreach ($this->links->all() as $link) {
+                    $kb->button('✍️ ' . Str::truncate((string) $link['label'], 28), 'l|setanchor|' . $link['id']);
+                }
+                $kb->row([['↩️ بازگشت', 'l|list'], ['🏠 خانه', 'h']]);
+                $this->screen($chatId, $userId, $messageId, "✍️ <b>متن نمایشی لینک‌ها</b>\n\n"
+                    . 'این متن همان چیزی است که در پست دیده می‌شود و آدرس پشت آن پنهان می‌ماند '
+                    . '(در قالب‌ها با متغیرهایی مثل <code>{apk_link}</code>).', $kb);
+                return;
+            case 'setanchor':
+                $link = $this->links->find($id);
+                if ($link === null) {
+                    $this->showLinkList($chatId, $userId, $messageId, 0);
+                    return;
+                }
+                $state->set('link.anchor', ['link' => $id]);
+                $this->safeSend($chatId, '✍️ متن نمایشی تازه برای «' . Html::escape((string) $link['label'])
+                    . '» را بفرستید. مثال: <code>دانلود مستقیم APK</code>');
+                return;
             case 'del':
                 $ok = $this->links->delete($id);
                 $this->api->answerCallbackQuery($queryId, $ok ? 'حذف شد.' : 'لینک‌های پایه قابل حذف نیستند.', !$ok);
@@ -1181,13 +1348,16 @@ final class Router
         $lines = [];
         $kb    = Keyboard::make();
         foreach ($this->links->all() as $link) {
-            $lines[] = '• <b>' . Html::escape((string) $link['label']) . '</b>: '
-                . ((string) $link['value'] !== '' ? '<code>' . Html::escape((string) $link['value']) . '</code>' : '—');
+            $anchor  = trim((string) ($link['anchor'] ?? '')) !== '' ? (string) $link['anchor'] : (string) $link['label'];
+            $lines[] = '• <b>' . Html::escape((string) $link['label']) . '</b> — نمایش: «'
+                . Html::escape($anchor) . '»' . "\n   "
+                . ((string) $link['value'] !== '' ? '<code>' . Html::escape(Str::truncate((string) $link['value'], 60)) . '</code>' : '—');
             $kb->row([
                 ['✏️ ' . Str::truncate((string) $link['label'], 24), 'l|e|' . $link['id']],
                 [(int) $link['is_builtin'] === 1 ? '🔒' : '🗑', (int) $link['is_builtin'] === 1 ? 'x' : 'l|del|' . $link['id']],
             ]);
         }
+        $kb->button('✍️ تغییر متن نمایشی لینک‌ها', 'l|anchor');
         $kb->button('➕ افزودن لینک دلخواه', 'l|add');
         if ($draftId > 0) {
             $kb->row([['↩️ بازگشت به پیش‌نویس', 'd|v|' . $draftId], ['🏠 خانه', 'h']]);
@@ -1196,7 +1366,10 @@ final class Router
         }
 
         $text = "🔗 <b>مدیریت لینک‌ها</b>\n\n" . implode("\n", $lines)
-            . "\n\nاین مقادیر در قالب‌ها با متغیرهایی مثل <code>{apk_url}</code> استفاده می‌شوند.";
+            . "\n\nدر قالب‌ها:\n"
+            . "• <code>{apk_link}</code> → لینک روی متن (آدرس دیده نمی‌شود)\n"
+            . "• <code>{apk_url}</code> → آدرس خام\n"
+            . '• <code>{apk_text}</code> → فقط متن نمایشی';
         $this->screen($chatId, $userId, $messageId, $text, $kb);
     }
 
@@ -1480,6 +1653,7 @@ final class Router
             ->row([['📢 تغییر کانال', 's|channel'], ['📦 تغییر مخزن', 's|repo']])
             ->row([['🔍 بررسی دسترسی کانال', 's|check'], ['🌐 وضعیت Webhook', 's|webhook']])
             ->row([['🔢 شماره‌گذاری', 'n|home'], ['🔗 لینک‌ها', 'l|list']])
+            ->row([['😎 ایموجی پریمیوم', 'em|list'], ['✏️ ویرایش پیام کانال', 'edit|start']])
             ->button('🏠 خانه', 'h');
         $this->screen($chatId, $userId, $messageId, $text, $kb);
     }
@@ -1533,6 +1707,249 @@ final class Router
         $state->clear();
         $this->safeSend($chatId, '✅ مخزن ثبت شد.');
         $this->showSettings($chatId, $userId, null);
+    }
+
+    // ---------------------------------------------------------------- media
+
+    private function showDraftMedia(int $chatId, int $userId, ?int $messageId, int $id): void
+    {
+        $draft = $this->drafts->find($id);
+        if ($draft === null) {
+            $this->showDraftList($chatId, $userId, $messageId, 0);
+            return;
+        }
+        $has = (string) $draft['media_file_id'] !== '';
+        $text = "🖼 <b>عکس پست #" . $id . "</b>\n\n"
+            . 'وضعیت فعلی: ' . ($has ? '✅ عکس ثبت شده است' : '⛔️ بدون عکس') . "\n\n"
+            . "برای افزودن یا تعویض عکس، همین حالا عکس را در همین چت بفرستید.\n"
+            . 'وقتی پست عکس دارد، متن به‌صورت کپشن زیر عکس منتشر می‌شود و حد مجاز آن ۱۰۲۴ کاراکتر است.';
+
+        $kb = Keyboard::make();
+        if ($has) {
+            $kb->button('🗑 حذف عکس', 'd|nomedia|' . $id);
+        }
+        $kb->row([['↩️ بازگشت به پیش‌نویس', 'd|v|' . $id], ['🏠 خانه', 'h']]);
+        $this->screen($chatId, $userId, $messageId, $text, $kb);
+    }
+
+    // --------------------------------------------------------- premium emoji
+
+    /** @param string[] $parts */
+    private function onEmojiCallback(int $chatId, int $userId, State $state, ?int $messageId, array $parts, string $queryId): void
+    {
+        $action = $parts[1] ?? 'list';
+        $id     = (int) ($parts[2] ?? 0);
+
+        switch ($action) {
+            case 'list':
+                $this->showEmojiList($chatId, $userId, $messageId);
+                return;
+            case 'add':
+                $state->set('emoji.capture', []);
+                $this->safeSend(
+                    $chatId,
+                    "😎 یک پیام حاوی ایموجی پریمیوم بفرستید یا فوروارد کنید.\n"
+                    . 'ربات شناسه همه ایموجی‌های پریمیوم آن پیام را استخراج و ذخیره می‌کند.'
+                );
+                return;
+            case 'code':
+                $row = $this->emoji->find($id);
+                if ($row === null) {
+                    $this->showEmojiList($chatId, $userId, $messageId);
+                    return;
+                }
+                $snippet = CustomEmojiRepository::toHtml((string) $row['emoji_id'], (string) $row['fallback']);
+                $this->safeSend(
+                    $chatId,
+                    "📋 این کد را در الگوی هر بخش قالب بچسبانید:\n\n"
+                    . '<code>' . Html::escape($snippet) . '</code>' . "\n\n"
+                    . 'پیش‌نمایش: ' . $snippet
+                );
+                return;
+            case 'del':
+                $this->emoji->delete($id);
+                $this->api->answerCallbackQuery($queryId, 'حذف شد.');
+                $this->showEmojiList($chatId, $userId, $messageId);
+                return;
+        }
+        $this->api->answerCallbackQuery($queryId, 'عملیات ناشناخته.', true);
+    }
+
+    private function showEmojiList(int $chatId, int $userId, ?int $messageId): void
+    {
+        $items = $this->emoji->all();
+        $lines = [];
+        $kb    = Keyboard::make();
+        foreach ($items as $row) {
+            $lines[] = '• ' . (string) $row['fallback'] . ' — <code>' . Html::escape((string) $row['emoji_id']) . '</code>';
+            $kb->row([
+                ['📋 کد ' . (string) $row['fallback'], 'em|code|' . $row['id']],
+                ['🗑', 'em|del|' . $row['id']],
+            ]);
+        }
+        $kb->row([['➕ افزودن از روی یک پیام', 'em|add']]);
+        $kb->row([['↩️ تنظیمات', 's|home'], ['🏠 خانه', 'h']]);
+
+        $text = "😎 <b>ایموجی‌های پریمیوم</b>\n\n"
+            . ($lines === [] ? "هنوز ایموجی‌ای ذخیره نشده است.\n" : implode("\n", $lines) . "\n")
+            . "\nℹ️ ایموجی پریمیوم فقط برای ربات‌هایی که تلگرام اجازه داده نمایش داده می‌شود. "
+            . 'اگر تلگرام آن را نپذیرد، ربات هنگام انتشار به‌صورت خودکار ایموجی معمولی را جایگزین می‌کند و به شما اطلاع می‌دهد.';
+        $this->screen($chatId, $userId, $messageId, $text, $kb);
+    }
+
+    private function captureEmoji(int $chatId, int $userId, State $state, string $text, array $message): void
+    {
+        $entities = (array) ($message['entities'] ?? $message['caption_entities'] ?? []);
+        $found    = Html::customEmoji($text, $entities);
+        if ($found === []) {
+            $this->safeSend($chatId, '⚠️ در این پیام ایموجی پریمیوم پیدا نشد. پیام دیگری بفرستید یا /cancel بزنید.');
+            return;
+        }
+        foreach ($found as $item) {
+            $this->emoji->save('emoji_' . $item['id'], (string) $item['id'], (string) $item['emoji']);
+        }
+        $state->clear();
+        $this->safeSend($chatId, '✅ ' . Str::toPersianDigits((string) count($found)) . ' ایموجی پریمیوم ذخیره شد.');
+        $this->showEmojiList($chatId, $userId, null);
+    }
+
+    // ------------------------------------------------- editing a channel post
+
+    /** @param string[] $parts */
+    private function onChannelEditCallback(int $chatId, int $userId, State $state, ?int $messageId, array $parts, string $queryId): void
+    {
+        $action  = $parts[1] ?? 'start';
+        $payload = $state->payload();
+
+        switch ($action) {
+            case 'start':
+                $state->set('edit.await_link', []);
+                $this->screen($chatId, $userId, $messageId, "🔗 <b>ویرایش پیام کانال</b>\n\n"
+                    . "لینک پیام را بفرستید، مثل:\n<code>https://t.me/Ghajarvpn/152</code>\n\n"
+                    . 'برای گرفتن لینک، روی پیام در کانال نگه دارید و «Copy Link» را بزنید.',
+                    Keyboard::make()->row([['📢 پست‌های منتشرشده', 'p|list|0'], ['🏠 خانه', 'h']]));
+                return;
+            case 'text':
+                $state->set('edit.await_text', $payload);
+                $this->safeSend($chatId, "✏️ متن جدید پیام را بفرستید.\n"
+                    . 'قالب‌بندی، ایموجی، نقل‌قول و لینک‌های روی متن همان‌طور که می‌فرستید حفظ می‌شوند.');
+                return;
+            case 'photo':
+                $state->set('edit.await_photo', $payload);
+                $this->safeSend($chatId, '🖼 عکس جدید را بفرستید؛ جایگزین عکس فعلی پیام می‌شود.');
+                return;
+            case 'draft':
+                $this->applyChannelEditFromDraft($chatId, $userId, $state, $payload, (int) ($parts[2] ?? 0), $queryId);
+                return;
+            case 'pickdraft':
+                $this->showDraftPickerForEdit($chatId, $userId, $messageId);
+                return;
+            case 'back':
+                $this->showChannelEditMenu($chatId, $userId, $messageId, $payload);
+                return;
+        }
+        $this->api->answerCallbackQuery($queryId, 'عملیات ناشناخته.', true);
+    }
+
+    private function showChannelEditMenu(int $chatId, int $userId, ?int $messageId, array $payload): void
+    {
+        $chat      = (string) ($payload['chat'] ?? '');
+        $messageNo = (int) ($payload['message_id'] ?? 0);
+        $known     = $this->publisher->findPublished($chat, $messageNo);
+
+        $text = "✏️ <b>ویرایش پیام کانال</b>\n\n"
+            . 'کانال: <code>' . Html::escape($chat) . "</code>\n"
+            . 'شناسه پیام: <code>' . $messageNo . "</code>\n"
+            . ($known !== null
+                ? 'این پیام در تاریخچه ربات موجود است' . ((int) ($known['has_media'] ?? 0) === 1 ? ' (عکس‌دار).' : '.')
+                : 'این پیام در تاریخچه ربات نیست؛ ویرایش فقط اگر پیام را همین ربات فرستاده باشد ممکن است.')
+            . "\n\nچه چیزی را جایگزین کنم؟";
+
+        $kb = Keyboard::make()
+            ->row([['📝 متن/کپشن جدید', 'edit|text'], ['🖼 عکس جدید', 'edit|photo']])
+            ->row([['📄 جایگزینی با یک پیش‌نویس', 'edit|pickdraft']])
+            ->row([['↩️ لینک دیگر', 'edit|start'], ['🏠 خانه', 'h']]);
+        $this->screen($chatId, $userId, $messageId, $text, $kb);
+    }
+
+    private function showDraftPickerForEdit(int $chatId, int $userId, ?int $messageId): void
+    {
+        $kb = Keyboard::make();
+        foreach ($this->drafts->listByStatus(DraftRepository::STATUS_DRAFT, 8) as $draft) {
+            $title = Html::toPlain((string) ($draft['content']['title'] ?? '')) ?: Html::toPlain((string) $draft['source_text']);
+            $kb->button('📄 #' . $draft['id'] . ' ' . Str::truncate(trim($title), 32), 'edit|draft|' . $draft['id']);
+        }
+        $kb->row([['↩️ بازگشت', 'edit|back'], ['🏠 خانه', 'h']]);
+        $this->screen(
+            $chatId,
+            $userId,
+            $messageId,
+            'کدام پیش‌نویس جایگزین محتوای آن پیام شود؟ (متن و عکس پیش‌نویس هر دو اعمال می‌شوند)',
+            $kb
+        );
+    }
+
+    private function applyChannelEditLink(int $chatId, int $userId, State $state, string $value): void
+    {
+        $parsed = Publisher::parseMessageLink($value);
+        if ($parsed === null) {
+            $this->safeSend($chatId, '⚠️ لینک معتبر نیست. نمونه درست: <code>https://t.me/Ghajarvpn/152</code>');
+            return;
+        }
+        $state->set('edit.menu', ['chat' => $parsed['chat'], 'message_id' => $parsed['message_id']]);
+        $this->showChannelEditMenu($chatId, $userId, null, $parsed);
+    }
+
+    private function applyChannelEditText(int $chatId, int $userId, State $state, array $payload, string $html): void
+    {
+        $result = $this->publisher->editMessage(
+            (string) ($payload['chat'] ?? ''),
+            (int) ($payload['message_id'] ?? 0),
+            $html
+        );
+        $this->finishChannelEdit($chatId, $userId, $state, $payload, $result);
+    }
+
+    private function applyChannelEditPhoto(int $chatId, int $userId, State $state, array $payload, string $fileId): void
+    {
+        $result = $this->publisher->editMessage(
+            (string) ($payload['chat'] ?? ''),
+            (int) ($payload['message_id'] ?? 0),
+            null,
+            $fileId
+        );
+        $this->finishChannelEdit($chatId, $userId, $state, $payload, $result);
+    }
+
+    private function applyChannelEditFromDraft(int $chatId, int $userId, State $state, array $payload, int $draftId, string $queryId): void
+    {
+        $draft = $this->drafts->find($draftId);
+        if ($draft === null) {
+            $this->api->answerCallbackQuery($queryId, 'پیش‌نویس پیدا نشد.', true);
+            return;
+        }
+        $result = $this->publisher->editMessage(
+            (string) ($payload['chat'] ?? ''),
+            (int) ($payload['message_id'] ?? 0),
+            $this->composer->render($draft),
+            (string) $draft['media_file_id']
+        );
+        $this->finishChannelEdit($chatId, $userId, $state, $payload, $result);
+    }
+
+    private function finishChannelEdit(int $chatId, int $userId, State $state, array $payload, array $result): void
+    {
+        if (!$result['ok']) {
+            $this->safeSend($chatId, '⚠️ ' . $result['message']);
+            $this->showChannelEditMenu($chatId, $userId, null, $payload);
+            return;
+        }
+        $state->clear();
+        $note = ($result['emoji_fallback'] ?? false)
+            ? "\nℹ️ تلگرام ایموجی پریمیوم را نپذیرفت؛ ایموجی معمولی جایگزین شد."
+            : '';
+        $this->safeSend($chatId, $result['message'] . $note);
+        $this->showHome($chatId, $userId, null);
     }
 
     // -------------------------------------------------------------- helpers

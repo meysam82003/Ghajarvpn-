@@ -90,6 +90,7 @@ final class Html
             'spoiler'        => ['<tg-spoiler>', '</tg-spoiler>'],
             'code'           => ['<code>', '</code>'],
             'blockquote'     => ['<blockquote>', '</blockquote>'],
+            'expandable_blockquote' => ['<blockquote expandable>', '</blockquote>'],
             'pre'            => [
                 '<pre>' . (isset($entity['language']) && $entity['language'] !== ''
                     ? '<code class="language-' . self::escape((string) $entity['language']) . '">'
@@ -132,6 +133,76 @@ final class Html
     public static function utf16Length(string $text): int
     {
         return count(self::toUtf16Units($text));
+    }
+
+    /** Replace premium/custom emoji with their plain fallback character. */
+    public static function stripCustomEmoji(string $html): string
+    {
+        return (string) preg_replace('#<tg-emoji[^>]*>(.*?)</tg-emoji>#us', '$1', $html);
+    }
+
+    public static function hasCustomEmoji(string $html): bool
+    {
+        return str_contains($html, '<tg-emoji');
+    }
+
+    /**
+     * Every custom emoji in a message, as ['id' => ..., 'emoji' => ...].
+     *
+     * @param array<int,array<string,mixed>> $entities
+     * @return list<array{id:string,emoji:string}>
+     */
+    public static function customEmoji(string $text, array $entities): array
+    {
+        $units = self::toUtf16Units($text);
+        $found = [];
+        foreach ($entities as $entity) {
+            if (($entity['type'] ?? '') !== 'custom_emoji') {
+                continue;
+            }
+            $id = (string) ($entity['custom_emoji_id'] ?? '');
+            if ($id === '' || isset($found[$id])) {
+                continue;
+            }
+            $found[$id] = [
+                'id'    => $id,
+                'emoji' => self::unitsToString(array_slice($units, (int) $entity['offset'], (int) $entity['length'])),
+            ];
+        }
+        return array_values($found);
+    }
+
+    /**
+     * Split Telegram HTML into top-level blocks, separating blockquotes from
+     * ordinary text so the parser can see the message's real layout.
+     *
+     * @return list<array{quote:bool,expandable:bool,html:string}>
+     */
+    public static function splitBlocks(string $html): array
+    {
+        $blocks = [];
+        $offset = 0;
+        $pattern = '#<blockquote(\s+expandable)?>(.*?)</blockquote>#us';
+        if (preg_match_all($pattern, $html, $matches, PREG_OFFSET_CAPTURE | PREG_SET_ORDER)) {
+            foreach ($matches as $match) {
+                $start = (int) $match[0][1];
+                $before = substr($html, $offset, $start - $offset);
+                if (trim($before) !== '') {
+                    $blocks[] = ['quote' => false, 'expandable' => false, 'html' => trim($before)];
+                }
+                $blocks[] = [
+                    'quote'      => true,
+                    'expandable' => trim((string) $match[1][0]) !== '',
+                    'html'       => trim((string) $match[2][0]),
+                ];
+                $offset = $start + strlen((string) $match[0][0]);
+            }
+        }
+        $rest = substr($html, $offset);
+        if (trim($rest) !== '') {
+            $blocks[] = ['quote' => false, 'expandable' => false, 'html' => trim($rest)];
+        }
+        return $blocks;
     }
 
     private static function codePoint(string $char): int

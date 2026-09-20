@@ -116,6 +116,15 @@ final class DraftRepository
             ->execute([':n' => $number, ':m' => $mode, ':id' => $id]);
     }
 
+    /** Attach (or clear, with an empty file id) the photo published with the post. */
+    public function setMedia(int $id, string $type, string $fileId, string $position = 'above'): void
+    {
+        Database::connect()->prepare(
+            'UPDATE drafts SET media_type = :t, media_file_id = :f, media_position = :p,
+             updated_at = CURRENT_TIMESTAMP WHERE id = :id'
+        )->execute([':t' => $type, ':f' => $fileId, ':p' => $position, ':id' => $id]);
+    }
+
     public function setStatus(int $id, string $status): void
     {
         Database::connect()
@@ -242,6 +251,9 @@ final class DraftRepository
         $row['content']     = is_array($content) ? $content : [];
         $meta               = json_decode((string) $row['source_meta'], true);
         $row['source_meta'] = is_array($meta) ? $meta : [];
+        $row['media_type']     = (string) ($row['media_type'] ?? '');
+        $row['media_file_id']  = (string) ($row['media_file_id'] ?? '');
+        $row['media_position'] = (string) ($row['media_position'] ?? 'above');
         return $row;
     }
 }

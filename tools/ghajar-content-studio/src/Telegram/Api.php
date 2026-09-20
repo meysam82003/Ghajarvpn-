@@ -114,6 +114,45 @@ class Api
         return $msg;
     }
 
+    /** @return array<string,mixed> */
+    public function sendPhoto(int|string $chatId, string $photo, string $caption, array $extra = []): array
+    {
+        /** @var array<string,mixed> $msg */
+        $msg = $this->call('sendPhoto', array_merge([
+            'chat_id'    => $chatId,
+            'photo'      => $photo,
+            'caption'    => $caption,
+            'parse_mode' => 'HTML',
+        ], $extra));
+        return $msg;
+    }
+
+    /** @return array<string,mixed>|bool */
+    public function editMessageCaption(int|string $chatId, int $messageId, string $caption, array $extra = []): mixed
+    {
+        return $this->call('editMessageCaption', array_merge([
+            'chat_id'    => $chatId,
+            'message_id' => $messageId,
+            'caption'    => $caption,
+            'parse_mode' => 'HTML',
+        ], $extra));
+    }
+
+    /** Replace the photo of an existing message. @return array<string,mixed>|bool */
+    public function editMessageMedia(int|string $chatId, int $messageId, string $photo, string $caption): mixed
+    {
+        return $this->call('editMessageMedia', [
+            'chat_id'    => $chatId,
+            'message_id' => $messageId,
+            'media'      => [
+                'type'       => 'photo',
+                'media'      => $photo,
+                'caption'    => $caption,
+                'parse_mode' => 'HTML',
+            ],
+        ]);
+    }
+
     /** @return array<string,mixed>|bool */
     public function editMessageText(int|string $chatId, int $messageId, string $text, array $extra = []): mixed
     {

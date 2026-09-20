@@ -25,6 +25,7 @@ use Ghajar\Studio\Publishing\Publisher;
 use Ghajar\Studio\Support\Html;
 use Ghajar\Studio\Support\Str;
 use Ghajar\Studio\Telegram\ApiException;
+use Ghajar\Studio\Templates\CustomEmojiRepository;
 use Ghajar\Studio\Templates\MessageParser;
 use Ghajar\Studio\Templates\TemplateRenderer;
 use Ghajar\Studio\Templates\TemplateRepository;
@@ -162,13 +163,36 @@ TestRunner::test('۸ دریافت پیام فوروارد شده', function () u
     $t::assertTrue((bool) ($draft['source_meta']['forwarded'] ?? false));
 });
 
-TestRunner::test('پیام بدون متن (محتوای محافظت‌شده) اطلاع‌رسانی می‌کند', function () use ($t): void {
+TestRunner::test('پیام بدون متن و بدون عکس (محتوای محافظت‌شده) اطلاع‌رسانی می‌کند', function () use ($t): void {
     $api = new FakeApi();
     (new Router($api))->handle(['update_id' => 9202, 'message' => [
         'message_id' => 5, 'from' => ['id' => ADMIN_ID], 'chat' => ['id' => ADMIN_ID, 'type' => 'private'],
-        'photo' => [['file_id' => 'x']],
+        'voice' => ['file_id' => 'v1'],
     ]]);
     $t::assertStringContains('محافظت‌شده', (string) $api->sentTo('sendMessage')[0]['text']);
+});
+
+TestRunner::test('عکس تنها به پیش‌نویس جاری می‌چسبد', function () use ($t): void {
+    $api = new FakeApi();
+    (new Router($api))->handle(['update_id' => 9203, 'message' => [
+        'message_id' => 6, 'from' => ['id' => ADMIN_ID], 'chat' => ['id' => ADMIN_ID, 'type' => 'private'],
+        'photo' => [['file_id' => 'small'], ['file_id' => 'BIGGEST']],
+    ]]);
+    $draft = (new DraftRepository())->listByStatus(DraftRepository::STATUS_DRAFT, 1)[0];
+    $t::assertSame('BIGGEST', (string) $draft['media_file_id']);
+    $t::assertStringContains('کپشن', (string) $api->sentTo('sendMessage')[0]['text']);
+});
+
+TestRunner::test('عکس با کپشن، هم پیش‌نویس می‌سازد هم عکس را ثبت می‌کند', function () use ($t): void {
+    $api = new FakeApi();
+    (new Router($api))->handle(['update_id' => 9204, 'message' => [
+        'message_id' => 7, 'from' => ['id' => ADMIN_ID], 'chat' => ['id' => ADMIN_ID, 'type' => 'private'],
+        'photo'   => [['file_id' => 'PHOTO_WITH_CAPTION']],
+        'caption' => "عنوان عکس‌دار\n\nمتن زیر عکس.",
+    ]]);
+    $draft = (new DraftRepository())->listByStatus(DraftRepository::STATUS_DRAFT, 1)[0];
+    $t::assertSame('PHOTO_WITH_CAPTION', (string) $draft['media_file_id']);
+    $t::assertStringContains('عنوان عکس‌دار', (string) $draft['content']['title']);
 });
 
 TestRunner::test('۱۱ تبدیل متن: شماره، عنوان و ایموجی تشخیص داده می‌شود', function () use ($t, $parser, $sample): void {
@@ -437,6 +461,218 @@ TestRunner::test('تنظیمات در دیتابیس ذخیره و خوانده 
     Settings::flush();
     $t::assertSame('@TestChannel', Settings::get('channel'));
     Settings::set('channel', '@Ghajarvpn');
+});
+
+// ------------------------------------------------- quotes, links, emoji, media
+TestRunner::group('نقل‌قول، لینک روی متن، ایموجی و عکس');
+
+TestRunner::test('بخش‌های هم‌گروه داخل یک نقل‌قول مشترک رندر می‌شوند', function () use ($t): void {
+    $renderer = new TemplateRenderer();
+    $out = $renderer->render([
+        'rules' => ['bold_title' => false],
+        'sections' => [
+            ['key' => 'a', 'label' => 'a', 'mode' => 'variable', 'enabled' => true, 'template' => '{title}', 'quote' => 'main'],
+            ['key' => 'b', 'label' => 'b', 'mode' => 'variable', 'enabled' => true, 'template' => '{body}', 'quote' => 'main'],
+            ['key' => 'c', 'label' => 'c', 'mode' => 'fixed', 'enabled' => true, 'template' => 'فوتر', 'quote' => 'footer'],
+        ],
+    ], ['title' => 'عنوان', 'body' => 'متن']);
+    $t::assertSame(2, substr_count($out, '<blockquote>'), 'exactly two separate quotes');
+    $t::assertStringContains("<blockquote>عنوان\n\nمتن</blockquote>", $out);
+    $t::assertStringContains('<blockquote>فوتر</blockquote>', $out);
+});
+
+TestRunner::test('نقل‌قول بازشو (expandable) تولید می‌شود', function () use ($t): void {
+    $out = (new TemplateRenderer())->render([
+        'rules' => ['bold_title' => false],
+        'sections' => [
+            ['key' => 'a', 'label' => 'a', 'mode' => 'variable', 'enabled' => true,
+             'template' => '{body}', 'quote' => 'main', 'expandable' => true],
+        ],
+    ], ['body' => 'متن بلند']);
+    $t::assertStringContains('<blockquote expandable>متن بلند</blockquote>', $out);
+});
+
+TestRunner::test('لینک‌ها روی متن نمایش داده می‌شوند و آدرس خام دیده نمی‌شود', function () use ($t, $templates, $drafts, $composer, $parser): void {
+    $links = new LinkRepository();
+    $links->set('apk_url', 'https://example.test/app.apk');
+    $links->setAnchor('apk_url', 'دانلود مستقیم APK');
+
+    $id    = (int) $templates->findBySlug('ghajar-quote')['id'];
+    $draft = $drafts->create(ADMIN_ID, 'x', 'x', $parser->parse("یک عنوان\n\nیک متن."), $id);
+    $out   = $composer->render($drafts->find($draft));
+
+    $t::assertStringContains('<a href="https://example.test/app.apk">دانلود مستقیم APK</a>', $out);
+    $t::assertStringNotContains('📥 https://example.test/app.apk', $out, 'the raw URL must not be shown');
+    $t::assertSame(2, substr_count($out, '<blockquote>'), 'body and footer are separate quotes');
+});
+
+TestRunner::test('قالب فورواردشده نقل‌قول و لینک روی متن را حفظ می‌کند', function () use ($t, $parser, $templates, $composer, $drafts): void {
+    // A forwarded channel post: whole body quoted, footer quoted separately,
+    // and the download line is a hyperlink on a phrase.
+    $sampleHtml = '<blockquote>📱 پست ۱۴ | <b>قاجار فقط یک VPN نیست!</b>' . "\n\n"
+        . 'یه برنامه برای اتصال، یه برنامه برای تست سرور.' . "\n\n"
+        . '🌍 مدیریت و انتخاب سرور' . "\n" . '⚡ تست پینگ کانفیگ‌ها</blockquote>' . "\n"
+        . '<blockquote>📢 کانال: <a href="https://t.me/Ghajarvpn">@Ghajarvpn</a>' . "\n"
+        . '📥 <a href="https://github.com/x/y/releases/download/1/app.apk">دانلود مستقیم APK</a></blockquote>';
+
+    $content = $parser->parse($sampleHtml);
+    $t::assertTrue((bool) $content['layout']['main_quote'], 'main quote must be detected');
+    $t::assertTrue((bool) $content['layout']['footer_quote'], 'footer quote must be detected');
+    $t::assertSame('14', $content['number']);
+
+    $structure  = $parser->toTemplateStructure($content, [
+        'https://github.com/x/y/releases/download/1/app.apk' => 'apk_url',
+    ]);
+    $templateId = $templates->create('از فوروارد', $structure);
+    $loaded     = $templates->find($templateId);
+
+    $quotes = array_column((array) $loaded['structure']['sections'], 'quote');
+    $t::assertTrue(in_array('main', $quotes, true), 'body sections keep the main quote');
+    $t::assertTrue(in_array('footer', $quotes, true), 'footer keeps its own quote');
+
+    $footer = '';
+    foreach ((array) $loaded['structure']['sections'] as $section) {
+        if (($section['key'] ?? '') === 'footer') {
+            $footer = (string) $section['template'];
+        }
+    }
+    $t::assertStringContains('{apk_url}', $footer, 'a managed URL becomes a placeholder');
+    $t::assertStringContains('<a href=', $footer, 'the hyperlink itself is preserved');
+
+    // A brand new post through that template keeps the layout, not the sample text.
+    $draftId = $drafts->create(ADMIN_ID, 'x', 'x', (new MessageParser())->parse("عنوان تازه\n\nمتن تازه."), $templateId);
+    $out     = $composer->render($drafts->find($draftId));
+    $t::assertStringContains('<blockquote>', $out);
+    $t::assertStringContains('متن تازه', $out);
+    $t::assertStringNotContains('یه برنامه برای اتصال', $out);
+});
+
+TestRunner::test('ایموجی پریمیوم از پیام استخراج و ذخیره می‌شود', function () use ($t): void {
+    $entities = [['type' => 'custom_emoji', 'offset' => 0, 'length' => 2, 'custom_emoji_id' => '5384541907051357217']];
+    $found    = Html::customEmoji('👑 سلام', $entities);
+    $t::assertSame(1, count($found));
+    $t::assertSame('5384541907051357217', $found[0]['id']);
+
+    $repo = new CustomEmojiRepository();
+    $repo->save('emoji_test', $found[0]['id'], $found[0]['emoji']);
+    $t::assertTrue($repo->count() > 0);
+    $html = Html::fromEntities('👑 سلام', $entities);
+    $t::assertStringContains('<tg-emoji emoji-id="5384541907051357217">', $html);
+});
+
+TestRunner::test('اگر تلگرام ایموجی پریمیوم را نپذیرد، به ایموجی معمولی برمی‌گردد', function () use ($t, $drafts, $templates, $parser): void {
+    $templateId = $templates->create('با ایموجی پریمیوم', ['rules' => ['bold_title' => false], 'sections' => [
+        ['key' => 'b', 'label' => 'b', 'mode' => 'variable', 'enabled' => true,
+         'template' => '<tg-emoji emoji-id="123">👑</tg-emoji> {body}'],
+    ]]);
+    $draftId = $drafts->create(ADMIN_ID, 'x', 'x', $parser->parse("عنوان\n\nمتن ایموجی‌دار"), $templateId);
+
+    $api = new class extends FakeApi {
+        public int $attempts = 0;
+        public function call(string $method, array $params = []): mixed
+        {
+            if ($method === 'sendMessage') {
+                $this->attempts++;
+                if ($this->attempts === 1) {
+                    throw new ApiException('Bad Request: CUSTOM_EMOJI_INVALID', 400, 'sendMessage');
+                }
+            }
+            return parent::call($method, $params);
+        }
+    };
+    $result = (new Publisher($api))->publish($draftId);
+    $t::assertTrue($result['ok'], (string) $result['message']);
+    $t::assertTrue((bool) ($result['emoji_fallback'] ?? false), 'the fallback must be reported');
+    // The rejected attempt never reaches the transport, so the recorded call
+    // is the successful retry.
+    $sent = $api->sentTo('sendMessage');
+    $last = (string) $sent[count($sent) - 1]['text'];
+    $t::assertSame(2, $api->attempts, 'exactly one retry');
+    $t::assertStringNotContains('<tg-emoji', $last);
+    $t::assertStringContains('👑', $last);
+    $t::assertStringContains('متن ایموجی‌دار', $last);
+});
+
+TestRunner::test('پست عکس‌دار با sendPhoto و کپشن منتشر می‌شود', function () use ($t, $drafts, $templates, $parser): void {
+    $templateId = (int) $templates->findBySlug('minimal')['id'];
+    $draftId    = $drafts->create(ADMIN_ID, 'x', 'x', $parser->parse("عنوان عکس\n\nمتن کوتاه."), $templateId);
+    $drafts->setMedia($draftId, 'photo', 'FILE_ID_123');
+
+    $api    = new FakeApi();
+    $result = (new Publisher($api))->publish($draftId);
+    $t::assertTrue($result['ok'], (string) $result['message']);
+    $t::assertSame([], $api->sentTo('sendMessage'), 'a photo post must not be sent as plain text');
+    $photo = $api->sentTo('sendPhoto')[0];
+    $t::assertSame('FILE_ID_123', (string) $photo['photo']);
+    $t::assertStringContains('متن کوتاه', (string) $photo['caption']);
+});
+
+TestRunner::test('کپشن بلندتر از ۱۰۲۴ کاراکتر رد می‌شود', function () use ($t, $composer): void {
+    $long = str_repeat('ا', 1100);
+    $t::assertTrue($composer->validate($long, true) !== null, 'caption limit must apply');
+    $t::assertTrue($composer->validate($long, false) === null, 'the same text is fine without a photo');
+});
+
+TestRunner::test('لینک پیام تلگرام درست تجزیه می‌شود', function () use ($t): void {
+    $public = Publisher::parseMessageLink('https://t.me/Ghajarvpn/152');
+    $t::assertSame('@Ghajarvpn', (string) $public['chat']);
+    $t::assertSame(152, (int) $public['message_id']);
+
+    $private = Publisher::parseMessageLink('https://t.me/c/1234567890/44');
+    $t::assertSame('-1001234567890', (string) $private['chat']);
+    $t::assertSame(44, (int) $private['message_id']);
+
+    $t::assertTrue(Publisher::parseMessageLink('https://example.com/x') === null);
+});
+
+TestRunner::test('ویرایش پیام کانال با لینک: متن و عکس', function () use ($t, $drafts, $parser): void {
+    $api = new FakeApi();
+    $publisher = new Publisher($api);
+
+    // A text-only message is edited with editMessageText.
+    $result = $publisher->editMessage('@Ghajarvpn', 500, 'متن کاملاً تازه');
+    $t::assertTrue($result['ok'], (string) $result['message']);
+    $t::assertSame('متن کاملاً تازه', (string) $api->sentTo('editMessageText')[0]['text']);
+
+    // Replacing the photo goes through editMessageMedia.
+    $result = $publisher->editMessage('@Ghajarvpn', 500, 'کپشن تازه', 'NEW_PHOTO');
+    $t::assertTrue($result['ok'], (string) $result['message']);
+    $media = (array) $api->sentTo('editMessageMedia')[0]['media'];
+    $t::assertSame('NEW_PHOTO', (string) $media['media']);
+    $t::assertSame('کپشن تازه', (string) $media['caption']);
+});
+
+TestRunner::test('ویرایش پست عکس‌دارِ ثبت‌شده، کپشن را عوض می‌کند', function () use ($t): void {
+    Database::connect()->prepare(
+        'INSERT INTO published_posts (post_number, channel, message_id, text, media_file_id, has_media)
+         VALUES (901, :c, 777, :t, :f, 1)'
+    )->execute([':c' => '@Ghajarvpn', ':t' => 'کپشن قدیمی', ':f' => 'OLD_PHOTO']);
+
+    $api    = new FakeApi();
+    $result = (new Publisher($api))->editMessage('@Ghajarvpn', 777, 'کپشن جدید');
+    $t::assertTrue($result['ok'], (string) $result['message']);
+    $t::assertSame('کپشن جدید', (string) $api->sentTo('editMessageCaption')[0]['caption']);
+    $t::assertSame([], $api->sentTo('editMessageText'), 'a photo post has no text to edit');
+});
+
+TestRunner::test('منوی ویرایش پیام کانال با لینک واقعی باز می‌شود', function () use ($t): void {
+    $api    = new FakeApi();
+    $router = new Router($api);
+    $router->handle(['update_id' => 9400, 'callback_query' => [
+        'id' => 'cb-edit', 'from' => ['id' => ADMIN_ID], 'data' => 'edit|start',
+        'message' => ['message_id' => 70, 'chat' => ['id' => ADMIN_ID]],
+    ]]);
+    $router->handle(['update_id' => 9401, 'message' => [
+        'message_id' => 71, 'from' => ['id' => ADMIN_ID], 'chat' => ['id' => ADMIN_ID, 'type' => 'private'],
+        'text' => 'https://t.me/Ghajarvpn/152',
+    ]]);
+    $texts = array_map(static fn (array $p) => (string) $p['text'], $api->sentTo('sendMessage'));
+    $joined = implode(' | ', $texts) . implode(' | ', array_map(
+        static fn (array $p) => (string) $p['text'],
+        $api->sentTo('editMessageText')
+    ));
+    $t::assertStringContains('152', $joined);
+    $t::assertStringContains('چه چیزی را جایگزین کنم', $joined);
 });
 
 // ---------------------------------------------------------------- installer

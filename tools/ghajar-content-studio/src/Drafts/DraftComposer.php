@@ -99,15 +99,24 @@ final class DraftComposer
         return trim(implode("\n", $lines));
     }
 
-    /** Telegram hard-limits a text message to 4096 characters. */
-    public function validate(string $rendered): ?string
+    /**
+     * Telegram hard-limits a text message to 4096 characters, and a photo
+     * caption to 1024.
+     */
+    public function validate(string $rendered, bool $asCaption = false): ?string
     {
         $plain = Html::toPlain($rendered);
         if (trim($plain) === '') {
             return 'متن نهایی خالی است.';
         }
-        if (mb_strlen($plain) > 4096) {
-            return sprintf('متن نهایی %d کاراکتر است و از حد مجاز تلگرام (۴۰۹۶) بیشتر است.', mb_strlen($plain));
+        $limit = $asCaption ? 1024 : 4096;
+        if (mb_strlen($plain) > $limit) {
+            return sprintf(
+                'متن نهایی %s کاراکتر است و از حد مجاز تلگرام (%s) بیشتر است%s.',
+                Str::toPersianDigits((string) mb_strlen($plain)),
+                Str::toPersianDigits((string) $limit),
+                $asCaption ? ' — چون پست عکس دارد، متن به‌عنوان کپشن ارسال می‌شود' : ''
+            );
         }
         return null;
     }

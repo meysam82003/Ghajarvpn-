@@ -17,7 +17,7 @@ final class MessageParser
      * @return array{
      *   number:string, title:string, title_emoji:string, intro:string,
      *   body:string, features:string, summary:string, slogan:string,
-     *   footer:string[], links:string[]
+     *   footer:string[], links:string[], layout:array<string,bool>
      * }
      */
     public function parse(string $html): array
@@ -26,11 +26,39 @@ final class MessageParser
             'number' => '', 'title' => '', 'title_emoji' => '', 'intro' => '',
             'body' => '', 'features' => '', 'summary' => '', 'slogan' => '',
             'footer' => [], 'links' => [],
+            'layout' => [
+                'main_quote' => false, 'main_expandable' => false,
+                'footer_quote' => false, 'footer_expandable' => false,
+            ],
         ];
 
         $html = str_replace(["\r\n", "\r"], "\n", trim($html));
         if ($html === '') {
             return $content;
+        }
+
+        // Unwrap blockquotes but remember the layout, so a forwarded post keeps
+        // its quote structure when it is saved as a template.
+        $blocks       = Html::splitBlocks($html);
+        $footerBlock  = null;
+        if (count($blocks) > 1) {
+            $last = $blocks[count($blocks) - 1];
+            if ($last['quote'] && $this->looksLikeFooterBlock((string) $last['html'])) {
+                $footerBlock = $last;
+                array_pop($blocks);
+                $content['layout']['footer_quote']      = true;
+                $content['layout']['footer_expandable'] = (bool) $last['expandable'];
+            }
+        }
+        foreach ($blocks as $block) {
+            if ($block['quote']) {
+                $content['layout']['main_quote']      = true;
+                $content['layout']['main_expandable'] = $content['layout']['main_expandable'] || (bool) $block['expandable'];
+            }
+        }
+        $html = trim(implode("\n\n", array_map(static fn (array $b): string => (string) $b['html'], $blocks)));
+        if ($footerBlock !== null) {
+            $html .= "\n\n" . (string) $footerBlock['html'];
         }
 
         $lines = Str::lines($html);
@@ -149,8 +177,28 @@ final class MessageParser
         return ['number' => $number, 'title' => trim($rest), 'emoji' => $emoji];
     }
 
+    /** True when every line of a block looks like footer material. */
+    private function looksLikeFooterBlock(string $html): bool
+    {
+        $lines = array_values(array_filter(array_map('trim', Str::lines($html)), static fn ($l) => $l !== ''));
+        if ($lines === [] || count($lines) > 8) {
+            return false;
+        }
+        foreach ($lines as $line) {
+            if (!$this->isFooterLine($line)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public function isFooterLine(string $line): bool
     {
+        // A line whose only content is one hyperlink is footer material too
+        // (channel posts link a phrase instead of showing the raw URL).
+        if (preg_match('#^\s*[^<\w]{0,4}\s*<a\s[^>]*>.*</a>\s*:?\s*$#us', $line)) {
+            return true;
+        }
         $plain = trim(Html::toPlain($line));
         if ($plain === '') {
             return false;
@@ -181,12 +229,19 @@ final class MessageParser
      * @param array<string,string|array> $content
      * @return array<string,mixed>
      */
-    public function toTemplateStructure(array $content): array
+    public function toTemplateStructure(array $content, array $linkPlaceholders = []): array
     {
+        $layout     = (array) ($content['layout'] ?? []);
+        $mainQuote  = ($layout['main_quote'] ?? false) ? 'main' : '';
+        $mainExpand = (bool) ($layout['main_expandable'] ?? false);
+        $footQuote  = ($layout['footer_quote'] ?? false) ? 'footer' : '';
+        $footExpand = (bool) ($layout['footer_expandable'] ?? false);
+
         $sections = [];
         $sections[] = [
             'key' => 'header', 'label' => 'سرصفحه (شماره و عنوان)', 'mode' => 'variable', 'enabled' => true,
             'template' => ($content['title_emoji'] !== '' ? (string) $content['title_emoji'] . ' ' : '') . '[[پست {number} | ]]{title}',
+            'quote' => $mainQuote, 'expandable' => $mainExpand,
         ];
         foreach ([
             ['intro', 'مقدمه', '{intro}'],
@@ -194,25 +249,50 @@ final class MessageParser
             ['features', 'فهرست قابلیت‌ها', '{features}'],
             ['summary', 'جمع‌بندی', '{summary}'],
         ] as [$key, $label, $tpl]) {
+            // Core text parts stay enabled even when the sample lacked them:
+            // an empty variable renders nothing, but a disabled section would
+            // silently swallow that part of every future post.
             $sections[] = [
                 'key' => $key, 'label' => $label, 'mode' => 'variable',
-                'enabled' => trim((string) ($content[$key] ?? '')) !== '', 'template' => $tpl,
+                'enabled' => true, 'template' => $tpl,
+                'quote' => $mainQuote, 'expandable' => $mainExpand,
             ];
         }
         if (trim((string) ($content['slogan'] ?? '')) !== '') {
             $sections[] = [
                 'key' => 'slogan', 'label' => 'شعار پایانی', 'mode' => 'fixed',
                 'enabled' => true, 'template' => (string) $content['slogan'],
+                'quote' => $mainQuote, 'expandable' => $mainExpand,
             ];
         }
         $footer = (array) ($content['footer'] ?? []);
         if ($footer !== []) {
             $sections[] = [
                 'key' => 'footer', 'label' => 'فوتر (اطلاعات ثابت)', 'mode' => 'fixed',
-                'enabled' => true, 'template' => implode("\n", array_map('strval', $footer)),
+                'enabled' => true,
+                'template' => $this->placeholderize(implode("\n", array_map('strval', $footer)), $linkPlaceholders),
+                'quote' => $footQuote, 'expandable' => $footExpand,
             ];
         }
 
         return ['rules' => DefaultTemplates::DEFAULT_RULES, 'sections' => $sections];
+    }
+
+    /**
+     * Replace URLs that the bot already manages with their placeholder, so a
+     * template built from a sample keeps following the link manager.
+     *
+     * @param array<string,string> $linkPlaceholders url => placeholder name
+     */
+    public function placeholderize(string $html, array $linkPlaceholders): string
+    {
+        foreach ($linkPlaceholders as $url => $placeholder) {
+            if (trim((string) $url) === '') {
+                continue;
+            }
+            $html = str_replace(Html::escape((string) $url), '{' . $placeholder . '}', $html);
+            $html = str_replace((string) $url, '{' . $placeholder . '}', $html);
+        }
+        return $html;
     }
 }
