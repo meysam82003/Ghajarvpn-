@@ -243,6 +243,37 @@ class GhajarStoreApi(context: Context) {
 
     fun clearPendingLink() = account.clearPendingLink()
 
+    /**
+     * Unlinks this phone from the shop account, so a different one can sign in.
+     *
+     * Everything derived from the token goes with it. The notice inbox and the
+     * delivery ledger are keyed by a hash of the token, so leaving them behind
+     * would mean the next account inherits the previous one's "already shown"
+     * and "already installed" marks - it would silently miss its own warnings
+     * and its own first delivery. They are wiped by prefix rather than by key
+     * because this side does not know which account was signed in.
+     *
+     * The configs already on the device are deliberately untouched. They are a
+     * VPN client's working data, not the shop's: signing out of a store must
+     * not take away servers the user is using, and a service bought under the
+     * old account keeps working until the panel says otherwise.
+     */
+    fun signOut() {
+        account.clear()
+        runCatching {
+            val dir = java.io.File(appContext.applicationInfo.dataDir, "shared_prefs")
+            dir.listFiles()?.forEach { file ->
+                val name = file.name.removeSuffix(".xml")
+                if (name.startsWith("ghajarvpn_notices_")) {
+                    appContext.getSharedPreferences(name, Context.MODE_PRIVATE).edit().clear().apply()
+                }
+            }
+            appContext.getSharedPreferences("ghajarvpn_deliveries_v2", Context.MODE_PRIVATE)
+                .edit().clear().apply()
+        }
+        GhajarNoticeBus.reset()
+    }
+
     suspend fun beginLink(): GhajarLinkSession = withContext(Dispatchers.IO) {
         val root = requestJson(
             URL("${BrandConfig.WEBLINK_API_URL}?action=generate"),

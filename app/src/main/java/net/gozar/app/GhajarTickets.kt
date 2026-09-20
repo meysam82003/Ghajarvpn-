@@ -1,8 +1,6 @@
 package net.gozar.app
 
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -60,7 +58,12 @@ fun GhajarTickets(api: GhajarStoreApi) {
         catch (e: Exception) { error = e.message }
         finally { busy = false }
     }
-    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+    // No verticalScroll here. This screen is rendered inside one item of the
+    // shop's LazyColumn, which measures its children with an unbounded height;
+    // a scrollable Column under an infinite max height throws at measure time,
+    // and that throw is what took the whole process down the moment the
+    // support tab was selected. The list underneath already scrolls.
+    Column(Modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Text("پشتیبانی و تیکت", style = MaterialTheme.typography.titleLarge)
         if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())

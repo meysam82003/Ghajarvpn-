@@ -248,6 +248,17 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+        <!--
+            The "خوندم" button on a notice in the shade. Not exported: the only
+            thing that ever sends this is the app's own PendingIntent, and an
+            exported receiver would let any app on the device mark someone's
+            warnings read.
+        -->
+        <receiver android:name=".GhajarNoticeAckReceiver" android:exported="false">
+            <intent-filter>
+                <action android:name="net.gozar.app.action.NOTICE_ACK" />
+            </intent-filter>
+        </receiver>
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

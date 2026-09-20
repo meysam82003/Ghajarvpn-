@@ -63,6 +63,28 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         }
     }
 
+    /**
+     * Drops every trace of the signed-in account's checkout.
+     *
+     * The same wipe `runOperation` performs when it notices the token changed
+     * underneath it, exposed so signing out can do it deliberately instead of
+     * waiting for the next operation to trip over a stale order. The persisted
+     * copy goes too: a pending invoice belongs to the account that created it,
+     * and offering it to whoever signs in next is offering them a stranger's
+     * payment.
+     */
+    fun reset() {
+        purchase.value = null; payment.value = null; methods.value = null
+        receipt.value = null; delivery.value = null; openUrl.value = null
+        receiptSent.value = false; walletTopUp.value = false; stage.value = null
+        pendingPayments.value = emptyList(); checkoutVisible.value = false
+        error.value = null; message.value = null
+        paidWaitingChecks = 0
+        fallbackAttemptedOrderId = null
+        owner = ""
+        prefs.edit().clear().apply()
+    }
+
     private fun accountId(): String = GhajarAccountStore(app).token().takeIf { it.isNotBlank() }?.let {
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray()).joinToString("") { byte -> "%02x".format(byte) }
     }.orEmpty()
@@ -302,8 +324,22 @@ class GhajarCheckoutViewModel(application: Application) : AndroidViewModel(appli
         val previous = payment.value?.takeIf { it.orderId == item.orderId }
         walletTopUp.value = status.optString("flow") == "recharge"
         purchase.value = if (previous != null) purchase.value else null
-        if (purchase.value == null) purchase.value = GhajarPurchaseResult(false, true, null,
+        // Which account this order was for, carried over from the server's own
+        // record of it. Without this a resumed order had a null username, and
+        // the SERVICE_READY branch then delivered against an empty one - so a
+        // purchase or a renewal that finished after being resumed produced a
+        // service the app could not tie to anything. A top-up has no username
+        // and needs none; the money lands in the wallet.
+        val username = sequenceOf(
+            status.optJSONObject("service")?.optString("username"),
+            status.optString("username"),
+            status.optString("service_username")
+        ).firstOrNull { !it.isNullOrBlank() && it != "null" }
+        if (purchase.value == null) purchase.value = GhajarPurchaseResult(false, true, username,
             item.amount, 0, item.amount, null)
+        else if (purchase.value?.username.isNullOrBlank() && username != null) {
+            purchase.value = purchase.value?.copy(username = username)
+        }
         payment.value = previous?.copy(expiresAt = status.optLong("expires_at", item.expiresAt))
             ?: GhajarPaymentInit("url", item.orderId,
                 status.optString("gateway_url").takeIf { it.startsWith("https://") }, null, null,

@@ -105,6 +105,37 @@ class GhajarNotificationBootReceiver : android.content.BroadcastReceiver() {
     }
 }
 
+/**
+ * The "خوندم" button on a notification in the shade.
+ *
+ * Marking a notice read had to be done inside the app, which meant the way to
+ * get rid of one from the shade was to swipe it - and a swipe tells the server
+ * nothing, so the same warning came back on the next repeat and the user's
+ * "I have read this" never left the phone. This carries the acknowledgement
+ * all the way: locally, so the floating banner stops, and to the shop, so the
+ * mini app and the web panel stop showing it too.
+ *
+ * It is a broadcast rather than an activity on purpose: acknowledging a notice
+ * is not a reason to drag someone into the app.
+ */
+class GhajarNoticeAckReceiver : android.content.BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val id = intent.getStringExtra(EXTRA_NOTICE_ID)?.takeIf { it.isNotBlank() } ?: return
+        val app = context.applicationContext
+        // Taken off the shade immediately. The acknowledgement round-trip may
+        // take a moment, and a button that appears to do nothing gets pressed
+        // again.
+        runCatching { NotificationManagerCompat.from(app).cancel(id.hashCode()) }
+        val pending = goAsync()
+        GhajarNotificationMonitor.acknowledgeAsync(app, id) { pending.finish() }
+    }
+
+    companion object {
+        const val ACTION_ACK = "net.gozar.app.action.NOTICE_ACK"
+        const val EXTRA_NOTICE_ID = "net.gozar.app.extra.NOTICE_ID"
+    }
+}
+
 object GhajarNotificationMonitor {
     private const val JOB_ID = 0x514A52
     private val deliveryLock = Mutex()
@@ -117,14 +148,28 @@ object GhajarNotificationMonitor {
         }
 
     fun acknowledge(context: Context, id: String) {
-        val key = accountKey(context) ?: return
-        val prefs = context.getSharedPreferences("ghajarvpn_notices_$key", Context.MODE_PRIVATE)
-        val acknowledged = prefs.getStringSet("acknowledged", emptySet()).orEmpty().toMutableSet()
-        acknowledged += id
-        prefs.edit().putStringSet("acknowledged", acknowledged.toList().takeLast(500).toSet()).apply()
+        acknowledgeAsync(context, id) {}
+    }
+
+    /**
+     * The same acknowledgement, with a hook for callers that must stay alive
+     * until the server has been told - a broadcast receiver is killed the
+     * moment onReceive returns, which would leave the round-trip unfinished.
+     */
+    fun acknowledgeAsync(context: Context, id: String, onDone: () -> Unit) {
+        val key = accountKey(context)
+        if (key != null) {
+            val prefs = context.getSharedPreferences("ghajarvpn_notices_$key", Context.MODE_PRIVATE)
+            val acknowledged = prefs.getStringSet("acknowledged", emptySet()).orEmpty().toMutableSet()
+            acknowledged += id
+            prefs.edit().putStringSet("acknowledged", acknowledged.toList().takeLast(500).toSet()).apply()
+        }
         GhajarNoticeBus.dismiss(id)
+        if (key == null) { onDone(); return }
         monitorScope.launch {
-            runCatching { GhajarStoreApi(context.applicationContext).dismissNotice(id) }
+            try {
+                runCatching { GhajarStoreApi(context.applicationContext).dismissNotice(id) }
+            } finally { onDone() }
         }
     }
 
@@ -247,6 +292,19 @@ object GhajarNotificationMonitor {
             )
             builder.addAction(0, "تمدید همین سرویس", renew)
         }
+        // "I have read this", answerable from the shade. Without it the only
+        // way to stop a repeating warning was to open the app and find the
+        // banner, so the repeat kept firing at people who had already acted.
+        val ack = PendingIntent.getBroadcast(
+            context,
+            (notice.id + ":ack").hashCode(),
+            Intent(context, GhajarNoticeAckReceiver::class.java)
+                .setAction(GhajarNoticeAckReceiver.ACTION_ACK)
+                .setPackage(context.packageName)
+                .putExtra(GhajarNoticeAckReceiver.EXTRA_NOTICE_ID, notice.id),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        builder.addAction(0, "خوندم", ack)
         val notification = builder.build()
         return runCatching {
             NotificationManagerCompat.from(context).notify(notice.id.hashCode(), notification)

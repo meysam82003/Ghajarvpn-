@@ -10,7 +10,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -84,7 +83,14 @@ internal fun GhajarNoticeBanner() {
                         color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
-            IconButton(onClick = ::dismiss) { Icon(Icons.Filled.Close, "بستن این اعلان") }
+            // A word, not just an X. The bare icon reads as "hide this for
+            // now", so a warning with a repeat interval kept coming back to
+            // people who had already read and acted on it - and acknowledging
+            // it is what tells the shop to stop sending it here, to the mini
+            // app and to the phone.
+            TextButton(onClick = ::dismiss, contentPadding = PaddingValues(horizontal = 10.dp)) {
+                Text("خوندم", style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
     if (expandedId == current.id) {

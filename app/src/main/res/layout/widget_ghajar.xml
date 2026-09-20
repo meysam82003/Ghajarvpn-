@@ -28,6 +28,21 @@
         android:gravity="center_vertical"
         android:baselineAligned="false">
 
+        <!--
+            The brand mark, so the widget is recognisably this app's on a home
+            screen full of squares. The square badge rather than the gold
+            wordmark: the wordmark is three to one and would either dominate
+            the row or be scaled past legibility.
+        -->
+        <ImageView
+            android:id="@+id/widget_brand"
+            android:layout_width="26dp"
+            android:layout_height="26dp"
+            android:layout_marginEnd="8dp"
+            android:scaleType="fitCenter"
+            android:contentDescription="@null"
+            android:src="@drawable/ghajarvpn_royal_badge" />
+
         <ImageView
             android:id="@+id/widget_dot"
             android:layout_width="10dp"

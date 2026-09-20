@@ -2080,7 +2080,11 @@ private fun ConnectionScreen(
             // The route: one slab, one row, one tap to the picker. Locked
             // configs never reveal their endpoint and the built-in engines have
             // none, exactly as before.
-            Slab(spacing = 0.dp) {
+            //
+            // A tight inset: this slab holds exactly one row, so the default
+            // card padding was drawing a frame around a frame and making the
+            // single most-looked-at line on the screen the tallest thing on it.
+            Slab(spacing = 0.dp, padding = GhajarSpacing.sm) {
                 // While OpenVPN owns the tunnel, the route is that profile -
                 // not whichever Xray config happens to still be selected. The
                 // active id is "ovpn:<uuid>", which is never in `configs`, so
@@ -2265,7 +2269,10 @@ private fun SubscriptionQuotaCard(sub: Subscription) {
         else -> c.premium
     }
 
-    Slab(accent = accent, spacing = GhajarSpacing.md) {
+    // Cut to the line the owner marked. The card's own inset, the strip's
+    // inset inside it, and the gaps between its three pieces were the height;
+    // every number it shows is still here at the same size.
+    Slab(accent = accent, padding = GhajarSpacing.md, spacing = GhajarSpacing.xs) {
         SlabRow(
             title = GhajarUiRules.brandedSubscriptionTitle(
                 sub.total,
@@ -2300,7 +2307,8 @@ private fun SubscriptionQuotaCard(sub: Subscription) {
                         else -> c.info
                     }
                 )
-            )
+            ),
+            padding = GhajarSpacing.sm
         )
         if (sub.total > 0) {
             UsageBar(used = sub.used, total = sub.total)
@@ -2721,7 +2729,7 @@ private fun ConfigPickerScreen(
         // Thinner than it was, at the owner's request: the slab's own padding
         // and the gaps between its three rows were most of its height, not the
         // controls. Every touch target here is still at or above 38dp.
-        Slab(padding = GhajarSpacing.md, spacing = GhajarSpacing.xs) {
+        Slab(padding = GhajarSpacing.sm, spacing = GhajarSpacing.xs) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
             BounceOutlinedButton(
                 onClick = {
@@ -2757,9 +2765,9 @@ private fun ConfigPickerScreen(
                         }
                     }
                 },
-                minHeight = 38.dp,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                modifier = Modifier.weight(1f).height(38.dp)
+                minHeight = 34.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                modifier = Modifier.weight(1f).height(34.dp)
             ) {
                 Icon(painterResource(R.drawable.signal), contentDescription = null, modifier = Modifier.size(18.dp))
                 Spacer(Modifier.width(6.dp))
@@ -2801,9 +2809,9 @@ private fun ConfigPickerScreen(
                         }
                     }
                 },
-                minHeight = 38.dp,
-                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp),
-                modifier = Modifier.weight(1f).height(38.dp)
+                minHeight = 34.dp,
+                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp),
+                modifier = Modifier.weight(1f).height(34.dp)
             ) {
                 if (updateSubsState == 1) {
                     CircularProgressIndicator(strokeWidth = 2.dp, modifier = Modifier.size(16.dp))
@@ -2830,7 +2838,7 @@ private fun ConfigPickerScreen(
         PillButton(
             text = if (pickingFastest) t("finding_fastest") else t("picker_connect_fastest"),
             icon = Icons.Filled.Bolt,
-            minHeight = 44.dp,
+            minHeight = 34.dp,
             enabled = configs.isNotEmpty() && !pickingFastest,
             onClick = {
                 if (!pickingFastest) {
@@ -3998,14 +4006,14 @@ private fun AddServerPanel(
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(GhajarRadius.md))
                 .clickable(enabled = !busy) { onToggle() }
-                .padding(vertical = GhajarSpacing.xs),
+                .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
         ) {
             Box(
                 Modifier
-                    .size(38.dp)
-                    .clip(RoundedCornerShape(13.dp))
+                    .size(32.dp)
+                    .clip(RoundedCornerShape(11.dp))
                     .background(c.primary.copy(alpha = 0.16f)),
                 contentAlignment = Alignment.Center
             ) {
@@ -4013,26 +4021,21 @@ private fun AddServerPanel(
                     Icons.Filled.Add,
                     contentDescription = t("add_server"),
                     tint = c.primary,
-                    modifier = Modifier.size(20.dp).graphicsLayer { rotationZ = rot }
+                    modifier = Modifier.size(18.dp).graphicsLayer { rotationZ = rot }
                 )
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(
-                    mixedText(t("add_server")),
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.Bold,
-                    color = c.textPrimary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    t("add_server_sub"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = c.textSecondary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
+            // Title only. The description line under it said what the tiles
+            // that open below already say, and carrying it collapsed made this
+            // header twice as tall as the one thing it has to do: open.
+            Text(
+                mixedText(t("add_server")),
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = c.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
         }
 
         AnimatedVisibility(
@@ -11764,8 +11767,8 @@ private fun SubscriptionHeader(
             // the padding and the gaps between five stacked pieces - the name,
             // the action rail, the bar, the chips and the renew pill - so that
             // is what came down, not the type size or the touch targets.
-            .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm),
-        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)
+            .padding(horizontal = GhajarSpacing.sm, vertical = 6.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             val chevron by animateFloatAsState(
@@ -11787,8 +11790,8 @@ private fun SubscriptionHeader(
                 Box(
                     Modifier
                         .padding(end = GhajarSpacing.sm)
-                        .size(30.dp)
-                        .clip(RoundedCornerShape(11.dp))
+                        .size(27.dp)
+                        .clip(RoundedCornerShape(10.dp))
                         .background(c.primary.copy(alpha = 0.14f)),
                     contentAlignment = Alignment.Center
                 ) {
@@ -11956,7 +11959,7 @@ private fun SubscriptionHeader(
                     t("sub_renew"),
                     onClick = renew,
                     icon = Icons.Filled.Autorenew,
-                    minHeight = 42.dp
+                    minHeight = 36.dp
                 )
             } else {
                 GhostPill(
@@ -12021,13 +12024,13 @@ private fun SubHeaderGlyph(
     val c = ghajarColors
     Box(
         Modifier
-            .size(36.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .size(32.dp)
+            .clip(RoundedCornerShape(11.dp))
             .background(c.primary.copy(alpha = 0.10f))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(18.dp))
+        Icon(icon, contentDescription = label, tint = c.primary, modifier = Modifier.size(17.dp))
     }
 }
 
@@ -12722,10 +12725,10 @@ private fun ConfigRow(
                 .padding(
                     start = GhajarSpacing.md,
                     end = GhajarSpacing.sm,
-                    top = if (compact) 6.dp else GhajarSpacing.sm,
-                    bottom = if (compact) 6.dp else GhajarSpacing.sm
+                    top = if (compact) 4.dp else 6.dp,
+                    bottom = if (compact) 4.dp else 6.dp
                 ),
-            verticalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 3.dp)
+            verticalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 2.dp)
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -12738,8 +12741,8 @@ private fun ConfigRow(
                 // shape or shift its text.
                 Box(
                     Modifier
-                        .size(if (compact) 26.dp else 30.dp)
-                        .clip(RoundedCornerShape(10.dp))
+                        .size(if (compact) 24.dp else 27.dp)
+                        .clip(RoundedCornerShape(9.dp))
                         .background(
                             (if (checked) c.primary else pingColor(ping)).copy(alpha = 0.14f)
                         ),
@@ -12750,7 +12753,7 @@ private fun ConfigRow(
                             Icons.Filled.CheckCircle,
                             contentDescription = null,
                             tint = c.primary,
-                            modifier = Modifier.size(if (compact) 16.dp else 18.dp)
+                            modifier = Modifier.size(if (compact) 15.dp else 16.dp)
                         )
                     } else {
                         LivePingDot(ping)
@@ -12990,13 +12993,13 @@ private fun PickerTool(
     )
     Box(
         Modifier
-            .size(38.dp)
-            .clip(RoundedCornerShape(13.dp))
+            .size(34.dp)
+            .clip(RoundedCornerShape(12.dp))
             .background(accent.copy(alpha = 0.10f + 0.16f * fill))
             .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
     ) {
-        Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(19.dp))
+        Icon(icon, contentDescription = label, tint = accent, modifier = Modifier.size(18.dp))
     }
 }
 
@@ -13018,7 +13021,7 @@ private fun RowAction(
 ) {
     Box(
         Modifier
-            .size(34.dp)
+            .size(30.dp)
             .clip(CircleShape)
             .clickable(enabled = enabled) { onClick() },
         contentAlignment = Alignment.Center
@@ -13027,7 +13030,7 @@ private fun RowAction(
             icon,
             contentDescription = label,
             tint = if (enabled) tint else ghajarColors.onDisabled,
-            modifier = Modifier.size(20.dp)
+            modifier = Modifier.size(18.dp)
         )
     }
 }

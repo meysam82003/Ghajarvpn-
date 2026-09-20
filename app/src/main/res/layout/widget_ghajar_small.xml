@@ -1,11 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    The one-button widget: the logo, and nothing else.
+    The one-button widget: the brand mark, and the tunnel behind it.
 
     It exists because the full widget is a three-by-two block and the thing
     people do ninety percent of the time is turn the tunnel on or off. This is
-    that, in one cell. The logo itself is the button - there is no second
-    target to miss - and its tint is the whole state readout: on, busy, off.
+    that, in one cell. The mark itself is the button - there is no second
+    target to miss - and the dot in its corner is the whole state readout.
+
+    The art is `ghajarvpn_royal_badge`, the app's own square badge. It used to
+    be `logo.png`, which is an upstream project's wordmark that survived in the
+    tree: a widget carrying someone else's brand on the owner's home screen.
+    The badge is also the right shape here - the gold wordmark is three to one
+    and would have been letterboxed down to nothing in a square cell.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -15,23 +21,25 @@
         android:id="@+id/widget_small_button"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="6dp"
+        android:padding="2dp"
         android:scaleType="fitCenter"
-        android:background="@drawable/widget_surface"
+        android:adjustViewBounds="true"
         android:contentDescription="@string/widget_small_description"
-        android:src="@drawable/logo" />
+        android:src="@drawable/ghajarvpn_royal_badge" />
 
     <!--
-        A state dot in the corner, because a tinted logo alone is ambiguous
-        against a busy wallpaper - and "is it on?" is the only question this
-        widget exists to answer.
+        The state dot, on its own plate so it stays legible over the badge's
+        gold frame. "Is it on?" is the only question this widget answers, and
+        a dot over busy art with no backing is the one way to fail at it.
     -->
     <ImageView
         android:id="@+id/widget_small_dot"
-        android:layout_width="12dp"
-        android:layout_height="12dp"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
         android:layout_gravity="top|end"
         android:layout_margin="6dp"
+        android:padding="3dp"
+        android:background="@drawable/widget_surface"
         android:contentDescription="@null"
         android:src="@drawable/widget_dot_off" />
 </FrameLayout>

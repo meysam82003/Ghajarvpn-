@@ -35,6 +35,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.ReceiptLong
@@ -137,6 +138,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var section by rememberSaveable { mutableIntStateOf(0) }
     val listState = rememberLazyListState()
     val sectionState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    var signOutConfirm by remember { mutableStateOf(false) }
     var confirmation by remember { mutableStateOf<GhajarPurchaseRequest?>(null) }
     var confirmationTitle by remember { mutableStateOf("") }
     var confirmationPrice by remember { mutableStateOf<Long?>(null) }
@@ -548,7 +550,23 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 ScreenHeader(
                     title = Strings.get(store.lang.value, "shop"),
                     context = Strings.get(store.lang.value, "shop_header_sub")
-                )
+                ) {
+                    // Sign out of the shop.
+                    //
+                    // There was no way off an account once this phone was
+                    // linked: the pairing code is one-way, so a second person
+                    // on the same handset, or anyone who linked the wrong
+                    // Telegram account, was stuck with it forever. Confirmed
+                    // first, because the way back in is a code from the bot,
+                    // not a password anyone can retype on the spot.
+                    IconButton(onClick = { signOutConfirm = true }) {
+                        Icon(
+                            Icons.Filled.LinkOff,
+                            contentDescription = "خروج از حساب فروشگاه",
+                            tint = ghajarColors.textSecondary
+                        )
+                    }
+                }
             }
             item(key = "shop-block-5") {
                 StoreSectionTabs(
@@ -574,7 +592,16 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
             if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, store.lang.value) }
-            if (section in setOf(0, 3)) {
+            // An unfinished payment, shown on every section rather than only on
+            // the two it used to hide behind.
+            //
+            // The owner could not find the continue button at all, and this is
+            // why: the cards were drawn under the buy tab and the wallet tab,
+            // so an order abandoned halfway was invisible from the four other
+            // places a person actually lands. Money already committed is the
+            // most urgent thing on this screen wherever you are standing, and
+            // the one thing nobody should have to go looking for.
+            run {
                 val entries = serverPending.toMutableList()
                 paymentInit?.let { local ->
                     if (entries.none { it.orderId == local.orderId }) entries.add(0,
@@ -976,6 +1003,43 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 if (paymentInit != null && pendingPurchase?.username == result.service.username) checkoutModel.checkPayment()
                 else checkoutModel.importOwned(result.service.username)
             }, busy = checkoutBusy, failed = checkoutModel.deliveryFailed)
+    }
+    if (signOutConfirm) {
+        AlertDialog(
+            onDismissRequest = { signOutConfirm = false },
+            title = { Text("خروج از حساب فروشگاه") },
+            text = {
+                Text(
+                    "این گوشی از حساب فعلی جدا می‌شود و می‌توانی با حساب دیگری وارد شوی.\n\n" +
+                        "سرورها و کانفیگ‌هایی که الان روی گوشی داری پاک نمی‌شوند و اتصالت قطع نمی‌شود؛ " +
+                        "فقط خرید، تمدید، کیف پول و اعلان‌های فروشگاه تا ورود دوباره در دسترس نیستند.\n\n" +
+                        "برای ورود دوباره به یک کد تازه از ربات نیاز داری."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    signOutConfirm = false
+                    api.signOut()
+                    // Everything the old account put on this screen goes with
+                    // it, in one pass, rather than being left on screen under
+                    // a sign-in card that now says "not linked".
+                    linked = false
+                    linkSession = null
+                    linkState = GhajarLinkState.PENDING
+                    panels = emptyList(); selectedPanel = null
+                    categories = emptyList(); selectedCategory = null
+                    timeRanges = emptyList(); selectedTime = null
+                    products = emptyList(); unfilteredProducts = emptyList()
+                    owned = emptyList(); notices = emptyList()
+                    trialOptions = null; loadedPanelId = null
+                    section = 0
+                    checkoutModel.reset()
+                    message = "از حساب فروشگاه خارج شدی. برای ورود با حساب دیگر، کد تازه بگیر."
+                    error = null
+                }) { Text("خروج") }
+            },
+            dismissButton = { TextButton(onClick = { signOutConfirm = false }) { Text("انصراف") } }
+        )
     }
     confirmation?.let { request ->
         AlertDialog(
