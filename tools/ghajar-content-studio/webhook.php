@@ -5,6 +5,11 @@
  */
 declare(strict_types=1);
 
+// Never let a host-specific notice or deprecation leak into the JSON reply
+// (error output differs between PHP 8.2, 8.3 and 8.4 configurations).
+@ini_set('display_errors', '0');
+@ini_set('html_errors', '0');
+
 require __DIR__ . '/src/autoload.php';
 
 use Ghajar\Studio\Bot\Router;

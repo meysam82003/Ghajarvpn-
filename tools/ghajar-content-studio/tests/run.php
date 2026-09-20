@@ -439,4 +439,116 @@ TestRunner::test('تنظیمات در دیتابیس ذخیره و خوانده 
     Settings::set('channel', '@Ghajarvpn');
 });
 
+// ---------------------------------------------------------------- installer
+TestRunner::group('نصب‌کننده');
+
+/** Copy the project into a temp dir and serve it with PHP's built-in server. */
+function installer_sandbox(): array
+{
+    $src = dirname(__DIR__);
+    $dir = sys_get_temp_dir() . '/gcs-installer-' . bin2hex(random_bytes(4));
+    mkdir($dir, 0777, true);
+    $it = new RecursiveIteratorIterator(
+        new RecursiveDirectoryIterator($src, FilesystemIterator::SKIP_DOTS),
+        RecursiveIteratorIterator::SELF_FIRST
+    );
+    foreach ($it as $item) {
+        $rel = substr($item->getPathname(), strlen($src) + 1);
+        if (str_starts_with($rel, 'dist') || str_contains($rel, '.sqlite') || str_contains($rel, 'install-claim')) {
+            continue;
+        }
+        $target = $dir . '/' . $rel;
+        $item->isDir() ? @mkdir($target, 0777, true) : @copy($item->getPathname(), $target);
+    }
+    @unlink($dir . '/storage/config.php');
+    @unlink($dir . '/storage/installed.lock');
+
+    $port = random_int(9200, 9600);
+    $proc = proc_open(
+        [PHP_BINARY, '-S', '127.0.0.1:' . $port, '-t', $dir],
+        [1 => ['file', '/dev/null', 'w'], 2 => ['file', '/dev/null', 'w']],
+        $pipes,
+        $dir
+    );
+    for ($i = 0; $i < 50; $i++) {
+        $socket = @fsockopen('127.0.0.1', $port, $errNo, $errStr, 0.2);
+        if ($socket !== false) {
+            fclose($socket);
+            break;
+        }
+        usleep(100_000);
+    }
+    return ['dir' => $dir, 'port' => $port, 'proc' => $proc];
+}
+
+function installer_request(int $port, string $jar, array $post = []): array
+{
+    $ch = curl_init('http://127.0.0.1:' . $port . '/install.php');
+    curl_setopt_array($ch, [
+        CURLOPT_RETURNTRANSFER => true,
+        CURLOPT_COOKIEJAR      => $jar,
+        CURLOPT_COOKIEFILE     => $jar,
+        CURLOPT_TIMEOUT        => 15,
+    ]);
+    if ($post !== []) {
+        curl_setopt($ch, CURLOPT_POSTFIELDS, http_build_query($post));
+    }
+    $body   = (string) curl_exec($ch);
+    $status = (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE);
+    curl_close($ch);
+    return ['status' => $status, 'body' => $body];
+}
+
+$sandbox = installer_sandbox();
+$jar     = $sandbox['dir'] . '/cookies.txt';
+
+TestRunner::test('صفحه نصب بدون خطا باز می‌شود و فقط دو فیلد دارد', function () use ($t, $sandbox, $jar): void {
+    $response = installer_request($sandbox['port'], $jar);
+    $t::assertSame(200, $response['status'], 'installer must not error out');
+    $t::assertStringContains('name="bot_token"', $response['body']);
+    $t::assertStringContains('name="admin_id"', $response['body']);
+    $t::assertSame(2, substr_count($response['body'], '<input id='), 'only two visible inputs are allowed');
+    foreach (['Fatal error', 'Deprecated', 'Warning:', 'Notice:'] as $noise) {
+        $t::assertStringNotContains($noise, $response['body']);
+    }
+});
+
+TestRunner::test('بدون توکن CSRF نصب انجام نمی‌شود', function () use ($t, $sandbox, $jar): void {
+    $response = installer_request($sandbox['port'], $jar, ['bot_token' => 'x', 'admin_id' => '1', 'csrf' => 'wrong']);
+    $t::assertStringContains('نشست نصب منقضی', $response['body']);
+});
+
+TestRunner::test('مراحل بررسی محیط اجرا و گزارش می‌شوند', function () use ($t, $sandbox, $jar): void {
+    $claim = json_decode((string) file_get_contents($sandbox['dir'] . '/storage/install-claim.json'), true);
+    $response = installer_request($sandbox['port'], $jar, [
+        'csrf'      => (string) ($claim['csrf'] ?? ''),
+        'bot_token' => '123456789:AAF' . str_repeat('0', 32),
+        'admin_id'  => '555',
+    ]);
+    $t::assertSame(200, $response['status']);
+    $t::assertStringContains('بررسی PHP و افزونه‌ها', $response['body']);
+    $t::assertStringContains('۸.۲ / ۸.۳ / ۸.۴', $response['body'], 'the PHP range must be reported');
+    $t::assertStringContains('بررسی cURL', $response['body']);
+    // Served over plain HTTP, so the HTTPS step must fail with a clear reason.
+    $t::assertStringContains('HTTPS', $response['body']);
+    $t::assertStringContains('نصب کامل نشد', $response['body']);
+    $t::assertStringNotContains('AAF00000', $response['body'], 'the token must never be echoed back');
+    foreach (['Fatal error', 'Deprecated', 'Warning:'] as $noise) {
+        $t::assertStringNotContains($noise, $response['body']);
+    }
+});
+
+TestRunner::test('نصب‌کننده قفل‌شده دیگر فرم نمی‌دهد', function () use ($t, $sandbox, $jar): void {
+    file_put_contents($sandbox['dir'] . '/storage/installed.lock', '{}');
+    $response = installer_request($sandbox['port'], $jar);
+    $t::assertStringNotContains('name="bot_token"', $response['body']);
+    $t::assertStringContains('قفل شده', $response['body']);
+    @unlink($sandbox['dir'] . '/storage/installed.lock');
+});
+
+if (is_resource($sandbox['proc'])) {
+    proc_terminate($sandbox['proc']);
+    proc_close($sandbox['proc']);
+}
+
 exit(TestRunner::summary());

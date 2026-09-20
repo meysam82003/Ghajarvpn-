@@ -2,6 +2,8 @@
 /** Public landing page: never exposes anything about the bot. */
 declare(strict_types=1);
 
+@ini_set('display_errors', '0');
+
 require __DIR__ . '/src/autoload.php';
 
 use Ghajar\Studio\Core\Config;

@@ -20,6 +20,9 @@ use Ghajar\Studio\Telegram\ApiException;
 const LOCK_FILE    = GCS_STORAGE . '/installed.lock';
 const CLAIM_FILE   = GCS_STORAGE . '/install-claim.json';
 const ATTEMPT_FILE = GCS_STORAGE . '/install-attempts.json';
+const MIN_PHP      = '8.2';          // tested on 8.2, 8.3 and 8.4
+const MAX_PHP      = '8.4';
+const MIN_SQLITE   = '3.24';         // needed for "ON CONFLICT ... DO UPDATE"
 const CLAIM_TTL    = 3600;           // the installer belongs to one browser for an hour
 const MAX_ATTEMPTS = 8;              // per window
 const ATTEMPT_WIN  = 900;            // 15 minutes
@@ -129,9 +132,14 @@ function run_install(string $token, string $adminIdRaw): array
         return ['ok' => false, 'steps' => $steps, 'data' => []];
     };
 
-    // 1. PHP + extensions
-    if (version_compare(PHP_VERSION, '8.2.0', '<')) {
-        return $fail($steps, 'بررسی نسخه PHP', 'نسخه PHP شما ' . PHP_VERSION . ' است. حداقل ۸.۲ لازم است.');
+    // 1. PHP + extensions (tested on 8.2, 8.3 and 8.4)
+    if (version_compare(PHP_VERSION, MIN_PHP, '<')) {
+        return $fail(
+            $steps,
+            'بررسی نسخه PHP',
+            'نسخه PHP این هاست ' . PHP_VERSION . ' است. این پروژه روی PHP ' . MIN_PHP . '، ۸.۳ و '
+            . MAX_PHP . ' تست شده است. از پنل هاست نسخه PHP را روی یکی از این‌ها بگذارید.'
+        );
     }
     $missing = array_values(array_filter(
         ['pdo', 'pdo_sqlite', 'curl', 'mbstring', 'json', 'openssl'],
@@ -140,7 +148,21 @@ function run_install(string $token, string $adminIdRaw): array
     if ($missing !== []) {
         return $fail($steps, 'بررسی افزونه‌های PHP', 'این افزونه‌ها روی هاست فعال نیستند: ' . implode('، ', $missing));
     }
-    $steps[] = ['title' => 'بررسی PHP و افزونه‌ها', 'ok' => true, 'detail' => 'PHP ' . PHP_VERSION . ' — همه افزونه‌های لازم فعال است.'];
+    $newer = version_compare(PHP_VERSION, MAX_PHP . '.999', '>')
+        ? ' (این نسخه جدیدتر از نسخه‌های تست‌شده است؛ کد از هیچ امکان مخصوص نسخه‌های جدیدتر استفاده نمی‌کند.)'
+        : '';
+    $steps[] = [
+        'title'  => 'بررسی PHP و افزونه‌ها',
+        'ok'     => true,
+        'detail' => 'PHP ' . PHP_VERSION . ' — سازگار با ۸.۲ / ۸.۳ / ۸.۴ — همه افزونه‌های لازم فعال است.' . $newer,
+    ];
+
+    // cURL must be able to verify TLS, otherwise Telegram calls will fail.
+    $curl = curl_version();
+    if (!is_array($curl) || ((int) ($curl['features'] ?? 0) & CURL_VERSION_SSL) === 0) {
+        return $fail($steps, 'بررسی cURL', 'افزونه cURL بدون پشتیبانی SSL کامپایل شده و نمی‌تواند به تلگرام وصل شود.');
+    }
+    $steps[] = ['title' => 'بررسی cURL', 'ok' => true, 'detail' => 'cURL ' . (string) ($curl['version'] ?? '') . ' با پشتیبانی SSL'];
 
     // 2. HTTPS
     if (!is_https()) {
@@ -183,13 +205,26 @@ function run_install(string $token, string $adminIdRaw): array
     try {
         $pdo = Database::connect($dbFile);
         Database::set($pdo);
+        $sqliteVersion = Database::sqliteVersion($pdo);
+        if (version_compare($sqliteVersion, MIN_SQLITE, '<')) {
+            return $fail(
+                $steps,
+                'بررسی نسخه SQLite',
+                'نسخه SQLite هاست ' . $sqliteVersion . ' است و حداقل ' . MIN_SQLITE . ' لازم است. '
+                . 'معمولاً با تغییر نسخه PHP در پنل هاست (۸.۲ تا ۸.۴) این مشکل برطرف می‌شود.'
+            );
+        }
         Migrations::run($pdo);
         Migrations::seed($pdo, $adminId);
     } catch (Throwable $e) {
         return $fail($steps, 'ساخت دیتابیس', 'ایجاد دیتابیس SQLite ناموفق بود: ' . $e->getMessage());
     }
     protect_storage();
-    $steps[] = ['title' => 'ساخت دیتابیس و جدول‌ها', 'ok' => true, 'detail' => 'SQLite آماده شد (داخل storage و محافظت‌شده).'];
+    $steps[] = [
+        'title'  => 'ساخت دیتابیس و جدول‌ها',
+        'ok'     => true,
+        'detail' => 'SQLite ' . $sqliteVersion . ' آماده شد (داخل storage و محافظت‌شده).',
+    ];
 
     // 7. config file
     $secret = Str::randomToken(24);
@@ -258,7 +293,7 @@ $result = null;
 $error  = null;
 
 if (($_SERVER['REQUEST_METHOD'] ?? 'GET') === 'POST') {
-    $csrf = (string) ($claim()['csrf'] ?? '');
+    $csrf = (string) (claim()['csrf'] ?? '');
     if ($csrf === '' || !hash_equals($csrf, (string) ($_POST['csrf'] ?? ''))) {
         $error = 'نشست نصب منقضی شده است. صفحه را تازه کنید و دوباره تلاش کنید.';
     } elseif (rate_limited()) {
@@ -272,7 +307,7 @@ if ($result !== null && $result['ok']) {
     render_page('success', $result);
     exit;
 }
-render_page('form', ['result' => $result, 'error' => $error, 'csrf' => (string) ($claim()['csrf'] ?? '')]);
+render_page('form', ['result' => $result, 'error' => $error, 'csrf' => (string) (claim()['csrf'] ?? '')]);
 
 // ----------------------------------------------------------------- the view
 
