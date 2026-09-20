@@ -159,10 +159,35 @@ class GhajarWidget : AppWidgetProvider() {
                     s.configs.value.firstOrNull { it.id == id }?.name
                 }
             }
+            // The server line, and the reason it used to be wrong.
+            //
+            // ConfigStore fills its lists from disk in a coroutine, so for the
+            // first moments of a cold process `configs` is empty and every
+            // lookup above misses. The widget is refreshed on exactly those
+            // moments - a boot, a reinstall, a process the system just started
+            // to deliver a broadcast - so it kept drawing "no server chosen"
+            // over a phone with twenty-seven of them, and the rail's buttons
+            // looked broken because they were acting on an empty list.
+            //
+            // Two halves to the fix: remember the last name that did resolve,
+            // and ask for another refresh once the store is actually ready.
+            // The state, the toggle and the dot are never cached - those come
+            // from VpnState, which is correct from the first instant.
+            val prefs = app.getSharedPreferences(WIDGET_PREFS, Context.MODE_PRIVATE)
+            val resolved = name?.let(BrandConfig::sanitizePublicText)
+            val loading = store != null && store.configs.value.isEmpty()
+            if (resolved != null) {
+                prefs.edit().putString(KEY_LAST_SERVER, resolved).apply()
+            } else if (!loading) {
+                prefs.edit().remove(KEY_LAST_SERVER).apply()
+            }
             views.setTextViewText(
                 R.id.widget_server,
-                name?.let(BrandConfig::sanitizePublicText) ?: t("hub_no_server")
+                resolved
+                    ?: prefs.getString(KEY_LAST_SERVER, null)?.takeIf { loading }
+                    ?: t("hub_no_server")
             )
+            if (loading) awaitStoreThenRefresh(app, store)
 
             // A ping only means something while a tunnel is up, and only if it
             // was actually measured.
@@ -251,6 +276,37 @@ class GhajarWidget : AppWidgetProvider() {
 
         private val widgetScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+        private const val WIDGET_PREFS = "ghajarvpn_widget"
+        private const val KEY_LAST_SERVER = "last_server"
+
+        /**
+         * One wait per process, and it is never cleared.
+         *
+         * Several widgets on one screen all build in the same pass, so this
+         * stops a wait per widget. It stays set after the wait finishes on
+         * purpose: the redraw below calls build() again, which would queue
+         * another wait if the store still had nothing, and a store that never
+         * loads would have this rescheduling itself every ten seconds forever.
+         */
+        @Volatile private var awaitingStore = false
+
+        /**
+         * Redraws once the config store has finished loading from disk.
+         *
+         * Without this the widget stayed on whatever it could see during the
+         * cold start until something else happened to refresh it, which on a
+         * phone that is not connecting or disconnecting can be a very long
+         * time.
+         */
+        private fun awaitStoreThenRefresh(app: Context, store: ConfigStore?) {
+            if (store == null || awaitingStore) return
+            awaitingStore = true
+            widgetScope.launch {
+                withTimeoutOrNull(10_000) { store.awaitReady() }
+                withContext(Dispatchers.Main) { refresh(app) }
+            }
+        }
+
         private fun widgetBytes(bytes: Long, lang: Lang): String {
             val (num, unit) = when {
                 bytes < 1024 -> "$bytes" to Strings.get(lang, "unit_b")
@@ -298,6 +354,11 @@ class GhajarWidget : AppWidgetProvider() {
         private suspend fun measurePing(context: Context) {
             val app = context.applicationContext
             val store = runCatching { ConfigStore.get(app) }.getOrNull() ?: return
+            // Every rail action waits for the store, because a widget tap is
+            // very often the thing that started this process: acting on the
+            // empty list a still-loading store exposes is what made all three
+            // buttons look like they did nothing.
+            store.awaitReady()
             val id = VpnState.activeId.value ?: store.selectedId.value
             val cfg = store.configs.value.firstOrNull { it.id == id } ?: return
             val ms: Long = withContext(Dispatchers.IO) {
@@ -311,6 +372,7 @@ class GhajarWidget : AppWidgetProvider() {
 
         private suspend fun refreshSubs(context: Context) {
             val store = runCatching { ConfigStore.get(context.applicationContext) }.getOrNull() ?: return
+            store.awaitReady()
             SubscriptionRefresher.refreshStale(store, force = true)
         }
 
@@ -326,6 +388,7 @@ class GhajarWidget : AppWidgetProvider() {
         private suspend fun nextService(context: Context) {
             val app = context.applicationContext
             val store = runCatching { ConfigStore.get(app) }.getOrNull() ?: return
+            store.awaitReady()
             val configs = store.configs.value
             if (configs.size < 2) return
             val currentId = VpnState.activeId.value ?: store.selectedId.value

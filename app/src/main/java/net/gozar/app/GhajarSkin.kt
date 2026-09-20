@@ -341,14 +341,25 @@ data class StatCell(
  * several numbers, instead of one small card per number.
  */
 @Composable
-fun StatStrip(cells: List<StatCell>, modifier: Modifier = Modifier) {
+fun StatStrip(
+    cells: List<StatCell>,
+    modifier: Modifier = Modifier,
+    /**
+     * The inset of the strip's own slab.
+     *
+     * A strip nested inside another slab pays for both insets, which on the
+     * home screen was most of the card's height. Callers that already sit in
+     * a padded card pass a smaller one.
+     */
+    padding: Dp = GhajarSpacing.md
+) {
     val c = ghajarColors
     if (cells.isEmpty()) return
-    Slab(modifier, padding = GhajarSpacing.md, spacing = 0.dp) {
+    Slab(modifier, padding = padding, spacing = 0.dp) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             cells.forEachIndexed { index, cell ->
                 if (index > 0) {
-                    Box(Modifier.width(1.dp).height(34.dp).background(c.border))
+                    Box(Modifier.width(1.dp).height(30.dp).background(c.border))
                 }
                 Column(
                     Modifier
@@ -357,8 +368,8 @@ fun StatStrip(cells: List<StatCell>, modifier: Modifier = Modifier) {
                         .then(
                             cell.onClick?.let { go -> Modifier.clickable { go() } } ?: Modifier
                         )
-                        .padding(horizontal = GhajarSpacing.sm, vertical = GhajarSpacing.xs),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
+                        .padding(horizontal = GhajarSpacing.sm, vertical = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     Text(
