@@ -25,7 +25,7 @@
         android:scaleType="fitCenter"
         android:adjustViewBounds="true"
         android:contentDescription="@string/widget_small_description"
-        android:src="@drawable/ghajarvpn_royal_badge" />
+        android:src="@drawable/ghajar_widget_badge" />
 
     <!--
         The state dot, on its own plate so it stays legible over the badge's

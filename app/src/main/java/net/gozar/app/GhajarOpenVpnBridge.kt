@@ -513,7 +513,13 @@ object GhajarOpenVpnBridge {
     }
 
     suspend fun testSaved(context: Context, uuid: String, timeoutMs: Long = 18_000L): GhajarOvpnTestResult = withContext(Dispatchers.IO) {
-        if (_tests.value[uuid]?.running == true) return@withContext _tests.value[uuid]!!
+        // One read, not two. `_tests.value` was read twice here - once to ask
+        // whether a test was running, and again to return it - so a second
+        // request arriving while the first one finished and cleared the entry
+        // found `running == true` and then dereferenced a key that was no
+        // longer there. Two taps on "test" is all it takes.
+        val inFlight = _tests.value[uuid]
+        if (inFlight?.running == true) return@withContext inFlight
         _tests.value = _tests.value + (uuid to GhajarOvpnTestResult(running = true, message = "در حال تست اتصال واقعی…"))
         val started = SystemClock.elapsedRealtime()
         val launch = connectSaved(context, uuid)

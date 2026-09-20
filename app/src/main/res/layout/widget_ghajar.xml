@@ -41,7 +41,7 @@
             android:layout_marginEnd="8dp"
             android:scaleType="fitCenter"
             android:contentDescription="@null"
-            android:src="@drawable/ghajarvpn_royal_badge" />
+            android:src="@drawable/ghajar_widget_badge" />
 
         <ImageView
             android:id="@+id/widget_dot"

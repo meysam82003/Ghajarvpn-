@@ -8,7 +8,7 @@
 
 ### کلاینت اندروید، فروشگاه، ربات و مینی‌اپ — در یک پروژه
 
-![Version](https://img.shields.io/badge/version-1.0.3-gold)
+![Version](https://img.shields.io/badge/version-1.0.4-gold)
 ![minSdk](https://img.shields.io/badge/minSdk-26-blue)
 ![License](https://img.shields.io/badge/license-GPL-blue)
 ![Status](https://img.shields.io/badge/status-active-success)
@@ -185,6 +185,7 @@ Secretهای CI یا فایل محلیِ ثبت‌نشدهٔ `keystore.propertie
 
 | نسخه | چه داشت |
 | --- | --- |
+| [`1.0.4`](docs/release-notes/v1.0.4.md) | ممیزی کرش: حافظهٔ ویجت در لانچر، و یک مسابقه در تست OpenVPN |
 | [`1.0.3`](docs/release-notes/v1.0.3.md) | رفع کرش پشتیبانی، ویجت‌ها روی برند خودی، «خوندم» روی اعلان، ادامهٔ پرداخت، خروج از حساب |
 | [`1.0.2`](docs/release-notes/v1.0.2.md) | صندوق اعلان per‑user، خاموش کردن فروشگاه، بازسازی ویجت‌ها، بررسی آپدیت هر ۱۵ دقیقه |
 | [`1.0.1`](docs/release-notes/v1.0.1.md) | اشتراک VPN، آپدیت درون‌برنامه‌ای، تمدید، آمار مصرف |
