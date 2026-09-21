@@ -63,8 +63,63 @@ data class GhajarOwnedService(
     val username: String,
     val productName: String,
     val status: String,
-    val location: String
-)
+    val location: String,
+    /**
+     * The invoice this service was sold on. Carried so a renew request that
+     * names an invoice id - which is what every notice written before the
+     * reference became the username says - can still be matched to the
+     * service it is about, without another round trip.
+     */
+    val invoiceId: String = "",
+    /** Live panel figures, from the `user_info` the invoice row already carries. */
+    val dataLimitBytes: Long? = null,
+    val usedBytes: Long? = null,
+    val expireTimestamp: Long? = null,
+    /** What the plan was sold as, used when the panel reports no limit at all. */
+    val planGb: Double? = null,
+    val planDays: Int? = null,
+    val soldAt: Long? = null
+) {
+    /** Bytes still available, or null when this service has no volume cap. */
+    val remainingBytes: Long?
+        get() {
+            val limit = dataLimitBytes?.takeIf { it > 0 } ?: return null
+            return (limit - (usedBytes ?: 0L)).coerceAtLeast(0L)
+        }
+
+    /** 0..1 of the volume already spent, or null when there is no cap. */
+    val volumeFraction: Float?
+        get() {
+            val limit = dataLimitBytes?.takeIf { it > 0 } ?: return null
+            return ((usedBytes ?: 0L).toFloat() / limit.toFloat()).coerceIn(0f, 1f)
+        }
+
+    /**
+     * Whole days left, or null when the service never expires.
+     *
+     * Falls back to the sale date plus the plan length: a panel that has not
+     * been asked since the sale reports no expiry, and "unlimited" is the
+     * wrong thing to tell someone about a 30-day plan.
+     */
+    val daysRemaining: Int?
+        get() {
+            val expiry = expireTimestamp?.takeIf { it > 0 }
+                ?: soldAt?.takeIf { it > 0 }?.let { sold ->
+                    planDays?.takeIf { it > 0 }?.let { sold + it * 86_400L }
+                }
+                ?: return null
+            val now = System.currentTimeMillis() / 1000
+            return (((expiry - now) + 86_399L) / 86_400L).coerceAtLeast(0L).toInt()
+        }
+
+    /** 0..1 of the subscription window already elapsed, or null when open-ended. */
+    val timeFraction: Float?
+        get() {
+            val total = planDays?.takeIf { it > 0 } ?: return null
+            val left = daysRemaining ?: return null
+            return ((total - left).toFloat() / total.toFloat()).coerceIn(0f, 1f)
+        }
+}
 
 data class GhajarServiceDetails(
     val username: String,
@@ -421,11 +476,24 @@ class GhajarStoreApi(context: Context) {
             payload.optJSONArray("items").orEmpty().objects().mapNotNullTo(collected) { row ->
                 val username = row.optString("username")
                 if (username.isBlank()) return@mapNotNullTo null
+                // `user_info` is the panel's own answer, cached on the invoice
+                // row by the server. Reading it here is what lets the list show
+                // real remaining volume and days without one extra request per
+                // service - 52 services would have been 52 round trips.
+                val info = row.optString("user_info").takeIf { it.isNotBlank() && it != "null" }
+                    ?.let { runCatching { JSONObject(it) }.getOrNull() }
                 GhajarOwnedService(
                     username = username,
                     productName = visible(row.optString("name_product", row.optString("product_name", "سرویس قاجار"))),
                     status = visible(row.optString("status", row.optString("Status", "unknown"))),
-                    location = visible(row.optString("Service_location"))
+                    location = visible(row.optString("Service_location")),
+                    invoiceId = row.optString("id_invoice"),
+                    dataLimitBytes = info?.optNullableLong("data_limit"),
+                    usedBytes = info?.optNullableLong("used_traffic"),
+                    expireTimestamp = info?.optNullableLong("expire"),
+                    planGb = row.optNullableDouble("Volume"),
+                    planDays = row.optNullableInt("Service_time"),
+                    soldAt = row.optNullableLong("time_sell")
                 )
             }
             pages = payload.optInt("total_pages", 1).coerceAtLeast(1).coerceAtMost(maxPages)
@@ -605,10 +673,11 @@ class GhajarStoreApi(context: Context) {
             message = body,
             important = kind == "shop_status" || kind == "service_time" || kind == "service_volume",
             serviceAlert = kind == "service_time" || kind == "service_volume",
-            // The renew action's reference is the invoice id, which is what the
-            // renewal dialog needs; a notice with an action but no reference
-            // would be a button that opens a list and asks the user to find the
-            // service again.
+            // The renew action's reference is the service username, which is
+            // what `service_renew_options` is keyed on. Notices written before
+            // the server was updated carry the invoice id instead, and the
+            // shop screen translates those against the owned list rather than
+            // asking the server about a service it cannot find.
             serviceUsername = row.optString("action_ref").takeIf {
                 it.isNotBlank() && row.optString("action") == "renew"
             },
@@ -1096,10 +1165,17 @@ class GhajarStoreApi(context: Context) {
         val code = connection.responseCode
         val raw = (if (code in 200..299) connection.inputStream else connection.errorStream)
             ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        if (code == 404) throw GhajarApiException("مسیر ورود یا فروشگاه روی سرور موجود نیست (404)؛ نصب ربات باید بروزرسانی شود.", code)
-        val envelope = runCatching { JSONObject(raw) }.getOrElse {
-            throw GhajarApiException("پاسخ فروشگاه قابل خواندن نیست", code)
+        val parsed = runCatching { JSONObject(raw) }.getOrNull()
+        // A 404 is only "the install is out of date" when the *web server*
+        // produced it - an unknown path, so an HTML error page. The API uses
+        // 404 as an ordinary answer too ("service not found", "panel not
+        // found"), and swallowing its message here told users to update a bot
+        // that was perfectly up to date while hiding what actually went wrong.
+        if (code == 404 && parsed?.has("msg") != true) {
+            throw GhajarApiException(
+                "مسیر ورود یا فروشگاه روی سرور موجود نیست (۴۰۴)؛ نصب ربات باید بروزرسانی شود.", code)
         }
+        val envelope = parsed ?: throw GhajarApiException("پاسخ فروشگاه قابل خواندن نیست", code)
         val paymentRequired = envelope.optBoolean("requires_payment") ||
             envelope.optJSONObject("obj")?.optBoolean("requires_payment") == true
         if (allowPaymentRequired && paymentRequired) return envelope
