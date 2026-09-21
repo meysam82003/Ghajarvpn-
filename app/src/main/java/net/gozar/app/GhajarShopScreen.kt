@@ -610,6 +610,21 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
             if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, store.lang.value) }
+            if (section == 6) {
+                // Its own saveable state, like the ticket panel: a buyer who
+                // opens a shop, glances at their services and comes back should
+                // find the shop still open rather than the list again.
+                //
+                // No verticalScroll anywhere inside it. This is one item of a
+                // LazyColumn, so it is measured with an unbounded height, and a
+                // scrollable child under that throws at measure time - which is
+                // exactly the crash the support tab shipped with in 1.0.2.
+                item(key = "shop-block-market") {
+                    sectionState.SaveableStateProvider("market") {
+                        GhajarMarketScreen(api, store, active && section == 6)
+                    }
+                }
+            }
             // An unfinished payment, shown on every section rather than only on
             // the two it used to hide behind.
             //
@@ -1613,9 +1628,13 @@ private fun StoreSectionTabs(
             RailTab("پیام‌ها", Icons.Filled.Notifications, noticeCount),
             RailTab("کیف پول", Icons.Filled.AccountBalanceWallet, pendingCount),
             RailTab("پشتیبانی", Icons.Filled.SupportAgent),
-            RailTab("تراکنش‌ها", Icons.Filled.SwapHoriz)
+            RailTab("تراکنش‌ها", Icons.Filled.SwapHoriz),
+            // Other sellers' shops. Last, because this shop is the default and
+            // a buyer who came here to renew should not have to walk past a
+            // marketplace to reach their own services.
+            RailTab("بازار", Icons.Filled.ShoppingBag)
         ),
-        selected = section.coerceIn(0, 5),
+        selected = section.coerceIn(0, 6),
         onSelect = onSelect
     )
 }

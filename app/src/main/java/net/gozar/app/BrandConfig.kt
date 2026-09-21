@@ -34,6 +34,17 @@ object BrandConfig {
     const val NOTICES_API_URL = "$API_URL/notices.php"
 
     /**
+     * The marketplace: other sellers' shops, sold through this app.
+     *
+     * Its own endpoint rather than another action on miniapp.php, because a
+     * marketplace call reaches a *third party's* installation on the far side
+     * and has a different failure surface entirely: a shop that is down must
+     * not look like this shop being down. It answers `enabled: false` when the
+     * owner has not switched the marketplace on, which is the normal state.
+     */
+    const val MARKET_API_URL = "$API_URL/market.php"
+
+    /**
      * Sent on every store request so the server knows this is the app.
      *
      * The bot can be put into a mode where the mini app and the browser are
