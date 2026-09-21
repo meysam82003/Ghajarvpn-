@@ -264,7 +264,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 else "لینک تلگرام با کد اتصال آماده باز شد؛ «Start / شروع» را بزن و برگرد. نیازی به تایپ کد نیست."
         } else {
             error = if (verification) "تلگرام یا مرورگر در دسترس نیست؛ ربات قاجار را باز کن و /start بفرست."
-                else "تلگرام یا مرورگر در دسترس نیست؛ فرمان کامل اتصال را کپی کن."
+                else "تلگرام یا مرورگر در دسترس نیست؛ کد اتصال را کپی کن و در ربات بفرست."
         }
     }
 
@@ -559,8 +559,14 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         error = null
                     },
                     onCopyCommand = {
-                        linkSession?.let { clipboard.setText(AnnotatedString("/link ${it.code}")) }
-                        message = "فرمان اتصال کپی شد؛ آن را بدون ویرایش در ربات بفرست."
+                        // The bare code, not "/link CODE". The bot claims a
+                        // pairing code from an applink_ deep link or from a
+                        // message that is *only* the six characters
+                        // (rx_app_link_try_claim); "/link ABC123" matches
+                        // neither pattern, so what this button copied could
+                        // never work when pasted.
+                        linkSession?.let { clipboard.setText(AnnotatedString(it.code)) }
+                        message = "کد اتصال کپی شد؛ آن را بدون هیچ حرف اضافه‌ای در ربات بفرست."
                     }
                 )
             }
@@ -1230,7 +1236,7 @@ private fun LinkAccountCard(session: GhajarLinkSession?, busy: Boolean, state: G
                 }
                 OutlinedButton(onClick = onCheck, enabled = !checking && remainingSeconds > 0,
                     modifier = Modifier.fillMaxWidth()) { Text("تأیید کردم؛ بررسی دوباره") }
-                if (!verification) TextButton(onClick = onCopyCommand, enabled = remainingSeconds > 0) { Text("کپی فرمان کامل اتصال") }
+                if (!verification) TextButton(onClick = onCopyCommand, enabled = remainingSeconds > 0) { Text("کپی کد اتصال") }
                 TextButton(onClick = onCancel) { Text("لغو درخواست ورود") }
             }
         }
