@@ -1530,8 +1530,7 @@ private fun ServiceRemaining(service: GhajarOwnedService) {
         if (spentVolume != null) {
             MeterRow(
                 label = "حجم باقی‌مانده",
-                value = mixedText(
-                    "${gb(service.remainingBytes ?: 0L)} از ${gb(service.dataLimitBytes ?: 0L)} گیگابایت"),
+                value = "${gb(service.remainingBytes ?: 0L)} از ${gb(service.dataLimitBytes ?: 0L)} گیگابایت",
                 share = pct(1f - spentVolume),
                 fraction = 1f - spentVolume,
                 tint = if (spentVolume >= 0.9f) MaterialTheme.colorScheme.error else c.primary
@@ -1541,11 +1540,9 @@ private fun ServiceRemaining(service: GhajarOwnedService) {
             val elapsed = service.timeFraction
             MeterRow(
                 label = "روز باقی‌مانده",
-                value = mixedText(
-                    localizeDigits(days.toString(), lang) + " روز" +
-                        (service.planDays?.takeIf { it > 0 }
-                            ?.let { " از " + localizeDigits(it.toString(), lang) } ?: "")
-                ),
+                value = localizeDigits(days.toString(), lang) + " روز" +
+                    (service.planDays?.takeIf { it > 0 }
+                        ?.let { " از " + localizeDigits(it.toString(), lang) } ?: ""),
                 share = elapsed?.let { pct(1f - it) } ?: "",
                 fraction = elapsed?.let { 1f - it } ?: 1f,
                 tint = if (days <= 3) MaterialTheme.colorScheme.error else c.primary
@@ -1566,7 +1563,11 @@ private fun MeterRow(label: String, value: String, share: String, fraction: Floa
                     fontWeight = FontWeight.Bold, color = tint)
             }
         }
-        Text(value, style = MaterialTheme.typography.bodySmall, color = c.textPrimary,
+        // mixedText is applied here rather than by the caller: it returns an
+        // AnnotatedString, and taking one as a parameter made this function's
+        // signature the place a plain String got rejected instead of the place
+        // the bidi wrapping was decided.
+        Text(mixedText(value), style = MaterialTheme.typography.bodySmall, color = c.textPrimary,
             maxLines = 1, overflow = TextOverflow.Ellipsis)
         Box(
             Modifier
