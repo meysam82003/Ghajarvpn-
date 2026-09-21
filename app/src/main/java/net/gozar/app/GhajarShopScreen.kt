@@ -564,6 +564,27 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     }
                 )
             }
+            // The shops section, to a phone with no account.
+            //
+            // It used to live only in the signed-in branch, so the answer to
+            // "what is for sale here" was a login card and nothing else - the
+            // one screen in the app that is a shop window and the one screen
+            // that showed nothing until you identified yourself. Browsing,
+            // prices and ratings need no account; the buy and review buttons
+            // ask for one when they are tapped.
+            item(key = "shop-block-market-guest") {
+                sectionState.SaveableStateProvider("market") {
+                    GhajarMarketScreen(
+                        api = api,
+                        store = store,
+                        active = active,
+                        signedIn = false,
+                        onSignIn = {
+                            message = "برای خرید از فروشگاه‌ها، «اتصال با تلگرام» بالای همین صفحه را بزن."
+                        }
+                    )
+                }
+            }
         } else {
             item(key = "shop-header") {
                 ScreenHeader(
@@ -622,7 +643,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 // exactly the crash the support tab shipped with in 1.0.2.
                 item(key = "shop-block-market") {
                     sectionState.SaveableStateProvider("market") {
-                        GhajarMarketScreen(api, store, active && section == 6)
+                        GhajarMarketScreen(api, store, active && section == 6, signedIn = true)
                     }
                 }
             }

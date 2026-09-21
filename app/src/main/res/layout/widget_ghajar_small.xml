@@ -18,7 +18,13 @@
     A raster rather than the `ic_stat_ghajar` vector it is drawn from: a
     RemoteViews tree is inflated by the launcher, and a vector there depends on
     that launcher's own support. A 192px copy is 0.15 MB decoded and always
-    renders. The royal badge is kept in the tree and still used elsewhere.
+    renders.
+
+    The photographic badge it replaced is gone from the tree entirely
+    (`ghajar_widget_badge`, `ghajarvpn_royal_badge`), so no widget layout, and
+    no future edit to one, can put it back by accident. The full artwork still
+    exists where it belongs and is readable: `ghajar_treasury` on the shop's
+    own screen.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"

@@ -166,6 +166,19 @@ data class GhajarMarketShop(
     val reviewCount: Int,
     /** Share of ratings at four stars or better - not the average rescaled. */
     val satisfaction: Int,
+    /**
+     * The catalogue summary the sort and filter chips run on.
+     *
+     * Server-side figures, refreshed nightly and whenever a shop is approved
+     * or tested, so ordering the whole list by price costs no extra request.
+     * Zero means "not synced yet", which is why the price sorts push those
+     * shops to the end instead of treating them as free.
+     */
+    val minPrice: Long = 0,
+    val maxPrice: Long = 0,
+    val productCount: Int = 0,
+    val discountCount: Int = 0,
+    val sales30d: Int = 0,
     val reviews: List<GhajarMarketReview> = emptyList()
 )
 
@@ -450,12 +463,33 @@ class GhajarStoreApi(context: Context) {
     }
 
     suspend fun beginLink(): GhajarLinkSession = withContext(Dispatchers.IO) {
-        val root = requestJson(
-            URL("${BrandConfig.WEBLINK_API_URL}?action=generate"),
-            method = "POST",
-            bearer = null,
-            body = null
-        )
+        // Two attempts, not one.
+        //
+        // "سرور به‌موقع پاسخ نداد" on the sign-in card was reported from a
+        // phone with a live tunnel: issuing a code is the first request this
+        // install makes to its own server, so it pays for a cold DNS lookup, a
+        // fresh TLS handshake and whatever the bot host was doing at that
+        // second, and a single timeout at the twenty-second read mark turned
+        // all of that into a dead end with a retry the user had to find.
+        // The second attempt costs nothing when the first one works and
+        // nothing is created twice: a code that was issued and abandoned
+        // expires on its own in five minutes.
+        val root = try {
+            requestJson(
+                URL("${BrandConfig.WEBLINK_API_URL}?action=generate"),
+                method = "POST",
+                bearer = null,
+                body = null
+            )
+        } catch (timedOut: java.net.SocketTimeoutException) {
+            GhajarLog.w("Store", "link code request timed out; retrying once")
+            requestJson(
+                URL("${BrandConfig.WEBLINK_API_URL}?action=generate"),
+                method = "POST",
+                bearer = null,
+                body = null
+            )
+        }
         val code = root.optString("code")
         val session = root.optString("session_token")
         if (code.isBlank() || session.isBlank()) throw GhajarApiException("سرور کد اتصال صادر نکرد")
@@ -1149,7 +1183,19 @@ class GhajarStoreApi(context: Context) {
         name: String,
         method: String = "GET",
         params: Map<String, String> = emptyMap(),
-        body: JSONObject? = null
+        body: JSONObject? = null,
+        /**
+         * True for the three read-only browse calls, which work with or
+         * without an account.
+         *
+         * The shops list is a shop window. Demanding a linked Telegram
+         * account before showing it meant a new user saw nothing at all where
+         * the shops were, which is the complaint this exists to answer. The
+         * token is still sent when there is one - the server uses it to fill
+         * in a seller's own shops and the unredacted card details - so being
+         * signed in is never worse, only unnecessary.
+         */
+        allowAnonymous: Boolean = false
     ): JSONObject = withContext(Dispatchers.IO) {
         val query = linkedMapOf("actions" to name).apply { putAll(params) }.entries.joinToString("&") {
             URLEncoder.encode(it.key, Charsets.UTF_8.name()) + "=" +
@@ -1160,10 +1206,13 @@ class GhajarStoreApi(context: Context) {
         requestJson(
             url = URL("${BrandConfig.MARKET_API_URL}?$query"),
             method = method,
-            bearer = requireToken(),
+            bearer = if (allowAnonymous) account.token().takeIf { it.isNotBlank() } else requireToken(),
             body = payload
         )
     }
+
+    /** Whether this phone is linked to an account, for screens that work either way. */
+    fun isSignedIn(): Boolean = account.token().isNotBlank()
 
     /**
      * The shop list, and whether the marketplace is on at all.
@@ -1173,7 +1222,7 @@ class GhajarStoreApi(context: Context) {
      * red banner on a feature the owner simply has not switched on.
      */
     suspend fun marketShops(): GhajarMarketFeed {
-        val payload = marketAction("shops").payloadObject()
+        val payload = marketAction("shops", allowAnonymous = true).payloadObject()
         return GhajarMarketFeed(
             enabled = payload.optBoolean("enabled", true),
             registerFee = payload.optNullableDouble("terms_fee")?.toLong() ?: 0,
@@ -1182,7 +1231,8 @@ class GhajarStoreApi(context: Context) {
     }
 
     suspend fun marketShop(shopId: Int): GhajarMarketShop {
-        val payload = marketAction("shop", params = mapOf("shop_id" to shopId.toString())).payloadObject()
+        val payload = marketAction("shop", params = mapOf("shop_id" to shopId.toString()),
+            allowAnonymous = true).payloadObject()
         return marketShopFrom(payload).copy(
             reviews = payload.optJSONArray("reviews_list").orEmpty().objects().map { row ->
                 GhajarMarketReview(
@@ -1196,7 +1246,7 @@ class GhajarStoreApi(context: Context) {
 
     suspend fun marketCatalog(shopId: Int): GhajarMarketCatalog {
         val payload = marketAction("shop_catalog",
-            params = mapOf("shop_id" to shopId.toString())).payloadObject()
+            params = mapOf("shop_id" to shopId.toString()), allowAnonymous = true).payloadObject()
         return GhajarMarketCatalog(
             panels = payload.optJSONArray("panels").orEmpty().objects().map { row ->
                 GhajarMarketPanel(
@@ -1339,7 +1389,7 @@ class GhajarStoreApi(context: Context) {
     }
 
     suspend fun marketTerms(): GhajarMarketTerms {
-        val payload = marketAction("register_terms").payloadObject()
+        val payload = marketAction("register_terms", allowAnonymous = true).payloadObject()
         return GhajarMarketTerms(
             terms = visible(payload.optString("terms")),
             fee = payload.optNullableDouble("fee")?.toLong() ?: 0,
@@ -1371,7 +1421,12 @@ class GhajarStoreApi(context: Context) {
         closedReason = visible(row.optString("closed_reason")),
         stars = row.optNullableDouble("stars") ?: 0.0,
         reviewCount = row.optInt("reviews"),
-        satisfaction = row.optInt("satisfaction")
+        satisfaction = row.optInt("satisfaction"),
+        minPrice = (row.optNullableDouble("min_price") ?: 0.0).toLong(),
+        maxPrice = (row.optNullableDouble("max_price") ?: 0.0).toLong(),
+        productCount = row.optInt("product_count"),
+        discountCount = row.optInt("discount_count"),
+        sales30d = row.optInt("sales_30d")
     )
 
     private fun marketMethodFrom(row: JSONObject) = GhajarMarketMethod(

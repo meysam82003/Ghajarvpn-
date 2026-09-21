@@ -90,8 +90,67 @@ private sealed interface MarketRoute {
     object Register : MarketRoute
 }
 
+/**
+ * How the list is ordered, and what it leaves out.
+ *
+ * Every one of these runs on figures the list already carries, so switching
+ * chips costs no request. `minPrice`/`maxPrice` are zero for a shop whose
+ * catalogue has not been read yet, and the price sorts push those to the end
+ * rather than calling them free or infinitely expensive.
+ */
+private enum class MarketSort(val label: String) {
+    BEST("بهترین‌ها"),
+    MOST_REVIEWED("پرنظرترین"),
+    WORST("منفورترین"),
+    DISCOUNTED("در تخفیف"),
+    CHEAPEST("ارزان‌ترین"),
+    PRICIEST("گران‌ترین")
+}
+
+private fun List<GhajarMarketShop>.sortedFor(sort: MarketSort): List<GhajarMarketShop> = when (sort) {
+    // "Best" is not the raw average: a single five-star review would beat a
+    // shop with two hundred ratings at 4.8, which is how rating lists get
+    // gamed. Shops with no ratings at all rank below any rated shop instead
+    // of sitting in the middle.
+    MarketSort.BEST -> sortedWith(
+        compareByDescending<GhajarMarketShop> { it.reviewCount > 0 }
+            .thenByDescending { it.stars * kotlin.math.min(it.reviewCount, 20) / 20.0 }
+            .thenByDescending { it.reviewCount }
+    )
+    MarketSort.MOST_REVIEWED -> sortedWith(
+        compareByDescending<GhajarMarketShop> { it.reviewCount }.thenByDescending { it.stars }
+    )
+    // Only rated shops can be "most disliked". A shop nobody has reviewed is
+    // unknown, not bad, and putting it at the top of this list would be a
+    // claim about a seller that no buyer ever made.
+    MarketSort.WORST -> filter { it.reviewCount > 0 }
+        .sortedWith(compareBy<GhajarMarketShop> { it.stars }.thenByDescending { it.reviewCount })
+    MarketSort.DISCOUNTED -> filter { it.discountCount > 0 }
+        .sortedWith(compareByDescending<GhajarMarketShop> { it.discountCount }
+            .thenByDescending { it.stars })
+    MarketSort.CHEAPEST -> sortedWith(
+        compareByDescending<GhajarMarketShop> { it.minPrice > 0 }.thenBy { it.minPrice }
+    )
+    MarketSort.PRICIEST -> sortedWith(compareByDescending { it.maxPrice })
+}
+
 @Composable
-fun GhajarMarketScreen(api: GhajarStoreApi, store: ConfigStore, active: Boolean) {
+fun GhajarMarketScreen(
+    api: GhajarStoreApi,
+    store: ConfigStore,
+    active: Boolean,
+    /**
+     * Whether this phone is linked to an account.
+     *
+     * The whole screen works without one: browsing shops, reading ratings and
+     * seeing plan prices need no account, because a shop window nobody can
+     * look into sells nothing. Only the three things that write something -
+     * ordering, reviewing, registering a shop - ask for the account, at the
+     * moment they are tapped rather than in front of the list.
+     */
+    signedIn: Boolean = true,
+    onSignIn: () -> Unit = {}
+) {
     var route by remember { mutableStateOf<MarketRoute>(MarketRoute.List) }
     var feed by remember { mutableStateOf<GhajarMarketFeed?>(null) }
     var error by remember { mutableStateOf<String?>(null) }
@@ -122,14 +181,17 @@ fun GhajarMarketScreen(api: GhajarStoreApi, store: ConfigStore, active: Boolean)
         else -> when (val where = route) {
             is MarketRoute.List -> MarketList(
                 feed = current,
+                signedIn = signedIn,
                 onOpen = { route = MarketRoute.Shop(it) },
-                onRegister = { route = MarketRoute.Register },
+                onRegister = { if (signedIn) route = MarketRoute.Register else onSignIn() },
                 onRefresh = { refreshKey++ }
             )
 
             is MarketRoute.Shop -> MarketShopPage(
                 api = api,
                 shopId = where.id,
+                signedIn = signedIn,
+                onSignIn = onSignIn,
                 onBack = { route = MarketRoute.List },
                 onOrdered = { order -> route = MarketRoute.Order(where.id, order) }
             )
@@ -154,10 +216,12 @@ fun GhajarMarketScreen(api: GhajarStoreApi, store: ConfigStore, active: Boolean)
 @Composable
 private fun MarketList(
     feed: GhajarMarketFeed,
+    signedIn: Boolean,
     onOpen: (Int) -> Unit,
     onRegister: () -> Unit,
     onRefresh: () -> Unit
 ) {
+    var sort by remember { mutableStateOf(MarketSort.BEST) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
         Rail("فروشگاه‌های قاجار")
         Text(
@@ -165,6 +229,14 @@ private fun MarketList(
             style = MaterialTheme.typography.labelMedium,
             color = ghajarColors.textSecondary
         )
+
+        if (feed.shops.isNotEmpty()) {
+            TabRail(
+                tabs = MarketSort.entries.map { RailTab(it.label) },
+                selected = MarketSort.entries.indexOf(sort),
+                onSelect = { index -> sort = MarketSort.entries[index] }
+            )
+        }
 
         if (feed.shops.isEmpty()) {
             SkinEmpty(
@@ -175,7 +247,33 @@ private fun MarketList(
                 onAction = onRegister
             )
         } else {
-            feed.shops.forEach { shop -> MarketShopCard(shop) { onOpen(shop.id) } }
+            val shown = feed.shops.sortedFor(sort)
+            if (shown.isEmpty()) {
+                // A filter with no matches says which filter, not "nothing
+                // here": the list itself is not empty and the way out is one
+                // chip away.
+                SkinEmpty(
+                    when (sort) {
+                        MarketSort.DISCOUNTED -> "هیچ فروشگاهی کد تخفیف فعال ندارد"
+                        MarketSort.WORST -> "هنوز هیچ فروشگاهی نظر ثبت‌شده ندارد"
+                        else -> "چیزی با این فیلتر پیدا نشد"
+                    },
+                    hint = "یکی از فیلترهای بالا را عوض کنید.",
+                    icon = Icons.Filled.ShoppingBag
+                )
+            }
+            shown.forEach { shop -> MarketShopCard(shop) { onOpen(shop.id) } }
+        }
+
+        if (!signedIn) {
+            // Said once, under the list, not over it. Browsing needs no
+            // account; this is here so the buy button later is not a surprise.
+            Slab(accent = ghajarColors.primary, spacing = GhajarSpacing.xs) {
+                Text("برای خرید از این فروشگاه‌ها، حساب را یک‌بار متصل کن",
+                    fontWeight = FontWeight.Bold, color = ghajarColors.textPrimary)
+                Text("دیدن فروشگاه‌ها، قیمت‌ها و نظرها نیازی به اتصال ندارد.",
+                    style = MaterialTheme.typography.labelSmall, color = ghajarColors.textSecondary)
+            }
         }
 
         Slab(onClick = onRegister) {
@@ -260,6 +358,37 @@ private fun MarketShopCard(shop: GhajarMarketShop, onOpen: () -> Unit) {
             }
         }
 
+        // The figures the sort chips order on, printed on the card that the
+        // ordering moved: a list that claims to be sorted by price and shows
+        // no price is a list nobody can check.
+        if (shop.minPrice > 0 || shop.discountCount > 0) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (shop.minPrice > 0) {
+                    Text(
+                        mixedText(
+                            "از " + localizeDigits(formatToman(shop.minPrice), lang) +
+                                " تومان" +
+                                (if (shop.productCount > 0)
+                                    " · " + localizeDigits(shop.productCount.toString(), lang) + " پلن"
+                                else "")
+                        ),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.textSecondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                if (shop.discountCount > 0) {
+                    Text(
+                        mixedText(localizeDigits(shop.discountCount.toString(), lang) + " کد تخفیف"),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.primary
+                    )
+                }
+            }
+        }
+
         if (!shop.canSell && shop.closedReason.isNotBlank()) {
             Text(shop.closedReason, style = MaterialTheme.typography.labelSmall, color = c.warning)
         }
@@ -290,6 +419,8 @@ private fun StarRow(stars: Double) {
 private fun MarketShopPage(
     api: GhajarStoreApi,
     shopId: Int,
+    signedIn: Boolean,
+    onSignIn: () -> Unit,
     onBack: () -> Unit,
     onOrdered: (GhajarMarketOrder) -> Unit
 ) {
@@ -437,8 +568,15 @@ private fun MarketShopPage(
                             style = MaterialTheme.typography.labelMedium) }
 
                         PillButton(
-                            text = if (starting) "در حال ثبت سفارش…" else "ثبت سفارش",
+                            text = when {
+                                !signedIn -> "اتصال حساب برای خرید"
+                                starting -> "در حال ثبت سفارش…"
+                                else -> "ثبت سفارش"
+                            },
                             onClick = {
+                                // Asked for here, at the one step that needs
+                                // it, rather than in front of the whole list.
+                                if (!signedIn) { onSignIn(); return@PillButton }
                                 val product = selectedProduct
                                 val panel = selectedPanel
                                 val method = selectedMethod
@@ -457,7 +595,8 @@ private fun MarketShopPage(
                                     starting = false
                                 }
                             },
-                            enabled = !starting && selectedProduct != null && selectedMethod != null,
+                            enabled = !signedIn ||
+                                (!starting && selectedProduct != null && selectedMethod != null),
                             icon = Icons.Filled.ShoppingBag
                         )
                     }
@@ -481,7 +620,14 @@ private fun MarketShopPage(
                     }
                 }
 
-                Slab(spacing = GhajarSpacing.sm) {
+                if (!signedIn) {
+                    Slab(accent = c.primary, spacing = GhajarSpacing.xs, onClick = onSignIn) {
+                        Text("برای امتیاز دادن، حساب را متصل کن",
+                            fontWeight = FontWeight.Bold, color = c.textPrimary)
+                        Text("نظر فقط از کسی پذیرفته می‌شود که از همین فروشگاه خرید کرده باشد.",
+                            style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                    }
+                } else Slab(spacing = GhajarSpacing.sm) {
                     Text("امتیاز شما", fontWeight = FontWeight.Bold, color = c.textPrimary)
                     Row {
                         repeat(5) { index ->
