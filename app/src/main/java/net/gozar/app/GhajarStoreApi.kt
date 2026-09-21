@@ -1,6 +1,8 @@
 package net.gozar.app
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
 import kotlinx.coroutines.Dispatchers
@@ -11,6 +13,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.DataOutputStream
 import java.io.IOException
 import java.net.HttpURLConnection
@@ -63,8 +66,63 @@ data class GhajarOwnedService(
     val username: String,
     val productName: String,
     val status: String,
-    val location: String
-)
+    val location: String,
+    /**
+     * The invoice this service was sold on. Carried so a renew request that
+     * names an invoice id - which is what every notice written before the
+     * reference became the username says - can still be matched to the
+     * service it is about, without another round trip.
+     */
+    val invoiceId: String = "",
+    /** Live panel figures, from the `user_info` the invoice row already carries. */
+    val dataLimitBytes: Long? = null,
+    val usedBytes: Long? = null,
+    val expireTimestamp: Long? = null,
+    /** What the plan was sold as, used when the panel reports no limit at all. */
+    val planGb: Double? = null,
+    val planDays: Int? = null,
+    val soldAt: Long? = null
+) {
+    /** Bytes still available, or null when this service has no volume cap. */
+    val remainingBytes: Long?
+        get() {
+            val limit = dataLimitBytes?.takeIf { it > 0 } ?: return null
+            return (limit - (usedBytes ?: 0L)).coerceAtLeast(0L)
+        }
+
+    /** 0..1 of the volume already spent, or null when there is no cap. */
+    val volumeFraction: Float?
+        get() {
+            val limit = dataLimitBytes?.takeIf { it > 0 } ?: return null
+            return ((usedBytes ?: 0L).toFloat() / limit.toFloat()).coerceIn(0f, 1f)
+        }
+
+    /**
+     * Whole days left, or null when the service never expires.
+     *
+     * Falls back to the sale date plus the plan length: a panel that has not
+     * been asked since the sale reports no expiry, and "unlimited" is the
+     * wrong thing to tell someone about a 30-day plan.
+     */
+    val daysRemaining: Int?
+        get() {
+            val expiry = expireTimestamp?.takeIf { it > 0 }
+                ?: soldAt?.takeIf { it > 0 }?.let { sold ->
+                    planDays?.takeIf { it > 0 }?.let { sold + it * 86_400L }
+                }
+                ?: return null
+            val now = System.currentTimeMillis() / 1000
+            return (((expiry - now) + 86_399L) / 86_400L).coerceAtLeast(0L).toInt()
+        }
+
+    /** 0..1 of the subscription window already elapsed, or null when open-ended. */
+    val timeFraction: Float?
+        get() {
+            val total = planDays?.takeIf { it > 0 } ?: return null
+            val left = daysRemaining ?: return null
+            return ((total - left).toFloat() / total.toFloat()).coerceIn(0f, 1f)
+        }
+}
 
 data class GhajarServiceDetails(
     val username: String,
@@ -76,6 +134,123 @@ data class GhajarServiceDetails(
     val expiresAt: String,
     val subscriptionUrl: String?,
     val outputs: List<String>
+)
+
+/**
+ * The marketplace: shops that are not ours, sold through this app.
+ *
+ * `enabled` is a first-class field rather than an absence, because "the owner
+ * has not switched the marketplace on" and "the request failed" need to look
+ * different to the screen - one hides a tab, the other shows an error.
+ */
+data class GhajarMarketFeed(
+    val enabled: Boolean,
+    val registerFee: Long,
+    val shops: List<GhajarMarketShop>
+)
+
+data class GhajarMarketShop(
+    val id: Int,
+    val name: String,
+    val description: String,
+    val telegramBot: String,
+    val telegramChannel: String,
+    val supportContact: String,
+    val verified: Boolean,
+    val status: String,
+    /** Whether it may take a new order right now. */
+    val canSell: Boolean,
+    /** Why not, when it may not. Shown as-is: the server wrote it for a buyer. */
+    val closedReason: String,
+    val stars: Double,
+    val reviewCount: Int,
+    /** Share of ratings at four stars or better - not the average rescaled. */
+    val satisfaction: Int,
+    val reviews: List<GhajarMarketReview> = emptyList()
+)
+
+data class GhajarMarketReview(val stars: Int, val body: String, val createdAt: Long)
+
+data class GhajarMarketPanel(
+    val code: String,
+    val name: String,
+    val country: String,
+    val flag: String
+)
+
+data class GhajarMarketProduct(
+    val code: String,
+    val name: String,
+    val price: Long,
+    val volumeGb: Int,
+    val timeDays: Int,
+    val note: String
+)
+
+/**
+ * One payment method a seller connected.
+ *
+ * `needs` says what the buyer will be shown: `card` puts a card number and a
+ * holder on screen, `contact` opens the seller's support account, `secret`
+ * means a gateway and the order carries a URL. Nothing here ever carries a
+ * credential - the server refuses to send one.
+ */
+data class GhajarMarketMethod(
+    val id: String,
+    val label: String,
+    val needs: String,
+    val note: String,
+    val cardNumber: String,
+    val cardHolder: String,
+    val contact: String
+)
+
+data class GhajarMarketCatalog(
+    val panels: List<GhajarMarketPanel>,
+    val products: List<GhajarMarketProduct>,
+    val methods: List<GhajarMarketMethod>
+)
+
+data class GhajarMarketOrder(
+    val id: Int,
+    val method: String,
+    val methodLabel: String,
+    val needs: String,
+    val amount: Long,
+    val cardNumber: String,
+    val cardHolder: String,
+    val contact: String,
+    /** Set only for a gateway order: where to send the buyer. */
+    val gatewayUrl: String,
+    val productName: String
+)
+
+data class GhajarMarketOrderStatus(
+    val id: Int,
+    val shopId: Int,
+    val status: String,
+    val rejectReason: String,
+    val amount: Long,
+    val username: String,
+    val configs: List<String>,
+    val subscription: String
+)
+
+data class GhajarMarketOwnShop(
+    val id: Int,
+    val name: String,
+    val status: String,
+    val lastError: String
+)
+
+data class GhajarMarketTerms(
+    val terms: String,
+    val fee: Long,
+    val commissionPercent: Double,
+    val cycleDays: Int,
+    val penaltyPerDay: Long,
+    val graceDays: Int,
+    val myShops: List<GhajarMarketOwnShop>
 )
 
 data class GhajarNoticeMeta(
@@ -421,11 +596,24 @@ class GhajarStoreApi(context: Context) {
             payload.optJSONArray("items").orEmpty().objects().mapNotNullTo(collected) { row ->
                 val username = row.optString("username")
                 if (username.isBlank()) return@mapNotNullTo null
+                // `user_info` is the panel's own answer, cached on the invoice
+                // row by the server. Reading it here is what lets the list show
+                // real remaining volume and days without one extra request per
+                // service - 52 services would have been 52 round trips.
+                val info = row.optString("user_info").takeIf { it.isNotBlank() && it != "null" }
+                    ?.let { runCatching { JSONObject(it) }.getOrNull() }
                 GhajarOwnedService(
                     username = username,
                     productName = visible(row.optString("name_product", row.optString("product_name", "سرویس قاجار"))),
                     status = visible(row.optString("status", row.optString("Status", "unknown"))),
-                    location = visible(row.optString("Service_location"))
+                    location = visible(row.optString("Service_location")),
+                    invoiceId = row.optString("id_invoice"),
+                    dataLimitBytes = info?.optNullableLong("data_limit"),
+                    usedBytes = info?.optNullableLong("used_traffic"),
+                    expireTimestamp = info?.optNullableLong("expire"),
+                    planGb = row.optNullableDouble("Volume"),
+                    planDays = row.optNullableInt("Service_time"),
+                    soldAt = row.optNullableLong("time_sell")
                 )
             }
             pages = payload.optInt("total_pages", 1).coerceAtLeast(1).coerceAtMost(maxPages)
@@ -605,10 +793,11 @@ class GhajarStoreApi(context: Context) {
             message = body,
             important = kind == "shop_status" || kind == "service_time" || kind == "service_volume",
             serviceAlert = kind == "service_time" || kind == "service_volume",
-            // The renew action's reference is the invoice id, which is what the
-            // renewal dialog needs; a notice with an action but no reference
-            // would be a button that opens a list and asks the user to find the
-            // service again.
+            // The renew action's reference is the service username, which is
+            // what `service_renew_options` is keyed on. Notices written before
+            // the server was updated carry the invoice id instead, and the
+            // shop screen translates those against the owned list rather than
+            // asking the server about a service it cannot find.
             serviceUsername = row.optString("action_ref").takeIf {
                 it.isNotBlank() && row.optString("action") == "renew"
             },
@@ -949,6 +1138,253 @@ class GhajarStoreApi(context: Context) {
     }
 
     /**
+     * One call against the marketplace endpoint.
+     *
+     * Deliberately the same transport as [action] - the same bearer, the same
+     * direct-then-tunnel fallback, the same error mapping - because a
+     * marketplace call is reaching this shop's server first and inherits every
+     * reason the ordinary shop can be unreachable. Only the URL differs.
+     */
+    private suspend fun marketAction(
+        name: String,
+        method: String = "GET",
+        params: Map<String, String> = emptyMap(),
+        body: JSONObject? = null
+    ): JSONObject = withContext(Dispatchers.IO) {
+        val query = linkedMapOf("actions" to name).apply { putAll(params) }.entries.joinToString("&") {
+            URLEncoder.encode(it.key, Charsets.UTF_8.name()) + "=" +
+                URLEncoder.encode(it.value, Charsets.UTF_8.name())
+        }
+        val payload = if (method == "GET" || method == "HEAD") null else
+            JSONObject(body?.toString() ?: "{}").put("actions", name)
+        requestJson(
+            url = URL("${BrandConfig.MARKET_API_URL}?$query"),
+            method = method,
+            bearer = requireToken(),
+            body = payload
+        )
+    }
+
+    /**
+     * The shop list, and whether the marketplace is on at all.
+     *
+     * A disabled marketplace is a success with an empty list, not a failure:
+     * the app asks on every open, and turning that into an error would put a
+     * red banner on a feature the owner simply has not switched on.
+     */
+    suspend fun marketShops(): GhajarMarketFeed {
+        val payload = marketAction("shops").payloadObject()
+        return GhajarMarketFeed(
+            enabled = payload.optBoolean("enabled", true),
+            registerFee = payload.optNullableDouble("terms_fee")?.toLong() ?: 0,
+            shops = payload.optJSONArray("shops").orEmpty().objects().map { marketShopFrom(it) }
+        )
+    }
+
+    suspend fun marketShop(shopId: Int): GhajarMarketShop {
+        val payload = marketAction("shop", params = mapOf("shop_id" to shopId.toString())).payloadObject()
+        return marketShopFrom(payload).copy(
+            reviews = payload.optJSONArray("reviews_list").orEmpty().objects().map { row ->
+                GhajarMarketReview(
+                    stars = row.optInt("stars"),
+                    body = visible(row.optString("body")),
+                    createdAt = row.optNullableLong("created_at") ?: 0L
+                )
+            }
+        )
+    }
+
+    suspend fun marketCatalog(shopId: Int): GhajarMarketCatalog {
+        val payload = marketAction("shop_catalog",
+            params = mapOf("shop_id" to shopId.toString())).payloadObject()
+        return GhajarMarketCatalog(
+            panels = payload.optJSONArray("panels").orEmpty().objects().map { row ->
+                GhajarMarketPanel(
+                    code = row.optString("code"),
+                    name = visible(row.optString("name")),
+                    country = visible(row.optString("country")),
+                    flag = visible(row.optString("flag"))
+                )
+            }.filter { it.code.isNotBlank() },
+            products = payload.optJSONArray("products").orEmpty().objects().map { row ->
+                GhajarMarketProduct(
+                    code = row.optString("code"),
+                    name = visible(row.optString("name")),
+                    price = row.optNullableDouble("price")?.toLong() ?: 0,
+                    volumeGb = row.optInt("volume_gb"),
+                    timeDays = row.optInt("time_days"),
+                    note = visible(row.optString("note"))
+                )
+            }.filter { it.code.isNotBlank() },
+            methods = payload.optJSONArray("payment").orEmpty().objects().map { marketMethodFrom(it) }
+        )
+    }
+
+    suspend fun marketOrderStart(
+        shopId: Int,
+        productCode: String,
+        panelCode: String,
+        method: String
+    ): GhajarMarketOrder {
+        val payload = marketAction("order_start", method = "POST", body = JSONObject()
+            .put("shop_id", shopId)
+            .put("product_code", productCode)
+            .put("panel_code", panelCode)
+            .put("method", method)).payloadObject()
+        return GhajarMarketOrder(
+            id = payload.optInt("id"),
+            method = payload.optString("method"),
+            methodLabel = visible(payload.optString("method_label")),
+            needs = payload.optString("needs"),
+            amount = payload.optNullableDouble("amount")?.toLong() ?: 0,
+            cardNumber = payload.optString("card_number"),
+            cardHolder = visible(payload.optString("card_holder")),
+            contact = payload.optString("contact"),
+            gatewayUrl = payload.optString("gateway_url"),
+            productName = visible(payload.optString("product_name"))
+        )
+    }
+
+    /**
+     * Sends a receipt on to the seller, re-encoded for the trip.
+     *
+     * Base64 in a JSON body rather than multipart, because the far side of
+     * this is the *seller's* own bot and its `send_message` takes base64. Our
+     * server is only the courier: it forwards the photo and keeps no copy, and
+     * neither does the app once this returns.
+     *
+     * The image is decoded and re-compressed first. A modern phone camera
+     * produces 4-12 MB per shot, base64 adds a third on top, and a bank
+     * receipt is legible at 1600px - so sending the original would mean
+     * uploads that fail on a mobile connection to prove something a 200 KB
+     * JPEG proves just as well.
+     */
+    suspend fun marketSubmitReceipt(paymentId: Int, photo: Uri, note: String): String =
+        withContext(Dispatchers.IO) {
+            val encoded = encodeReceipt(photo)
+            val payload = marketAction("order_receipt", method = "POST", body = JSONObject()
+                .put("payment_id", paymentId)
+                .put("receipt", encoded)
+                .put("note", note))
+            visible(payload.optString("msg", "رسید ارسال شد."))
+        }
+
+    /**
+     * Reads an image, shrinks it to at most [RECEIPT_MAX_EDGE] on its long
+     * side, and returns it as base64 JPEG.
+     *
+     * Two passes over the file: the first reads only the header for the real
+     * dimensions, so the second can ask BitmapFactory for a subsampled decode
+     * and never hold the full-size bitmap in memory. Decoding a 12MP photo at
+     * full size to then throw most of it away is how an image picker turns
+     * into an OutOfMemoryError on a cheap phone.
+     */
+    private fun encodeReceipt(photo: Uri): String {
+        val resolver = appContext.contentResolver
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        resolver.openInputStream(photo)?.use { BitmapFactory.decodeStream(it, null, bounds) }
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
+            throw GhajarApiException("این فایل تصویر خوانده نشد.")
+        }
+        var sample = 1
+        while (bounds.outWidth / (sample * 2) >= RECEIPT_MAX_EDGE ||
+            bounds.outHeight / (sample * 2) >= RECEIPT_MAX_EDGE) {
+            sample *= 2
+        }
+        val decoded = resolver.openInputStream(photo)?.use { stream ->
+            BitmapFactory.decodeStream(stream, null, BitmapFactory.Options().apply {
+                inSampleSize = sample
+            })
+        } ?: throw GhajarApiException("این فایل تصویر خوانده نشد.")
+
+        return try {
+            ByteArrayOutputStream().use { out ->
+                decoded.compress(Bitmap.CompressFormat.JPEG, 82, out)
+                val bytes = out.toByteArray()
+                if (bytes.size.toLong() > MAX_RECEIPT_BYTES) {
+                    throw GhajarApiException("حجم رسید نباید بیشتر از ۸ مگابایت باشد")
+                }
+                android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+            }
+        } finally {
+            // Recycled explicitly: this runs on a shared IO dispatcher and the
+            // bitmap is several megabytes that GC has no urgency to reclaim.
+            decoded.recycle()
+        }
+    }
+
+    suspend fun marketOrderStatus(paymentId: Int): GhajarMarketOrderStatus {
+        val payload = marketAction("order_status",
+            params = mapOf("payment_id" to paymentId.toString())).payloadObject()
+        return GhajarMarketOrderStatus(
+            id = payload.optInt("id"),
+            shopId = payload.optInt("shop_id"),
+            status = payload.optString("status"),
+            rejectReason = visible(payload.optString("reject_reason")),
+            amount = payload.optNullableDouble("amount")?.toLong() ?: 0,
+            username = payload.optString("username"),
+            configs = payload.optJSONArray("configs").orEmpty().let { array ->
+                (0 until array.length()).mapNotNull { array.optString(it).takeIf { s -> s.isNotBlank() } }
+            },
+            subscription = payload.optString("subscription")
+        )
+    }
+
+    suspend fun marketReview(shopId: Int, stars: Int, body: String): String {
+        val payload = marketAction("review_submit", method = "POST", body = JSONObject()
+            .put("shop_id", shopId)
+            .put("stars", stars)
+            .put("body", body))
+        return visible(payload.optString("msg"))
+    }
+
+    suspend fun marketTerms(): GhajarMarketTerms {
+        val payload = marketAction("register_terms").payloadObject()
+        return GhajarMarketTerms(
+            terms = visible(payload.optString("terms")),
+            fee = payload.optNullableDouble("fee")?.toLong() ?: 0,
+            commissionPercent = payload.optNullableDouble("commission_percent") ?: 0.0,
+            cycleDays = payload.optInt("cycle_days", 30),
+            penaltyPerDay = payload.optNullableDouble("penalty_day")?.toLong() ?: 0,
+            graceDays = payload.optInt("grace_days", 15),
+            myShops = payload.optJSONArray("my_shops").orEmpty().objects().map { row ->
+                GhajarMarketOwnShop(
+                    id = row.optInt("id"),
+                    name = visible(row.optString("name")),
+                    status = row.optString("status"),
+                    lastError = visible(row.optString("last_error"))
+                )
+            }
+        )
+    }
+
+    private fun marketShopFrom(row: JSONObject) = GhajarMarketShop(
+        id = row.optInt("id"),
+        name = visible(row.optString("name", "فروشگاه")),
+        description = visible(row.optString("description")),
+        telegramBot = row.optString("telegram_bot"),
+        telegramChannel = row.optString("telegram_channel"),
+        supportContact = row.optString("support_contact"),
+        verified = row.optBoolean("verified"),
+        status = row.optString("status"),
+        canSell = row.optBoolean("can_sell", true),
+        closedReason = visible(row.optString("closed_reason")),
+        stars = row.optNullableDouble("stars") ?: 0.0,
+        reviewCount = row.optInt("reviews"),
+        satisfaction = row.optInt("satisfaction")
+    )
+
+    private fun marketMethodFrom(row: JSONObject) = GhajarMarketMethod(
+        id = row.optString("id"),
+        label = visible(row.optString("label")),
+        needs = row.optString("needs"),
+        note = visible(row.optString("note")),
+        cardNumber = row.optString("card_number"),
+        cardHolder = visible(row.optString("card_holder")),
+        contact = row.optString("contact")
+    )
+
+    /**
      * Catalog/wallet endpoints the shop screen's plan list depends on. Logging
      * only the returned item count (never a row's contents, never the bearer
      * token) lets an exported log answer "why are the plans empty" without
@@ -1096,10 +1532,17 @@ class GhajarStoreApi(context: Context) {
         val code = connection.responseCode
         val raw = (if (code in 200..299) connection.inputStream else connection.errorStream)
             ?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
-        if (code == 404) throw GhajarApiException("مسیر ورود یا فروشگاه روی سرور موجود نیست (404)؛ نصب ربات باید بروزرسانی شود.", code)
-        val envelope = runCatching { JSONObject(raw) }.getOrElse {
-            throw GhajarApiException("پاسخ فروشگاه قابل خواندن نیست", code)
+        val parsed = runCatching { JSONObject(raw) }.getOrNull()
+        // A 404 is only "the install is out of date" when the *web server*
+        // produced it - an unknown path, so an HTML error page. The API uses
+        // 404 as an ordinary answer too ("service not found", "panel not
+        // found"), and swallowing its message here told users to update a bot
+        // that was perfectly up to date while hiding what actually went wrong.
+        if (code == 404 && parsed?.has("msg") != true) {
+            throw GhajarApiException(
+                "مسیر ورود یا فروشگاه روی سرور موجود نیست (۴۰۴)؛ نصب ربات باید بروزرسانی شود.", code)
         }
+        val envelope = parsed ?: throw GhajarApiException("پاسخ فروشگاه قابل خواندن نیست", code)
         val paymentRequired = envelope.optBoolean("requires_payment") ||
             envelope.optJSONObject("obj")?.optBoolean("requires_payment") == true
         if (allowPaymentRequired && paymentRequired) return envelope
@@ -1225,6 +1668,15 @@ class GhajarStoreApi(context: Context) {
         private const val READ_TIMEOUT = 20_000
         private const val UPLOAD_TIMEOUT = 60_000
         private const val MAX_RECEIPT_BYTES = 8L * 1024 * 1024
+
+        /**
+         * The long edge a marketplace receipt is shrunk to before it is sent.
+         *
+         * 1600px keeps a bank slip's reference number readable while turning a
+         * 12MP photo into a couple of hundred kilobytes. The seller has to read
+         * it, not enlarge it.
+         */
+        private const val RECEIPT_MAX_EDGE = 1600
         private const val BYTES_PER_GB = 1024.0 * 1024 * 1024
     }
 }

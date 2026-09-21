@@ -30,9 +30,11 @@
 
         <!--
             The brand mark, so the widget is recognisably this app's on a home
-            screen full of squares. The square badge rather than the gold
-            wordmark: the wordmark is three to one and would either dominate
-            the row or be scaled past legibility.
+            screen full of squares. The crown-and-shield crest rather than the
+            photographic badge: at 26dp the badge's faces and gold frame turn
+            into a smudge, while a two-shape silhouette still reads. It is
+            also the mark the status bar already uses, so the app looks like
+            one thing in both places.
         -->
         <ImageView
             android:id="@+id/widget_brand"
@@ -41,7 +43,7 @@
             android:layout_marginEnd="8dp"
             android:scaleType="fitCenter"
             android:contentDescription="@null"
-            android:src="@drawable/ghajar_widget_badge" />
+            android:src="@drawable/ghajar_widget_mark" />
 
         <ImageView
             android:id="@+id/widget_dot"

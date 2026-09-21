@@ -7,11 +7,18 @@
     that, in one cell. The mark itself is the button - there is no second
     target to miss - and the dot in its corner is the whole state readout.
 
-    The art is `ghajarvpn_royal_badge`, the app's own square badge. It used to
-    be `logo.png`, which is an upstream project's wordmark that survived in the
-    tree: a widget carrying someone else's brand on the owner's home screen.
-    The badge is also the right shape here - the gold wordmark is three to one
-    and would have been letterboxed down to nothing in a square cell.
+    The art is `ghajar_widget_mark`: the brand's crown-and-shield crest, the
+    same mark the status bar uses. It replaces the full photographic badge,
+    which read as a picture of two people rather than as an icon once the
+    launcher had shrunk it into one cell - detail that small stops being
+    detail and becomes noise. Before that it was `logo.png`, an upstream
+    project's wordmark that survived in the tree: a widget carrying someone
+    else's brand on the owner's home screen.
+
+    A raster rather than the `ic_stat_ghajar` vector it is drawn from: a
+    RemoteViews tree is inflated by the launcher, and a vector there depends on
+    that launcher's own support. A 192px copy is 0.15 MB decoded and always
+    renders. The royal badge is kept in the tree and still used elsewhere.
 -->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
@@ -21,11 +28,11 @@
         android:id="@+id/widget_small_button"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:padding="2dp"
+        android:padding="6dp"
         android:scaleType="fitCenter"
         android:adjustViewBounds="true"
         android:contentDescription="@string/widget_small_description"
-        android:src="@drawable/ghajar_widget_badge" />
+        android:src="@drawable/ghajar_widget_mark" />
 
     <!--
         The state dot, on its own plate so it stays legible over the badge's

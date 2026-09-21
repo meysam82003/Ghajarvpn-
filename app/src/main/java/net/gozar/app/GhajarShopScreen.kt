@@ -42,6 +42,7 @@ import androidx.compose.material.icons.filled.ReceiptLong
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Shield
+import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.SupportAgent
@@ -154,6 +155,12 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     // returning to "all plans" does not re-hit the server.
     var unfilteredProducts by remember { mutableStateOf<List<GhajarProduct>>(emptyList()) }
     var owned by remember { mutableStateOf<List<GhajarOwnedService>>(emptyList()) }
+    // Whether the owned list has been fetched at all, as opposed to being
+    // empty. A renew request that names an invoice id has to wait for the
+    // list to translate it, and "no services" and "not asked yet" are the
+    // same empty list - telling them apart is what stops that wait from
+    // being forever on an account with nothing in it.
+    var ownedLoaded by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf<List<GhajarNotice>>(emptyList()) }
     var loadedPanelId by remember { mutableStateOf<String?>(null) }
 
@@ -185,13 +192,25 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         val ownedDeferred = async { api.ownedServices() }
         val noticesDeferred = async { api.notices() }
         owned = ownedDeferred.await()
+        ownedLoaded = true
         notices = noticesDeferred.await()
     }
 
     val renewRequest by GhajarRenewRequest.requested.collectAsState()
-    LaunchedEffect(renewRequest, active) {
-        val username = renewRequest ?: return@LaunchedEffect
+    LaunchedEffect(renewRequest, active, owned, ownedLoaded) {
+        val requested = renewRequest ?: return@LaunchedEffect
         if (!active) return@LaunchedEffect
+        // A notice may name the service by its invoice id instead of its
+        // username - every warning written before the server was updated does,
+        // and those rows sit in the inbox for days. The owned list carries both,
+        // so the id is translated here rather than sent to a server that can
+        // only answer "not found". Waiting for that list is deliberate: acting
+        // on an id before it arrives is the 404 this fixes.
+        val username = when {
+            owned.any { it.username == requested } -> requested
+            !ownedLoaded -> return@LaunchedEffect
+            else -> owned.firstOrNull { it.invoiceId == requested }?.username ?: requested
+        }
         section = 1
         renewUsername = username
         GhajarRenewRequest.consume()
@@ -592,6 +611,21 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
             if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, store.lang.value) }
+            if (section == 6) {
+                // Its own saveable state, like the ticket panel: a buyer who
+                // opens a shop, glances at their services and comes back should
+                // find the shop still open rather than the list again.
+                //
+                // No verticalScroll anywhere inside it. This is one item of a
+                // LazyColumn, so it is measured with an unbounded height, and a
+                // scrollable child under that throws at measure time - which is
+                // exactly the crash the support tab shipped with in 1.0.2.
+                item(key = "shop-block-market") {
+                    sectionState.SaveableStateProvider("market") {
+                        GhajarMarketScreen(api, store, active && section == 6)
+                    }
+                }
+            }
             // An unfinished payment, shown on every section rather than only on
             // the two it used to hide behind.
             //
@@ -1030,7 +1064,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     categories = emptyList(); selectedCategory = null
                     timeRanges = emptyList(); selectedTime = null
                     products = emptyList(); unfilteredProducts = emptyList()
-                    owned = emptyList(); notices = emptyList()
+                    owned = emptyList(); ownedLoaded = false; notices = emptyList()
                     trialOptions = null; loadedPanelId = null
                     section = 0
                     checkoutModel.reset()
@@ -1459,22 +1493,118 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, 
         colors = CardDefaults.cardColors(containerColor = c.card),
         border = BorderStroke(1.dp, c.border)
     ) {
-        Row(Modifier.fillMaxWidth().padding(15.dp), verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(service.productName, fontWeight = FontWeight.Bold, color = c.textPrimary)
-                Text("\u2066${service.username}\u2069", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(service.location, style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Column(Modifier.fillMaxWidth().padding(15.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(service.productName, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                    Text("⁦${service.username}⁩", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(service.location, style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                val active = service.status.lowercase() in setOf("active", "enabled", "فعال")
+                Text(if (active) "فعال" else when(service.status.lowercase()) { "expired" -> "منقضی"; "disabled", "inactive" -> "غیرفعال"; else -> service.status },
+                    style = MaterialTheme.typography.labelMedium,
+                    color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
+                IconButton(onClick = onRenew) {
+                    Icon(Icons.Filled.Autorenew, "تمدید سرویس", tint = MaterialTheme.colorScheme.primary)
+                }
+                Icon(Icons.Filled.AddCircle, "افزودن")
             }
-            val active = service.status.lowercase() in setOf("active", "enabled", "فعال")
-            Text(if (active) "فعال" else when(service.status.lowercase()) { "expired" -> "منقضی"; "disabled", "inactive" -> "غیرفعال"; else -> service.status },
-                style = MaterialTheme.typography.labelMedium,
-                color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error)
-            IconButton(onClick = onRenew) {
-                Icon(Icons.Filled.Autorenew, "تمدید سرویس", tint = MaterialTheme.colorScheme.primary)
+            // What is actually left of it. The row above says only what the
+            // service is called and whether it is switched on, which is the
+            // one question a user does not have about a service they bought:
+            // they want to know how much of it is still theirs.
+            ServiceRemaining(service)
+        }
+    }
+}
+
+/**
+ * Remaining volume and remaining days, each with the share still unspent.
+ *
+ * Built from figures the services list already carries, so it costs no extra
+ * request - one per service would have been 52 round trips on this account. A
+ * meter is left out rather than guessed when its cap is missing: an unlimited
+ * plan has no percentage, and inventing one would report a brand-new service
+ * as nearly finished.
+ */
+@Composable
+private fun ServiceRemaining(service: GhajarOwnedService) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    fun pct(value: Float) = localizeDigits("${(value * 100).toInt()}٪", lang)
+    fun gb(bytes: Long) =
+        localizeDigits("%.2f".format(java.util.Locale.US, bytes / 1_073_741_824.0), lang)
+
+    val spentVolume = service.volumeFraction
+    val days = service.daysRemaining
+    if (spentVolume == null && days == null) return
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (spentVolume != null) {
+            MeterRow(
+                label = "حجم باقی‌مانده",
+                value = "${gb(service.remainingBytes ?: 0L)} از ${gb(service.dataLimitBytes ?: 0L)} گیگابایت",
+                share = pct(1f - spentVolume),
+                fraction = 1f - spentVolume,
+                tint = if (spentVolume >= 0.9f) MaterialTheme.colorScheme.error else c.primary
+            )
+        }
+        if (days != null) {
+            val elapsed = service.timeFraction
+            MeterRow(
+                label = "روز باقی‌مانده",
+                value = localizeDigits(days.toString(), lang) + " روز" +
+                    (service.planDays?.takeIf { it > 0 }
+                        ?.let { " از " + localizeDigits(it.toString(), lang) } ?: ""),
+                share = elapsed?.let { pct(1f - it) } ?: "",
+                fraction = elapsed?.let { 1f - it } ?: 1f,
+                tint = if (days <= 3) MaterialTheme.colorScheme.error else c.primary
+            )
+        }
+    }
+}
+
+@Composable
+private fun MeterRow(label: String, value: String, share: String, fraction: Float, tint: Color) {
+    val c = ghajarColors
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = c.textMuted,
+                modifier = Modifier.weight(1f))
+            if (share.isNotBlank()) {
+                Text(share, style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.Bold, color = tint)
             }
-            Icon(Icons.Filled.AddCircle, "افزودن")
+        }
+        // mixedText is applied here rather than by the caller: it returns an
+        // AnnotatedString, and taking one as a parameter made this function's
+        // signature the place a plain String got rejected instead of the place
+        // the bidi wrapping was decided.
+        Text(mixedText(value), style = MaterialTheme.typography.bodySmall, color = c.textPrimary,
+            maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(5.dp)
+                .clip(RoundedCornerShape(GhajarRadius.pill))
+                .background(c.secondaryCard)
+        ) {
+            // A guard, not a micro-optimisation: fillMaxWidth(0f) still lays
+            // out a zero-width box whose rounded ends paint as a visible dot,
+            // so a fully spent service would show a stub of colour where it
+            // has nothing left.
+            if (fraction > 0.01f) {
+                Box(
+                    Modifier
+                        .fillMaxWidth(fraction.coerceIn(0f, 1f))
+                        .height(5.dp)
+                        .clip(RoundedCornerShape(GhajarRadius.pill))
+                        .background(tint)
+                )
+            }
         }
     }
 }
@@ -1499,9 +1629,13 @@ private fun StoreSectionTabs(
             RailTab("پیام‌ها", Icons.Filled.Notifications, noticeCount),
             RailTab("کیف پول", Icons.Filled.AccountBalanceWallet, pendingCount),
             RailTab("پشتیبانی", Icons.Filled.SupportAgent),
-            RailTab("تراکنش‌ها", Icons.Filled.SwapHoriz)
+            RailTab("تراکنش‌ها", Icons.Filled.SwapHoriz),
+            // Other sellers' shops. Last, because this shop is the default and
+            // a buyer who came here to renew should not have to walk past a
+            // marketplace to reach their own services.
+            RailTab("فروشگاه‌ها", Icons.Filled.ShoppingBag)
         ),
-        selected = section.coerceIn(0, 5),
+        selected = section.coerceIn(0, 6),
         onSelect = onSelect
     )
 }
