@@ -104,7 +104,7 @@ fun GhajarMarketScreen(api: GhajarStoreApi, store: ConfigStore, active: Boolean)
         error = null
         runCatching { api.marketShops() }
             .onSuccess { feed = it }
-            .onFailure { error = it.message ?: "بازار در دسترس نیست" }
+            .onFailure { error = it.message ?: "فهرست فروشگاه‌ها در دسترس نیست" }
         busy = false
     }
 
@@ -113,10 +113,10 @@ fun GhajarMarketScreen(api: GhajarStoreApi, store: ConfigStore, active: Boolean)
         busy && current == null -> SkinLoading("در حال گرفتن فهرست فروشگاه‌ها")
         error != null && current == null ->
             SkinError(error!!, retryText = "تلاش دوباره", onRetry = { refreshKey++ })
-        current == null -> SkinLoading("بازار")
+        current == null -> SkinLoading("فروشگاه‌ها")
         !current.enabled -> SkinEmpty(
-            "بازار فعال نیست",
-            hint = "مالک برنامه بازار فروشگاه‌ها را روشن نکرده است. فروشگاه قاجار و سرویس‌های شما مثل همیشه کار می‌کنند.",
+            "فروشگاه‌ها فعال نیست",
+            hint = "مالک برنامه بخش فروشگاه‌ها را روشن نکرده است. فروشگاه قاجار و سرویس‌های شما مثل همیشه کار می‌کنند.",
             icon = Icons.Filled.ShoppingBag
         )
         else -> when (val where = route) {
@@ -159,7 +159,7 @@ private fun MarketList(
     onRefresh: () -> Unit
 ) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
-        Rail("بازار قاجار")
+        Rail("فروشگاه‌های قاجار")
         Text(
             "فروشگاه‌های تأییدشده، داخل همین برنامه. خرید، پرداخت و تحویل کانفیگ بدون رفتن به تلگرام.",
             style = MaterialTheme.typography.labelMedium,
@@ -327,7 +327,7 @@ private fun MarketShopPage(
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
-        GhostPill("بازگشت به بازار", onBack, icon = Icons.Filled.ChevronLeft)
+        GhostPill("بازگشت به فهرست", onBack, icon = Icons.Filled.ChevronLeft)
 
         val loaded = shop
         when {
@@ -758,7 +758,7 @@ private fun MarketDelivery(
                     scope.launch {
                         val details = GhajarServiceDetails(
                             username = status.username,
-                            productName = "سرویس بازار",
+                            productName = "سرویس فروشگاه",
                             status = "active",
                             usedGb = null,
                             totalGb = null,
@@ -807,7 +807,7 @@ private fun MarketRegisterPage(api: GhajarStoreApi, onBack: () -> Unit) {
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
-        GhostPill("بازگشت به بازار", onBack, icon = Icons.Filled.ChevronLeft)
+        GhostPill("بازگشت به فهرست", onBack, icon = Icons.Filled.ChevronLeft)
         Rail("ثبت فروشگاه")
 
         val loaded = terms

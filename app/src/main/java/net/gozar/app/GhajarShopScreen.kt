@@ -1633,7 +1633,7 @@ private fun StoreSectionTabs(
             // Other sellers' shops. Last, because this shop is the default and
             // a buyer who came here to renew should not have to walk past a
             // marketplace to reach their own services.
-            RailTab("بازار", Icons.Filled.ShoppingBag)
+            RailTab("فروشگاه‌ها", Icons.Filled.ShoppingBag)
         ),
         selected = section.coerceIn(0, 6),
         onSelect = onSelect
