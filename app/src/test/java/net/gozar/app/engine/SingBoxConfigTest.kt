@@ -138,8 +138,8 @@ class DnsttProfileTest {
         val out = spec.getJSONObject("outbound")
         assertEquals("socks", out.getString("type"))
         assertEquals("127.0.0.1", out.getString("server"))
-        val d = spec.getJSONObject("dnstt")
-        assertEquals(listOf("-udp", "8.8.8.8:53", "-pubkey", key, "t.example.com", "127.0.0.1:7000"), DnsttRunner.args(d, 7000))
+        val d = spec.getJSONObject("sidecar")
+        assertEquals(listOf("-udp", "8.8.8.8:53", "-pubkey", key, "t.example.com", "127.0.0.1:7000"), Sidecars.dnsttArgs(d, "7000"))
     }
 
     @Test
@@ -149,7 +149,7 @@ class DnsttProfileTest {
         assertEquals("ssh", spec.getJSONObject("outbound").getString("type"))
         assertEquals("bob", spec.getJSONObject("outbound").getString("user"))
         assertEquals(listOf("-doh", "https://dns.example/dns-query", "-pubkey", key, "t.example.com", "127.0.0.1:1"),
-            DnsttRunner.args(spec.getJSONObject("dnstt"), 1))
+            Sidecars.dnsttArgs(spec.getJSONObject("sidecar"), "1"))
         val back = ConfigParser.parse(ConfigShare.toLink(c))!!
         assertEquals(c.copy(id = "x"), back.copy(id = "x"))
     }
@@ -157,8 +157,8 @@ class DnsttProfileTest {
     @Test
     fun badKeyIsRefusedWithAReason() {
         val c = ConfigParser.parse("dnstt://t.example.com?pubkey=abc&resolver=1.1.1.1#D")!!
-        val d = JSONObject(SingBoxConfig.spec(c)!!).getJSONObject("dnstt")
-        val err = runCatching { DnsttRunner.args(d, 1) }.exceptionOrNull()
+        val d = JSONObject(SingBoxConfig.spec(c)!!).getJSONObject("sidecar")
+        val err = runCatching { Sidecars.dnsttArgs(d, "1") }.exceptionOrNull()
         assertTrue(err?.message.orEmpty().contains("64 hex"))
     }
 }

@@ -49,4 +49,22 @@ class AutoSelectScoreTest {
         repeat(AutoSelectScore.WINDOW) { s.record("a", 100) }
         assertEquals(100.0, s.score("a")!!, 0.001)
     }
+
+    @Test
+    fun lossyServerLosesToSteadyOneEvenIfFaster() {
+        val s = AutoSelectScore()
+        repeat(3) { s.record("lossy", AutoSelectScore.Sample(ok = true, latencyMs = 80, jitterMs = 5, lossPct = 40)) }
+        repeat(3) { s.record("clean", AutoSelectScore.Sample(ok = true, latencyMs = 150, jitterMs = 5, lossPct = 0)) }
+        assertEquals("clean", s.best(listOf("lossy", "clean"))!!.first)
+    }
+
+    @Test
+    fun historyIsPerNetworkType() {
+        val s = AutoSelectScore()
+        s.network = "WIFI"; repeat(3) { s.record("a", 100) }
+        s.network = "CELLULAR"
+        assertNull(s.score("a"))
+        s.network = "WIFI"
+        assertEquals(100.0, s.score("a")!!, 0.001)
+    }
 }

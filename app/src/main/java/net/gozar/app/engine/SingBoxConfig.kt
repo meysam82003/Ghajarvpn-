@@ -35,9 +35,9 @@ object SingBoxConfig {
         if (!handles(config)) return null
         val proxy = proxy(config)
         val out = JSONObject().put(if (config.protocol in ENDPOINTS) "endpoint" else "outbound", proxy)
-        // A DNS tunnel runs dnstt first; SingBoxRunner starts it and points
-        // the outbound at its local port (server_port is filled in there).
-        if (config.protocol == "dnstt") out.put("dnstt", dnstt(config))
+        // Engines that run a helper process first (see Sidecars): the runner
+        // starts it and points the outbound at its local port.
+        sidecar(config)?.let { out.put("sidecar", it) }
         return out.toString()
     }
 
@@ -140,7 +140,13 @@ object SingBoxConfig {
         return o
     }
 
-    /** The "dnstt" part of a spec: what DnsttRunner needs. For "dnstt" profiles, [ProxyConfig.host] is the tunnel domain. */
+    /** The helper process a profile needs in front of sing-box, or null. */
+    internal fun sidecar(c: ProxyConfig): JSONObject? = when (c.protocol) {
+        "dnstt" -> dnstt(c).put("kind", "dnstt")
+        else -> null
+    }
+
+    /** DNS tunnel fields. For DNS tunnel profiles, [ProxyConfig.host] is the tunnel domain. */
     internal fun dnstt(c: ProxyConfig): JSONObject {
         val transport = c.mode.takeIf { it == "doh" || it == "dot" } ?: "udp"
         val resolver = when (transport) {

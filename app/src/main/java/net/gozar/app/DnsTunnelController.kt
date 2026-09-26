@@ -85,7 +85,7 @@ data class DnsTunnelProfile(
  * **Update:** the dnstt client is now built in CI (scripts/build-dnstt.sh,
  * upstream v1.20260501.0) and a complete profile is connected as a normal
  * server of protocol `dnstt` (DNS Lab "add to servers", or a dnstt:// link):
- * engine/DnsttRunner runs it and sing-box carries its upstream. This
+ * engine/SidecarRunner runs it and sing-box carries its upstream. This
  * standalone controller is kept for the lab's state display only.
  *
  * Original note: the engine binary was not bundled. It is a Go program and

@@ -104,12 +104,12 @@ object CoreManager {
                 integration = "subprocess libdnstt.so (scripts/build-dnstt.sh) -> sing-box SOCKS5/SSH outbound -> zeptun; dnstt:// servers"),
             availability = { ctx ->
                 when {
-                    !DnsttRunner.available(ctx) -> Availability.Missing("libdnstt.so not in this build")
+                    !nativeFile(ctx, "libdnstt.so") -> Availability.Missing("libdnstt.so not in this build")
                     !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("sing-box (carries the tunnel) not in this build")
                     else -> Availability.Experimental("wired through dnstt:// servers; not device verified")
                 }
             },
-            running = { SingBoxController.isRunning() && SingBoxController.dnsttRunning() }),
+            running = { SingBoxController.isRunning() && SingBoxController.sidecarKind() == "dnstt" }),
         engine(EngineId.SINGBOX, "sing-box",
             // Connect path: GozarVpnService EXTRA_SINGBOX -> SingBoxController (local SOCKS5) -> zeptun tun.
             // Protocol list = SingBoxConfig.PROTOCOLS, audited against the pinned source (v1.15.0-alpha.6);
@@ -130,6 +130,84 @@ object CoreManager {
     fun engine(id: EngineId): VpnEngine = engines.first { it.id == id }
 
     fun engineFor(config: net.gozar.app.ProxyConfig): EngineId = EngineRouting.engineFor(config)
+
+    // ---- Orchestration ----
+    //
+    // The existing, working connect paths (Xray in GozarVpnService, the
+    // OpenVPN and strongSwan modules) are not rewritten: start/stop/reconnect
+    // go through VpnLauncher, which is what the UI and AutoSelect already
+    // use, and the service decides per engine. What is new is that every
+    // engine answers the same questions before and while it runs.
+
+    data class Status(
+        val running: List<EngineId>,
+        /** Helper engine in front of sing-box, if one is running. */
+        val sidecar: String?,
+        /** Local SOCKS5 port zeptun is carrying, when a proxy engine owns the session. */
+        val socksPort: Int?
+    )
+
+    data class Stats(val uploadBytes: Long, val downloadBytes: Long, val source: String)
+
+    /**
+     * Everything that can be checked without connecting: the engine is in
+     * this build, its helper binary is too, and the profile turns into a
+     * configuration. Returns null when ready, or the reason it is not.
+     */
+    fun prepare(context: Context, config: net.gozar.app.ProxyConfig): String? {
+        val id = engineFor(config)
+        when (val a = runCatching { engine(id).availability(context) }.getOrElse { Availability.Missing(it.javaClass.simpleName) }) {
+            is Availability.Missing -> return "${engine(id).displayName}: ${a.why}"
+            else -> {}
+        }
+        if (id == EngineId.SINGBOX) {
+            val spec = runCatching { SingBoxConfig.spec(config) }.getOrElse { return it.message ?: "incomplete profile" }
+                ?: return "not a sing-box profile"
+            val side = org.json.JSONObject(spec).optJSONObject("sidecar")
+            if (side != null) {
+                val launch = runCatching { Sidecars.launch(side) }.getOrElse { return it.message ?: "incomplete profile" }
+                if (!nativeFile(context, launch.binary)) return "${launch.binary} is not in this build"
+            }
+        }
+        return null
+    }
+
+    suspend fun start(context: Context, store: net.gozar.app.ConfigStore, config: net.gozar.app.ProxyConfig): net.gozar.app.LaunchOutcome =
+        net.gozar.app.VpnLauncher.relaunch(context.applicationContext, store, config)
+
+    fun stop(context: Context) {
+        runCatching {
+            context.startService(android.content.Intent(context, net.gozar.app.GozarVpnService::class.java)
+                .setAction(net.gozar.app.GozarVpnService.ACTION_STOP))
+        }
+    }
+
+    suspend fun reconnect(context: Context, store: net.gozar.app.ConfigStore, config: net.gozar.app.ProxyConfig) =
+        start(context, store, config)
+
+    /** A real test on the engine that carries [config]. Blocking. */
+    fun test(config: net.gozar.app.ProxyConfig): EngineTestResult = EngineTester.test(config)
+
+    fun status(): Status = Status(
+        running = running(),
+        sidecar = SingBoxController.sidecarKind(),
+        socksPort = SingBoxController.socksPort.takeIf { SingBoxController.isRunning() && it > 0 }
+    )
+
+    fun stats(): Stats? {
+        ZeptunEngine.counters()?.let { return Stats(it.rxBytes, it.txBytes, "zeptun") }
+        return runCatching {
+            if (!Gozarcore.isRunning()) null else Stats(Gozarcore.queryUplink(), Gozarcore.queryDownlink(), "xray")
+        }.getOrNull()
+    }
+
+    /**
+     * The device moved to another network. Subprocess engines are restarted
+     * on the same local port (GozarVpnService also does this from its own
+     * network callback); Xray, OpenVPN and IKEv2 handle it themselves.
+     */
+    fun networkChanged(context: Context): String? =
+        if (SingBoxController.isRunning()) SingBoxController.reconnect(context) else null
 
     /** Which core is carrying traffic now, if any. */
     fun running(): List<EngineId> = engines.filter { runCatching { it.isRunning() }.getOrDefault(false) }.map { it.id }

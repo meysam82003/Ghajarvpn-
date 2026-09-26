@@ -34,8 +34,10 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         private set
 
     @Volatile private var process: Process? = null
-    /** Runs first when the profile is a DNS tunnel; stopped with this runner. */
-    private val dnstt = DnsttRunner("$TAG-dnstt")
+    /** The helper engine in front of sing-box, when the profile has one; stopped with this runner. */
+    private val sidecar = SidecarRunner("$TAG-sidecar", "$subdir-sidecar")
+    @Volatile private var lastSpec: String? = null
+    @Volatile private var sidecarName: String? = null
     @Volatile private var stopping = false
     private val tail = ArrayDeque<String>()
 
@@ -44,8 +46,29 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
 
     fun isRunning(): Boolean = process?.isAlive == true
 
-    /** Whether a dnstt client is carrying this runner's upstream. */
-    fun dnsttRunning(): Boolean = dnstt.isRunning()
+    /** Whether a helper engine is carrying this runner's upstream. */
+    fun sidecarRunning(): Boolean = sidecar.isRunning()
+
+    /** Which helper engine (sidecar kind) is in front of sing-box, if any. */
+    fun sidecarKind(): String? = sidecarName.takeIf { sidecar.isRunning() }
+
+    /** Last lines of the helper engine, redacted. */
+    fun sidecarOutput(): List<String> = sidecar.lastOutput()
+
+    /**
+     * Restarts the same profile on the same local port, so zeptun (still
+     * pointed at that port) carries on once it is back. Used after a
+     * network change: UDP sessions, DNS tunnels and SSH die with the old
+     * network and are cheaper to rebuild than to wait out.
+     */
+    fun reconnect(context: Context): String? {
+        val spec = lastSpec ?: return "nothing to reconnect"
+        val port = socksPort.takeIf { it > 0 } ?: return "nothing to reconnect"
+        val keep = onUnexpectedExit
+        val failure = start(context, spec, port)
+        onUnexpectedExit = keep
+        return failure
+    }
 
     private fun workDir(context: Context): File = File(context.noBackupFilesDir, subdir).apply { mkdirs() }
 
@@ -72,17 +95,19 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         val chosen = if (port > 0) port else freePort() ?: return "no free local port"
         val dir = workDir(context)
         val file = File(dir, "config.json")
+        lastSpec = spec
         var effective = spec
-        val tunnel = runCatching { org.json.JSONObject(spec).optJSONObject("dnstt") }.getOrNull()
-        if (tunnel != null) {
-            if (!DnsttRunner.available(context)) return "dnstt is not in this build"
-            val dnsttPort = freePort() ?: return "no free local port"
-            val failure = dnstt.start(context, tunnel, dnsttPort)
+        val side = runCatching { org.json.JSONObject(spec).optJSONObject("sidecar") }.getOrNull()
+        sidecarName = side?.optString("kind")
+        if (side != null) {
+            val launch = runCatching { Sidecars.launch(side) }.getOrElse { return it.message ?: "incomplete profile" }
+            val sidePort = freePort() ?: return "no free local port"
+            val failure = sidecar.start(context, launch, sidePort)
             if (failure != null) return failure
-            dnstt.onUnexpectedExit = { code -> if (!stopping) { stop(); onUnexpectedExit?.invoke(code) } }
+            sidecar.onUnexpectedExit = { code -> if (!stopping) { stop(); onUnexpectedExit?.invoke(code) } }
             effective = org.json.JSONObject(spec).apply {
-                optJSONObject("outbound")?.put("server_port", dnsttPort)
-                remove("dnstt")
+                optJSONObject("outbound")?.put("server_port", sidePort)
+                remove("sidecar")
             }.toString()
         }
         val json = runCatching { SingBoxConfig.full(effective, chosen) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
@@ -166,8 +191,8 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
 
     fun stop() {
         stopping = true
-        dnstt.onUnexpectedExit = null
-        dnstt.stop()
+        sidecar.onUnexpectedExit = null
+        sidecar.stop()
         val p = process ?: return
         process = null
         runCatching {

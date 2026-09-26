@@ -594,11 +594,28 @@ class GozarVpnService : VpnService() {
      */
     private fun trackUnderlyingNetwork() {
         if (underlyingListener != null) return
+        var lastNetwork: android.net.Network? = null
         val listener: (NetKind?, android.net.Network?) -> Unit = { kind, network ->
             runCatching {
                 setUnderlyingNetworks(network?.let { arrayOf(it) })
                 GhajarLog.i(TAG, "tunnel now rides $kind")
             }.onFailure { GhajarLog.e(TAG, "underlying network not set: ${it.javaClass.simpleName}") }
+            // Engines run as subprocesses (sing-box and the helper in front
+            // of it) keep sockets bound to the network they were opened on.
+            // After a real switch (Wi-Fi <-> mobile) they are restarted on the
+            // same local port, so zeptun carries on; Xray handles this itself.
+            val previous = lastNetwork
+            if (network != null) lastNetwork = network
+            if (previous != null && network != null && network != previous &&
+                singboxSpec != null && enginesReady && !tearingDown) {
+                scope.launch {
+                    GhajarLog.i(TAG, "network changed; reconnecting the proxy engine")
+                    val failure = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+                        SingBoxController.reconnect(applicationContext)
+                    }
+                    if (failure != null && !tearingDown) die("reconnect after network change failed: $failure")
+                }
+            }
         }
         underlyingListener = listener
         NetworkWatcher.initialize(applicationContext)

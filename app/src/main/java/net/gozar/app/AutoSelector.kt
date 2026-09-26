@@ -57,6 +57,7 @@ class AutoSelector(
         configs.forEach { marking[it.id] = PingResult.Testing }
         _results.value = marking.toMap()
 
+        scores.network = NetworkWatcher.kind.value?.name.orEmpty()
         val sem = Semaphore(MAX_CONCURRENCY)
         configs.map { cfg ->
             launch {
@@ -70,7 +71,15 @@ class AutoSelector(
                         }
                         if (ms >= 0) PingResult.Ok(ms.toInt()) else PingResult.Failed
                     }
-                    if (r !is PingResult.Testing) scores.record(cfg.id, (r as? PingResult.Ok)?.ms)
+                    if (r !is PingResult.Testing) {
+                        // The engine test recorded loss, jitter and handshake time
+                        // alongside the delay; use all of it, not just the number.
+                        val full = net.gozar.app.engine.EngineTestStore.get(cfg.id)
+                            ?.takeIf { System.currentTimeMillis() - it.testedAt < 30_000 }
+                        scores.record(cfg.id, net.gozar.app.engine.AutoSelectScore.Sample(
+                            ok = r is PingResult.Ok, latencyMs = (r as? PingResult.Ok)?.ms,
+                            jitterMs = full?.jitterMs, lossPct = full?.lossPct, handshakeMs = full?.handshakeMs))
+                    }
                     _results.value = _results.value.toMutableMap().apply { put(cfg.id, r) }
                 }
             }

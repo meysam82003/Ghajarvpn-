@@ -10,7 +10,7 @@
   CI network; the proxy does not). `scripts/build-dnstt.sh` fails the build if
   the version resolves to another commit.
 - Output: `app/src/main/jniLibs/<abi>/libdnstt.so` (dnstt-client), run as a
-  subprocess by `engine/DnsttRunner.kt` with the invocation from
+  subprocess by `engine/SidecarRunner.kt` (Sidecars "dnstt") with the invocation from
   `dnstt-client/main.go`: `(-udp|-dot|-doh) RESOLVER -pubkey HEX DOMAIN 127.0.0.1:PORT`.
 - Chain: dnstt local port → sing-box SOCKS5 or SSH outbound → sing-box local
   SOCKS5 → zeptun tun. Profiles are `dnstt://` links or DNS Lab "add to servers".
