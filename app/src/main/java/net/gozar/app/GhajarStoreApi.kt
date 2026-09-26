@@ -1230,10 +1230,17 @@ class GhajarStoreApi(context: Context) {
         // A known URL still needs an immediate refresh; a previous import may
         // have registered the subscription without any usable configurations.
 
-        val imported = if (service.subscriptionUrl?.startsWith("https://") == true) {
-            val url = service.subscriptionUrl
-            val fetched = SubscriptionFetcher.fetchFull(url)
-            if (fetched.configs.isEmpty()) throw GhajarApiException("سرویس صادر شد، اما ساب هنوز کانفیگ ندارد؛ از «سرویس‌های من» دوباره دریافت کن.")
+        // The subscription is tried first; when the phone cannot read it (a
+        // seller panel blocked from this network, or not answering yet) the
+        // configs the server already sent are imported instead, so a paid
+        // service is never left undelivered.
+        val url = service.subscriptionUrl?.takeIf { it.startsWith("https://") }
+        val fetched = url?.let { runCatching { SubscriptionFetcher.fetchFull(it) }.getOrNull() }
+            ?.takeIf { it.configs.isNotEmpty() }
+        if (url != null && fetched == null && joined.isBlank()) {
+            throw GhajarApiException("سرویس صادر شد، اما ساب هنوز کانفیگ ندارد؛ از «سرویس‌های من» دوباره دریافت کن.")
+        }
+        val imported = if (url != null && fetched != null) {
             withContext(Dispatchers.Main) {
                 val existing = store.subscriptions.value.firstOrNull { it.url == url }
                 val subscription = existing ?: Subscription(name = service.productName.ifBlank { "سرویس قاجار" }, url = url)

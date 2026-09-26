@@ -24,6 +24,7 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingBag
@@ -604,6 +605,19 @@ private fun MarketOrderPage(
  * A finished order: the username, the subscription link and the configs, with
  * one button that imports them the same way the rest of the app does.
  */
+/** A marketplace delivery in the shape the Ghajar shop's import and dialog take. */
+internal fun marketServiceDetails(status: GhajarMarketOrderStatus, productName: String) = GhajarServiceDetails(
+    username = status.username,
+    productName = productName,
+    status = "active",
+    usedGb = null,
+    totalGb = null,
+    remainingGb = null,
+    expiresAt = "",
+    subscriptionUrl = status.subscription.takeIf { it.isNotBlank() },
+    outputs = status.configs
+)
+
 @Composable
 internal fun MarketDelivery(
     status: GhajarMarketOrderStatus,
@@ -617,6 +631,24 @@ internal fun MarketDelivery(
     val scope = rememberCoroutineScope()
     var imported by remember(status.id) { mutableStateOf<String?>(null) }
     var importing by remember(status.id) { mutableStateOf(false) }
+    var showQr by remember(status.id) { mutableStateOf(false) }
+    var synced by remember(status.id) { mutableStateOf(false) }
+    // Like the Ghajar shop: a delivered service goes straight into the
+    // servers list, without a second tap.
+    LaunchedEffect(status.id, status.subscription, status.configs.size) {
+        if (!synced && (status.subscription.isNotBlank() || status.configs.isNotEmpty())) {
+            importing = true
+            runCatching { api.importServiceOnce(store, marketServiceDetails(status, "سرویس فروشگاه")) }
+                .onSuccess { count -> synced = true; imported = if (count > 0) "به لیست سرورها اضافه شد." else "این سرویس در لیست سرورها هست." }
+                .onFailure { imported = it.message ?: "افزودن انجام نشد" }
+            importing = false
+        }
+    }
+    if (showQr) {
+        GhajarDeliveryDialog(
+            GhajarDelivery(marketServiceDetails(status, "سرویس فروشگاه"), imported = status.configs.size, synced = synced),
+            onDismiss = { showQr = false }, onRetry = { onRetry?.invoke() }, busy = importing)
+    }
 
     Slab(accent = c.primary, spacing = GhajarSpacing.sm) {
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -651,22 +683,13 @@ internal fun MarketDelivery(
                     importing = true
                     imported = null
                     scope.launch {
-                        val details = GhajarServiceDetails(
-                            username = status.username,
-                            productName = "سرویس فروشگاه",
-                            status = "active",
-                            usedGb = null,
-                            totalGb = null,
-                            remainingGb = null,
-                            expiresAt = "",
-                            subscriptionUrl = status.subscription.takeIf { it.isNotBlank() },
-                            outputs = status.configs
-                        )
+                        val details = marketServiceDetails(status, "سرویس فروشگاه")
                         imported = runCatching { api.importServiceOnce(store, details) }
                             .fold(
                                 { count ->
+                                    synced = true
                                     if (count > 0) "به لیست سرورها اضافه شد."
-                                    else "چیزی برای افزودن پیدا نشد."
+                                    else "این سرویس در لیست سرورها هست."
                                 },
                                 { it.message ?: "افزودن انجام نشد" }
                             )
@@ -676,6 +699,7 @@ internal fun MarketDelivery(
                 enabled = !importing,
                 icon = Icons.Filled.Check
             )
+            GhostPill("QR و کانفیگ‌ها", { showQr = true }, icon = Icons.Filled.QrCode2)
             GhostPill("کپی", { copyToClipboard(context, payload) }, icon = Icons.Filled.ContentCopy)
         }
         imported?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = c.textSecondary) }

@@ -755,10 +755,7 @@ private fun MarketServicesTab(
                                     if (d.subscription.isBlank() && d.configs.isEmpty()) {
                                         throw GhajarApiException("فروشنده هنوز کانفیگی برای این سرویس برنگردانده است؛ چند لحظه بعد دوباره بزنید.")
                                     }
-                                    api.importServiceOnce(store, GhajarServiceDetails(
-                                        username = d.username, productName = service.productName.ifBlank { "سرویس فروشگاه" },
-                                        status = "active", usedGb = null, totalGb = null, remainingGb = null, expiresAt = "",
-                                        subscriptionUrl = d.subscription.takeIf { it.isNotBlank() }, outputs = d.configs))
+                                    api.importServiceOnce(store, marketServiceDetails(d, service.productName.ifBlank { "سرویس فروشگاه" }))
                                 }.onSuccess { count ->
                                     notice = if (count > 0) "✅ به لیست سرورها اضافه شد." else "این سرویس قبلاً اضافه شده است."
                                     error = null
