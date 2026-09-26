@@ -119,4 +119,14 @@ class GhajarLogRedactionTest {
     fun `empty input is safe`() {
         assertEquals("", redacted(""))
     }
+
+    @Test
+    fun `ssh link, pem blocks, ovpn inline keys, openconnect cookie and passphrase are removed`() {
+        assertGone("SshPass123", "ssh://user:SshPass123@1.2.3.4:22?x=1")
+        assertGone("MIIEvQIBADANBg", "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\n-----END PRIVATE KEY-----")
+        assertGone("MIIDdzCCAl", "<ca>\nMIIDdzCCAl+gAwIBAgIE\n</ca> remote vpn.example.com 1194")
+        assertGone("abcdEFGH1234", "openconnect cookie=abcdEFGH1234; webvpn=zzzzzz9999")
+        assertGone("my-npvs-secret-99", "passphrase: my-npvs-secret-99")
+        assertTrue(redacted("<ca>x</ca> remote vpn.example.com 1194").contains("vpn.example.com"))
+    }
 }
