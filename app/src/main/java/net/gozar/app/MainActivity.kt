@@ -157,6 +157,9 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Wifi
@@ -1261,6 +1264,17 @@ private fun GozarApp(
     val settingsScroll = rememberScrollState()
 
     var showPicker by remember { mutableStateOf(false) }
+    // A renewal asked for from outside the shop - the notification's
+    // "renew this service" button or the notice dialog - lands on the shop
+    // page, which opens that exact service's renewal. Without this the
+    // request waited silently until the user happened to open the shop.
+    val pendingRenew by GhajarRenewRequest.requested.collectAsState()
+    LaunchedEffect(pendingRenew) {
+        if (pendingRenew != null) {
+            showPicker = false
+            pagerState.animateScrollToPage(PAGE_SHOP)
+        }
+    }
     var showManual by remember { mutableStateOf(false) }
     var showProjects by remember { mutableStateOf(false) }
     var showTorNodes by remember { mutableStateOf(false) }
@@ -2439,6 +2453,27 @@ private fun ConfigPickerScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var chainFor by remember { mutableStateOf<ProxyConfig?>(null) }
     var openActionsId by remember { mutableStateOf<String?>(null) }
+    // Configs waiting for a group to be chosen: moved (a single config, or
+    // a hand-made group's contents) or copied (a fetched subscription's,
+    // which its own refresh has to keep finding where it left them).
+    var groupFor by remember { mutableStateOf<Pair<Set<String>, Boolean>?>(null) }
+    // One config's TCP handshake and real-delay tests, run from its menu.
+    fun tcpPingOne(cfg: ProxyConfig) {
+        pings[cfg.id] = PingResult.Testing
+        scope.launch {
+            pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") Pinger.pingIke(cfg.address)
+            else Pinger.ping(cfg.address, cfg.port)
+        }
+    }
+    fun realDelayOne(cfg: ProxyConfig) {
+        pings[cfg.id] = PingResult.Testing
+        scope.launch {
+            pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") Pinger.pingIke(cfg.address) else {
+                val ms = withContext(Dispatchers.IO) { Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg)) }
+                if (ms >= 0) PingResult.Ok(ms.toInt()) else PingResult.Failed
+            }
+        }
+    }
     // Adding a subscription by its link. The clipboard path already handled a
     // URL, but only if you had first put one on the clipboard and knew the app
     // would treat it as a subscription rather than a config - which is not a
@@ -3185,6 +3220,27 @@ private fun ConfigPickerScreen(
                             }
                         },
                         onRename = { newName -> store.renameSubscription(sub.id, newName) },
+                        onEditLink = if (sub.url.isNotBlank() && sub.url != FreeConfigs.SOURCE_URL)
+                            { link -> store.updateSubscriptionUrl(sub.id, link) } else null,
+                        onGroup = { groupFor = subConfigs.map { it.id }.toSet() to sub.url.isNotBlank() },
+                        onTcpPing = {
+                            if (sub.id !in pingingSubs && subConfigs.isNotEmpty()) {
+                                pingingSubs = pingingSubs + sub.id
+                                subConfigs.forEach { pings[it.id] = PingResult.Testing }
+                                scope.launch {
+                                    val sem = Semaphore(8)
+                                    subConfigs.map { cfg ->
+                                        launch {
+                                            sem.withPermit {
+                                                pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2")
+                                                    Pinger.pingIke(cfg.address) else Pinger.ping(cfg.address, cfg.port)
+                                            }
+                                        }
+                                    }.joinAll()
+                                    pingingSubs = pingingSubs - sub.id
+                                }
+                            }
+                        },
                         onRemove = { store.deleteSubscription(sub.id) },
                         timedOutCount = subConfigs.count { pings[it.id] == PingResult.Failed },
                         onRemoveTimedOut = {
@@ -3250,7 +3306,11 @@ private fun ConfigPickerScreen(
                             containerColor = wsRow,
                             conn = conn,
                             onToggleConnection = { toggleConnection(cfg) },
-                            onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) }
+                            onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) },
+                            onRename = { store.renameConfig(cfg.id, it) },
+                            onMoveToGroup = { groupFor = setOf(cfg.id) to false },
+                            onTcpPing = { tcpPingOne(cfg) },
+                            onRealDelay = { realDelayOne(cfg) }
                         )
                     }
                 }
@@ -3309,7 +3369,11 @@ private fun ConfigPickerScreen(
                         modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
                         conn = conn,
                         onToggleConnection = { toggleConnection(cfg) },
-                        onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) }
+                        onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) },
+                        onRename = { store.renameConfig(cfg.id, it) },
+                        onMoveToGroup = { groupFor = setOf(cfg.id) to false },
+                        onTcpPing = { tcpPingOne(cfg) },
+                        onRealDelay = { realDelayOne(cfg) }
                     )
                 }
             }
@@ -3380,6 +3444,19 @@ private fun ConfigPickerScreen(
                 )
             }
         }
+    }
+
+    groupFor?.let { (ids, copy) ->
+        GroupPickDialog(
+            groups = store.localGroups(),
+            title = if (copy) t("copy_to_group") else t("move_to_group"),
+            onPick = { name ->
+                groupFor = null
+                val count = if (copy) store.copyToGroup(ids, name) else store.moveToGroup(ids, name)
+                addDone = n(t(if (copy) "copied_n" else "moved_n").format(count))
+            },
+            onDismiss = { groupFor = null }
+        )
     }
 
     chainFor?.let { target ->
@@ -11712,6 +11789,12 @@ private fun SubscriptionHeader(
     onRenew: (() -> Unit)? = null,
     /** How many configs this subscription holds, shown under its name. */
     configCount: Int = 0,
+    /** Change the link; null where there is no link to change. */
+    onEditLink: ((String) -> Unit)? = null,
+    /** Move (a hand-made group) or copy (a fetched one) its configs into a group. */
+    onGroup: () -> Unit = {},
+    /** TCP handshake to every config; [onPing] is the real-delay test. */
+    onTcpPing: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -11721,6 +11804,34 @@ private fun SubscriptionHeader(
     var renaming by remember { mutableStateOf(false) }
     var shareMenu by remember { mutableStateOf(false) }
     var draftName by remember { mutableStateOf(sub.name) }
+    var editingLink by remember { mutableStateOf(false) }
+    var draftLink by remember { mutableStateOf(sub.url) }
+    var showQr by remember { mutableStateOf(false) }
+
+    if (showQr && sub.url.isNotBlank()) {
+        QrDialog(link = sub.url, title = sub.name, onDismiss = { showQr = false })
+    }
+    if (editingLink && onEditLink != null) {
+        GlassDialog(
+            onDismiss = { editingLink = false },
+            title = t("sub_edit_link"),
+            confirmLabel = t("save"),
+            dismissLabel = t("cancel"),
+            onConfirm = {
+                val link = draftLink.trim()
+                if (link.startsWith("http://") || link.startsWith("https://")) onEditLink(link)
+                editingLink = false
+            }
+        ) {
+            OutlinedTextField(
+                value = draftLink,
+                onValueChange = { draftLink = it },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
 
     if (renaming) {
         GlassDialog(
@@ -11878,10 +11989,36 @@ private fun SubscriptionHeader(
                         }
                         context.startActivity(Intent.createChooser(send, sub.name))
                     }
+                    if (sub.url.isNotBlank()) {
+                        CompactMenuItem(Icons.Filled.QrCode2, t("qr_show")) {
+                            shareMenu = false
+                            showQr = true
+                        }
+                    }
                     CompactMenuItem(Icons.Filled.Edit, t("edit_sub_name")) {
                         shareMenu = false
                         draftName = sub.name
                         renaming = true
+                    }
+                    if (onEditLink != null) {
+                        CompactMenuItem(Icons.Filled.Link, t("sub_edit_link")) {
+                            shareMenu = false
+                            draftLink = sub.url
+                            editingLink = true
+                        }
+                    }
+                    CompactMenuItem(Icons.Filled.DriveFileMove,
+                        if (sub.url.isNotBlank()) t("copy_to_group") else t("move_to_group")) {
+                        shareMenu = false
+                        onGroup()
+                    }
+                    CompactMenuItem(Icons.Filled.NetworkCheck, t("tcp_ping")) {
+                        shareMenu = false
+                        onTcpPing()
+                    }
+                    CompactMenuItem(Icons.Filled.Speed, t("real_delay")) {
+                        shareMenu = false
+                        onPing()
                     }
                     HorizontalDivider(color = c.border)
                     DropdownMenuItem(
@@ -12241,6 +12378,55 @@ private fun ChainOptionRow(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+private fun GroupPickDialog(
+    groups: List<Subscription>,
+    title: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val t = stringsFn()
+    val c = ghajarColors
+    var newName by remember { mutableStateOf("") }
+    GlassDialog(
+        onDismiss = onDismiss,
+        title = title,
+        confirmLabel = t("save"),
+        dismissLabel = t("cancel"),
+        onConfirm = { if (newName.isNotBlank()) onPick(newName.trim()) else onDismiss() }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (groups.isNotEmpty()) {
+                Text(t("group_pick"), style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+                groups.forEach { group ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(GhajarRadius.md))
+                            .background(c.secondaryCard)
+                            .clickable { onPick(group.name) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.DriveFileMove, null, tint = c.primary, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(group.name, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = newName,
+                onValueChange = { newName = it.take(80) },
+                singleLine = true,
+                label = { Text(t("group_new")) },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
     val t = stringsFn()
     val context = LocalContext.current
@@ -12581,18 +12767,47 @@ private fun ConfigRow(
     containerColor: Color? = null,
     conn: Connection = Connection.DISCONNECTED,
     onToggleConnection: (() -> Unit)? = null,
-    onToggleFavorite: () -> Unit = {}
+    onToggleFavorite: () -> Unit = {},
+    /** The rest of what a single config can be asked to do, from its "more" menu. */
+    onRename: (String) -> Unit = {},
+    onMoveToGroup: () -> Unit = {},
+    onTcpPing: () -> Unit = {},
+    onRealDelay: () -> Unit = {}
 ) {
     val t = stringsFn()
     val lang = LocalLang.current
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var shareMenu by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
+    var draftName by remember { mutableStateOf(config.name) }
     var qrFor by remember { mutableStateOf<String?>(null) }
     val checked by remember { derivedStateOf { isChecked() } }
 
     qrFor?.let { link ->
         QrDialog(link = link, title = GhajarUiRules.brandedConfigName(config.name), onDismiss = { qrFor = null })
+    }
+    if (renaming) {
+        GlassDialog(
+            onDismiss = { renaming = false },
+            title = t("cfg_rename"),
+            confirmLabel = t("save"),
+            dismissLabel = t("cancel"),
+            onConfirm = {
+                val nm = draftName.trim()
+                if (nm.isNotEmpty()) onRename(nm)
+                renaming = false
+            }
+        ) {
+            OutlinedTextField(
+                value = draftName,
+                onValueChange = { draftName = it.take(120) },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 
     val c = ghajarColors
@@ -12949,6 +13164,45 @@ private fun ConfigRow(
                             tint = c.primary,
                             onClick = onEdit
                         )
+                        Box {
+                            RowAction(
+                                icon = Icons.Filled.MoreVert,
+                                label = t("row_more"),
+                                tint = c.primary,
+                                onClick = { moreMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = moreMenu,
+                                onDismissRequest = { moreMenu = false },
+                                shape = RoundedCornerShape(GhajarRadius.lg),
+                                containerColor = c.card,
+                                border = null
+                            ) {
+                                if (!config.locked) {
+                                    CompactMenuItem(Icons.Filled.QrCode2, t("qr_show")) {
+                                        moreMenu = false
+                                        qrFor = ConfigShare.toLink(config)
+                                    }
+                                }
+                                CompactMenuItem(Icons.Filled.DriveFileRenameOutline, t("cfg_rename")) {
+                                    moreMenu = false
+                                    draftName = config.name
+                                    renaming = true
+                                }
+                                CompactMenuItem(Icons.Filled.DriveFileMove, t("move_to_group")) {
+                                    moreMenu = false
+                                    onMoveToGroup()
+                                }
+                                CompactMenuItem(Icons.Filled.NetworkCheck, t("tcp_ping")) {
+                                    moreMenu = false
+                                    onTcpPing()
+                                }
+                                CompactMenuItem(Icons.Filled.Speed, t("real_delay")) {
+                                    moreMenu = false
+                                    onRealDelay()
+                                }
+                            }
+                        }
                         RowAction(
                             icon = Icons.Filled.Delete,
                             label = t("delete"),

@@ -179,7 +179,22 @@ data class GhajarMarketShop(
     val productCount: Int = 0,
     val discountCount: Int = 0,
     val sales30d: Int = 0,
-    val reviews: List<GhajarMarketReview> = emptyList()
+    val reviews: List<GhajarMarketReview> = emptyList(),
+    /** One line under the name, set by the seller. */
+    val tagline: String = "",
+    /**
+     * Non-zero when the seller set a profile picture; changes whenever they
+     * replace it, so it doubles as the cache key for the image.
+     */
+    val logoVersion: Int = 0,
+    /** Base price of one gigabyte on the seller's custom plan; 0 when none. */
+    val gbPrice: Long = 0,
+    val dayPrice: Long = 0,
+    /** Cheapest and dearest ready plan across the seller's panels. */
+    val panelMinPrice: Long = 0,
+    val panelMaxPrice: Long = 0,
+    val panelCount: Int = 0,
+    val testAvailable: Boolean = false
 )
 
 data class GhajarMarketReview(val stars: Int, val body: String, val createdAt: Long)
@@ -188,7 +203,19 @@ data class GhajarMarketPanel(
     val code: String,
     val name: String,
     val country: String,
-    val flag: String
+    val flag: String,
+    /** Whether a custom (pick your own size) plan is sold on this panel. */
+    val custom: Boolean = false,
+    val gbPrice: Long = 0,
+    val dayPrice: Long = 0,
+    val minGb: Int = 0,
+    val maxGb: Int = 0,
+    val minDays: Int = 0,
+    val maxDays: Int = 0,
+    /** Whether the seller offers a free test on this panel, and how big. */
+    val test: Boolean = false,
+    val testHours: Int = 0,
+    val testMb: Int = 0
 )
 
 data class GhajarMarketProduct(
@@ -197,7 +224,9 @@ data class GhajarMarketProduct(
     val price: Long,
     val volumeGb: Int,
     val timeDays: Int,
-    val note: String
+    val note: String,
+    /** The seller's panel this plan is sold on; "/all" or blank for every panel. */
+    val location: String = ""
 )
 
 /**
@@ -235,7 +264,13 @@ data class GhajarMarketOrder(
     val contact: String,
     /** Set only for a gateway order: where to send the buyer. */
     val gatewayUrl: String,
-    val productName: String
+    val productName: String,
+    /**
+     * "paid" when the order finished on the spot - a free test, or a plan
+     * paid from the wallet at this shop - so there is nothing left to pay.
+     */
+    val status: String = "",
+    val message: String = ""
 )
 
 data class GhajarMarketOrderStatus(
@@ -264,6 +299,87 @@ data class GhajarMarketTerms(
     val penaltyPerDay: Long,
     val graceDays: Int,
     val myShops: List<GhajarMarketOwnShop>
+)
+
+/** Everything one shop's page needs, from one request. */
+data class GhajarMarketHome(
+    val shop: GhajarMarketShop,
+    /** False when the seller's own server did not answer this time. */
+    val reachable: Boolean,
+    val catalog: GhajarMarketCatalog,
+    val testEnabled: Boolean,
+    val testUsed: Boolean,
+    /** The buyer's balance at this shop; null when not signed in. */
+    val wallet: Long?,
+    val unread: Int,
+    val blocked: Boolean
+)
+
+data class GhajarMarketService(
+    val invoiceId: String,
+    val username: String,
+    val productName: String,
+    val panelName: String,
+    val isTest: Boolean,
+    val boughtAt: Long,
+    /** False when the seller's panel did not answer for this service. */
+    val reachable: Boolean,
+    val status: String,
+    /** Bytes, as the seller's panel reports them; 0 when unlimited. */
+    val dataLimit: Long,
+    val used: Long,
+    /** Unix seconds; 0 when it does not expire. */
+    val expire: Long,
+    val volumeGb: Int,
+    val timeDays: Int,
+    val subscription: String,
+    val configCount: Int
+)
+
+data class GhajarMarketMessage(
+    val id: Int,
+    val kind: String,
+    val title: String,
+    val body: String,
+    val createdAt: Long,
+    val read: Boolean
+)
+
+data class GhajarMarketWalletEntry(
+    val amount: Long,
+    val kind: String,
+    val title: String,
+    val balanceAfter: Long,
+    val createdAt: Long
+)
+
+data class GhajarMarketWallet(val balance: Long, val history: List<GhajarMarketWalletEntry>)
+
+data class GhajarMarketTransaction(
+    val id: Int,
+    val kind: String,
+    val status: String,
+    val amount: Long,
+    val method: String,
+    val productName: String,
+    val rejectReason: String,
+    val createdAt: Long
+)
+
+data class GhajarMarketTicket(
+    val id: Int,
+    val subject: String,
+    val status: String,
+    val updatedAt: Long
+)
+
+data class GhajarMarketTicketMessage(val fromSeller: Boolean, val body: String, val createdAt: Long)
+
+data class GhajarMarketTicketThread(
+    val id: Int,
+    val subject: String,
+    val status: String,
+    val messages: List<GhajarMarketTicketMessage>
 )
 
 data class GhajarNoticeMeta(
@@ -1247,26 +1363,66 @@ class GhajarStoreApi(context: Context) {
     suspend fun marketCatalog(shopId: Int): GhajarMarketCatalog {
         val payload = marketAction("shop_catalog",
             params = mapOf("shop_id" to shopId.toString()), allowAnonymous = true).payloadObject()
-        return GhajarMarketCatalog(
-            panels = payload.optJSONArray("panels").orEmpty().objects().map { row ->
-                GhajarMarketPanel(
-                    code = row.optString("code"),
-                    name = visible(row.optString("name")),
-                    country = visible(row.optString("country")),
-                    flag = visible(row.optString("flag"))
-                )
-            }.filter { it.code.isNotBlank() },
-            products = payload.optJSONArray("products").orEmpty().objects().map { row ->
-                GhajarMarketProduct(
-                    code = row.optString("code"),
-                    name = visible(row.optString("name")),
-                    price = row.optNullableDouble("price")?.toLong() ?: 0,
-                    volumeGb = row.optInt("volume_gb"),
-                    timeDays = row.optInt("time_days"),
-                    note = visible(row.optString("note"))
-                )
-            }.filter { it.code.isNotBlank() },
-            methods = payload.optJSONArray("payment").orEmpty().objects().map { marketMethodFrom(it) }
+        return marketCatalogFrom(payload)
+    }
+
+    private fun marketCatalogFrom(payload: JSONObject) = GhajarMarketCatalog(
+        panels = payload.optJSONArray("panels").orEmpty().objects().map { row ->
+            GhajarMarketPanel(
+                code = row.optString("code"),
+                name = visible(row.optString("name")),
+                country = visible(row.optString("country")),
+                flag = visible(row.optString("flag")),
+                custom = row.optBoolean("custom"),
+                gbPrice = (row.optNullableDouble("gb_price") ?: 0.0).toLong(),
+                dayPrice = (row.optNullableDouble("day_price") ?: 0.0).toLong(),
+                minGb = row.optInt("min_gb"),
+                maxGb = row.optInt("max_gb"),
+                minDays = row.optInt("min_days"),
+                maxDays = row.optInt("max_days"),
+                test = row.optBoolean("test"),
+                testHours = row.optInt("test_hours"),
+                testMb = row.optInt("test_mb")
+            )
+        }.filter { it.code.isNotBlank() },
+        products = payload.optJSONArray("products").orEmpty().objects().map { row ->
+            GhajarMarketProduct(
+                code = row.optString("code"),
+                name = visible(row.optString("name")),
+                price = row.optNullableDouble("price")?.toLong() ?: 0,
+                volumeGb = row.optInt("volume_gb"),
+                timeDays = row.optInt("time_days"),
+                note = visible(row.optString("note")),
+                location = visible(row.optString("location"))
+            )
+        }.filter { it.code.isNotBlank() },
+        methods = payload.optJSONArray("payment").orEmpty().objects().map { marketMethodFrom(it) }
+    )
+
+    /**
+     * One shop's page: the card, reviews, catalogue with custom and test
+     * pricing, payment methods, and this buyer's balance and unread count.
+     */
+    suspend fun marketHome(shopId: Int): GhajarMarketHome {
+        val payload = marketAction("shop_home", params = mapOf("shop_id" to shopId.toString()),
+            allowAnonymous = true).payloadObject()
+        val catalog = payload.optJSONObject("catalog") ?: JSONObject()
+        val test = catalog.optJSONObject("test") ?: JSONObject()
+        val me = payload.optJSONObject("me")
+        return GhajarMarketHome(
+            shop = marketShopFrom(payload).copy(
+                reviews = payload.optJSONArray("reviews_list").orEmpty().objects().map { row ->
+                    GhajarMarketReview(row.optInt("stars"), visible(row.optString("body")),
+                        row.optNullableLong("created_at") ?: 0L)
+                }
+            ),
+            reachable = catalog.optBoolean("reachable", true),
+            catalog = marketCatalogFrom(catalog),
+            testEnabled = test.optBoolean("enabled"),
+            testUsed = test.optBoolean("used"),
+            wallet = me?.let { (it.optNullableDouble("wallet") ?: 0.0).toLong() },
+            unread = me?.optInt("unread") ?: 0,
+            blocked = me?.optBoolean("blocked") ?: false
         )
     }
 
@@ -1274,13 +1430,32 @@ class GhajarStoreApi(context: Context) {
         shopId: Int,
         productCode: String,
         panelCode: String,
-        method: String
+        method: String,
+        /** purchase, renew, wallet (a top-up) or test. */
+        kind: String = "purchase",
+        /** "custom" for a size the buyer picked, with [volumeGb] and [timeDays]. */
+        plan: String = "",
+        volumeGb: Int = 0,
+        timeDays: Int = 0,
+        /** For a renewal: which of this buyer's services at the shop. */
+        invoiceId: String = "",
+        username: String = "",
+        /** For a top-up: how much. */
+        amount: Long = 0
     ): GhajarMarketOrder {
-        val payload = marketAction("order_start", method = "POST", body = JSONObject()
+        val envelope = marketAction("order_start", method = "POST", body = JSONObject()
             .put("shop_id", shopId)
+            .put("kind", kind)
             .put("product_code", productCode)
             .put("panel_code", panelCode)
-            .put("method", method)).payloadObject()
+            .put("method", method)
+            .put("plan", plan)
+            .put("volume_gb", volumeGb)
+            .put("time_days", timeDays)
+            .put("invoice_id", invoiceId)
+            .put("username", username)
+            .put("amount", amount))
+        val payload = envelope.payloadObject()
         return GhajarMarketOrder(
             id = payload.optInt("id"),
             method = payload.optString("method"),
@@ -1291,7 +1466,9 @@ class GhajarStoreApi(context: Context) {
             cardHolder = visible(payload.optString("card_holder")),
             contact = payload.optString("contact"),
             gatewayUrl = payload.optString("gateway_url"),
-            productName = visible(payload.optString("product_name"))
+            productName = visible(payload.optString("product_name")),
+            status = payload.optString("status"),
+            message = visible(envelope.optString("msg"))
         )
     }
 
@@ -1408,6 +1585,177 @@ class GhajarStoreApi(context: Context) {
         )
     }
 
+    private fun shopParam(shopId: Int) = mapOf("shop_id" to shopId.toString())
+
+    /** What this buyer bought at one shop, with live usage from the seller's panel. */
+    suspend fun marketServices(shopId: Int): List<GhajarMarketService> =
+        marketAction("my_services", params = shopParam(shopId)).payloadObject()
+            .optJSONArray("services").orEmpty().objects().map { row ->
+                val usage = row.optJSONObject("usage") ?: JSONObject()
+                GhajarMarketService(
+                    invoiceId = row.optString("invoice_id"),
+                    username = row.optString("username"),
+                    productName = visible(row.optString("product_name")),
+                    panelName = visible(row.optString("panel_name")),
+                    isTest = row.optBoolean("is_test"),
+                    boughtAt = row.optNullableLong("bought_at") ?: 0L,
+                    reachable = row.optBoolean("reachable"),
+                    status = usage.optString("status"),
+                    dataLimit = (usage.optNullableDouble("data_limit") ?: 0.0).toLong(),
+                    used = (usage.optNullableDouble("used") ?: 0.0).toLong(),
+                    expire = usage.optNullableLong("expire") ?: 0L,
+                    volumeGb = usage.optInt("volume_gb"),
+                    timeDays = usage.optInt("time_days"),
+                    subscription = row.optString("subscription"),
+                    configCount = row.optInt("config_count")
+                )
+            }
+
+    /** One owned service's configs and link, for importing into the app. */
+    suspend fun marketServiceDelivery(shopId: Int, invoiceId: String, username: String): GhajarMarketOrderStatus {
+        val payload = marketAction("service_detail", params = shopParam(shopId) +
+            mapOf("invoice_id" to invoiceId, "username" to username)).payloadObject()
+        return GhajarMarketOrderStatus(
+            id = 0,
+            shopId = shopId,
+            status = "paid",
+            rejectReason = "",
+            amount = 0,
+            username = payload.optString("username", username),
+            configs = payload.optJSONArray("configs").orEmpty().let { array ->
+                (0 until array.length()).mapNotNull { array.optString(it).takeIf { s -> s.isNotBlank() } }
+            },
+            subscription = payload.optString("subscription")
+        )
+    }
+
+    suspend fun marketMessages(shopId: Int): List<GhajarMarketMessage> =
+        marketAction("messages", params = shopParam(shopId)).payloadObject()
+            .optJSONArray("messages").orEmpty().objects().map { row ->
+                GhajarMarketMessage(
+                    id = row.optInt("id"),
+                    kind = row.optString("kind"),
+                    title = visible(row.optString("title")),
+                    body = visible(row.optString("body")),
+                    createdAt = row.optNullableLong("created_at") ?: 0L,
+                    read = row.optBoolean("read")
+                )
+            }
+
+    suspend fun marketMessagesRead(shopId: Int) {
+        marketAction("messages_read", method = "POST", body = JSONObject().put("shop_id", shopId))
+    }
+
+    suspend fun marketWallet(shopId: Int): GhajarMarketWallet {
+        val payload = marketAction("wallet", params = shopParam(shopId)).payloadObject()
+        return GhajarMarketWallet(
+            balance = (payload.optNullableDouble("balance") ?: 0.0).toLong(),
+            history = payload.optJSONArray("history").orEmpty().objects().map { row ->
+                GhajarMarketWalletEntry(
+                    amount = (row.optNullableDouble("amount") ?: 0.0).toLong(),
+                    kind = row.optString("kind"),
+                    title = visible(row.optString("title")),
+                    balanceAfter = (row.optNullableDouble("balance_after") ?: 0.0).toLong(),
+                    createdAt = row.optNullableLong("created_at") ?: 0L
+                )
+            }
+        )
+    }
+
+    suspend fun marketTransactions(shopId: Int): List<GhajarMarketTransaction> =
+        marketAction("transactions", params = shopParam(shopId)).payloadObject()
+            .optJSONArray("transactions").orEmpty().objects().map { row ->
+                GhajarMarketTransaction(
+                    id = row.optInt("id"),
+                    kind = row.optString("kind"),
+                    status = row.optString("status"),
+                    amount = (row.optNullableDouble("amount") ?: 0.0).toLong(),
+                    method = row.optString("method"),
+                    productName = visible(row.optString("product_name")),
+                    rejectReason = visible(row.optString("reject_reason")),
+                    createdAt = row.optNullableLong("created_at") ?: 0L
+                )
+            }
+
+    suspend fun marketTickets(shopId: Int): List<GhajarMarketTicket> =
+        marketAction("tickets", params = shopParam(shopId)).payloadObject()
+            .optJSONArray("tickets").orEmpty().objects().map { row ->
+                GhajarMarketTicket(
+                    id = row.optInt("id"),
+                    subject = visible(row.optString("subject")),
+                    status = row.optString("status"),
+                    updatedAt = row.optNullableLong("updated_at") ?: 0L
+                )
+            }
+
+    private fun ticketThreadFrom(payload: JSONObject) = GhajarMarketTicketThread(
+        id = payload.optInt("id"),
+        subject = visible(payload.optString("subject")),
+        status = payload.optString("status"),
+        messages = payload.optJSONArray("messages").orEmpty().objects().map { row ->
+            GhajarMarketTicketMessage(
+                fromSeller = row.optString("sender") == "seller",
+                body = visible(row.optString("body")),
+                createdAt = row.optNullableLong("created_at") ?: 0L
+            )
+        }
+    )
+
+    suspend fun marketTicketThread(ticketId: Int): GhajarMarketTicketThread =
+        ticketThreadFrom(marketAction("ticket_thread",
+            params = mapOf("ticket_id" to ticketId.toString())).payloadObject())
+
+    suspend fun marketTicketReply(ticketId: Int, body: String): GhajarMarketTicketThread =
+        ticketThreadFrom(marketAction("ticket_reply", method = "POST",
+            body = JSONObject().put("ticket_id", ticketId).put("body", body)).payloadObject())
+
+    suspend fun marketTicketClose(ticketId: Int): GhajarMarketTicketThread =
+        ticketThreadFrom(marketAction("ticket_close", method = "POST",
+            body = JSONObject().put("ticket_id", ticketId)).payloadObject())
+
+    suspend fun marketTicketCreate(shopId: Int, subject: String, body: String): Int =
+        marketAction("ticket_create", method = "POST", body = JSONObject()
+            .put("shop_id", shopId).put("subject", subject).put("body", body))
+            .payloadObject().optInt("id")
+
+    /**
+     * A shop's profile picture, or null.
+     *
+     * Kept on disk by shop and version, so the list costs one download per
+     * logo change and nothing after that. Direct first and then through the
+     * tunnel, like every other call to this server.
+     */
+    suspend fun marketLogo(shopId: Int, version: Int): android.graphics.Bitmap? = withContext(Dispatchers.IO) {
+        if (shopId <= 0 || version <= 0) return@withContext null
+        val dir = java.io.File(appContext.cacheDir, "market-logos").apply { mkdirs() }
+        val file = java.io.File(dir, "$shopId-$version.img")
+        if (file.isFile && file.length() > 0) {
+            BitmapFactory.decodeFile(file.path)?.let { return@withContext it }
+        }
+        val url = URL("${BrandConfig.MARKET_API_URL}?actions=shop_logo&shop_id=$shopId&v=$version")
+        fun fetch(proxy: Proxy?): ByteArray? {
+            val connection = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
+            return try {
+                connection.connectTimeout = CONNECT_TIMEOUT
+                connection.readTimeout = READ_TIMEOUT
+                connection.setRequestProperty("User-Agent", userAgent())
+                connection.setRequestProperty(BrandConfig.CLIENT_HEADER, BrandConfig.CLIENT_ID)
+                if (connection.responseCode != 200 ||
+                    connection.contentType?.startsWith("image/") != true) null
+                else connection.inputStream.use { it.readBytes() }.takeIf { it.size in 1..(2 * 1024 * 1024) }
+            } finally {
+                connection.disconnect()
+            }
+        }
+        val bytes = runCatching { fetch(null) }.getOrNull()
+            ?: runCatching { fetch(Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value))) }.getOrNull()
+            ?: return@withContext null
+        val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size) ?: return@withContext null
+        dir.listFiles()?.filter { it.name.startsWith("$shopId-") }?.forEach { it.delete() }
+        runCatching { file.writeBytes(bytes) }
+        bitmap
+    }
+
     private fun marketShopFrom(row: JSONObject) = GhajarMarketShop(
         id = row.optInt("id"),
         name = visible(row.optString("name", "فروشگاه")),
@@ -1426,7 +1774,15 @@ class GhajarStoreApi(context: Context) {
         maxPrice = (row.optNullableDouble("max_price") ?: 0.0).toLong(),
         productCount = row.optInt("product_count"),
         discountCount = row.optInt("discount_count"),
-        sales30d = row.optInt("sales_30d")
+        sales30d = row.optInt("sales_30d"),
+        tagline = visible(row.optString("tagline")),
+        logoVersion = row.optInt("logo_version"),
+        gbPrice = (row.optNullableDouble("gb_price") ?: 0.0).toLong(),
+        dayPrice = (row.optNullableDouble("day_price") ?: 0.0).toLong(),
+        panelMinPrice = (row.optNullableDouble("panel_min_price") ?: 0.0).toLong(),
+        panelMaxPrice = (row.optNullableDouble("panel_max_price") ?: 0.0).toLong(),
+        panelCount = row.optInt("panel_count"),
+        testAvailable = row.optBoolean("test_available")
     )
 
     private fun marketMethodFrom(row: JSONObject) = GhajarMarketMethod(

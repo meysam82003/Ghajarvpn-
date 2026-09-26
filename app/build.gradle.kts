@@ -28,8 +28,8 @@ android {
         // lower app minSdk fails the manifest merge regardless of the demo flag.
         minSdk = 26
         targetSdk = 36
-        versionCode = 30022
-        versionName = "1.0.7"
+        versionCode = 30023
+        versionName = "1.0.8"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 

@@ -98,7 +98,21 @@ internal fun GhajarNoticeBanner() {
             onDismissRequest = { expandedId = null },
             title = { Text(current.title) },
             text = { Text(current.message, modifier = Modifier.verticalScroll(rememberScrollState())) },
-            confirmButton = { TextButton(onClick = { dismiss(); expandedId = null }) { Text("خواندم") } },
+            // A warning about one service offers the one useful answer to it:
+            // renew that service, in the shop, now. Anything else keeps the
+            // plain acknowledgement.
+            confirmButton = {
+                val username = current.serviceUsername?.takeIf { it.isNotBlank() }
+                if (username != null) {
+                    TextButton(onClick = {
+                        dismiss()
+                        expandedId = null
+                        GhajarRenewRequest.request(username)
+                    }) { Text("تمدید همین سرویس") }
+                } else {
+                    TextButton(onClick = { dismiss(); expandedId = null }) { Text("خواندم") }
+                }
+            },
             dismissButton = { TextButton(onClick = { expandedId = null }) { Text("بازگشت") } }
         )
     }

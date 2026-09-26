@@ -35,6 +35,8 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CreditCard
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.ChevronLeft
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.LinkOff
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.OpenInNew
@@ -137,6 +139,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var message by checkoutModel.message
     var refreshKey by remember { mutableIntStateOf(0) }
     var section by rememberSaveable { mutableIntStateOf(0) }
+    // Which storefront is open. The page opens on the list of every shop -
+    // Ghajar included, as one entry among them - rather than inside Ghajar's
+    // own tabs with the others one tap deeper.
+    var inGhajar by rememberSaveable { mutableStateOf(false) }
+    // Set when something on the list needs an account, so the sign-in card
+    // comes to the top instead of a message pointing somewhere else.
+    var linkPrompt by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
     val sectionState = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var signOutConfirm by remember { mutableStateOf(false) }
@@ -211,6 +220,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             !ownedLoaded -> return@LaunchedEffect
             else -> owned.firstOrNull { it.invoiceId == requested }?.username ?: requested
         }
+        inGhajar = true
         section = 1
         renewUsername = username
         GhajarRenewRequest.consume()
@@ -303,7 +313,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         }
     }
 
-    LaunchedEffect(section, checkoutVisible) {
+    LaunchedEffect(section, checkoutVisible, inGhajar, linkPrompt) {
+        if (section > 5) section = 0
         listState.scrollToItem(0)
         if (section == 3 && linked) checkoutModel.refreshMethods()
     }
@@ -467,7 +478,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         // server. Nothing below it is hidden: the plans and the services stay
         // readable, since being unable to buy is not a reason to be unable to
         // look at what you already own.
-        if (!shopOpen) {
+        if (!shopOpen && inGhajar) {
             item(key = "shop-closed") {
                 Slab(accent = ghajarColors.warning) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -518,7 +529,16 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
         }
 
-        if (!linked) {
+        // Ghajar's own storefront: the way back to every shop, and its own
+        // header, the same frame a marketplace shop gets.
+        if (inGhajar) {
+            item(key = "shop-ghajar-back") {
+                GhostPill("همهٔ فروشگاه‌ها", { inGhajar = false }, icon = Icons.Filled.ChevronLeft)
+            }
+            item(key = "shop-ghajar-head") { GhajarShopIntro() }
+        }
+
+        if (!linked && (inGhajar || linkPrompt || linkSession != null)) {
             item(key = "shop-block-4") {
                 LinkAccountCard(
                     session = linkSession,
@@ -578,20 +598,40 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             // that showed nothing until you identified yourself. Browsing,
             // prices and ratings need no account; the buy and review buttons
             // ask for one when they are tapped.
-            item(key = "shop-block-market-guest") {
+        }
+        if (!inGhajar) {
+            // Every shop, Ghajar first and unsorted, the rest under the sort
+            // chips. The same list whether or not this phone has an account:
+            // browsing needs none, and the buy buttons ask for one when tapped.
+            item(key = "shop-block-market") {
                 sectionState.SaveableStateProvider("market") {
                     GhajarMarketScreen(
                         api = api,
                         store = store,
-                        active = active,
-                        signedIn = false,
+                        active = active && !inGhajar,
+                        signedIn = linked,
                         onSignIn = {
-                            message = "برای خرید از فروشگاه‌ها، «اتصال با تلگرام» بالای همین صفحه را بزن."
+                            linkPrompt = true
+                            message = "برای خرید، اول حساب را با «اتصال با تلگرام» متصل کن."
+                        },
+                        ghajarEntry = {
+                            GhajarEntryCard(
+                                cheapest = unfilteredProducts.mapNotNull { it.price }.filter { it > 0 }.minOrNull(),
+                                dearest = unfilteredProducts.mapNotNull { it.price }.filter { it > 0 }.maxOrNull(),
+                                planCount = unfilteredProducts.size,
+                                serviceCount = owned.size,
+                                onOpen = { inGhajar = true; linkPrompt = false }
+                            )
                         }
                     )
                 }
             }
-        } else {
+            if (!linked && !linkPrompt && linkSession == null) {
+                item(key = "shop-block-4-bottom") {
+                    GhostPill("اتصال حساب با تلگرام", { linkPrompt = true }, icon = Icons.Filled.Link)
+                }
+            }
+        } else if (linked) {
             item(key = "shop-header") {
                 ScreenHeader(
                     title = Strings.get(store.lang.value, "shop"),
@@ -623,36 +663,10 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     onSelect = { section = it }
                 )
             }
-            item(key = "shop-status-center") {
-                OrderStatusCenter(
-                    balanceText = paymentOptions?.let { "${formatPrice(it.balance)} ${it.currency}" },
-                    pendingCount = serverPending.size,
-                    activeServiceCount = owned.count { it.status.lowercase() in setOf("active", "enabled", "فعال") },
-                    totalServiceCount = owned.size,
-                    onOpenWallet = { section = 3 },
-                    onOpenPending = { section = 0 },
-                    onOpenServices = { section = 1 }
-                )
-            }
             if (section == 4) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
             if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, store.lang.value) }
-            if (section == 6) {
-                // Its own saveable state, like the ticket panel: a buyer who
-                // opens a shop, glances at their services and comes back should
-                // find the shop still open rather than the list again.
-                //
-                // No verticalScroll anywhere inside it. This is one item of a
-                // LazyColumn, so it is measured with an unbounded height, and a
-                // scrollable child under that throws at measure time - which is
-                // exactly the crash the support tab shipped with in 1.0.2.
-                item(key = "shop-block-market") {
-                    sectionState.SaveableStateProvider("market") {
-                        GhajarMarketScreen(api, store, active && section == 6, signedIn = true)
-                    }
-                }
-            }
             // An unfinished payment, shown on every section rather than only on
             // the two it used to hide behind.
             //
@@ -671,7 +685,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 }
                 items(entries, key = { "pending:${it.orderId}" }) { item ->
                     GhajarPendingPaymentCard(item, checkoutBusy, store.lang.value,
-                        onResume = { checkoutModel.resumePayment(item); section = 0 },
+                        onResume = { checkoutModel.resumePayment(item); inGhajar = true; section = 0 },
                         onCancel = { checkoutModel.cancelPayment(item.orderId) })
                 }
             }
@@ -1029,9 +1043,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             // The escape hatch to the full web panel used to sit at the top,
             // between the tabs and the first plan. It is a fallback, not a
             // destination, so it goes last.
-            item(key = "shop-block-8") {
+            if (section == 4) item(key = "shop-block-8") {
                 GhostPill(
-                    if (section == 4) "پنل کامل پشتیبانی و پیوست‌ها" else "پنل کامل خدمات حساب",
+                    "پنل کامل پشتیبانی و پیوست‌ها",
                     {
                         // The panel authenticates with Telegram's initData,
                         // which a browser never has, so this used to open a
@@ -1043,7 +1057,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         // opens exactly as before.
                         scope.launch {
                             val ticket = api.webPanelTicket()
-                            val fragment = if (section == 4) "#/tickets" else "#/account"
+                            val fragment = "#/tickets"
                             val url = if (ticket != null) {
                                 BrandConfig.STORE_URL + "?ticket=" + ticket + fragment
                             } else BrandConfig.STORE_URL + fragment
@@ -1094,6 +1108,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                     owned = emptyList(); ownedLoaded = false; notices = emptyList()
                     trialOptions = null; loadedPanelId = null
                     section = 0
+                    inGhajar = false
                     checkoutModel.reset()
                     message = "از حساب فروشگاه خارج شدی. برای ورود با حساب دیگر، کد تازه بگیر."
                     error = null
@@ -1178,6 +1193,67 @@ private fun ShopHeader(linked: Boolean, onRefresh: () -> Unit) {
             }
         }
         if (linked) IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, "بروزرسانی") }
+    }
+}
+
+/** The Ghajar shop's header on its own page: crest, name and what it is. */
+@Composable
+private fun GhajarShopIntro() {
+    val c = ghajarColors
+    Slab(spacing = GhajarSpacing.sm) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            GhajarCrestLogo(56.dp)
+            Spacer(Modifier.width(GhajarSpacing.md))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("فروشگاه قاجار", style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold, color = c.textPrimary)
+                    Spacer(Modifier.width(GhajarSpacing.xs))
+                    Icon(Icons.Filled.Verified, "رسمی", tint = c.primary, modifier = Modifier.size(16.dp))
+                }
+                Text("فروشگاه رسمی برنامه", style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+            }
+        }
+        Text(
+            "سرویس‌های رسمی قاجار با پشتیبانی مستقیم: پلن‌های آماده و دلخواه، سرویس تست رایگان، " +
+                "کیف پول، تمدید هر سرویس و تحویل خودکار کانفیگ داخل برنامه.",
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary
+        )
+    }
+}
+
+/** Ghajar as one entry in the list of shops, first and never sorted away. */
+@Composable
+private fun GhajarEntryCard(cheapest: Long?, dearest: Long?, planCount: Int, serviceCount: Int, onOpen: () -> Unit) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    Slab(onClick = onOpen, spacing = GhajarSpacing.sm, accent = c.premium) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            GhajarCrestLogo()
+            Spacer(Modifier.width(GhajarSpacing.sm))
+            Column(Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("فروشگاه قاجار", fontWeight = FontWeight.Bold, color = c.textPrimary)
+                    Spacer(Modifier.width(GhajarSpacing.xs))
+                    Icon(Icons.Filled.Verified, "رسمی", tint = c.primary, modifier = Modifier.size(14.dp))
+                }
+                Text("فروشگاه رسمی برنامه · تست رایگان · کیف پول", style = MaterialTheme.typography.labelSmall,
+                    color = c.textSecondary, maxLines = 1)
+            }
+            Icon(Icons.Filled.ChevronLeft, null, tint = c.textMuted)
+        }
+        if (cheapest != null) {
+            Text(
+                mixedText("🏷 ارزان‌ترین " + localizeDigits(formatPrice(cheapest), lang) +
+                    (if (dearest != null && dearest > cheapest) " · گران‌ترین " + localizeDigits(formatPrice(dearest), lang) else "") +
+                    " تومان" + (if (planCount > 0) " · " + localizeDigits(planCount.toString(), lang) + " پلن" else "")),
+                style = MaterialTheme.typography.labelSmall, color = c.textSecondary
+            )
+        }
+        if (serviceCount > 0) {
+            Text(mixedText("📦 " + localizeDigits(serviceCount.toString(), lang) + " سرویس فعال شما در این فروشگاه"),
+                style = MaterialTheme.typography.labelSmall, color = c.primary)
+        }
     }
 }
 
@@ -1656,13 +1732,9 @@ private fun StoreSectionTabs(
             RailTab("پیام‌ها", Icons.Filled.Notifications, noticeCount),
             RailTab("کیف پول", Icons.Filled.AccountBalanceWallet, pendingCount),
             RailTab("پشتیبانی", Icons.Filled.SupportAgent),
-            RailTab("تراکنش‌ها", Icons.Filled.SwapHoriz),
-            // Other sellers' shops. Last, because this shop is the default and
-            // a buyer who came here to renew should not have to walk past a
-            // marketplace to reach their own services.
-            RailTab("فروشگاه‌ها", Icons.Filled.ShoppingBag)
+            RailTab("تراکنش‌ها", Icons.Filled.SwapHoriz)
         ),
-        selected = section.coerceIn(0, 6),
+        selected = section.coerceIn(0, 5),
         onSelect = onSelect
     )
 }
@@ -2014,42 +2086,6 @@ private fun StatusCard(
 }
 
 private fun formatPrice(price: Long): String = NumberFormat.getIntegerInstance(Locale("fa", "IR")).format(price)
-
-/** One glance at everything the checkout/wallet tabs already track
- * separately - balance, pending payments, active services - built from
- * the same state this screen already fetched, no new API calls. */
-@Composable
-private fun OrderStatusCenter(
-    balanceText: String?,
-    pendingCount: Int,
-    activeServiceCount: Int,
-    totalServiceCount: Int,
-    onOpenWallet: () -> Unit,
-    onOpenPending: () -> Unit,
-    onOpenServices: () -> Unit
-) {
-    // Three readings of one account in one object. Each reading is its own tap
-    // target now, so the row of ghost pills that used to sit underneath -
-    // repeating the same three words as buttons - is gone.
-    val c = ghajarColors
-    StatStrip(
-        listOf(
-            StatCell("موجودی", balanceText ?: "…", c.premium, onClick = onOpenWallet),
-            StatCell(
-                "در انتظار پرداخت",
-                pendingCount.toString(),
-                if (pendingCount > 0) c.warning else c.textPrimary,
-                onClick = onOpenPending
-            ),
-            StatCell(
-                "سرویس‌های فعال",
-                "$activeServiceCount/$totalServiceCount",
-                c.good,
-                onClick = onOpenServices
-            )
-        )
-    )
-}
 
 /** A real side-by-side comparison built from the same GhajarProduct list the
  * store already fetched from the panel - no separate numbers, no guessing. */

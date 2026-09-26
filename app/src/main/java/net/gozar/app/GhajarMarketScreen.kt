@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AddBusiness
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ContentCopy
@@ -76,11 +77,11 @@ import kotlinx.coroutines.launch
  * different screens, and the second one never appears early.
  */
 
-private const val STATUS_AWAITING = "awaiting_receipt"
-private const val STATUS_REVIEW = "review"
-private const val STATUS_PAID = "paid"
-private const val STATUS_REJECTED = "rejected"
-private const val STATUS_FAILED = "failed"
+internal const val MARKET_STATUS_AWAITING = "awaiting_receipt"
+internal const val MARKET_STATUS_REVIEW = "review"
+internal const val MARKET_STATUS_PAID = "paid"
+internal const val MARKET_STATUS_REJECTED = "rejected"
+internal const val MARKET_STATUS_FAILED = "failed"
 
 /** Where the marketplace currently is. One value, so back is unambiguous. */
 private sealed interface MarketRoute {
@@ -149,7 +150,13 @@ fun GhajarMarketScreen(
      * moment they are tapped rather than in front of the list.
      */
     signedIn: Boolean = true,
-    onSignIn: () -> Unit = {}
+    onSignIn: () -> Unit = {},
+    /**
+     * The Ghajar shop's own entry, drawn first in the list and never sorted
+     * away. The list is every shop, and Ghajar is one of them - not a default
+     * the others hide behind.
+     */
+    ghajarEntry: (@Composable () -> Unit)? = null
 ) {
     var route by remember { mutableStateOf<MarketRoute>(MarketRoute.List) }
     var feed by remember { mutableStateOf<GhajarMarketFeed?>(null) }
@@ -168,31 +175,43 @@ fun GhajarMarketScreen(
     }
 
     val current = feed
+    val onRegister: () -> Unit = { if (signedIn) route = MarketRoute.Register else onSignIn() }
     when {
-        busy && current == null -> SkinLoading("در حال گرفتن فهرست فروشگاه‌ها")
-        error != null && current == null ->
-            SkinError(error!!, retryText = "تلاش دوباره", onRetry = { refreshKey++ })
+        // Ghajar's entry never waits on the marketplace: it is on screen
+        // while the list loads, when the list fails, and when the owner has
+        // the marketplace switched off.
+        route is MarketRoute.List && (current == null || !current.enabled) ->
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+                if (current?.enabled != false) AddShopCard(onRegister)
+                Rail("فروشگاه‌ها")
+                ghajarEntry?.invoke()
+                when {
+                    busy && current == null -> SkinLoading("در حال گرفتن فهرست فروشگاه‌ها")
+                    error != null && current == null ->
+                        SkinError(error!!, retryText = "تلاش دوباره", onRetry = { refreshKey++ })
+                    current == null -> SkinLoading("فروشگاه‌ها")
+                    else -> Unit
+                }
+            }
         current == null -> SkinLoading("فروشگاه‌ها")
-        !current.enabled -> SkinEmpty(
-            "فروشگاه‌ها فعال نیست",
-            hint = "مالک برنامه بخش فروشگاه‌ها را روشن نکرده است. فروشگاه قاجار و سرویس‌های شما مثل همیشه کار می‌کنند.",
-            icon = Icons.Filled.ShoppingBag
-        )
         else -> when (val where = route) {
             is MarketRoute.List -> MarketList(
+                api = api,
                 feed = current,
                 signedIn = signedIn,
                 onOpen = { route = MarketRoute.Shop(it) },
-                onRegister = { if (signedIn) route = MarketRoute.Register else onSignIn() },
-                onRefresh = { refreshKey++ }
+                onRegister = onRegister,
+                onRefresh = { refreshKey++ },
+                ghajarEntry = ghajarEntry
             )
 
-            is MarketRoute.Shop -> MarketShopPage(
+            is MarketRoute.Shop -> MarketShopHome(
                 api = api,
+                store = store,
                 shopId = where.id,
                 signedIn = signedIn,
                 onSignIn = onSignIn,
-                onBack = { route = MarketRoute.List },
+                onBack = { route = MarketRoute.List; refreshKey++ },
                 onOrdered = { order -> route = MarketRoute.Order(where.id, order) }
             )
 
@@ -214,18 +233,39 @@ fun GhajarMarketScreen(
 // ----------------------------------------------------------------- the list
 
 @Composable
+private fun AddShopCard(onRegister: () -> Unit) {
+    Slab(onClick = onRegister, accent = ghajarColors.primary) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Icon(Icons.Filled.AddBusiness, null, tint = ghajarColors.primary, modifier = Modifier.size(24.dp))
+            Spacer(Modifier.width(GhajarSpacing.sm))
+            Column(Modifier.weight(1f)) {
+                Text("افزودن فروشگاه", fontWeight = FontWeight.Bold, color = ghajarColors.textPrimary)
+                Text("فروشگاه خودت را ثبت کن: ثبت‌نام، تأیید و مدیریت از ربات",
+                    style = MaterialTheme.typography.labelMedium, color = ghajarColors.textSecondary)
+            }
+            Icon(Icons.Filled.ChevronLeft, null, tint = ghajarColors.textMuted)
+        }
+    }
+}
+
+@Composable
 private fun MarketList(
+    api: GhajarStoreApi,
     feed: GhajarMarketFeed,
     signedIn: Boolean,
     onOpen: (Int) -> Unit,
     onRegister: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    ghajarEntry: (@Composable () -> Unit)?
 ) {
     var sort by remember { mutableStateOf(MarketSort.BEST) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
-        Rail("فروشگاه‌های قاجار")
+        // First, above everything: the way in for a seller.
+        AddShopCard(onRegister)
+
+        Rail("فروشگاه‌ها")
         Text(
-            "فروشگاه‌های تأییدشده، داخل همین برنامه. خرید، پرداخت و تحویل کانفیگ بدون رفتن به تلگرام.",
+            "همهٔ فروشگاه‌ها، داخل همین برنامه. خرید، پرداخت و تحویل کانفیگ بدون رفتن به تلگرام.",
             style = MaterialTheme.typography.labelMedium,
             color = ghajarColors.textSecondary
         )
@@ -238,15 +278,9 @@ private fun MarketList(
             )
         }
 
-        if (feed.shops.isEmpty()) {
-            SkinEmpty(
-                "هنوز فروشگاهی در فهرست نیست",
-                hint = "اولین فروشگاه می‌تواند شما باشید.",
-                icon = Icons.Filled.ShoppingBag,
-                actionText = "ثبت فروشگاه",
-                onAction = onRegister
-            )
-        } else {
+        ghajarEntry?.invoke()
+
+        if (feed.shops.isNotEmpty()) {
             val shown = feed.shops.sortedFor(sort)
             if (shown.isEmpty()) {
                 // A filter with no matches says which filter, not "nothing
@@ -262,32 +296,17 @@ private fun MarketList(
                     icon = Icons.Filled.ShoppingBag
                 )
             }
-            shown.forEach { shop -> MarketShopCard(shop) { onOpen(shop.id) } }
+            shown.forEach { shop -> MarketShopCard(api, shop) { onOpen(shop.id) } }
         }
 
         if (!signedIn) {
             // Said once, under the list, not over it. Browsing needs no
             // account; this is here so the buy button later is not a surprise.
             Slab(accent = ghajarColors.primary, spacing = GhajarSpacing.xs) {
-                Text("برای خرید از این فروشگاه‌ها، حساب را یک‌بار متصل کن",
+                Text("برای خرید از فروشگاه‌ها، حساب را یک‌بار متصل کن",
                     fontWeight = FontWeight.Bold, color = ghajarColors.textPrimary)
                 Text("دیدن فروشگاه‌ها، قیمت‌ها و نظرها نیازی به اتصال ندارد.",
                     style = MaterialTheme.typography.labelSmall, color = ghajarColors.textSecondary)
-            }
-        }
-
-        Slab(onClick = onRegister) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.ShoppingBag, null, tint = ghajarColors.primary,
-                    modifier = Modifier.size(22.dp))
-                Spacer(Modifier.width(GhajarSpacing.sm))
-                Column(Modifier.weight(1f)) {
-                    Text("فروشگاه خودت را ثبت کن", fontWeight = FontWeight.Bold,
-                        color = ghajarColors.textPrimary)
-                    Text("ثبت‌نام، احراز هویت و مدیریت",
-                        style = MaterialTheme.typography.labelMedium, color = ghajarColors.textSecondary)
-                }
-                Icon(Icons.Filled.ChevronLeft, null, tint = ghajarColors.textMuted)
             }
         }
 
@@ -304,31 +323,25 @@ private fun MarketList(
  * its sample size is the oldest way to mislead with a true number.
  */
 @Composable
-private fun MarketShopCard(shop: GhajarMarketShop, onOpen: () -> Unit) {
+private fun MarketShopCard(api: GhajarStoreApi, shop: GhajarMarketShop, onOpen: () -> Unit) {
     val c = ghajarColors
     val lang = LocalLang.current
     Slab(onClick = onOpen, spacing = GhajarSpacing.sm) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier
-                    .size(44.dp)
-                    .clip(RoundedCornerShape(GhajarRadius.md))
-                    .background(c.card),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    if (shop.verified) Icons.Filled.Shield else Icons.Filled.ShoppingBag,
-                    contentDescription = null,
-                    tint = if (shop.verified) c.primary else c.textMuted,
-                    modifier = Modifier.size(22.dp)
-                )
-            }
+            MarketLogo(api, shop.id, shop.logoVersion, shop.verified)
             Spacer(Modifier.width(GhajarSpacing.sm))
             Column(Modifier.weight(1f)) {
-                Text(shop.name, fontWeight = FontWeight.Bold, color = c.textPrimary,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                if (shop.verified) {
-                    Text("هویت تأییدشده", style = MaterialTheme.typography.labelSmall, color = c.primary)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(shop.name, fontWeight = FontWeight.Bold, color = c.textPrimary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
+                    if (shop.verified) {
+                        Spacer(Modifier.width(GhajarSpacing.xs))
+                        Icon(Icons.Filled.Shield, "تأییدشده", tint = c.primary, modifier = Modifier.size(14.dp))
+                    }
+                }
+                if (shop.tagline.isNotBlank()) {
+                    Text(shop.tagline, style = MaterialTheme.typography.labelSmall, color = c.textSecondary,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
             Icon(Icons.Filled.ChevronLeft, null, tint = c.textMuted)
@@ -337,54 +350,45 @@ private fun MarketShopCard(shop: GhajarMarketShop, onOpen: () -> Unit) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             StarRow(shop.stars)
             Spacer(Modifier.width(GhajarSpacing.sm))
-            if (shop.reviewCount > 0) {
-                Text(
-                    mixedText(
-                        localizeDigits("%.1f".format(java.util.Locale.US, shop.stars), lang) +
-                            " از ۵ · " + localizeDigits(shop.satisfaction.toString(), lang) +
-                            "٪ رضایت · " + localizeDigits(shop.reviewCount.toString(), lang) + " نظر"
-                    ),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = c.textSecondary,
-                    modifier = Modifier.weight(1f)
-                )
-            } else {
-                Text(
-                    "هنوز نظری ثبت نشده",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = c.textMuted,
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            Text(
+                if (shop.reviewCount > 0) mixedText(
+                    localizeDigits("%.1f".format(java.util.Locale.US, shop.stars), lang) +
+                        " از ۵ · " + localizeDigits(shop.satisfaction.toString(), lang) +
+                        "٪ رضایت · " + localizeDigits(shop.reviewCount.toString(), lang) + " نظر"
+                ) else mixedText("هنوز نظری ثبت نشده"),
+                style = MaterialTheme.typography.labelSmall,
+                color = if (shop.reviewCount > 0) c.textSecondary else c.textMuted,
+                modifier = Modifier.weight(1f)
+            )
         }
 
-        // The figures the sort chips order on, printed on the card that the
-        // ordering moved: a list that claims to be sorted by price and shows
-        // no price is a list nobody can check.
-        if (shop.minPrice > 0 || shop.discountCount > 0) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                if (shop.minPrice > 0) {
-                    Text(
-                        mixedText(
-                            "از " + localizeDigits(formatToman(shop.minPrice), lang) +
-                                " تومان" +
-                                (if (shop.productCount > 0)
-                                    " · " + localizeDigits(shop.productCount.toString(), lang) + " پلن"
-                                else "")
-                        ),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = c.textSecondary,
-                        modifier = Modifier.weight(1f)
-                    )
-                } else {
-                    Spacer(Modifier.weight(1f))
+        // The prices, as the owner asked for them on the card: a gigabyte's
+        // base price, the cheapest and dearest plan, and the range across the
+        // seller's servers. Only figures the server actually has are printed.
+        val toman = { v: Long -> localizeDigits(formatToman(v), lang) }
+        val lines = listOfNotNull(
+            shop.gbPrice.takeIf { it > 0 }?.let { "💾 هر گیگ " + toman(it) + " تومان" },
+            shop.minPrice.takeIf { it > 0 }?.let {
+                "🏷 ارزان‌ترین " + toman(it) +
+                    (if (shop.maxPrice > it) " · گران‌ترین " + toman(shop.maxPrice) else "") + " تومان" +
+                    (if (shop.productCount > 0) " · " + localizeDigits(shop.productCount.toString(), lang) + " پلن" else "")
+            },
+            shop.panelMinPrice.takeIf { it > 0 && shop.panelCount > 1 }?.let {
+                "🌐 " + localizeDigits(shop.panelCount.toString(), lang) + " سرور · از " + toman(it) +
+                    (if (shop.panelMaxPrice > it) " تا " + toman(shop.panelMaxPrice) else "") + " تومان"
+            }
+        )
+        lines.forEach {
+            Text(mixedText(it), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+        }
+        if (shop.testAvailable || shop.discountCount > 0) {
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                if (shop.testAvailable) {
+                    Text("🎁 تست رایگان", style = MaterialTheme.typography.labelSmall, color = c.premium)
                 }
                 if (shop.discountCount > 0) {
-                    Text(
-                        mixedText(localizeDigits(shop.discountCount.toString(), lang) + " کد تخفیف"),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = c.primary
-                    )
+                    Text(mixedText(localizeDigits(shop.discountCount.toString(), lang) + " کد تخفیف"),
+                        style = MaterialTheme.typography.labelSmall, color = c.primary)
                 }
             }
         }
@@ -396,7 +400,7 @@ private fun MarketShopCard(shop: GhajarMarketShop, onOpen: () -> Unit) {
 }
 
 @Composable
-private fun StarRow(stars: Double) {
+internal fun StarRow(stars: Double) {
     val c = ghajarColors
     // Whole stars only, deliberately: a half-star glyph at this size is a
     // smudge, and the exact figure is printed next to it anyway.
@@ -409,264 +413,6 @@ private fun StarRow(stars: Double) {
                 tint = if (index < filled) c.warning else c.textMuted,
                 modifier = Modifier.size(14.dp)
             )
-        }
-    }
-}
-
-// ------------------------------------------------------------- one shop page
-
-@Composable
-private fun MarketShopPage(
-    api: GhajarStoreApi,
-    shopId: Int,
-    signedIn: Boolean,
-    onSignIn: () -> Unit,
-    onBack: () -> Unit,
-    onOrdered: (GhajarMarketOrder) -> Unit
-) {
-    val c = ghajarColors
-    val lang = LocalLang.current
-    val scope = rememberCoroutineScope()
-    val context = LocalContext.current
-
-    var shop by remember(shopId) { mutableStateOf<GhajarMarketShop?>(null) }
-    var catalog by remember(shopId) { mutableStateOf<GhajarMarketCatalog?>(null) }
-    var error by remember(shopId) { mutableStateOf<String?>(null) }
-    var actionError by remember(shopId) { mutableStateOf<String?>(null) }
-    var busy by remember(shopId) { mutableStateOf(true) }
-    var starting by remember(shopId) { mutableStateOf(false) }
-    var selectedPanel by remember(shopId) { mutableStateOf<String?>(null) }
-    var selectedProduct by remember(shopId) { mutableStateOf<String?>(null) }
-    var selectedMethod by remember(shopId) { mutableStateOf<String?>(null) }
-    var myStars by remember(shopId) { mutableStateOf(0) }
-    var reviewNote by remember(shopId) { mutableStateOf("") }
-    var reviewMessage by remember(shopId) { mutableStateOf<String?>(null) }
-
-    LaunchedEffect(shopId) {
-        busy = true; error = null
-        runCatching { api.marketShop(shopId) }
-            .onSuccess { shop = it }
-            .onFailure { error = it.message ?: "این فروشگاه باز نشد" }
-        runCatching { api.marketCatalog(shopId) }
-            .onSuccess { loaded ->
-                catalog = loaded
-                selectedPanel = loaded.panels.firstOrNull()?.code
-                selectedMethod = loaded.methods.firstOrNull()?.id
-            }
-            .onFailure { if (error == null) error = it.message ?: "فهرست پلن‌ها خوانده نشد" }
-        busy = false
-    }
-
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
-        GhostPill("بازگشت به فهرست", onBack, icon = Icons.Filled.ChevronLeft)
-
-        val loaded = shop
-        when {
-            busy && loaded == null -> SkinLoading("در حال باز کردن فروشگاه")
-            loaded == null -> SkinError(error ?: "این فروشگاه باز نشد", retryText = "بازگشت", onRetry = onBack)
-            else -> {
-                Rail(loaded.name)
-                if (loaded.description.isNotBlank()) {
-                    Slab { Text(loaded.description, style = MaterialTheme.typography.bodySmall,
-                        color = c.textSecondary) }
-                }
-
-                // About the shop: how to reach the seller. Deliberately not a
-                // step in buying - it is here so a buyer can check who they
-                // are dealing with and find support afterwards.
-                if (loaded.telegramBot.isNotBlank() || loaded.telegramChannel.isNotBlank() ||
-                    loaded.supportContact.isNotBlank()) {
-                    Slab(spacing = GhajarSpacing.sm) {
-                        Text("دربارهٔ فروشگاه", fontWeight = FontWeight.Bold, color = c.textPrimary)
-                        listOfNotNull(
-                            loaded.telegramBot.takeIf { it.isNotBlank() }?.let { "ربات" to it },
-                            loaded.telegramChannel.takeIf { it.isNotBlank() }?.let { "کانال" to it },
-                            loaded.supportContact.takeIf { it.isNotBlank() }?.let { "پشتیبانی" to it }
-                        ).forEach { (label, handle) ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clickable { openTelegram(context, handle) },
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(Icons.Filled.SupportAgent, null, tint = c.primary,
-                                    modifier = Modifier.size(16.dp))
-                                Spacer(Modifier.width(GhajarSpacing.sm))
-                                Text(label, style = MaterialTheme.typography.labelSmall,
-                                    color = c.textMuted, modifier = Modifier.weight(1f))
-                                Text(mixedText("@" + handle.trimStart('@')),
-                                    style = MaterialTheme.typography.labelMedium, color = c.textPrimary)
-                                Spacer(Modifier.width(GhajarSpacing.xs))
-                                Icon(Icons.Filled.OpenInNew, null, tint = c.textMuted,
-                                    modifier = Modifier.size(14.dp))
-                            }
-                        }
-                    }
-                }
-
-                if (!loaded.canSell) {
-                    SkinError(loaded.closedReason.ifBlank { "این فروشگاه فعلاً فروش جدید ندارد." })
-                }
-
-                val cat = catalog
-                if (loaded.canSell && cat != null) {
-                    if (cat.methods.isEmpty()) {
-                        SkinError("این فروشگاه هنوز روش پرداختی متصل نکرده است.")
-                    } else {
-                        if (cat.panels.size > 1) {
-                            Text("سرور", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-                            cat.panels.forEach { panel ->
-                                ChoiceRow(
-                                    title = listOf(panel.flag, panel.name).filter { it.isNotBlank() }
-                                        .joinToString(" "),
-                                    subtitle = panel.country.takeIf { it.isNotBlank() },
-                                    selected = selectedPanel == panel.code,
-                                    onSelect = { selectedPanel = panel.code }
-                                )
-                            }
-                        }
-
-                        Text("پلن", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-                        if (cat.products.isEmpty()) {
-                            SkinEmpty("این فروشگاه پلنی برای فروش ندارد", icon = Icons.Filled.Inventory)
-                        }
-                        cat.products.forEach { product ->
-                            ChoiceRow(
-                                title = product.name,
-                                subtitle = listOfNotNull(
-                                    product.volumeGb.takeIf { it > 0 }
-                                        ?.let { localizeDigits(it.toString(), lang) + " گیگ" },
-                                    product.timeDays.takeIf { it > 0 }
-                                        ?.let { localizeDigits(it.toString(), lang) + " روز" }
-                                ).joinToString("  •  ").takeIf { it.isNotBlank() },
-                                value = localizeDigits(formatToman(product.price), lang) + " تومان",
-                                selected = selectedProduct == product.code,
-                                onSelect = { selectedProduct = product.code }
-                            )
-                        }
-
-                        Text("روش پرداخت", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-                        cat.methods.forEach { method ->
-                            ChoiceRow(
-                                title = method.label,
-                                subtitle = method.note.takeIf { it.isNotBlank() },
-                                selected = selectedMethod == method.id,
-                                onSelect = { selectedMethod = method.id }
-                            )
-                        }
-
-                        Slab(accent = c.warning, spacing = GhajarSpacing.xs) {
-                            Text(
-                                "پرداخت شما به همین فروشگاه انجام می‌شود، نه به قاجار. "
-                                    + "رسید هم برای خودِ فروشنده می‌رود و تأیید یا رد آن با اوست.",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = c.textSecondary
-                            )
-                        }
-
-                        actionError?.let { Text(it, color = c.error,
-                            style = MaterialTheme.typography.labelMedium) }
-
-                        PillButton(
-                            text = when {
-                                !signedIn -> "اتصال حساب برای خرید"
-                                starting -> "در حال ثبت سفارش…"
-                                else -> "ثبت سفارش"
-                            },
-                            onClick = {
-                                // Asked for here, at the one step that needs
-                                // it, rather than in front of the whole list.
-                                if (!signedIn) { onSignIn(); return@PillButton }
-                                val product = selectedProduct
-                                val panel = selectedPanel
-                                val method = selectedMethod
-                                if (product == null || method == null) {
-                                    actionError = "پلن و روش پرداخت را انتخاب کنید."
-                                    return@PillButton
-                                }
-                                starting = true
-                                actionError = null
-                                scope.launch {
-                                    runCatching {
-                                        api.marketOrderStart(shopId, product, panel.orEmpty(), method)
-                                    }
-                                        .onSuccess { onOrdered(it) }
-                                        .onFailure { actionError = it.message ?: "ثبت سفارش انجام نشد" }
-                                    starting = false
-                                }
-                            },
-                            enabled = !signedIn ||
-                                (!starting && selectedProduct != null && selectedMethod != null),
-                            icon = Icons.Filled.ShoppingBag
-                        )
-                    }
-                }
-
-                // Reviews, and the form. Only somebody who bought here can post
-                // one - the server checks that against its own sale ledger and
-                // says so plainly when it refuses.
-                Rail("نظرها")
-                if (loaded.reviews.isEmpty()) {
-                    Text("هنوز نظری ثبت نشده است.",
-                        style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-                }
-                loaded.reviews.forEach { review ->
-                    Slab(spacing = GhajarSpacing.xs) {
-                        StarRow(review.stars.toDouble())
-                        if (review.body.isNotBlank()) {
-                            Text(review.body, style = MaterialTheme.typography.bodySmall,
-                                color = c.textSecondary)
-                        }
-                    }
-                }
-
-                if (!signedIn) {
-                    Slab(accent = c.primary, spacing = GhajarSpacing.xs, onClick = onSignIn) {
-                        Text("برای امتیاز دادن، حساب را متصل کن",
-                            fontWeight = FontWeight.Bold, color = c.textPrimary)
-                        Text("نظر فقط از کسی پذیرفته می‌شود که از همین فروشگاه خرید کرده باشد.",
-                            style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
-                    }
-                } else Slab(spacing = GhajarSpacing.sm) {
-                    Text("امتیاز شما", fontWeight = FontWeight.Bold, color = c.textPrimary)
-                    Row {
-                        repeat(5) { index ->
-                            Icon(
-                                if (index < myStars) Icons.Filled.Star else Icons.Filled.StarBorder,
-                                contentDescription = "امتیاز " + (index + 1),
-                                tint = if (index < myStars) c.warning else c.textMuted,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .padding(2.dp)
-                                    .clickable { myStars = index + 1 }
-                            )
-                        }
-                    }
-                    SkinField(
-                        value = reviewNote,
-                        onValueChange = { reviewNote = it },
-                        label = "توضیح (اختیاری)"
-                    )
-                    reviewMessage?.let {
-                        Text(it, style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
-                    }
-                    GhostPill(
-                        "ثبت نظر",
-                        onClick = {
-                            if (myStars <= 0) {
-                                reviewMessage = "اول ستاره را انتخاب کنید."
-                                return@GhostPill
-                            }
-                            scope.launch {
-                                runCatching { api.marketReview(shopId, myStars, reviewNote) }
-                                    .onSuccess { reviewMessage = it.ifBlank { "نظر شما ثبت شد." } }
-                                    .onFailure { reviewMessage = it.message ?: "ثبت نظر انجام نشد" }
-                            }
-                        },
-                        icon = Icons.Filled.Star
-                    )
-                }
-            }
         }
     }
 }
@@ -714,7 +460,7 @@ private fun MarketOrderPage(
         while (true) {
             runCatching { api.marketOrderStatus(order.id) }.onSuccess { status = it }
             val now = status?.status
-            if (now == STATUS_PAID || now == STATUS_REJECTED || now == STATUS_FAILED) break
+            if (now == MARKET_STATUS_PAID || now == MARKET_STATUS_REJECTED || now == MARKET_STATUS_FAILED) break
             delay(12_000)
         }
     }
@@ -732,23 +478,23 @@ private fun MarketOrderPage(
 
         val live = status
         when (live?.status) {
-            STATUS_PAID -> MarketDelivery(live, api, store)
+            MARKET_STATUS_PAID -> MarketDelivery(live, api, store)
 
-            STATUS_REJECTED -> SkinError(
+            MARKET_STATUS_REJECTED -> SkinError(
                 "فروشنده این پرداخت را رد کرد."
                     + (live.rejectReason.takeIf { it.isNotBlank() }?.let { "\n" + it } ?: ""),
                 retryText = "بازگشت",
                 onRetry = onBack
             )
 
-            STATUS_FAILED -> SkinError(
+            MARKET_STATUS_FAILED -> SkinError(
                 "پرداخت شما ثبت شد اما ساخت سرویس انجام نشد."
                     + (live.rejectReason.takeIf { it.isNotBlank() }?.let { "\n" + it } ?: "")
                     + "\nشمارهٔ سفارش " + localizeDigits(order.id.toString(), lang)
                     + " را به پشتیبانی فروشگاه بدهید."
             )
 
-            STATUS_REVIEW -> Slab(accent = c.warning, spacing = GhajarSpacing.sm) {
+            MARKET_STATUS_REVIEW -> Slab(accent = c.warning, spacing = GhajarSpacing.sm) {
                 Text("رسید برای فروشنده ارسال شد", fontWeight = FontWeight.Bold, color = c.textPrimary)
                 Text(
                     "تأیید با فروشنده است. به‌محض تأیید، سرویس روی پنل خودش ساخته می‌شود و "
@@ -758,7 +504,7 @@ private fun MarketOrderPage(
                 GhostPill("بررسی دوباره", { pollKey++ }, icon = Icons.Filled.Refresh)
             }
 
-            null, STATUS_AWAITING -> when (order.needs) {
+            null, MARKET_STATUS_AWAITING -> when (order.needs) {
                 // A gateway: the buyer leaves for the provider's page and the
                 // return is verified server-side. The button is all this
                 // screen does, because a gateway result that this app decided
@@ -859,7 +605,7 @@ private fun MarketOrderPage(
  * one button that imports them the same way the rest of the app does.
  */
 @Composable
-private fun MarketDelivery(
+internal fun MarketDelivery(
     status: GhajarMarketOrderStatus,
     api: GhajarStoreApi,
     store: ConfigStore
@@ -1043,7 +789,7 @@ private fun MarketRegisterPage(api: GhajarStoreApi, onBack: () -> Unit) {
 // --------------------------------------------------------------- small parts
 
 @Composable
-private fun InfoLine(label: String, value: String) {
+internal fun InfoLine(label: String, value: String) {
     val c = ghajarColors
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, style = MaterialTheme.typography.labelSmall, color = c.textMuted,
@@ -1055,7 +801,7 @@ private fun InfoLine(label: String, value: String) {
 }
 
 @Composable
-private fun ChoiceRow(
+internal fun ChoiceRow(
     title: String,
     selected: Boolean,
     onSelect: () -> Unit,
@@ -1099,7 +845,7 @@ private fun ChoiceRow(
     }
 }
 
-private fun marketStatusLabel(status: String): String = when (status) {
+internal fun marketStatusLabel(status: String): String = when (status) {
     "active"    -> "فعال"
     "pending"   -> "منتظر پرداخت هزینهٔ ثبت"
     "review"    -> "منتظر بررسی"
@@ -1110,26 +856,26 @@ private fun marketStatusLabel(status: String): String = when (status) {
 }
 
 /** Groups a card number into fours so a person can read it back. */
-private fun spacedCard(number: String): String =
+internal fun spacedCard(number: String): String =
     number.filter { it.isDigit() }.chunked(4).joinToString(" ")
 
-private fun formatToman(value: Long): String =
+internal fun formatToman(value: Long): String =
     java.text.DecimalFormat("#,###").format(value)
 
-private fun openTelegram(context: android.content.Context, handle: String) {
+internal fun openTelegram(context: android.content.Context, handle: String) {
     val clean = handle.trimStart('@').trim()
     if (clean.isBlank()) return
     openLink(context, if (clean.startsWith("http")) clean else "https://t.me/$clean")
 }
 
-private fun openLink(context: android.content.Context, url: String) {
+internal fun openLink(context: android.content.Context, url: String) {
     runCatching {
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
     }
 }
 
-private fun copyToClipboard(context: android.content.Context, value: String) {
+internal fun copyToClipboard(context: android.content.Context, value: String) {
     runCatching {
         val manager = context.getSystemService(android.content.ClipboardManager::class.java)
         manager?.setPrimaryClip(android.content.ClipData.newPlainText("ghajar", value))
