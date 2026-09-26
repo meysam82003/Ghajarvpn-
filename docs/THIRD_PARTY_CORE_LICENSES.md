@@ -10,7 +10,7 @@ cloning the repository at the commit listed and reading its licence file on
 | CluvexStudio/Xray-core | `zedsecure` @ 4c61a3d | MPL-2.0 | would replace Xray inside the AAR | no | – | as above | Medium (build not reproducible, see report) | Blocked until deps are public |
 | CluvexStudio/AndroidLibXrayLite | `zedsecure` @ 3b47738 | LGPL-3.0 | gomobile AAR | no | – | LGPL: allow relinking; ship source/notice | Medium | Reference only for now |
 | Psiphon-Labs / CluvexStudio psiphon-tunnel-core | `shirokhorshid` @ 83aa73b | GPL-3.0 | inside the same AAR (already shipped from upstream) | no | no | GPL-3 source offer (compatible with Ghajar GPL-3) | Low | Keep upstream; fork not adopted |
-| SagerNet/sing-box | 8330820 (scripts/build-singbox.sh) | GPL-3.0-or-later | separate executable `libsingbox.so` | no | no | GPL-3 source offer | Low | Keep (experimental) |
+| SagerNet/sing-box | 8330820 (scripts/build-singbox.sh) | GPL-3.0-or-later | separate executable `libsingbox.so` | no | no | GPL-3 source offer | Low | **Wired** (TUIC, Hysteria v1, AnyTLS, SSH, Snell, OpenConnect, dnstt upstream); Experimental |
 | Noisemux/zeptun | 2798fc0 (CI) / main 4d24203 | MIT | JNI `libzeptun*.so`, built in CI | no | no | Keep MIT notice | Low | Keep |
 | CluvexStudio/Aether | `main` @ 21e7150 (also in `native/Aether`) | **AGPL-3.0** | separate executable, local SOCKS5 | source vendored under `native/Aether` | – | AGPL-3: source for the Aether program must be offered to users; GPL-3 §13 permits combination; network-use clause applies to modified Aether | **High** | Keep as separate program, unmodified, with source link; no merge into app code |
 | CluvexStudio/sing-openvpn | `main` @ e060dda | GPL-3.0 | would be a Go executable | no | – | GPL-3 source offer | Medium (maturity) | Not adopted; OpenVPN already shipped via ics-openvpn |
@@ -21,7 +21,7 @@ cloning the repository at the commit listed and reading its licence file on
 | Hidden-Node/MasterDnsVPN-AndroidClient | `main` @ 17459d9 | MIT | Go executable (cannot be a 2nd gomobile AAR) | no | – | MIT notice | Low | Planned (Phase 6) |
 | WhiteDNS/CottenDns | `main` @ cdf084f | MIT | Go executable `libcottendns_client.so` | no | – | MIT notice | Low | Planned (Phase 6) |
 | net2share/vaydns | `main` @ a0ff701 | CC0-1.0 | Go library/executable | no | – | none (keep attribution anyway) | Low | Planned (Phase 6) |
-| dnstt (upstream, bamsoftware) / dnstt-xyz app | df0fe3e | CC0-1.0 | executable `libdnstt.so` (controller present, binary not built) | no | – | none | Low | Planned (Phase 6) |
+| dnstt (upstream, bamsoftware) | v1.20260501.0 / 0c5c52a (Go module proxy, checksum-verified; scripts/build-dnstt.sh) | CC0-1.0 | executable `libdnstt.so` | no | no | none (COPYING kept in third_party/dnstt) | Low | **Adopted**; Experimental |
 | FrontierTM/Pantegnos | `main` | MIT | **ported to Kotlin** (`configtoolkit/NpvContainer.kt`) | yes (port of npvs*.go logic) | yes (subset, no whitebox keys) | MIT notice kept in the file header | Low | **Adopted** (open + passphrase only) |
 | CluvexStudio/ZedPass | `main` @ d6f66bd | GPL-3.0 | reference | no | – | – | – | Reference |
 | NavidShokoufeh/sstp_flutter (ZedPass SSTP backend) | 1.3.0 (pub.dev) | BSD-3-Clause | pure-Kotlin SSTP/PPP (Open-SSTP-Client lineage) | no | – | BSD notice | Low | Candidate for an `:sstp` module (Phase 8) |

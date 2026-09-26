@@ -14,8 +14,8 @@
                   │                     │
                   └──── zeptun tun2socks (JNI) ◄── routes proxy-only cores device-wide
                                        
- Separate, not VpnService:  GhajarDnsOnlyService (DNS changer), DnsTunnelController (dnstt, binary absent)
- Built in CI but unused:    libsingbox.so (sing-box executable)
+ Separate, not VpnService:  GhajarDnsOnlyService (DNS changer)
+ Since the V2 round (below): sing-box and dnstt are wired as proxy-only cores
 ```
 
 - **Xray** runs its own network stack on the tun fd (`Gozarcore.start(config, fd)`).
@@ -82,3 +82,29 @@ Rules for every new engine:
    per-app/`protect()` mechanism the existing Aether/Tor paths use.
 5. New engines start disabled (`EngineFlags`) until the device test matrix in
    `MULTICORE_INTEGRATION_REPORT.md` has passed for them.
+
+## V2 round: sing-box and dnstt are connect paths now
+
+```
+ ProxyConfig ──EngineRouting.engineFor──► XRAY | SINGBOX | PSIPHON | AETHER | TOR | IKEV2
+                                              │
+   MainActivity / QuickConnect / VpnLauncher / switchTunnel
+     put EXTRA_SINGBOX = SingBoxConfig.spec(config)
+                                              ▼
+ GozarVpnService ── zeptun owns the tun ──► 127.0.0.1:<free port> SOCKS5
+                                              ▲
+                          SingBoxRunner ── sing-box check, then sing-box run
+                                              ▲ (dnstt profiles only)
+                          DnsttRunner ──── dnstt-client → 127.0.0.1:<port> → SOCKS5/SSH upstream
+```
+
+- A sing-box or dnstt process that exits mid-session ends the session
+  (`onUnexpectedExit` → `die`), so a dead core never looks connected.
+- Traffic counters come from zeptun when it owns the tun.
+- Tests: `EngineTester` runs Xray's own test for Xray profiles and a temporary
+  sing-box (+dnstt) with a real HTTPS request for the rest.
+- AutoSelect ranks with `AutoSelectScore` (median delay, jitter, failures,
+  hysteresis) over those tests.
+
+Everything else in this file still holds: Xray, Psiphon, Aether, Tor, OpenVPN
+and IKEv2 are started exactly as before.
