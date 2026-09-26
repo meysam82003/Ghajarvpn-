@@ -3175,7 +3175,7 @@ private fun ConfigPickerScreen(
                         configs.map { it.protocol }.distinct().sorted().forEach { proto ->
                             DropdownMenuItem(text = { Text(proto) }, onClick = {
                                 protocolFilter = proto; protocolMenu = false
-                            }, trailingIcon = if (protocolFilter == proto) ({ Icon(Icons.Filled.Check, null) }) else null)
+                            }, trailingIcon = { if (protocolFilter == proto) Icon(Icons.Filled.Check, null) })
                         }
                         val enginesHere = configs.map { net.gozar.app.engine.EngineRouting.engineFor(it) }.distinct()
                         if (enginesHere.size > 1) {
@@ -3186,7 +3186,7 @@ private fun ConfigPickerScreen(
                             enginesHere.sortedBy { it.ordinal }.forEach { e ->
                                 DropdownMenuItem(text = { Text(net.gozar.app.engine.CoreManager.engine(e).displayName) }, onClick = {
                                     engineFilter = if (engineFilter == e) null else e; protocolMenu = false
-                                }, trailingIcon = if (engineFilter == e) ({ Icon(Icons.Filled.Check, null) }) else null)
+                                }, trailingIcon = { if (engineFilter == e) Icon(Icons.Filled.Check, null) })
                             }
                         }
                     }

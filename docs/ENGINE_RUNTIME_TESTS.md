@@ -55,8 +55,7 @@ AnyConnect server), DoT/DoH dnstt transports.
 | `engine/SingBoxConfigTest` | link → sing-box JSON for each protocol, inbound/resolver, endpoint vs outbound, Snell versions, Xray protocols not rerouted, share-link round trips | 8/8 pass |
 | `engine/DnsttProfileTest` | dnstt link → command line (UDP, DoH), SSH upstream, bad key refused, round trip | 3/3 pass |
 | `engine/AutoSelectScoreTest` | steady beats lucky, dead has no score, hysteresis, failing current is left, bounded window | 5/5 pass |
-| `configtoolkit/ImportRouterTest` | APPKEY NPVS never prompts, passphrase NPVS prompts, wrong passphrase → WrongPasskey, vendor-locked ≠ password, unsupported ≠ password, GRT1 magic | CI |
-| `configtoolkit/NpvContainerTest` | NPVS v5 passphrase fixture opens to the expected links | CI |
+| `configtoolkit/ImportRouterTest` + `NpvContainerTest` + `ConfigToolkitTest` | APPKEY NPVS never prompts, passphrase NPVS prompts, wrong passphrase → WrongPasskey, vendor-locked ≠ password, unsupported ≠ password, GRT1 magic; NPVS v5 fixture opens | 16/16 pass |
 
 ## 3. On device — to do
 

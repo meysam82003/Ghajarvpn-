@@ -253,7 +253,7 @@ class GozarVpnService : VpnService() {
                     }
                 }
                 if (singbox != null) {
-                    if (!SingBoxController.available(applicationContext)) {
+                    if (!net.gozar.app.engine.SingBoxRunner.available(applicationContext)) {
                         die("sing-box is not bundled in this build")
                         return@launch
                     }
