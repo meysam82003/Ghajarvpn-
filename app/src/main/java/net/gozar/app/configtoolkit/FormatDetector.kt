@@ -26,7 +26,9 @@ object FormatDetector {
             return FormatDetection(format, (base + extensionBonus).coerceAtMost(100), evidence)
         }
 
+        if (text.startsWith("NPVTSUB1", true)) return result(ConfigFormat.NPVT, 90, "NPVTSUB1")
         if (text.startsWith("NPVT1", true)) return result(ConfigFormat.NPVT, 90, "NPVT1")
+        if (text.startsWith("NPVO1", true)) return result(ConfigFormat.NPVS, 95, "NPVO1")
         if (text.startsWith("NPVS", true)) return result(ConfigFormat.NPVS, 90, "NPVS")
         if (lower.startsWith("happ://crypt")) return result(ConfigFormat.HAPP, 95, "happ://crypt")
         if (lower.startsWith("happ://") || lower.startsWith("happ-proxy://")) {
