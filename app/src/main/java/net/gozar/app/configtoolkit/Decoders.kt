@@ -219,7 +219,7 @@ internal fun openNpvContainer(input: ConfigInput, format: ConfigFormat): ParsedC
         }
         NpvContainer.Result.NeedsPassphrase -> throw ConfigToolkitException.PasskeyRequired()
         NpvContainer.Result.WrongPassphrase -> throw ConfigToolkitException.WrongPasskey()
-        is NpvContainer.Result.Protected -> throw ConfigToolkitException.InvalidConfig(r.why)
+        is NpvContainer.Result.Protected -> throw ConfigToolkitException.Locked(r.why)
         is NpvContainer.Result.Invalid -> throw ConfigToolkitException.InvalidConfig(r.why)
     }
 }
@@ -232,7 +232,8 @@ class HappDecoder : ConfigDecoder {
     override val format = ConfigFormat.HAPP
     override fun decode(input: ConfigInput): ParsedConfig {
         val text = input.bytes.toString(Charsets.UTF_8).trim()
-        if (text.startsWith("happ://crypt", true)) throw ConfigToolkitException.PasskeyRequired()
+        // happ://crypt links are RSA-sealed with Happ's own key: no user password exists.
+        if (text.startsWith("happ://crypt", true)) throw ConfigToolkitException.VendorLocked(format)
         val configs = if (text.startsWith("happ://", true) || text.startsWith("happ-proxy://", true)) {
             GhajarCompatibilityImport.parseDeepLink(text)
         } else {
@@ -265,8 +266,9 @@ class HatDecoder : ReadableLegacyDecoder(ConfigFormat.HAT)
 class DarkDecoder : ReadableLegacyDecoder(ConfigFormat.DARK)
 
 private fun protectedOrUnsupported(input: ConfigInput): ConfigToolkitException {
-    // A passkey is never guessed or persisted. Formats without a documented,
-    // credential-based envelope stay unsupported instead of using extracted app keys.
-    return if (input.passkey == null || input.passkey.isEmpty()) ConfigToolkitException.PasskeyRequired()
-    else ConfigToolkitException.UnsupportedFormat(FormatDetector.detect(input).format)
+    // A passkey is never guessed or persisted. These formats have no documented,
+    // user-password envelope: their unreadable files are locked with the issuing
+    // app's own key. That is not a password prompt - it is a lock this app does
+    // not break - so it is reported as such, never as "enter a password".
+    return ConfigToolkitException.VendorLocked(FormatDetector.detect(input).format)
 }

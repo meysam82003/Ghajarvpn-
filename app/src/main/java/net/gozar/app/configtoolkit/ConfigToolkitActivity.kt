@@ -54,7 +54,9 @@ data class ToolkitFileState(
     val format: ConfigFormat = ConfigFormat.UNKNOWN,
     val parsed: ParsedConfig? = null,
     val error: String? = null,
-    val sourceBytes: ByteArray? = null
+    val sourceBytes: ByteArray? = null,
+    /** Only a passphrase-protected file asks for a passkey; decided by exception type, never by message text. */
+    val needsPasskey: Boolean = false
 )
 
 class ConfigToolkitViewModel(application: Application) : AndroidViewModel(application) {
@@ -87,9 +89,9 @@ class ConfigToolkitViewModel(application: Application) : AndroidViewModel(applic
                 val parsed = withContext(Dispatchers.Default) {
                     registry.decode(ConfigInput(bytes, item.displayName, passkey = passkey))
                 }
-                update(id) { it.copy(status = BatchStatus.DONE, parsed = parsed, format = parsed.sourceFormat, sourceBytes = bytes) }
+                update(id) { it.copy(status = BatchStatus.DONE, parsed = parsed, format = parsed.sourceFormat, sourceBytes = bytes, needsPasskey = false) }
             } catch (failure: Exception) {
-                update(id) { it.copy(status = BatchStatus.FAILED, error = publicError(failure)) }
+                update(id) { it.copy(status = BatchStatus.FAILED, error = publicError(failure), needsPasskey = needsPasskey(failure)) }
             } finally {
                 passkey.fill('\u0000')
             }
@@ -136,7 +138,7 @@ class ConfigToolkitViewModel(application: Application) : AndroidViewModel(applic
                     update(id) { it.copy(status = BatchStatus.CANCELLED) }
                     throw cancelled
                 } catch (failure: Exception) {
-                    update(id) { it.copy(status = BatchStatus.FAILED, error = publicError(failure)) }
+                    update(id) { it.copy(status = BatchStatus.FAILED, error = publicError(failure), needsPasskey = needsPasskey(failure)) }
                 }
             }
             if (_files.value.any { it.status == BatchStatus.QUEUED }) processQueued()
@@ -173,6 +175,9 @@ class ConfigToolkitViewModel(application: Application) : AndroidViewModel(applic
     private fun update(id: String, transform: (ToolkitFileState) -> ToolkitFileState) {
         _files.value = _files.value.map { if (it.id == id) transform(it) else it }
     }
+
+    private fun needsPasskey(failure: Exception): Boolean =
+        failure is ConfigToolkitException.PasskeyRequired || failure is ConfigToolkitException.WrongPasskey
 
     private fun publicError(failure: Exception): String = when (failure) {
         is ConfigToolkitException -> failure.message.orEmpty()
@@ -332,7 +337,7 @@ private fun ToolkitFileCard(
             if (profiles.isNotEmpty()) Text("${profiles.size} پروفایل معتبر", style = MaterialTheme.typography.bodySmall)
             file.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                if (file.error?.contains("passkey", true) == true) TextButton(onClick = onPassword) { Text("ورود passkey") }
+                if (file.needsPasskey) TextButton(onClick = onPassword) { Text("ورود passkey") }
                 if (file.parsed?.rawJson != null) TextButton(onClick = onView) { Text("نمایش JSON") }
                 if (file.format == ConfigFormat.NPVT && file.parsed != null) TextButton(onClick = onEditable) { Icon(Icons.Filled.Save, null); Text("نسخهٔ قابل ویرایش") }
             }

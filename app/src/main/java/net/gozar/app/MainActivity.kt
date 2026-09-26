@@ -1372,6 +1372,10 @@ private fun GozarApp(
     val importContext = LocalContext.current
     val pendingImport by ImportBus.pending.collectAsState()
     var importNeedsPassword by remember { mutableStateOf(false) }
+    // Which decoder the password belongs to: Ghajar's own GRT1 file, or the
+    // config toolkit (NPVS and the other app formats). Never guessed from a
+    // failed decode.
+    var importViaToolkit by remember { mutableStateOf(false) }
     var importPassword by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf("") }
     var importBusy by remember { mutableStateOf(false) }
@@ -1409,18 +1413,47 @@ private fun GozarApp(
                 }
             return@LaunchedEffect
         }
+        if (!net.gozar.app.configtoolkit.ImportRouter.isGhajarConfigFile(bytes)) {
+            // Every other file goes through the same decoders as the config
+            // toolkit. Only a real passphrase requirement opens the dialog; a
+            // file locked with another app's key, an unsupported format or a
+            // damaged file says exactly that.
+            importViaToolkit = true
+            val outcome = withContext(Dispatchers.Default) {
+                net.gozar.app.configtoolkit.ImportRouter.decode(bytes)
+            }
+            when (outcome) {
+                is net.gozar.app.configtoolkit.ImportRouter.Outcome.Imported -> {
+                    val n = store.addImported(outcome.configs)
+                    android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
+                    ImportBus.clear()
+                }
+                net.gozar.app.configtoolkit.ImportRouter.Outcome.NeedsPasskey -> importNeedsPassword = true
+                else -> {
+                    android.widget.Toast.makeText(importContext, importOutcomeMessage(outcome), android.widget.Toast.LENGTH_LONG).show()
+                    ImportBus.clear()
+                }
+            }
+            return@LaunchedEffect
+        }
+        importViaToolkit = false
         importNeedsPassword = runCatching { ConfigFile.isPasswordProtected(bytes) }.getOrDefault(false)
         if (!importNeedsPassword) {
             val configs = withContext(Dispatchers.Default) {
-                runCatching { ConfigFile.decode(importContext, bytes, null) }.getOrNull()
+                runCatching { ConfigFile.decode(importContext, bytes, null) }
             }
-            if (configs != null) {
-                val n = store.addImported(configs)
+            configs.onSuccess { list ->
+                val n = store.addImported(list)
                 android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
-                ImportBus.clear()
-            } else {
-                importNeedsPassword = true
+            }.onFailure { e ->
+                // An unprotected GRT1 file that fails is damaged or from another
+                // app - not password protected, so no password dialog.
+                android.widget.Toast.makeText(importContext, when (e) {
+                    is ConfigFile.ForeignApp -> t("import_foreign_app")
+                    else -> t("import_bad_file")
+                }, android.widget.Toast.LENGTH_LONG).show()
             }
+            ImportBus.clear()
         }
     }
 
@@ -1432,7 +1465,29 @@ private fun GozarApp(
             dismissLabel = t("cancel"),
             onConfirm = {
                 val bytes = pendingImport
-                if (bytes != null && !importBusy && importPassword.isNotEmpty()) {
+                if (bytes != null && !importBusy && importPassword.isNotEmpty() && importViaToolkit) {
+                    importBusy = true
+                    scope.launch {
+                        val pass = importPassword.toCharArray()
+                        val outcome = withContext(Dispatchers.Default) {
+                            net.gozar.app.configtoolkit.ImportRouter.decode(bytes, passkey = pass)
+                        }
+                        pass.fill('\u0000')
+                        importBusy = false
+                        when (outcome) {
+                            is net.gozar.app.configtoolkit.ImportRouter.Outcome.Imported -> {
+                                val n = store.addImported(outcome.configs)
+                                android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
+                                ImportBus.clear()
+                                importNeedsPassword = false
+                                importPassword = ""
+                            }
+                            net.gozar.app.configtoolkit.ImportRouter.Outcome.WrongPasskey,
+                            net.gozar.app.configtoolkit.ImportRouter.Outcome.NeedsPasskey -> importError = t("import_wrong_password")
+                            else -> importError = importOutcomeMessage(outcome)
+                        }
+                    }
+                } else if (bytes != null && !importBusy && importPassword.isNotEmpty()) {
                     importBusy = true
                     scope.launch {
                         val configs = withContext(Dispatchers.Default) {
@@ -13955,3 +14010,12 @@ private fun PerAppCoverage() {
     }
 }
 
+/** The user-facing sentence for an import that did not produce configs. */
+internal fun importOutcomeMessage(outcome: net.gozar.app.configtoolkit.ImportRouter.Outcome): String = when (outcome) {
+    is net.gozar.app.configtoolkit.ImportRouter.Outcome.Locked -> outcome.message
+    is net.gozar.app.configtoolkit.ImportRouter.Outcome.Unsupported -> outcome.message
+    is net.gozar.app.configtoolkit.ImportRouter.Outcome.Invalid -> outcome.message
+    net.gozar.app.configtoolkit.ImportRouter.Outcome.WrongPasskey -> "رمز واردشده درست نیست."
+    net.gozar.app.configtoolkit.ImportRouter.Outcome.NeedsPasskey -> "این فایل رمز دارد."
+    is net.gozar.app.configtoolkit.ImportRouter.Outcome.Imported -> ""
+}

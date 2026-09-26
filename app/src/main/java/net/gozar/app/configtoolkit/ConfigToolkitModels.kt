@@ -140,7 +140,17 @@ sealed class ConfigToolkitException(message: String) : Exception(message) {
     )
 
     class PasskeyRequired : ConfigToolkitException("این فایل با passkey محافظت شده است.")
+    /**
+     * Sealed with the issuing app's own key, not a password the user holds.
+     * Never shown as a password prompt: there is no password to type.
+     */
+    class VendorLocked(format: ConfigFormat) : ConfigToolkitException(
+        "این فایل ${format.name} با قفل اختصاصی برنامهٔ سازنده رمز شده و رمزی برای وارد کردن ندارد. " +
+            "باز کردنش یعنی دور زدن قفل سازنده و پشتیبانی نمی‌شود؛ از سازنده لینک یا خروجی باز بخواهید."
+    )
     class WrongPasskey : ConfigToolkitException("passkey واردشده صحیح نیست.")
+    /** Sealed to a key the user does not hold (app key or recipient key); [message] says which. */
+    class Locked(message: String) : ConfigToolkitException(message)
     class InvalidConfig(message: String) : ConfigToolkitException(message)
     class TooLarge(limit: Long) : ConfigToolkitException("حجم فایل از سقف امن ${limit / 1024 / 1024} مگابایت بیشتر است.")
 }
