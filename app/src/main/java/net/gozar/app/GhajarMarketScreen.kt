@@ -478,7 +478,7 @@ private fun MarketOrderPage(
 
         val live = status
         when (live?.status) {
-            MARKET_STATUS_PAID -> MarketDelivery(live, api, store)
+            MARKET_STATUS_PAID -> MarketDelivery(live, api, store, onRetry = { pollKey++ })
 
             MARKET_STATUS_REJECTED -> SkinError(
                 "فروشنده این پرداخت را رد کرد."
@@ -608,7 +608,9 @@ private fun MarketOrderPage(
 internal fun MarketDelivery(
     status: GhajarMarketOrderStatus,
     api: GhajarStoreApi,
-    store: ConfigStore
+    store: ConfigStore,
+    /** Asks the server again; offered while the configs have not arrived. */
+    onRetry: (() -> Unit)? = null
 ) {
     val c = ghajarColors
     val context = LocalContext.current
@@ -632,6 +634,7 @@ internal fun MarketDelivery(
                 "فروشنده پرداخت را تأیید کرده اما کانفیگی برنگشت. چند لحظه بعد دوباره بررسی کنید.",
                 style = MaterialTheme.typography.labelMedium, color = c.warning
             )
+            onRetry?.let { GhostPill("دریافت دوبارهٔ کانفیگ", it, icon = Icons.Filled.Refresh) }
         } else {
             Text(
                 "لینک و کانفیگ‌ها آماده‌اند. با «افزودن به برنامه» وارد لیست سرورها می‌شوند.",

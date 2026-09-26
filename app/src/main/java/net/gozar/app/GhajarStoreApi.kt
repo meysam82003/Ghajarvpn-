@@ -149,6 +149,14 @@ data class GhajarMarketFeed(
     val shops: List<GhajarMarketShop>
 )
 
+/**
+ * The Ghajar shop's own picture, set by the owner from the bot. Published by
+ * every shops-list load so the list card and the Ghajar page both follow it.
+ */
+object GhajarShopLogo {
+    val version = kotlinx.coroutines.flow.MutableStateFlow(0)
+}
+
 data class GhajarMarketShop(
     val id: Int,
     val name: String,
@@ -226,7 +234,9 @@ data class GhajarMarketProduct(
     val timeDays: Int,
     val note: String,
     /** The seller's panel this plan is sold on; "/all" or blank for every panel. */
-    val location: String = ""
+    val location: String = "",
+    /** The seller's category for this plan, as their product row stores it. */
+    val category: String = ""
 )
 
 /**
@@ -250,7 +260,8 @@ data class GhajarMarketMethod(
 data class GhajarMarketCatalog(
     val panels: List<GhajarMarketPanel>,
     val products: List<GhajarMarketProduct>,
-    val methods: List<GhajarMarketMethod>
+    val methods: List<GhajarMarketMethod>,
+    val categories: List<GhajarCategory> = emptyList()
 )
 
 data class GhajarMarketOrder(
@@ -1339,6 +1350,7 @@ class GhajarStoreApi(context: Context) {
      */
     suspend fun marketShops(): GhajarMarketFeed {
         val payload = marketAction("shops", allowAnonymous = true).payloadObject()
+        GhajarShopLogo.version.value = payload.optInt("ghajar_logo_version")
         return GhajarMarketFeed(
             enabled = payload.optBoolean("enabled", true),
             registerFee = payload.optNullableDouble("terms_fee")?.toLong() ?: 0,
@@ -1393,10 +1405,14 @@ class GhajarStoreApi(context: Context) {
                 volumeGb = row.optInt("volume_gb"),
                 timeDays = row.optInt("time_days"),
                 note = visible(row.optString("note")),
-                location = visible(row.optString("location"))
+                location = visible(row.optString("location")),
+                category = visible(row.optString("category"))
             )
         }.filter { it.code.isNotBlank() },
-        methods = payload.optJSONArray("payment").orEmpty().objects().map { marketMethodFrom(it) }
+        methods = payload.optJSONArray("payment").orEmpty().objects().map { marketMethodFrom(it) },
+        categories = payload.optJSONArray("categories").orEmpty().objects().map { row ->
+            GhajarCategory(row.optString("id"), visible(row.optString("name")))
+        }.filter { it.name.isNotBlank() }
     )
 
     /**
@@ -1726,7 +1742,7 @@ class GhajarStoreApi(context: Context) {
      * tunnel, like every other call to this server.
      */
     suspend fun marketLogo(shopId: Int, version: Int): android.graphics.Bitmap? = withContext(Dispatchers.IO) {
-        if (shopId <= 0 || version <= 0) return@withContext null
+        if (shopId < 0 || version <= 0) return@withContext null
         val dir = java.io.File(appContext.cacheDir, "market-logos").apply { mkdirs() }
         val file = java.io.File(dir, "$shopId-$version.img")
         if (file.isFile && file.length() > 0) {

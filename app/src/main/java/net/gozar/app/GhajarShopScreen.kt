@@ -171,6 +171,9 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     // being forever on an account with nothing in it.
     var ownedLoaded by remember { mutableStateOf(false) }
     var notices by remember { mutableStateOf<List<GhajarNotice>>(emptyList()) }
+    // Ghajar's own price of one gigabyte, for its card in the list of shops:
+    // the custom-plan quote for 1 GB and 0 days is exactly that figure.
+    var ghajarGbPrice by remember { mutableStateOf<Long?>(null) }
     var loadedPanelId by remember { mutableStateOf<String?>(null) }
 
     var customMode by remember { mutableStateOf(false) }
@@ -335,6 +338,12 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
         }.onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در دریافت فروشگاه") }
         busy = false
+    }
+
+    LaunchedEffect(panels) {
+        val customPanel = panels.firstOrNull { it.custom } ?: return@LaunchedEffect
+        storeResult { api.customQuote(customPanel.id, 1, 0) }
+            .onSuccess { quote -> ghajarGbPrice = quote.price?.takeIf { it > 0 } }
     }
 
     // Loading the store used to take three sequential server round-trips
@@ -616,6 +625,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         },
                         ghajarEntry = {
                             GhajarEntryCard(
+                                gbPrice = ghajarGbPrice,
                                 cheapest = unfilteredProducts.mapNotNull { it.price }.filter { it > 0 }.minOrNull(),
                                 dearest = unfilteredProducts.mapNotNull { it.price }.filter { it > 0 }.maxOrNull(),
                                 planCount = unfilteredProducts.size,
@@ -1224,7 +1234,7 @@ private fun GhajarShopIntro() {
 
 /** Ghajar as one entry in the list of shops, first and never sorted away. */
 @Composable
-private fun GhajarEntryCard(cheapest: Long?, dearest: Long?, planCount: Int, serviceCount: Int, onOpen: () -> Unit) {
+private fun GhajarEntryCard(gbPrice: Long?, cheapest: Long?, dearest: Long?, planCount: Int, serviceCount: Int, onOpen: () -> Unit) {
     val c = ghajarColors
     val lang = LocalLang.current
     Slab(onClick = onOpen, spacing = GhajarSpacing.sm, accent = c.premium) {
@@ -1241,6 +1251,10 @@ private fun GhajarEntryCard(cheapest: Long?, dearest: Long?, planCount: Int, ser
                     color = c.textSecondary, maxLines = 1)
             }
             Icon(Icons.Filled.ChevronLeft, null, tint = c.textMuted)
+        }
+        if (gbPrice != null) {
+            Text(mixedText("💾 هر گیگ " + localizeDigits(formatPrice(gbPrice), lang) + " تومان"),
+                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
         }
         if (cheapest != null) {
             Text(
@@ -1573,7 +1587,7 @@ private fun CurrentServiceSummary(service: GhajarServiceDetails) {
 }
 
 @Composable
-private fun SectionTitle(title: String, subtitle: String) {
+internal fun SectionTitle(title: String, subtitle: String) {
     // The skin's heading: a brand rail for the step, the explanation under it
     // as secondary text rather than a second bold line competing with it.
     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
@@ -1742,7 +1756,7 @@ private fun StoreSectionTabs(
 /** Service categories are never hidden behind a dropdown; the full list is visible at once. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun <T> ServiceTypeGrid(items: List<T>, selected: T?, label: (T) -> String,
+internal fun <T> ServiceTypeGrid(items: List<T>, selected: T?, label: (T) -> String,
     icon: (T) -> String, onSelect: (T) -> Unit) {
     // Was a grid of 132dp-wide outlined cards, which pushed the plans below
     // the fold on a phone before you had chosen anything. A service family is
@@ -1782,7 +1796,7 @@ private fun <T> ServiceTypeGrid(items: List<T>, selected: T?, label: (T) -> Stri
 /** Secondary filters (category, duration) as directly visible chips, centered text. */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-private fun <T> ChipFlowRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
+internal fun <T> ChipFlowRow(allLabel: String, items: List<T>, selected: T?, label: (T) -> String, onSelect: (T?) -> Unit) {
     // Material's FilterChip brought its own outline and check mark; the skin
     // says a chosen chip is filled and nothing else needs marking.
     val c = ghajarColors
@@ -1815,7 +1829,7 @@ private fun <T> ChipFlowRow(allLabel: String, items: List<T>, selected: T?, labe
 }
 
 /** Stable icon per service family, matched to the panel names used by the panel. */
-private fun panelIcon(name: String): String = when {
+internal fun panelIcon(name: String): String = when {
     name.contains("مولتی") || name.contains("چند لوکیشن") || name.contains("لوکیشن") -> "📍"
     name.contains("قبله") || name.contains("ویژه") && !name.contains("ایرانسل") -> "👑"
     name.contains("ایرانسل") || name.contains("اقتصادی") -> "📉"
@@ -1840,7 +1854,7 @@ private fun panelIcon(name: String): String = when {
 }
 
 @Composable
-private fun ProductCard(
+internal fun ProductCard(
     product: GhajarProduct,
     enabled: Boolean,
     bestValue: Boolean = false,
@@ -1945,7 +1959,7 @@ private fun ProductCard(
 }
 
 @Composable
-private fun CustomServiceCard(
+internal fun CustomServiceCard(
     traffic: String,
     days: String,
     quote: GhajarCustomQuote?,

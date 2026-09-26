@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -30,6 +31,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.SupportAgent
@@ -40,6 +42,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -123,6 +126,13 @@ internal fun MarketLogo(api: GhajarStoreApi, shopId: Int, version: Int, verified
 /** The Ghajar crest in the same frame as a seller's logo. */
 @Composable
 internal fun GhajarCrestLogo(size: Dp = 48.dp) {
+    val version by GhajarShopLogo.version.collectAsState()
+    if (version > 0) {
+        val context = LocalContext.current
+        val api = remember { GhajarStoreApi(context.applicationContext) }
+        MarketLogo(api, 0, version, verified = true, size = size)
+        return
+    }
     Box(
         Modifier
             .size(size)
@@ -309,8 +319,13 @@ private fun MarketSignInSlab(onSignIn: () -> Unit) {
 
 // ---------------------------------------------------------------- buy tab
 
-private enum class BuyMode { READY, CUSTOM, TEST }
-
+/**
+ * Buying at a marketplace shop, laid out exactly like the Ghajar shop: the
+ * free-test pill on top, "1. choose a service" with the seller's servers as
+ * chips, category and duration chips, ready plans or a custom size, and the
+ * same plan cards. Only the source of the numbers differs - they come from
+ * the seller's own server.
+ */
 @Composable
 private fun MarketBuyTab(
     api: GhajarStoreApi,
@@ -325,225 +340,262 @@ private fun MarketBuyTab(
     val shop = home.shop
     val catalog = home.catalog
     var panelCode by remember(shop.id) { mutableStateOf(catalog.panels.firstOrNull()?.code) }
-    var mode by remember(shop.id) { mutableStateOf(BuyMode.READY) }
-    var productCode by remember(shop.id) { mutableStateOf<String?>(null) }
-    var method by remember(shop.id) { mutableStateOf(catalog.methods.firstOrNull()?.id) }
+    var category by remember(shop.id) { mutableStateOf<GhajarCategory?>(null) }
+    var duration by remember(shop.id) { mutableStateOf<GhajarTimeRange?>(null) }
+    var customMode by remember(shop.id) { mutableStateOf(false) }
+    var showTests by remember(shop.id) { mutableStateOf(false) }
     var gb by remember(shop.id) { mutableStateOf("") }
     var days by remember(shop.id) { mutableStateOf("") }
+    var quote by remember(shop.id) { mutableStateOf<GhajarCustomQuote?>(null) }
+    // What is about to be bought, waiting for a payment method.
+    var pending by remember(shop.id) { mutableStateOf<MarketPending?>(null) }
+    var method by remember(shop.id) { mutableStateOf<String?>(null) }
     var starting by remember(shop.id) { mutableStateOf(false) }
     var actionError by remember(shop.id) { mutableStateOf<String?>(null) }
 
     val panel = catalog.panels.firstOrNull { it.code == panelCode }
-    val modes = buildList {
-        add(BuyMode.READY)
-        if (panel?.custom == true && panel.gbPrice > 0) add(BuyMode.CUSTOM)
-        if (panel?.test == true && home.testEnabled) add(BuyMode.TEST)
-    }
-    if (mode !in modes) mode = BuyMode.READY
+    val testPanels = if (home.testEnabled) catalog.panels.filter { it.test } else emptyList()
+    val customOn = panel?.custom == true && panel.gbPrice > 0
+    if (!customOn && customMode) customMode = false
 
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
-        if (!shop.canSell) {
-            SkinError(shop.closedReason.ifBlank { "این فروشگاه فعلاً فروش جدید ندارد." })
+    fun start(order: suspend () -> GhajarMarketOrder) {
+        if (!signedIn) { onSignIn(); return }
+        starting = true
+        actionError = null
+        scope.launch {
+            runCatching { order() }
+                .onSuccess { pending = null; onOrdered(it) }
+                .onFailure { actionError = it.message ?: "ثبت سفارش انجام نشد" }
+            starting = false
         }
+    }
+
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        if (!shop.canSell) SkinError(shop.closedReason.ifBlank { "این فروشگاه فعلاً فروش جدید ندارد." })
         if (!home.reachable) {
             SkinError("سرور این فروشگاه همین حالا جواب نداد؛ پلن‌ها ممکن است کامل نباشند. چند لحظه بعد دوباره باز کن.")
         }
-        if (home.blocked) {
-            SkinError("این فروشگاه امکان خرید را برای حساب شما بسته است.")
-        }
+        if (home.blocked) SkinError("این فروشگاه امکان خرید را برای حساب شما بسته است.")
+        actionError?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
 
-        if (catalog.panels.size > 1) {
-            Text("سرور", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-            catalog.panels.forEach { p ->
-                ChoiceRow(
-                    title = listOf(p.flag, p.name).filter { it.isNotBlank() }.joinToString(" "),
-                    subtitle = listOfNotNull(
-                        p.country.takeIf { it.isNotBlank() },
-                        if (p.custom && p.gbPrice > 0) "پلن دلخواه" else null,
-                        if (p.test && home.testEnabled) "تست رایگان" else null
-                    ).joinToString(" · ").takeIf { it.isNotBlank() },
-                    selected = panelCode == p.code,
-                    onSelect = { panelCode = p.code; productCode = null }
-                )
+        if (testPanels.isNotEmpty()) {
+            GhostPill(
+                if (home.testUsed) "سرویس تست این فروشگاه را گرفته‌اید" else "دریافت سرویس تست رایگان",
+                { if (!signedIn) onSignIn() else showTests = !showTests },
+                enabled = !home.testUsed && !starting,
+                icon = Icons.Filled.CardGiftcard,
+                accent = c.premium
+            )
+            if (showTests) {
+                testPanels.forEach { p ->
+                    Slab(spacing = 0.dp) {
+                        SlabRow(
+                            title = listOf(p.flag, p.name).filter { it.isNotBlank() }.joinToString(" "),
+                            subtitle = listOfNotNull(
+                                p.testMb.takeIf { it > 0 }?.let {
+                                    if (it >= 1024) localizeDigits(gbText(it * 1_048_576L), lang) + " گیگ"
+                                    else localizeDigits(it.toString(), lang) + " مگ"
+                                },
+                                p.testHours.takeIf { it > 0 }?.let { localizeDigits(it.toString(), lang) + " ساعت" }
+                            ).joinToString(" · ").ifBlank { "سرویس آزمایشی" },
+                            icon = Icons.Filled.CardGiftcard,
+                            accent = c.premium,
+                            chevron = true,
+                            enabled = !starting,
+                            onClick = {
+                                showTests = false
+                                start { api.marketOrderStart(shop.id, "", p.code, "free", kind = "test") }
+                            }
+                        )
+                    }
+                }
             }
         }
 
-        if (modes.size > 1) {
-            SlidingSegments(
-                labels = modes.map {
-                    when (it) {
-                        BuyMode.READY -> "پلن‌های آماده"
-                        BuyMode.CUSTOM -> "پلن دلخواه"
-                        BuyMode.TEST -> "تست رایگان"
-                    }
-                },
-                selected = modes.indexOf(mode),
-                onSelect = { mode = modes[it] }
+        SectionTitle("۱. انتخاب سرویس", "قیمت و موجودی مستقیماً از پنل فروشنده دریافت می‌شود")
+        if (catalog.panels.isEmpty()) {
+            SkinEmpty("هیچ سرویسی از پنل فروشنده دریافت نشد",
+                hint = "چند لحظه بعد دوباره بررسی کن؛ اگر ادامه داشت، از پشتیبانی فروشگاه بپرس.",
+                icon = Icons.Filled.ShoppingBag)
+        } else {
+            ServiceTypeGrid(
+                items = catalog.panels,
+                selected = panel,
+                label = { listOf(it.name, it.flag).filter { s -> s.isNotBlank() }.joinToString(" ") },
+                icon = { panelIcon(it.name) },
+                onSelect = { panelCode = it.code; quote = null }
             )
         }
 
-        var amount: Long? = null
-        when (mode) {
-            BuyMode.READY -> {
-                // Plans for the chosen server; a plan on "/all" or with no
-                // location is sold on every server. If the seller labelled
-                // nothing, every plan is shown rather than none.
-                val forPanel = catalog.products.filter {
-                    it.location.isBlank() || it.location == "/all" || it.location == panel?.name
-                }.ifEmpty { catalog.products }
-                if (forPanel.isEmpty()) {
-                    SkinEmpty("این فروشگاه پلنی برای فروش ندارد", icon = Icons.Filled.ShoppingBag)
-                }
-                forPanel.forEach { product ->
-                    ChoiceRow(
-                        title = product.name,
-                        subtitle = listOfNotNull(
-                            product.volumeGb.takeIf { it > 0 }?.let { localizeDigits(it.toString(), lang) + " گیگ" },
-                            product.timeDays.takeIf { it > 0 }?.let { localizeDigits(it.toString(), lang) + " روز" }
-                        ).joinToString("  •  ").takeIf { it.isNotBlank() },
-                        value = localizeDigits(formatToman(product.price), lang) + " تومان",
-                        selected = productCode == product.code,
-                        onSelect = { productCode = product.code }
-                    )
-                }
-                amount = forPanel.firstOrNull { it.code == productCode }?.price
-            }
+        // The plans on the chosen server; "/all" and blank mean every server.
+        val onPanel = catalog.products.filter {
+            it.location.isBlank() || it.location == "/all" || it.location == panel?.name
+        }.ifEmpty { catalog.products }
+        val usedCategories = catalog.categories.filter { cat ->
+            onPanel.any { it.category == cat.name || it.category == cat.id }
+        }
+        val durations = onPanel.map { it.timeDays }.filter { it > 0 }.distinct().sorted().map { d ->
+            GhajarTimeRange(d, when (d) {
+                30 -> "⏳ یک ماه"; 60 -> "⏳ دو ماه"; 90 -> "⏳ سه ماه"; 180 -> "⏳ شش ماه"; 365 -> "⏳ یک سال"
+                else -> "⏳ " + localizeDigits(d.toString(), lang) + " روز"
+            })
+        }
+        if (usedCategories.isNotEmpty() && !customMode) {
+            ChipFlowRow("همه دسته‌ها", usedCategories, category, { it.name }) { category = it }
+        }
+        if (durations.size > 1 && !customMode) {
+            ChipFlowRow("همه مدت‌ها", durations, duration, { it.name }) { duration = it }
+        }
+        if (customOn) {
+            SlidingSegments(
+                labels = listOf("پلن‌های آماده", "سرویس سفارشی"),
+                selected = if (customMode) 1 else 0,
+                onSelect = { customMode = it == 1 }
+            )
+        }
 
-            BuyMode.CUSTOM -> {
-                val p = panel!!
-                Slab(spacing = GhajarSpacing.sm) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.Tune, null, tint = c.primary, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(GhajarSpacing.sm))
-                        Text("پلن دلخواه", fontWeight = FontWeight.Bold, color = c.textPrimary)
-                    }
-                    Text(
-                        mixedText("هر گیگ " + localizeDigits(formatToman(p.gbPrice), lang) + " تومان" +
-                            (if (p.dayPrice > 0) " · هر روز " + localizeDigits(formatToman(p.dayPrice), lang) + " تومان" else "")),
-                        style = MaterialTheme.typography.labelMedium, color = c.textSecondary
-                    )
-                    SkinField(
-                        value = gb,
-                        onValueChange = { gb = GhajarUiRules.asciiDigits(it).filter(Char::isDigit).take(5) },
-                        label = "حجم (گیگ)",
-                        helper = rangeHint(p.minGb, p.maxGb, "گیگ", lang),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
-                    SkinField(
-                        value = days,
-                        onValueChange = { days = GhajarUiRules.asciiDigits(it).filter(Char::isDigit).take(4) },
-                        label = "مدت (روز)",
-                        helper = rangeHint(p.minDays, p.maxDays, "روز", lang),
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
-                    )
+        if (customMode && panel != null) {
+            CustomServiceCard(
+                traffic = gb,
+                days = days,
+                quote = quote,
+                onTrafficChange = { gb = GhajarUiRules.asciiDigits(it).filter(Char::isDigit).take(5); quote = null },
+                onDaysChange = { days = GhajarUiRules.asciiDigits(it).filter(Char::isDigit).take(4); quote = null },
+                onQuote = {
+                    // The seller's own tariff, applied the way their bot does:
+                    // per gigabyte plus per day, within their limits.
                     val g = gb.toIntOrNull() ?: 0
                     val d = days.toIntOrNull() ?: 0
-                    if (g > 0 && d > 0) {
-                        amount = p.gbPrice * g + p.dayPrice * d
-                        InfoLine("قیمت", localizeDigits(formatToman(amount!!), lang) + " تومان")
-                    }
-                }
-            }
-
-            BuyMode.TEST -> {
-                val p = panel!!
-                Slab(accent = c.premium, spacing = GhajarSpacing.sm) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(Icons.Filled.CardGiftcard, null, tint = c.premium, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(GhajarSpacing.sm))
-                        Text("سرویس تست رایگان", fontWeight = FontWeight.Bold, color = c.textPrimary)
-                    }
-                    Text(
-                        mixedText(listOfNotNull(
-                            p.testMb.takeIf { it > 0 }?.let {
-                                if (it >= 1024) localizeDigits(gbText(it * 1_048_576L), lang) + " گیگ"
-                                else localizeDigits(it.toString(), lang) + " مگ"
-                            },
-                            p.testHours.takeIf { it > 0 }?.let { localizeDigits(it.toString(), lang) + " ساعت" }
-                        ).joinToString(" · ").ifBlank { "اندازهٔ تست را فروشنده تعیین می‌کند" }),
-                        style = MaterialTheme.typography.labelMedium, color = c.textSecondary
+                    val inRange = g > 0 && d > 0 &&
+                        (panel.minGb <= 0 || g >= panel.minGb) && (panel.maxGb <= 0 || g <= panel.maxGb) &&
+                        (panel.minDays <= 0 || d >= panel.minDays) && (panel.maxDays <= 0 || d <= panel.maxDays)
+                    quote = GhajarCustomQuote(
+                        price = if (inRange) panel.gbPrice * g + panel.dayPrice * d else null,
+                        trafficMin = panel.minGb, trafficMax = panel.maxGb,
+                        timeMin = panel.minDays, timeMax = panel.maxDays
                     )
-                    if (home.testUsed) {
-                        Text("تست این فروشگاه را قبلاً گرفته‌اید.", style = MaterialTheme.typography.labelSmall,
-                            color = c.warning)
-                    }
+                }
+            )
+            Text(
+                mixedText("هر گیگ " + localizeDigits(formatToman(panel.gbPrice), lang) + " تومان" +
+                    (if (panel.dayPrice > 0) " · هر روز " + localizeDigits(formatToman(panel.dayPrice), lang) + " تومان" else "")),
+                style = MaterialTheme.typography.labelMedium, color = c.textSecondary
+            )
+            PillButton(
+                "خرید سرویس سفارشی",
+                {
+                    val price = quote?.price ?: return@PillButton
+                    pending = MarketPending(
+                        title = "سرویس سفارشی · " + localizeDigits(gb, lang) + " گیگ · " + localizeDigits(days, lang) + " روز",
+                        price = price, productCode = "customvolume", custom = true,
+                        volumeGb = gb.toIntOrNull() ?: 0, timeDays = days.toIntOrNull() ?: 0
+                    )
+                    method = null
+                },
+                enabled = quote?.price != null && !starting && shop.canSell,
+                icon = Icons.Filled.ShoppingCart
+            )
+        } else {
+            val shown = onPanel.filter { p ->
+                (category == null || p.category == category?.name || p.category == category?.id) &&
+                    (duration == null || p.timeDays == duration?.days)
+            }
+            val bestValue = shown.filter { it.price > 0 && it.volumeGb > 0 }
+                .minByOrNull { it.price.toDouble() / it.volumeGb }?.code?.takeIf { shown.size > 1 }
+            if (shown.isEmpty()) {
+                SkinEmpty(
+                    "پلنی با این فیلترها پیدا نشد",
+                    hint = "دستهٔ دیگری انتخاب کن یا فیلتر مدت را بردار.",
+                    icon = Icons.Filled.ShoppingCart,
+                    actionText = if (category != null || duration != null) "برداشتن فیلترها" else null,
+                    onAction = if (category != null || duration != null) { { category = null; duration = null } } else null
+                )
+            }
+            shown.forEach { product ->
+                ProductCard(
+                    GhajarProduct(
+                        id = product.code,
+                        name = product.name,
+                        price = product.price,
+                        trafficGb = product.volumeGb.takeIf { it > 0 }?.toDouble(),
+                        days = product.timeDays.takeIf { it > 0 },
+                        description = product.note,
+                        countryId = panelCode.orEmpty()
+                    ),
+                    enabled = !starting && shop.canSell && !home.blocked,
+                    bestValue = product.code == bestValue
+                ) {
+                    pending = MarketPending(title = product.name, price = product.price, productCode = product.code)
+                    method = null
                 }
             }
         }
-
-        if (mode != BuyMode.TEST) {
-            Text("روش پرداخت", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
-            val wallet = home.wallet
-            if (signedIn && wallet != null) {
-                ChoiceRow(
-                    title = "کیف پول این فروشگاه",
-                    subtitle = "موجودی: " + localizeDigits(formatToman(wallet), lang) + " تومان",
-                    selected = method == "wallet",
-                    onSelect = { method = "wallet" }
-                )
-            }
-            if (catalog.methods.isEmpty() && wallet == null) {
-                SkinError("این فروشگاه هنوز روش پرداختی متصل نکرده است.")
-            }
-            catalog.methods.forEach { m ->
-                ChoiceRow(
-                    title = m.label,
-                    subtitle = m.note.takeIf { it.isNotBlank() },
-                    selected = method == m.id,
-                    onSelect = { method = m.id }
-                )
-            }
-            Slab(accent = c.warning, spacing = GhajarSpacing.xs) {
-                Text(
-                    "پرداخت شما به همین فروشگاه انجام می‌شود، نه به قاجار. رسید هم برای خودِ فروشنده می‌رود و تأیید یا رد آن با اوست.",
-                    style = MaterialTheme.typography.labelSmall, color = c.textSecondary
-                )
-            }
-        }
-
-        actionError?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
-
-        val ready = when (mode) {
-            BuyMode.READY -> productCode != null && method != null
-            BuyMode.CUSTOM -> amount != null && method != null
-            BuyMode.TEST -> !home.testUsed
-        }
-        PillButton(
-            text = when {
-                !signedIn -> "اتصال حساب برای خرید"
-                starting -> "در حال ثبت سفارش…"
-                mode == BuyMode.TEST -> "دریافت تست رایگان"
-                amount != null -> "ثبت سفارش · " + localizeDigits(formatToman(amount!!), lang) + " تومان"
-                else -> "ثبت سفارش"
-            },
-            onClick = {
-                if (!signedIn) { onSignIn(); return@PillButton }
-                starting = true
-                actionError = null
-                scope.launch {
-                    runCatching {
-                        when (mode) {
-                            BuyMode.READY -> api.marketOrderStart(shop.id, productCode.orEmpty(), panelCode.orEmpty(),
-                                method.orEmpty())
-                            BuyMode.CUSTOM -> api.marketOrderStart(shop.id, "customvolume", panelCode.orEmpty(),
-                                method.orEmpty(), plan = "custom", volumeGb = gb.toIntOrNull() ?: 0,
-                                timeDays = days.toIntOrNull() ?: 0)
-                            BuyMode.TEST -> api.marketOrderStart(shop.id, "", panelCode.orEmpty(), "free",
-                                kind = "test")
-                        }
-                    }
-                        .onSuccess { onOrdered(it) }
-                        .onFailure { actionError = it.message ?: "ثبت سفارش انجام نشد" }
-                    starting = false
-                }
-            },
-            enabled = !signedIn || (!starting && ready && shop.canSell && !home.blocked),
-            icon = if (mode == BuyMode.TEST) Icons.Filled.CardGiftcard else Icons.Filled.ShoppingBag
-        )
 
         MarketReviews(api, shop, signedIn, onSignIn)
     }
+
+    // "2. confirm the order": how to pay, then go - the same step the Ghajar
+    // shop shows before it takes money.
+    pending?.let { order ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { if (!starting) pending = null },
+            title = { Text("۲. تأیید سفارش") },
+            text = {
+                Column(
+                    Modifier.verticalScroll(androidx.compose.foundation.rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(order.title, fontWeight = FontWeight.Bold)
+                    Text("قیمت: " + localizeDigits(formatToman(order.price), lang) + " تومان")
+                    Text("روش پرداخت", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+                    home.wallet?.let { wallet ->
+                        ChoiceRow(
+                            title = "کیف پول این فروشگاه",
+                            subtitle = "موجودی: " + localizeDigits(formatToman(wallet), lang) + " تومان",
+                            selected = method == "wallet",
+                            onSelect = { method = "wallet" }
+                        )
+                    }
+                    catalog.methods.forEach { m ->
+                        ChoiceRow(title = m.label, subtitle = m.note.takeIf { it.isNotBlank() },
+                            selected = method == m.id, onSelect = { method = m.id })
+                    }
+                    if (catalog.methods.isEmpty() && home.wallet == null) {
+                        Text("این فروشگاه هنوز روش پرداختی متصل نکرده است.", color = c.error)
+                    }
+                    Text("پرداخت به همین فروشگاه انجام می‌شود، نه به قاجار؛ رسید برای خودِ فروشنده می‌رود.",
+                        style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                    actionError?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
+                }
+            },
+            confirmButton = {
+                androidx.compose.material3.Button(
+                    enabled = !starting && method != null,
+                    onClick = {
+                        val m = method ?: return@Button
+                        start {
+                            if (order.custom) api.marketOrderStart(shop.id, "customvolume", panelCode.orEmpty(), m,
+                                plan = "custom", volumeGb = order.volumeGb, timeDays = order.timeDays)
+                            else api.marketOrderStart(shop.id, order.productCode, panelCode.orEmpty(), m)
+                        }
+                    }
+                ) { Text(if (starting) "در حال ثبت…" else "تأیید و ادامه") }
+            },
+            dismissButton = {
+                androidx.compose.material3.TextButton(onClick = { pending = null }) { Text("بازگشت") }
+            }
+        )
+    }
 }
+
+private data class MarketPending(
+    val title: String,
+    val price: Long,
+    val productCode: String,
+    val custom: Boolean = false,
+    val volumeGb: Int = 0,
+    val timeDays: Int = 0
+)
 
 private fun rangeHint(min: Int, max: Int, unit: String, lang: Lang): String? = when {
     min > 0 && max > 0 -> "از " + localizeDigits(min.toString(), lang) + " تا " + localizeDigits(max.toString(), lang) + " " + unit
