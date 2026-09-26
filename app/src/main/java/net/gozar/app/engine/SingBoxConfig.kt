@@ -19,7 +19,14 @@ import org.json.JSONObject
 object SingBoxConfig {
 
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
-    val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect", "dnstt")
+    val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect",
+        "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream")
+
+    /** DNS tunnels whose server forwards to a SOCKS5 or SSH upstream. */
+    val DNSTT_FAMILY = setOf("dnstt", "vaydns", "noizdns", "slipstream")
+
+    /** DNS tunnels whose client serves SOCKS5 itself. */
+    val MASTERDNS_FAMILY = setOf("masterdns", "stormdns", "cottendns")
 
     /** Protocols carried as sing-box endpoints rather than outbounds. */
     private val ENDPOINTS = setOf("openconnect")
@@ -121,7 +128,10 @@ object SingBoxConfig {
                 if (c.pinnedCertSha256.isNotBlank()) t.put("peer_fingerprint", JSONArray().put(c.pinnedCertSha256))
                 if (t.length() > 0) o.put("tls", t)
             }
-            "dnstt" -> {
+            "masterdns", "stormdns", "cottendns" -> {
+                o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
+            }
+            "dnstt", "vaydns", "noizdns", "slipstream" -> {
                 // What the tunnel server forwards to: an SSH server (the
                 // common setup) or a SOCKS5 proxy.
                 if (c.method == "ssh") {
@@ -142,7 +152,17 @@ object SingBoxConfig {
 
     /** The helper process a profile needs in front of sing-box, or null. */
     internal fun sidecar(c: ProxyConfig): JSONObject? = when (c.protocol) {
-        "dnstt" -> dnstt(c).put("kind", "dnstt")
+        in DNSTT_FAMILY -> dnstt(c).put("kind", c.protocol).apply {
+            val x = c.extraJson()
+            listOf("recordType", "dnsttCompat", "maxQnameLen", "clientIdSize", "noiz", "stealth", "authoritative", "cc", "cert").forEach { k -> if (x.has(k)) put(k, x.get(k)) }
+        }
+        in MASTERDNS_FAMILY -> {
+            val x = c.extraJson()
+            val first = if (c.address.isBlank()) "" else (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + (if (c.port in 1..65535) c.port else 53)
+            JSONObject().put("kind", c.protocol).put("domain", c.host).put("key", c.password)
+                .put("enc", x.optInt("enc", 1)).put("transport", c.mode)
+                .put("resolvers", (listOf(first) + x.optString("resolvers").split(',', '\n', ' ')).map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(","))
+        }
         else -> null
     }
 

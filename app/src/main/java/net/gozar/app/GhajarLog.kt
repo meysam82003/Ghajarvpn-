@@ -233,6 +233,11 @@ object GhajarLog {
      */
     internal val redactionPatterns: List<Pair<Regex, String>> = listOf(
         Regex("(?i)bearer\\s+[A-Za-z0-9\\-_.]{8,}") to "Bearer [REDACTED]",
+        // Helper engines that print their own secrets: MasterDnsVPN/StormDNS
+        // log "Active Encryption Key: …", and TOML/JSON engine configs carry
+        // ENCRYPTION_KEY / obfs keys.
+        Regex("(?i)((?:encryption[ _-]?key|obfs[_-]?password|preshared[_-]?key)\"?\\s*[:=]\\s*\"?)[^\\s\",}]{4,}") to "$1[REDACTED]",
+        Regex("(?i)(active encryption key:\\s*)\\S+") to "$1[REDACTED]",
         // The key list covers what this app actually carries, not just the
         // generic three: "pass" as well as "password", the private/public keys
         // and short id a Reality config is useless without, the pre-shared key

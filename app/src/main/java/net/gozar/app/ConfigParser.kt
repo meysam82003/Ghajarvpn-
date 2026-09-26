@@ -215,6 +215,12 @@ object ConfigParser {
             lower.startsWith("openconnect://") -> parseOpenConnect(trimmed.substring(14), source)
             lower.startsWith("anyconnect://") -> parseOpenConnect(trimmed.substring(13), source)
             lower.startsWith("dnstt://") -> parseDnstt(trimmed.substring(8), source)
+            lower.startsWith("vaydns://") -> parseDnstt(trimmed.substring(9), source, "vaydns")
+            lower.startsWith("noizdns://") -> parseDnstt(trimmed.substring(10), source, "noizdns")
+            lower.startsWith("slipstream://") -> parseDnstt(trimmed.substring(13), source, "slipstream")
+            lower.startsWith("masterdns://") -> parseMasterDns(trimmed.substring(12), source, "masterdns")
+            lower.startsWith("stormdns://") -> parseMasterDns(trimmed.substring(11), source, "stormdns")
+            lower.startsWith("cottendns://") -> parseMasterDns(trimmed.substring(12), source, "cottendns")
             lower.startsWith("ikev2://") -> parseIkev2(trimmed.substring(8), source)
             lower.startsWith("wireguard://") -> parseWireguardUri(trimmed.substring(12), source)
             lower.startsWith("wg://") -> parseWireguardUri(trimmed.substring(5), source)
@@ -381,7 +387,7 @@ object ConfigParser {
      * the tunnel zone; the user/password are for the SOCKS5 or SSH server the
      * tunnel server forwards to.
      */
-    private fun parseDnstt(body: String, source: ConfigSource): ProxyConfig? = try {
+    private fun parseDnstt(body: String, source: ConfigSource, protocol: String = "dnstt"): ProxyConfig? = try {
         val (name, uhp, p) = splitUserUri(body, "DNS tunnel")
         val domain = uhp.substringAfterLast('@').trim().trim('/').trim('.')
         val user = if (uhp.contains('@')) uhp.substringBeforeLast('@') else ""
@@ -392,14 +398,46 @@ object ConfigParser {
             val u = java.net.URI(doh)
             (u.host ?: "") to (if (u.port > 0) u.port else 443)
         } else splitHostPortOrDefault(p["resolver"].orEmpty(), if (transport == "dot") 853 else 53)
+        // Engine options that have no field of their own (see Sidecars).
+        val extra = org.json.JSONObject().apply {
+            p["record"]?.let { put("recordType", it.lowercase()) }
+            p["compat"]?.let { put("dnsttCompat", it == "1" || it.equals("true", true)) }
+            p["qname"]?.toIntOrNull()?.let { put("maxQnameLen", it) }
+            p["clientid"]?.toIntOrNull()?.let { put("clientIdSize", it) }
+            p["noiz"]?.let { put("noiz", it == "1" || it.equals("true", true)) }
+            p["stealth"]?.let { put("stealth", it == "1" || it.equals("true", true)) }
+            p["authoritative"]?.takeIf { it.isNotBlank() }?.let { put("authoritative", it) }
+            p["cc"]?.takeIf { it.isNotBlank() }?.let { put("cc", it.lowercase()) }
+        }
         ProxyConfig(
-            name = name, protocol = "dnstt", address = rHost, port = rPort,
+            name = name, protocol = protocol, address = rHost, port = rPort,
+            extra = if (extra.length() == 0) "" else extra.toString(),
             host = domain, publicKey = p["pubkey"].orEmpty().trim(), mode = transport, path = doh,
             method = if (p["upstream"].equals("ssh", true)) "ssh" else "socks",
             uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user),
             password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
             source = source
-        ).takeIf { it.host.isNotBlank() && it.address.isNotBlank() && it.publicKey.isNotBlank() }
+        ).takeIf { it.host.isNotBlank() && it.address.isNotBlank() && (it.publicKey.isNotBlank() || protocol == "slipstream") }
+    } catch (e: Exception) { null }
+
+    /**
+     * masterdns://KEY@DOMAIN[,DOMAIN2]?resolver=IP[:PORT][,IP2...]&enc=0..5&transport=udp|dot|doh#NAME
+     * (same for stormdns:// and cottendns://). Ghajar's own link: the
+     * projects share configuration as TOML files, which are also imported.
+     */
+    private fun parseMasterDns(body: String, source: ConfigSource, protocol: String): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, protocol)
+        val key = if (uhp.contains('@')) pctDecode(uhp.substringBeforeLast('@')) else p["key"].orEmpty()
+        val domain = pctDecode(uhp.substringAfterLast('@').trim().trim('/'))
+        val resolvers = pctDecode(p["resolver"].orEmpty()).split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        val (rHost, rPort) = splitHostPortOrDefault(resolvers.firstOrNull().orEmpty(), 53)
+        val extra = org.json.JSONObject().put("enc", p["enc"]?.toIntOrNull() ?: 1)
+        if (resolvers.size > 1) extra.put("resolvers", resolvers.drop(1).joinToString(","))
+        ProxyConfig(
+            name = name, protocol = protocol, address = rHost, port = rPort, host = domain,
+            password = key, mode = p["transport"].orEmpty().lowercase().ifEmpty { "udp" },
+            extra = extra.toString(), source = source
+        ).takeIf { it.host.isNotBlank() && it.address.isNotBlank() && it.password.isNotBlank() }
     } catch (e: Exception) { null }
 
     private fun splitHostPortOrDefault(raw: String, default: Int): Pair<String, Int> {

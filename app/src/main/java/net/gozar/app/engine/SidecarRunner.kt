@@ -131,13 +131,118 @@ object Sidecars {
     /** Every binary a sidecar kind needs, for availability checks. */
     fun binaryFor(kind: String): String = when (kind) {
         "dnstt" -> "libdnstt.so"
+        "vaydns" -> "libvaydns.so"
+        "noizdns" -> "libnoizdns.so"
+        "masterdns" -> "libmasterdns.so"
+        "stormdns" -> "libstormdns.so"
+        "cottendns" -> "libcottendns.so"
+        "slipstream" -> "libslipstream.so"
         else -> throw IllegalArgumentException("unknown engine: $kind")
     }
 
     fun launch(spec: JSONObject): SidecarLaunch = when (val kind = spec.optString("kind")) {
         "dnstt" -> SidecarLaunch("libdnstt.so", dnsttArgs(spec, SidecarLaunch.PORT), socks = false)
+        "vaydns" -> SidecarLaunch("libvaydns.so", vaydnsArgs(spec, SidecarLaunch.PORT), socks = false)
+        "noizdns" -> SidecarLaunch("libnoizdns.so", noizdnsArgs(spec, SidecarLaunch.PORT), socks = false)
+        "masterdns", "stormdns", "cottendns" -> masterFamily(kind, spec)
+        "slipstream" -> slipstream(spec)
         else -> throw IllegalArgumentException("unknown engine: $kind")
     }
+
+    /**
+     * vaydns-client (net2share/vaydns v0.2.8, vaydns-client/main.go):
+     * `(-udp|-dot|-doh) R -pubkey HEX -domain D -listen 127.0.0.1:PORT
+     *  [-record-type T] [-dnstt-compat] [-max-qname-len N] [-clientid-size N]`.
+     */
+    fun vaydnsArgs(spec: JSONObject, port: String): List<String> {
+        val (flag, resolver) = resolverFlag(spec)
+        val out = mutableListOf(flag, resolver, "-pubkey", pubkey(spec), "-domain", domain(spec), "-listen", "127.0.0.1:$port")
+        spec.optString("recordType").takeIf { it in setOf("txt", "null", "cname", "a", "aaaa", "mx", "ns", "srv", "caa") }
+            ?.let { out += listOf("-record-type", it) }
+        if (spec.optBoolean("dnsttCompat")) out += "-dnstt-compat"
+        spec.optInt("maxQnameLen", 0).takeIf { it > 0 }?.let { out += listOf("-max-qname-len", it.toString()) }
+        spec.optInt("clientIdSize", 0).takeIf { it > 0 && !spec.optBoolean("dnsttCompat") }?.let { out += listOf("-clientid-size", it.toString()) }
+        return out
+    }
+
+    /**
+     * noizdns-client (anonvector/noizdns 7289a56, cmd/noizdns-client):
+     * `(-udp|-dot|-doh) R -pubkey HEX [-noiz] [-stealth] DOMAIN 127.0.0.1:PORT`.
+     * Without -noiz it speaks plain dnstt, so it also reaches dnstt servers.
+     */
+    fun noizdnsArgs(spec: JSONObject, port: String): List<String> {
+        val (flag, resolver) = resolverFlag(spec)
+        val out = mutableListOf(flag, resolver, "-pubkey", pubkey(spec))
+        val noiz = spec.optBoolean("noiz", true)
+        if (noiz) out += "-noiz"
+        if (noiz && spec.optBoolean("stealth")) out += "-stealth"
+        out += listOf(domain(spec), "127.0.0.1:$port")
+        return out
+    }
+
+    /**
+     * MasterDnsVPN (masterking32/MasterDnsVPN acbf1c6) and its forks
+     * StormDNS (NullRoute1970/StormDNS ca2eb48) and CottenDNS
+     * (WhiteDNS/CottenDns cdf084f): `client -config FILE -resolvers FILE`,
+     * TOML configuration, the client itself serves SOCKS5 on LISTEN_PORT.
+     * Unset keys keep each client's own defaults (defaultClientConfig()).
+     */
+    fun masterFamily(kind: String, spec: JSONObject): SidecarLaunch {
+        val domains = spec.optString("domain").split(',', ' ', '\n').map { it.trim().trim('.') }.filter { it.isNotEmpty() }
+        require(domains.isNotEmpty()) { "DNS tunnel: no domain" }
+        val key = spec.optString("key")
+        require(key.isNotBlank()) { "DNS tunnel: no encryption key" }
+        val resolvers = spec.optString("resolvers").split(',', '\n', ' ').map { it.trim() }.filter { it.isNotEmpty() }
+        require(resolvers.isNotEmpty()) { "DNS tunnel: no resolver" }
+        val enc = spec.optInt("enc", 1).coerceIn(0, 5)
+        val toml = buildString {
+            appendLine("DOMAINS = [" + domains.joinToString(", ") { tomlString(it) } + "]")
+            appendLine("DATA_ENCRYPTION_METHOD = $enc")
+            appendLine("ENCRYPTION_KEY = " + tomlString(key))
+            appendLine("PROTOCOL_TYPE = \"SOCKS5\"")
+            appendLine("LISTEN_IP = \"127.0.0.1\"")
+            appendLine("LISTEN_PORT = ${SidecarLaunch.PORT}")
+            appendLine("LOCAL_DNS_ENABLED = false")
+            if (kind == "cottendns") {
+                when (spec.optString("transport")) {
+                    "dot" -> appendLine("RESOLVER_TRANSPORT = \"dot\"")
+                    "doh" -> appendLine("RESOLVER_TRANSPORT = \"doh\"")
+                }
+            }
+        }
+        return SidecarLaunch(
+            binary = binaryFor(kind),
+            args = listOf("-config", "${SidecarLaunch.DIR}/client.toml", "-resolvers", "${SidecarLaunch.DIR}/resolvers.txt"),
+            socks = true,
+            files = mapOf("client.toml" to toml, "resolvers.txt" to resolvers.joinToString("\n") + "\n"),
+            // These clients measure resolver MTUs before they listen.
+            readyTimeoutMs = 90_000,
+            secretFiles = setOf("client.toml")
+        )
+    }
+
+    /**
+     * slipstream-client (Mygod/slipstream-rust 7de506b, QUIC over DNS):
+     * `--tcp-listen-host 127.0.0.1 --tcp-listen-port PORT --resolver R --domain D
+     *  [--authoritative R2] [--cert FILE] [-c bbr|dcubic]`. A raw forward to the
+     * server's target, like dnstt. The pinned certificate is optional.
+     */
+    fun slipstream(spec: JSONObject): SidecarLaunch {
+        val (flag, resolver) = resolverFlag(spec)
+        require(flag == "-udp") { "Slipstream carries plain UDP DNS only" }
+        val args = mutableListOf("--tcp-listen-host", "127.0.0.1", "--tcp-listen-port", SidecarLaunch.PORT,
+            "--resolver", resolver, "--domain", domain(spec))
+        spec.optString("authoritative").takeIf { it.isNotBlank() }?.let { args += listOf("--authoritative", it) }
+        spec.optString("cc").takeIf { it == "bbr" || it == "dcubic" }?.let { args += listOf("-c", it) }
+        val files = mutableMapOf<String, String>()
+        spec.optString("cert").takeIf { it.contains("BEGIN CERTIFICATE") }?.let {
+            files["server.pem"] = it
+            args += listOf("--cert", "${SidecarLaunch.DIR}/server.pem")
+        }
+        return SidecarLaunch("libslipstream.so", args, socks = false, files = files, secretFiles = emptySet())
+    }
+
+    private fun tomlString(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     /**
      * dnstt-client (v1.20260501.0, dnstt-client/main.go):

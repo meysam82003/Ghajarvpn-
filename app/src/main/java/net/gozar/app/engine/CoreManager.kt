@@ -98,18 +98,22 @@ object CoreManager {
                 license = "MIT", integration = "JNI (libzeptun.so, libzeptun-jni.so), used for proxy-only cores"),
             availability = { if (ZeptunEngine.available) Availability.Available else Availability.Missing("libzeptun not in this build") },
             running = { ZeptunEngine.isRunning }),
-        engine(EngineId.DNS_TUNNEL, "DNS tunnel (dnstt)",
-            EngineCapabilities(listOf("DNSTT over UDP DNS / DoH / DoT, to a SOCKS5 or SSH upstream"), ownsTun = false, providesSocks = true,
-                license = "CC0-1.0 (dnstt v1.20260501.0)",
-                integration = "subprocess libdnstt.so (scripts/build-dnstt.sh) -> sing-box SOCKS5/SSH outbound -> zeptun; dnstt:// servers"),
+        engine(EngineId.DNS_TUNNEL, "DNS tunnels",
+            EngineCapabilities(listOf("DNSTT (UDP/DoT/DoH)", "VayDNS", "NoizDNS", "Slipstream (QUIC over DNS)",
+                "MasterDnsVPN", "StormDNS", "CottenDNS"), ownsTun = false, providesSocks = true,
+                license = "CC0 (dnstt, VayDNS) · AGPL-3.0 (NoizDNS) · Apache-2.0 (Slipstream) · MIT (MasterDNS family)",
+                integration = "separate executables (scripts/build-dnstt.sh, build-dns-tunnels.sh, build-slipstream.sh) -> sing-box -> zeptun"),
             availability = { ctx ->
+                val present = listOf("libdnstt.so", "libvaydns.so", "libnoizdns.so", "libslipstream.so",
+                    "libmasterdns.so", "libstormdns.so", "libcottendns.so").filter { nativeFile(ctx, it) }
                 when {
-                    !nativeFile(ctx, "libdnstt.so") -> Availability.Missing("libdnstt.so not in this build")
-                    !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("sing-box (carries the tunnel) not in this build")
-                    else -> Availability.Experimental("wired through dnstt:// servers; not device verified")
+                    present.isEmpty() -> Availability.Missing("no DNS tunnel client in this build")
+                    !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("sing-box (carries the tunnels) not in this build")
+                    else -> Availability.Experimental("${present.size}/7 clients present; not device verified")
                 }
             },
-            running = { SingBoxController.isRunning() && SingBoxController.sidecarKind() == "dnstt" }),
+            running = { SingBoxController.isRunning() && SingBoxController.sidecarKind() in setOf("dnstt", "vaydns", "noizdns",
+                "slipstream", "masterdns", "stormdns", "cottendns") }),
         engine(EngineId.SINGBOX, "sing-box",
             // Connect path: GozarVpnService EXTRA_SINGBOX -> SingBoxController (local SOCKS5) -> zeptun tun.
             // Protocol list = SingBoxConfig.PROTOCOLS, audited against the pinned source (v1.15.0-alpha.6);

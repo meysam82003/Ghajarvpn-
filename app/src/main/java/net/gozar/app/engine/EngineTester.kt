@@ -147,6 +147,10 @@ object EngineTester {
     /** Plain-text "ip=… loc=…" from Cloudflare's edge. */
     const val TRACE_URL = "https://www.cloudflare.com/cdn-cgi/trace"
 
+    /** The probe targets; only local end-to-end harnesses change them. */
+    @Volatile internal var probeUrl = PROBE_URL
+    @Volatile internal var traceUrl = TRACE_URL
+
     @Volatile private var appContext: Context? = null
     private val singboxSlots = Semaphore(2)
     private val seq = AtomicInteger()
@@ -333,7 +337,7 @@ object EngineTester {
 
     private fun probeOnce(socksPort: Int, timeoutMs: Int): Int? = runCatching {
         val started = System.nanoTime()
-        val conn = URL(PROBE_URL).openConnection(socks(socksPort)) as HttpURLConnection
+        val conn = URL(probeUrl).openConnection(socks(socksPort)) as HttpURLConnection
         conn.connectTimeout = timeoutMs; conn.readTimeout = timeoutMs
         conn.instanceFollowRedirects = false; conn.useCaches = false
         val code = try { conn.responseCode } finally { conn.disconnect() }
@@ -342,7 +346,7 @@ object EngineTester {
 
     /** Exit IP and country through the tunnel, from the trace endpoint. */
     fun exitInfo(socksPort: Int, timeoutMs: Int): Pair<String, String?>? = runCatching {
-        val conn = URL(TRACE_URL).openConnection(socks(socksPort)) as HttpURLConnection
+        val conn = URL(traceUrl).openConnection(socks(socksPort)) as HttpURLConnection
         conn.connectTimeout = timeoutMs; conn.readTimeout = timeoutMs
         val body = try { conn.inputStream.bufferedReader().readText() } finally { conn.disconnect() }
         val map = parseTrace(body)

@@ -32,13 +32,31 @@ object ConfigShare {
         "ssh" -> simpleLink("ssh", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf("hostkey" to c.publicKey))
         "openconnect" -> simpleLink("openconnect", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf(
             "flavor" to c.mode, "sni" to c.sni, "pin" to c.pinnedCertSha256, "insecure" to if (c.allowInsecure) "1" else ""))
-        "dnstt" -> {
+        "masterdns", "stormdns", "cottendns" -> {
+            val x = c.extraJson()
+            val first = (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port
+            val resolvers = (listOf(first) + x.optString("resolvers").split(',')).map { it.trim() }.filter { it.isNotEmpty() }
+            val params = listOf("resolver" to resolvers.joinToString(","), "enc" to x.optInt("enc", 1).toString(),
+                "transport" to c.mode.ifEmpty { "udp" })
+            c.protocol + "://" + enc(c.password) + "@" + c.host + "?" + params.joinToString("&") { it.first + "=" + enc(it.second) } + "#" + enc(c.name)
+        }
+        "dnstt", "vaydns", "noizdns", "slipstream" -> {
             val user = enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else "")
             val params = listOf("pubkey" to c.publicKey, "transport" to c.mode.ifEmpty { "udp" },
                 if (c.mode == "doh") "doh" to c.path else "resolver" to (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port,
                 "upstream" to c.method.ifEmpty { "socks" })
-            val query = params.filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
-            "dnstt://" + (if (user.isEmpty() || user == ":") "" else "$user@") + c.host + "?" + query + "#" + enc(c.name)
+            val x = c.extraJson()
+            val opts = listOfNotNull(
+                x.optString("recordType").takeIf { it.isNotEmpty() }?.let { "record" to it },
+                if (x.has("dnsttCompat")) "compat" to (if (x.optBoolean("dnsttCompat")) "1" else "0") else null,
+                x.optInt("maxQnameLen", 0).takeIf { it > 0 }?.let { "qname" to it.toString() },
+                x.optInt("clientIdSize", 0).takeIf { it > 0 }?.let { "clientid" to it.toString() },
+                if (x.has("noiz")) "noiz" to (if (x.optBoolean("noiz")) "1" else "0") else null,
+                if (x.has("stealth")) "stealth" to (if (x.optBoolean("stealth")) "1" else "0") else null,
+                x.optString("authoritative").takeIf { it.isNotEmpty() }?.let { "authoritative" to it },
+                x.optString("cc").takeIf { it.isNotEmpty() }?.let { "cc" to it })
+            val query = (params + opts).filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
+            c.protocol + "://" + (if (user.isEmpty() || user == ":") "" else "$user@") + c.host + "?" + query + "#" + enc(c.name)
         }
         else -> ""
     }
