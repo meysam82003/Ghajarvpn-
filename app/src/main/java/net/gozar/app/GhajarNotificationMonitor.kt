@@ -38,6 +38,26 @@ object GhajarRenewRequest {
 }
 
 /**
+ * "Go to this shop" from an announcement: which shop (0 = the official Ghajar
+ * shop) and, for a discount announcement, the code to apply there.
+ */
+object GhajarShopOpenRequest {
+    data class Request(val shopId: Int, val code: String)
+    private val _requested = MutableStateFlow<Request?>(null)
+    val requested = _requested.asStateFlow()
+    fun request(shopId: Int, code: String) { _requested.value = Request(shopId, code) }
+    fun consume() { _requested.value = null }
+
+    /** Parses a notice's action: market_shop with ref "shopId|code". */
+    fun fromNotice(action: String, ref: String): Request? {
+        if (action != "market_shop") return null
+        val parts = ref.split('|', limit = 2)
+        val id = parts.getOrNull(0)?.toIntOrNull() ?: return null
+        return Request(id, parts.getOrNull(1).orEmpty().filter { it.isLetterOrDigit() || it == '_' || it == '-' })
+    }
+}
+
+/**
  * Whether the shop is open, as the server last reported it.
  *
  * The app is never *blocked* by the shop being switched off - its tunnel has
@@ -281,6 +301,19 @@ object GhajarNotificationMonitor {
             .setPriority(if (notice.important) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(open)
+        GhajarShopOpenRequest.fromNotice(notice.action, notice.actionRef)?.let { target ->
+            fun addOpen(label: String, code: String, salt: String) = PendingIntent.getActivity(
+                context,
+                (notice.id + salt).hashCode(),
+                Intent(context, MainActivity::class.java)
+                    .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(MainActivity.EXTRA_OPEN_SHOP_ID, target.shopId)
+                    .putExtra(MainActivity.EXTRA_OPEN_SHOP_CODE, code),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            ).also { builder.addAction(0, label, it) }
+            addOpen("رفتن به فروشگاه", "", ":shop")
+            if (target.code.isNotBlank()) addOpen("استفاده از کد تخفیف", target.code, ":code")
+        }
         notice.serviceUsername?.takeIf { it.isNotBlank() }?.let { username ->
             val renew = PendingIntent.getActivity(
                 context,

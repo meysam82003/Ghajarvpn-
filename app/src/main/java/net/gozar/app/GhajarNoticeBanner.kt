@@ -98,7 +98,35 @@ internal fun GhajarNoticeBanner() {
             onDismissRequest = { expandedId = null },
             title = { Text(current.title) },
             text = { Text(current.message, modifier = Modifier.verticalScroll(rememberScrollState())) },
-            confirmButton = { TextButton(onClick = { dismiss(); expandedId = null }) { Text("خواندم") } },
+            // A warning about one service offers the one useful answer to it:
+            // renew that service, in the shop, now. Anything else keeps the
+            // plain acknowledgement.
+            confirmButton = {
+                val username = current.serviceUsername?.takeIf { it.isNotBlank() }
+                val target = GhajarShopOpenRequest.fromNotice(current.action, current.actionRef)
+                if (target != null) {
+                    // An announcement: straight to that shop, or with its
+                    // discount code already applied to every plan.
+                    Row {
+                        TextButton(onClick = {
+                            dismiss(); expandedId = null
+                            GhajarShopOpenRequest.request(target.shopId, "")
+                        }) { Text("رفتن به فروشگاه") }
+                        if (target.code.isNotBlank()) TextButton(onClick = {
+                            dismiss(); expandedId = null
+                            GhajarShopOpenRequest.request(target.shopId, target.code)
+                        }) { Text("استفاده از کد تخفیف") }
+                    }
+                } else if (username != null) {
+                    TextButton(onClick = {
+                        dismiss()
+                        expandedId = null
+                        GhajarRenewRequest.request(username)
+                    }) { Text("تمدید همین سرویس") }
+                } else {
+                    TextButton(onClick = { dismiss(); expandedId = null }) { Text("خواندم") }
+                }
+            },
             dismissButton = { TextButton(onClick = { expandedId = null }) { Text("بازگشت") } }
         )
     }
