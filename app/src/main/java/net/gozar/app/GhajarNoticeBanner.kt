@@ -103,7 +103,21 @@ internal fun GhajarNoticeBanner() {
             // plain acknowledgement.
             confirmButton = {
                 val username = current.serviceUsername?.takeIf { it.isNotBlank() }
-                if (username != null) {
+                val target = GhajarShopOpenRequest.fromNotice(current.action, current.actionRef)
+                if (target != null) {
+                    // An announcement: straight to that shop, or with its
+                    // discount code already applied to every plan.
+                    Row {
+                        TextButton(onClick = {
+                            dismiss(); expandedId = null
+                            GhajarShopOpenRequest.request(target.shopId, "")
+                        }) { Text("رفتن به فروشگاه") }
+                        if (target.code.isNotBlank()) TextButton(onClick = {
+                            dismiss(); expandedId = null
+                            GhajarShopOpenRequest.request(target.shopId, target.code)
+                        }) { Text("استفاده از کد تخفیف") }
+                    }
+                } else if (username != null) {
                     TextButton(onClick = {
                         dismiss()
                         expandedId = null

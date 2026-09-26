@@ -192,6 +192,8 @@ internal fun MarketShopHome(
     api: GhajarStoreApi,
     store: ConfigStore,
     shopId: Int,
+    /** A discount code from an announcement, applied to every price shown. */
+    initialCode: String = "",
     signedIn: Boolean,
     onSignIn: () -> Unit,
     onBack: () -> Unit,
@@ -200,15 +202,16 @@ internal fun MarketShopHome(
     val c = ghajarColors
     val lang = LocalLang.current
     val context = LocalContext.current
+    var appliedCode by remember(shopId, initialCode) { mutableStateOf(initialCode) }
     var home by remember(shopId) { mutableStateOf<GhajarMarketHome?>(null) }
     var error by remember(shopId) { mutableStateOf<String?>(null) }
     var busy by remember(shopId) { mutableStateOf(true) }
     var reload by remember(shopId) { mutableIntStateOf(0) }
     var tab by rememberSaveable(shopId) { mutableIntStateOf(0) }
 
-    LaunchedEffect(shopId, reload) {
+    LaunchedEffect(shopId, reload, appliedCode) {
         busy = true
-        runCatching { api.marketHome(shopId) }
+        runCatching { api.marketHome(shopId, appliedCode) }
             .onSuccess { home = it; error = null }
             .onFailure { error = it.message ?: "این فروشگاه باز نشد" }
         busy = false
@@ -284,6 +287,18 @@ internal fun MarketShopHome(
             }
         }
 
+        if (loaded.appliedCode.isNotBlank()) {
+            Slab(accent = if (loaded.appliedOk) c.primary else c.error, spacing = GhajarSpacing.xs) {
+                Text(if (loaded.appliedOk) "🎟 کد ${loaded.appliedCode} روی همهٔ پلن‌ها و سرورها اعمال شد"
+                    else "کد ${loaded.appliedCode}: ${loaded.appliedMsg.ifBlank { "معتبر نیست" }}",
+                    fontWeight = FontWeight.Bold, color = if (loaded.appliedOk) c.primary else c.error)
+                GhostPill("برداشتن کد", { appliedCode = "" }, minHeight = 36.dp)
+            }
+        }
+        if (loaded.announcements.isNotEmpty()) {
+            MarketAnnouncements(loaded.announcements, onUseCode = { appliedCode = it; tab = 0 })
+        }
+
         TabRail(
             tabs = MARKET_TABS.mapIndexed { index, label ->
                 RailTab(label, badge = if (index == 2 && loaded.unread > 0) loaded.unread else null)
@@ -350,7 +365,7 @@ private fun MarketBuyTab(
     // What is about to be bought, waiting for a payment method.
     var pending by remember(shop.id) { mutableStateOf<MarketPending?>(null) }
     var method by remember(shop.id) { mutableStateOf<String?>(null) }
-    var discountCode by remember(shop.id) { mutableStateOf("") }
+    var discountCode by remember(shop.id, home.appliedCode) { mutableStateOf(if (home.appliedOk) home.appliedCode else "") }
     var discounted by remember(shop.id) { mutableStateOf<Long?>(null) }
     var discountNote by remember(shop.id) { mutableStateOf<String?>(null) }
     var starting by remember(shop.id) { mutableStateOf(false) }
@@ -524,7 +539,12 @@ private fun MarketBuyTab(
                         price = product.price,
                         trafficGb = product.volumeGb.takeIf { it > 0 }?.toDouble(),
                         days = product.timeDays.takeIf { it > 0 },
-                        description = product.note,
+                        description = listOfNotNull(
+                            product.priceBefore.takeIf { it > product.price }?.let {
+                                "🎟 با کد " + home.appliedCode + " — قیمت قبل: " + localizeDigits(formatToman(it), lang) + " تومان"
+                            },
+                            product.note.takeIf { it.isNotBlank() }
+                        ).joinToString("\n"),
                         countryId = panelCode.orEmpty()
                     ),
                     enabled = !starting && shop.canSell && !home.blocked,
@@ -1238,6 +1258,32 @@ private fun MarketOwnerCodes(api: GhajarStoreApi, shopId: Int) {
                 "max_uses" to maxUses.ifBlank { "0" }, "per_user" to perUser.ifBlank { "0" },
                 "first_only" to if (firstOnly) "1" else "0", "product" to product.trim(), "panel" to panel.trim()))
         }, enabled = !busy && code.length >= 3 && value.isNotBlank(), icon = Icons.Filled.CardGiftcard)
+    }
+}
+
+/** The shop's own announcements, newest first; a discount one offers its code. */
+@Composable
+internal fun MarketAnnouncements(items: List<GhajarMarketAnnouncement>, onUseCode: (String) -> Unit) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    var expanded by remember { mutableStateOf(false) }
+    Slab(spacing = GhajarSpacing.sm, accent = c.highlight) {
+        Row(Modifier.fillMaxWidth().clickable { expanded = !expanded }, verticalAlignment = Alignment.CenterVertically) {
+            Text("📣 اعلان‌های این فروشگاه", fontWeight = FontWeight.Bold, color = c.textPrimary, modifier = Modifier.weight(1f))
+            Text(localizeDigits(items.size.toString(), lang) + (if (expanded) " ▲" else " ▼"), color = c.textMuted)
+        }
+        (if (expanded) items else items.take(1)).forEach { a ->
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(GhajarRadius.md)).background(c.card)
+                .padding(GhajarSpacing.md), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(a.title, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                Text(a.body, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                Text(mixedText(localizeDigits(marketJalali(a.publishedAt), lang)), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                if (a.discountCode.isNotBlank()) {
+                    PillButton("استفاده از کد " + a.discountCode, { onUseCode(a.discountCode) }, minHeight = 40.dp,
+                        icon = Icons.Filled.CardGiftcard)
+                }
+            }
+        }
     }
 }
 

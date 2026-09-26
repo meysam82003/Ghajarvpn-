@@ -36,6 +36,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -87,7 +88,7 @@ internal const val MARKET_STATUS_FAILED = "failed"
 /** Where the marketplace currently is. One value, so back is unambiguous. */
 private sealed interface MarketRoute {
     object List : MarketRoute
-    data class Shop(val id: Int) : MarketRoute
+    data class Shop(val id: Int, val code: String = "") : MarketRoute
     data class Order(val shopId: Int, val order: GhajarMarketOrder) : MarketRoute
     object Register : MarketRoute
 }
@@ -175,6 +176,16 @@ fun GhajarMarketScreen(
         busy = false
     }
 
+    // An announcement's "go to shop" / "use discount code" for a marketplace shop.
+    val openRequest by GhajarShopOpenRequest.requested.collectAsState()
+    LaunchedEffect(openRequest) {
+        val req = openRequest ?: return@LaunchedEffect
+        if (req.shopId > 0) {
+            route = MarketRoute.Shop(req.shopId, req.code)
+            GhajarShopOpenRequest.consume()
+        }
+    }
+
     val current = feed
     val onRegister: () -> Unit = { if (signedIn) route = MarketRoute.Register else onSignIn() }
     when {
@@ -210,6 +221,7 @@ fun GhajarMarketScreen(
                 api = api,
                 store = store,
                 shopId = where.id,
+                initialCode = where.code,
                 signedIn = signedIn,
                 onSignIn = onSignIn,
                 onBack = { route = MarketRoute.List; refreshKey++ },

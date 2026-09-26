@@ -220,6 +220,8 @@ data class GhajarMarketPanel(
     val maxGb: Int = 0,
     val minDays: Int = 0,
     val maxDays: Int = 0,
+    /** The per-GB price before an applied discount code; 0 when none applies. */
+    val gbPriceBefore: Long = 0,
     /** Whether the seller offers a free test on this panel, and how big. */
     val test: Boolean = false,
     val testHours: Int = 0,
@@ -236,7 +238,18 @@ data class GhajarMarketProduct(
     /** The seller's panel this plan is sold on; "/all" or blank for every panel. */
     val location: String = "",
     /** The seller's category for this plan, as their product row stores it. */
-    val category: String = ""
+    val category: String = "",
+    /** The price before an applied discount code; 0 when none applies. */
+    val priceBefore: Long = 0
+)
+
+/** One announcement a shop published (shop 0 = the official Ghajar shop). */
+data class GhajarMarketAnnouncement(
+    val id: Int,
+    val title: String,
+    val body: String,
+    val discountCode: String,
+    val publishedAt: Long
 )
 
 /**
@@ -325,7 +338,12 @@ data class GhajarMarketHome(
     val unread: Int,
     val blocked: Boolean,
     /** True when the signed-in user owns this shop. */
-    val mine: Boolean = false
+    val mine: Boolean = false,
+    /** A code opened from an announcement, already applied to the prices. */
+    val appliedCode: String = "",
+    val appliedOk: Boolean = false,
+    val appliedMsg: String = "",
+    val announcements: List<GhajarMarketAnnouncement> = emptyList()
 )
 
 /** One discount or gift code, made in Ghajar's bot ("ghajar") or in the seller's own bot ("seller"). */
@@ -1416,6 +1434,7 @@ class GhajarStoreApi(context: Context) {
                 custom = row.optBoolean("custom"),
                 gbPrice = (row.optNullableDouble("gb_price") ?: 0.0).toLong(),
                 dayPrice = (row.optNullableDouble("day_price") ?: 0.0).toLong(),
+                gbPriceBefore = (row.optNullableDouble("gb_price_before") ?: 0.0).toLong(),
                 minGb = row.optInt("min_gb"),
                 maxGb = row.optInt("max_gb"),
                 minDays = row.optInt("min_days"),
@@ -1434,7 +1453,8 @@ class GhajarStoreApi(context: Context) {
                 timeDays = row.optInt("time_days"),
                 note = visible(row.optString("note")),
                 location = visible(row.optString("location")),
-                category = visible(row.optString("category"))
+                category = visible(row.optString("category")),
+                priceBefore = row.optNullableDouble("price_before")?.toLong() ?: 0
             )
         }.filter { it.code.isNotBlank() },
         methods = payload.optJSONArray("payment").orEmpty().objects().map { marketMethodFrom(it) },
@@ -1447,9 +1467,11 @@ class GhajarStoreApi(context: Context) {
      * One shop's page: the card, reviews, catalogue with custom and test
      * pricing, payment methods, and this buyer's balance and unread count.
      */
-    suspend fun marketHome(shopId: Int): GhajarMarketHome {
-        val payload = marketAction("shop_home", params = mapOf("shop_id" to shopId.toString()),
+    suspend fun marketHome(shopId: Int, code: String = ""): GhajarMarketHome {
+        val payload = marketAction("shop_home", params = mapOf("shop_id" to shopId.toString()) +
+            (if (code.isNotBlank()) mapOf("code" to code) else emptyMap()),
             allowAnonymous = true).payloadObject()
+        val applied = payload.optJSONObject("applied_code")
         val catalog = payload.optJSONObject("catalog") ?: JSONObject()
         val test = catalog.optJSONObject("test") ?: JSONObject()
         val me = payload.optJSONObject("me")
@@ -1467,7 +1489,11 @@ class GhajarStoreApi(context: Context) {
             wallet = me?.let { (it.optNullableDouble("wallet") ?: 0.0).toLong() },
             unread = me?.optInt("unread") ?: 0,
             blocked = me?.optBoolean("blocked") ?: false,
-            mine = me?.optBoolean("mine") ?: false
+            mine = me?.optBoolean("mine") ?: false,
+            appliedCode = applied?.optString("code").orEmpty(),
+            appliedOk = applied?.optBoolean("ok") ?: false,
+            appliedMsg = visible(applied?.optString("msg").orEmpty()),
+            announcements = marketAnnouncementsFrom(payload.optJSONArray("announcements"))
         )
     }
 
@@ -1642,6 +1668,22 @@ class GhajarStoreApi(context: Context) {
         val payload = envelope.payloadObject()
         return (payload.optNullableDouble("amount") ?: amount.toDouble()).toLong() to visible(envelope.optString("msg"))
     }
+
+    private fun marketAnnouncementsFrom(array: JSONArray?): List<GhajarMarketAnnouncement> =
+        array.orEmpty().objects().map { row ->
+            GhajarMarketAnnouncement(
+                id = row.optInt("id"),
+                title = visible(row.optString("title")),
+                body = visible(row.optString("body")),
+                discountCode = row.optString("discount_code"),
+                publishedAt = row.optNullableLong("published_at") ?: 0L
+            )
+        }
+
+    /** One shop's announcements; shop 0 is the official Ghajar shop. */
+    suspend fun marketAnnouncements(shopId: Int): List<GhajarMarketAnnouncement> =
+        marketAnnouncementsFrom(marketAction("shop_announcements", params = shopParam(shopId), allowAnonymous = true)
+            .payloadObject().optJSONArray("announcements"))
 
     /** Redeems a gift code into the wallet at this shop: (ok, message). */
     suspend fun marketGiftRedeem(shopId: Int, code: String): Pair<Boolean, String> {

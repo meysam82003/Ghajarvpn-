@@ -438,6 +438,8 @@ object ImportBus {
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_RENEW_SERVICE_USERNAME = "ghajar_renew_service_username"
+        const val EXTRA_OPEN_SHOP_ID = "ghajar_open_shop_id"
+        const val EXTRA_OPEN_SHOP_CODE = "ghajar_open_shop_code"
     }
 
     private lateinit var store: ConfigStore
@@ -516,6 +518,7 @@ class MainActivity : ComponentActivity() {
         GhajarLog.i("Startup", "phase: bridges registered")
         handleImportIntent(intent)
         handleRenewIntent(intent)
+        handleOpenShopIntent(intent)
         IkeController.bind(this)
         watchTunnel()
         // At first launch, not at first connect. The warning this app most
@@ -670,6 +673,17 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         handleImportIntent(intent)
         handleRenewIntent(intent)
+        handleOpenShopIntent(intent)
+    }
+
+    /** An announcement's "go to shop" / "use discount code" notification action. */
+    private fun handleOpenShopIntent(intent: Intent?) {
+        if (intent?.hasExtra(EXTRA_OPEN_SHOP_ID) != true) return
+        val id = intent.getIntExtra(EXTRA_OPEN_SHOP_ID, -1)
+        val code = intent.getStringExtra(EXTRA_OPEN_SHOP_CODE).orEmpty()
+        intent.removeExtra(EXTRA_OPEN_SHOP_ID)
+        intent.removeExtra(EXTRA_OPEN_SHOP_CODE)
+        if (id >= 0) GhajarShopOpenRequest.request(id, code)
     }
 
     /** Notification's "renew this service" action asks the store screen to open
@@ -1271,6 +1285,13 @@ private fun GozarApp(
     val pendingRenew by GhajarRenewRequest.requested.collectAsState()
     LaunchedEffect(pendingRenew) {
         if (pendingRenew != null) {
+            showPicker = false
+            pagerState.animateScrollToPage(PAGE_SHOP)
+        }
+    }
+    val pendingShopOpen by GhajarShopOpenRequest.requested.collectAsState()
+    LaunchedEffect(pendingShopOpen) {
+        if (pendingShopOpen != null) {
             showPicker = false
             pagerState.animateScrollToPage(PAGE_SHOP)
         }
@@ -4931,6 +4952,11 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
                     ).joinToString("\n").takeIf { it.isNotBlank() }
                     readyFile = result.file
                     stage = 3
+                    // Straight to the system installer when allowed; the
+                    // «نصب» button stays for a second try.
+                    if (GhajarUpdateInstaller.canInstallPackages(context)) {
+                        runCatching { GhajarUpdateInstaller.install(context, result.file) }
+                    }
                 }
             }
         }
@@ -4953,7 +4979,7 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
             2 -> "لطفاً صبر کن…"
             3 -> "نصب"
             4 -> "تلاش دوباره"
-            else -> "دانلود و بروزرسانی"
+            else -> "دانلود"
         },
         dismissLabel = if (stage == 0) "بعداً" else if (stage == 1) null else "بستن",
         onConfirm = {
@@ -4970,13 +4996,22 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
         when (stage) {
             0 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (upd.changelog.isNotBlank()) {
-                    Text("تغییرات این نسخه:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    // Collapsed by default: the download is one tap away and
+                    // the notes open only for whoever wants them.
+                    var notesOpen by remember(upd.version) { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { notesOpen = !notesOpen }
+                        .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("تغییرات این نسخه", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f))
+                        Text(if (notesOpen) "▲ بستن" else "▼ نمایش", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
                     // The release body is Markdown. Rendering it as one flat
                     // bulleted list turned headings into bullets and a table
                     // into a row of pipe characters; ReleaseNotes parses the
                     // three shapes a release note actually uses.
                     val blocks = remember(upd.changelog) { ReleaseNotes.parse(upd.changelog) }
-                    Column(
+                    if (notesOpen) Column(
                         // The dialog bounds its own body now, so no second cap
                         // here: a long release note scrolls instead of being
                         // cut at a fixed height.

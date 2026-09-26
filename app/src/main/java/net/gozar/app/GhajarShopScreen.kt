@@ -209,6 +209,30 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         notices = noticesDeferred.await()
     }
 
+    var ghajarAnnouncements by remember { mutableStateOf<List<GhajarMarketAnnouncement>>(emptyList()) }
+    LaunchedEffect(inGhajar) {
+        if (inGhajar) ghajarAnnouncements = runCatching { api.marketAnnouncements(0) }.getOrDefault(emptyList())
+    }
+
+    // An official Ghajar announcement: open this shop, with its code in the
+    // checkout's discount field when it carried one.
+    val shopOpenRequest by GhajarShopOpenRequest.requested.collectAsState()
+    LaunchedEffect(shopOpenRequest, active) {
+        val req = shopOpenRequest ?: return@LaunchedEffect
+        if (!active) return@LaunchedEffect
+        if (req.shopId == 0) {
+            inGhajar = true
+            section = 0
+            if (req.code.isNotBlank()) {
+                discountCode = req.code
+                message = "🎟 کد تخفیف ${req.code} در سفارش قرار گرفت؛ پلن را انتخاب کن."
+            }
+            GhajarShopOpenRequest.consume()
+        } else {
+            inGhajar = false
+        }
+    }
+
     val renewRequest by GhajarRenewRequest.requested.collectAsState()
     LaunchedEffect(renewRequest, active, owned, ownedLoaded) {
         val requested = renewRequest ?: return@LaunchedEffect
@@ -546,6 +570,15 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 GhostPill("همهٔ فروشگاه‌ها", { inGhajar = false }, icon = Icons.Filled.ChevronLeft)
             }
             item(key = "shop-ghajar-head") { GhajarShopIntro() }
+            if (ghajarAnnouncements.isNotEmpty()) {
+                item(key = "shop-ghajar-annc") {
+                    MarketAnnouncements(ghajarAnnouncements, onUseCode = { code ->
+                        discountCode = code
+                        section = 0
+                        message = "🎟 کد تخفیف $code در سفارش قرار گرفت؛ پلن را انتخاب کن."
+                    })
+                }
+            }
         }
 
         if (!linked && (inGhajar || linkPrompt || linkSession != null)) {
