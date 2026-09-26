@@ -25,6 +25,7 @@ class AutoSelector(
 ) {
 
     private var loopJob: Job? = null
+    private val scores = net.gozar.app.engine.AutoSelectScore()
 
     private val _results = MutableStateFlow<Map<String, PingResult>>(emptyMap())
     val results: StateFlow<Map<String, PingResult>> = _results.asStateFlow()
@@ -64,11 +65,12 @@ class AutoSelector(
                         Pinger.pingIke(cfg.address)
                     } else {
                         val ms = withContext(Dispatchers.IO) {
-                            runCatching { Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg)) }
+                            runCatching { net.gozar.app.engine.EngineTester.realDelay(cfg) }
                                 .getOrDefault(-1L)
                         }
                         if (ms >= 0) PingResult.Ok(ms.toInt()) else PingResult.Failed
                     }
+                    if (r !is PingResult.Testing) scores.record(cfg.id, (r as? PingResult.Ok)?.ms)
                     _results.value = _results.value.toMutableMap().apply { put(cfg.id, r) }
                 }
             }
@@ -99,11 +101,11 @@ class AutoSelector(
         if (configs.isEmpty()) return@coroutineScope
 
         measureAll(configs)
+        scores.forget(configs.map { it.id }.toSet())
 
-        val snapshot = _results.value
-        val best = configs
-            .mapNotNull { c -> (snapshot[c.id] as? PingResult.Ok)?.let { c to it.ms } }
-            .minByOrNull { it.second }
+        // Ranked by recent history (median, jitter, failures), not one sample.
+        val ranked = scores.best(configs.map { it.id })
+        val best = ranked?.let { r -> configs.firstOrNull { it.id == r.first }?.let { it to r.second.toInt() } }
         if (best == null) {
             android.util.Log.w(TAG, "no config responded, nothing to switch to")
             return@coroutineScope
@@ -120,10 +122,9 @@ class AutoSelector(
             return@coroutineScope
         }
 
-        val currentPing = (snapshot[selectedId] as? PingResult.Ok)?.ms
-        val shouldSwitch = currentPing == null || currentPing - best.second >= SWITCH_MARGIN_MS
+        val shouldSwitch = scores.shouldSwitch(selectedId, best.first.id)
         if (!shouldSwitch) {
-            android.util.Log.d(TAG, "margin too small: current=${currentPing}ms best=${best.second}ms")
+            android.util.Log.d(TAG, "margin too small: current score=${scores.score(selectedId)} best=${best.second}")
             return@coroutineScope
         }
 
@@ -163,6 +164,5 @@ class AutoSelector(
         private const val TAG = "GhajarAuto"
         private const val INTERVAL_MS = 60_000L
         private const val MAX_CONCURRENCY = 4
-        private const val SWITCH_MARGIN_MS = 40
     }
 }

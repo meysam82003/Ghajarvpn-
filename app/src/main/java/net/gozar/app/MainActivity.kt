@@ -2198,7 +2198,8 @@ private fun ConnectionScreen(
                         "OPENVPN · ⁦${p.host}:${p.port}⁩"
                     } ?: "OPENVPN"
                     else -> selectedConfig?.let { cfg ->
-                        val engine = cfg.protocol.uppercase(java.util.Locale.ROOT)
+                        val engine = cfg.protocol.uppercase(java.util.Locale.ROOT) +
+                            if (net.gozar.app.engine.SingBoxConfig.handles(cfg)) " · sing-box" else ""
                         val endpoint = when {
                             cfg.locked -> t("locked_endpoint")
                             cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
@@ -2521,6 +2522,8 @@ private fun ConfigPickerScreen(
     var favoritesOnly by remember { mutableStateOf(false) }
     var pickingFastest by remember { mutableStateOf(false) }
     var protocolFilter by remember { mutableStateOf<String?>(null) }
+    // Which core would carry the config (engine/CoreManager.kt EngineRouting).
+    var engineFilter by remember { mutableStateOf<net.gozar.app.engine.EngineId?>(null) }
     var protocolMenu by remember { mutableStateOf(false) }
     val expandedSubs by store.expandedSubs.collectAsState()
     val scope = rememberCoroutineScope()
@@ -2558,7 +2561,7 @@ private fun ConfigPickerScreen(
         pings[cfg.id] = PingResult.Testing
         scope.launch {
             pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") Pinger.pingIke(cfg.address) else {
-                val ms = withContext(Dispatchers.IO) { Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg)) }
+                val ms = withContext(Dispatchers.IO) { net.gozar.app.engine.EngineTester.realDelay(cfg) }
                 if (ms >= 0) PingResult.Ok(ms.toInt()) else PingResult.Failed
             }
         }
@@ -2610,7 +2613,8 @@ private fun ConfigPickerScreen(
     }
     val q = query.trim()
     fun matchesFilters(cfg: ProxyConfig): Boolean =
-        (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter)
+        (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter) &&
+            (engineFilter == null || net.gozar.app.engine.EngineRouting.engineFor(cfg) == engineFilter)
     // Search used to match the name only, which is the one field a subscription
     // controls and often truncates. Matching the host and the protocol too is
     // what makes "arazmta" or "vless" find anything.
@@ -2618,7 +2622,7 @@ private fun ConfigPickerScreen(
         cfg.name.contains(q, true) ||
         cfg.address.contains(q, true) ||
         cfg.protocol.contains(q, true)
-    val grouped = remember(configs, subscriptions, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter) {
+    val grouped = remember(configs, subscriptions, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter, engineFilter) {
         subscriptions.map { sub ->
             val all = sortMaybe(configs.filter { it.subId == sub.id && matchesFilters(it) })
             sub to when {
@@ -2628,7 +2632,7 @@ private fun ConfigPickerScreen(
         }.filter { (sub, list) -> q.isEmpty() || list.isNotEmpty() || sub.name.contains(q, true) }
             .sortedByDescending { (sub, _) -> WindscribeBrand.isWindscribe(sub) }
     }
-    val loose = remember(configs, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter) {
+    val loose = remember(configs, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter, engineFilter) {
         sortMaybe(configs.filter {
             it.subId.isEmpty() && matchesFilters(it) && matchesQuery(it)
         })
@@ -2870,7 +2874,7 @@ private fun ConfigPickerScreen(
                                             Pinger.pingIke(cfg.address)
                                         } else {
                                             val ms = withContext(Dispatchers.IO) {
-                                                Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg))
+                                                net.gozar.app.engine.EngineTester.realDelay(cfg)
                                             }
                                             if (ms >= 0) PingResult.Ok(ms.toInt())
                                             else PingResult.Failed
@@ -3160,18 +3164,30 @@ private fun ConfigPickerScreen(
                         Icon(
                             Icons.Filled.FilterList,
                             contentDescription = "فیلتر پروتکل",
-                            tint = if (protocolFilter != null) MaterialTheme.colorScheme.primary
+                            tint = if (protocolFilter != null || engineFilter != null) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     DropdownMenu(expanded = protocolMenu, onDismissRequest = { protocolMenu = false }) {
-                        DropdownMenuItem(text = { Text("همهٔ پروتکل‌ها") }, onClick = {
-                            protocolFilter = null; protocolMenu = false
+                        DropdownMenuItem(text = { Text("همهٔ پروتکل‌ها و موتورها") }, onClick = {
+                            protocolFilter = null; engineFilter = null; protocolMenu = false
                         })
                         configs.map { it.protocol }.distinct().sorted().forEach { proto ->
                             DropdownMenuItem(text = { Text(proto) }, onClick = {
                                 protocolFilter = proto; protocolMenu = false
-                            })
+                            }, trailingIcon = if (protocolFilter == proto) ({ Icon(Icons.Filled.Check, null) }) else null)
+                        }
+                        val enginesHere = configs.map { net.gozar.app.engine.EngineRouting.engineFor(it) }.distinct()
+                        if (enginesHere.size > 1) {
+                            HorizontalDivider()
+                            Text("موتور", style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                            enginesHere.sortedBy { it.ordinal }.forEach { e ->
+                                DropdownMenuItem(text = { Text(net.gozar.app.engine.CoreManager.engine(e).displayName) }, onClick = {
+                                    engineFilter = if (engineFilter == e) null else e; protocolMenu = false
+                                }, trailingIcon = if (engineFilter == e) ({ Icon(Icons.Filled.Check, null) }) else null)
+                            }
                         }
                     }
                 }
@@ -3355,9 +3371,7 @@ private fun ConfigPickerScreen(
                                                     Pinger.pingIke(cfg.address)
                                                 } else {
                                                     val ms = withContext(Dispatchers.IO) {
-                                                        Gozarcore.measureDelay(
-                                                            ConfigBuilder.buildForTest(cfg)
-                                                        )
+                                                        net.gozar.app.engine.EngineTester.realDelay(cfg)
                                                     }
                                                     if (ms >= 0) PingResult.Ok(ms.toInt())
                                                     else PingResult.Failed
@@ -13642,7 +13656,9 @@ private fun LivePingDot(ping: PingResult?) {
 @Composable
 private fun ProtocolTag(protocol: String, active: Boolean) {
     val c = ghajarColors
-    val label = protocol.trim().uppercase(java.util.Locale.ROOT).ifBlank { return }
+    val base = protocol.trim().uppercase(java.util.Locale.ROOT).ifBlank { return }
+    // Profiles Xray cannot carry run on sing-box; say so where the protocol is shown.
+    val label = if (protocol.trim().lowercase() in net.gozar.app.engine.SingBoxConfig.PROTOCOLS) "$base · sing-box" else base
     val tint = if (active) c.primary else c.textMuted
     Text(
         label,

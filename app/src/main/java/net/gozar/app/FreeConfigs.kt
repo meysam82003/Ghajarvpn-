@@ -87,7 +87,7 @@ object FreeConfigs {
                 val testers = List(8) { launch(Dispatchers.IO) {
                     for (cfg in configs) {
                         ensureActive()
-                        val ms = try { Gozarcore.measureDelayBounded(ConfigBuilder.buildForTest(cfg), 4000L) }
+                        val ms = try { net.gozar.app.engine.EngineTester.realDelay(cfg, boundMs = 4000L) }
                             catch (e: CancellationException) { throw e }
                             catch (_: Exception) { -1L }
                         if (ms in 0L..MAX_LATENCY_MS.toLong()) passed[FreeFeedRules.signature(cfg)] = cfg to ms.toInt()

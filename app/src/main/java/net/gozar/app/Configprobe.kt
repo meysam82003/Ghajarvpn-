@@ -671,7 +671,7 @@ object ConfigProbe {
     private suspend fun coreDelay(c: ProxyConfig, chain: ProxyConfig?): Long =
         withContext(Dispatchers.IO) {
             runCatching {
-                Gozarcore.measureDelay(ConfigBuilder.buildForTest(c, chain))
+                net.gozar.app.engine.EngineTester.realDelay(c, chain)
             }.getOrDefault(-1L)
         }
 

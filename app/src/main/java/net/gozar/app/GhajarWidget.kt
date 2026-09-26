@@ -362,7 +362,7 @@ class GhajarWidget : AppWidgetProvider() {
             val id = VpnState.activeId.value ?: store.selectedId.value
             val cfg = store.configs.value.firstOrNull { it.id == id } ?: return
             val ms: Long = withContext(Dispatchers.IO) {
-                runCatching { Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg)) }
+                runCatching { net.gozar.app.engine.EngineTester.realDelay(cfg) }
                     .getOrDefault(-1L)
             }
             // A failure clears the number rather than leaving the last good one
