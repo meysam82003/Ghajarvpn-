@@ -50,8 +50,20 @@ class GozarVpnService : VpnService() {
     /** True when the zeptun engine, not the Xray core, owns this session's tun. */
     @Volatile private var zeptunOwnsTun = false
 
+    // Shop notices while the tunnel is up. The scheduled job runs at most
+    // every fifteen minutes (Android's floor for periodic work); a running
+    // VPN is already a foreground service, so it checks every two minutes
+    // and warnings and announcements arrive close to when they are sent.
+    private var noticeJob: kotlinx.coroutines.Job? = null
+
     override fun onCreate() {
         super.onCreate()
+        noticeJob = scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(120_000)
+                runCatching { GhajarNotificationMonitor.refresh(applicationContext) }
+            }
+        }
         // Nothing in here may throw. A throw from onCreate() aborts service
         // creation, and two aborts in a row make ActivityManager flag the
         // hosting process "bad" - after which every startForegroundService()
@@ -583,6 +595,7 @@ class GozarVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        noticeJob?.cancel()
         tearingDown = true
         enginesReady = false
         startJob?.cancel()

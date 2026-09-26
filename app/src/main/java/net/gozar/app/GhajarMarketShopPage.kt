@@ -350,6 +350,9 @@ private fun MarketBuyTab(
     // What is about to be bought, waiting for a payment method.
     var pending by remember(shop.id) { mutableStateOf<MarketPending?>(null) }
     var method by remember(shop.id) { mutableStateOf<String?>(null) }
+    var discountCode by remember(shop.id) { mutableStateOf("") }
+    var discounted by remember(shop.id) { mutableStateOf<Long?>(null) }
+    var discountNote by remember(shop.id) { mutableStateOf<String?>(null) }
     var starting by remember(shop.id) { mutableStateOf(false) }
     var actionError by remember(shop.id) { mutableStateOf<String?>(null) }
 
@@ -491,6 +494,8 @@ private fun MarketBuyTab(
                         volumeGb = gb.toIntOrNull() ?: 0, timeDays = days.toIntOrNull() ?: 0
                     )
                     method = null
+                    discounted = null
+                    discountNote = null
                 },
                 enabled = quote?.price != null && !starting && shop.canSell,
                 icon = Icons.Filled.ShoppingCart
@@ -527,6 +532,8 @@ private fun MarketBuyTab(
                 ) {
                     pending = MarketPending(title = product.name, price = product.price, productCode = product.code)
                     method = null
+                    discounted = null
+                    discountNote = null
                 }
             }
         }
@@ -546,7 +553,36 @@ private fun MarketBuyTab(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(order.title, fontWeight = FontWeight.Bold)
-                    Text("قیمت: " + localizeDigits(formatToman(order.price), lang) + " تومان")
+                    val finalPrice = discounted
+                    if (finalPrice != null && finalPrice < order.price) {
+                        Text("قیمت: " + localizeDigits(formatToman(order.price), lang) + " ← " +
+                            localizeDigits(formatToman(finalPrice), lang) + " تومان", fontWeight = FontWeight.Bold,
+                            color = c.primary)
+                    } else {
+                        Text("قیمت: " + localizeDigits(formatToman(order.price), lang) + " تومان")
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SkinField(
+                            value = discountCode,
+                            onValueChange = { discountCode = it.take(40); discounted = null; discountNote = null },
+                            label = "کد تخفیف (اختیاری)",
+                            modifier = Modifier.weight(1f)
+                        )
+                        androidx.compose.material3.TextButton(
+                            enabled = discountCode.isNotBlank(),
+                            onClick = {
+                                scope.launch {
+                                    runCatching { api.marketDiscountCheck(shop.id, discountCode, order.price) }
+                                        .onSuccess { (price, msg) -> discounted = price; discountNote = msg }
+                                        .onFailure { discounted = null; discountNote = it.message ?: "کد تخفیف معتبر نیست." }
+                                }
+                            }
+                        ) { Text("اعمال") }
+                    }
+                    discountNote?.let {
+                        Text(it, style = MaterialTheme.typography.labelSmall,
+                            color = if (discounted != null) c.primary else c.error)
+                    }
                     Text("روش پرداخت", style = MaterialTheme.typography.labelMedium, color = c.textMuted)
                     home.wallet?.let { wallet ->
                         ChoiceRow(
@@ -575,8 +611,10 @@ private fun MarketBuyTab(
                         val m = method ?: return@Button
                         start {
                             if (order.custom) api.marketOrderStart(shop.id, "customvolume", panelCode.orEmpty(), m,
-                                plan = "custom", volumeGb = order.volumeGb, timeDays = order.timeDays)
-                            else api.marketOrderStart(shop.id, order.productCode, panelCode.orEmpty(), m)
+                                plan = "custom", volumeGb = order.volumeGb, timeDays = order.timeDays,
+                                discountCode = discountCode.trim())
+                            else api.marketOrderStart(shop.id, order.productCode, panelCode.orEmpty(), m,
+                                discountCode = discountCode.trim())
                         }
                     }
                 ) { Text(if (starting) "در حال ثبت…" else "تأیید و ادامه") }
@@ -674,6 +712,9 @@ private fun MarketServicesTab(
     var renewing by remember(shopId) { mutableStateOf<GhajarMarketService?>(null) }
     var delivery by remember(shopId) { mutableStateOf<GhajarMarketOrderStatus?>(null) }
     val scope = rememberCoroutineScope()
+    var sort by rememberSaveable(shopId) { mutableStateOf(ServiceSort.NEWEST) }
+    var importing by remember(shopId) { mutableStateOf<String?>(null) }
+    var notice by remember(shopId) { mutableStateOf<String?>(null) }
 
     LaunchedEffect(shopId, reload) {
         runCatching { api.marketServices(shopId) }
@@ -691,17 +732,48 @@ private fun MarketServicesTab(
             list.isEmpty() -> SkinEmpty("از این فروشگاه هنوز سرویسی نخریده‌اید",
                 hint = "از تب «خرید» یک پلن یا تست بگیرید.", icon = Icons.Filled.ShoppingBag)
             else -> {
-                list.forEach { service ->
-                    MarketServiceCard(service,
+                // The same card and the same chips as the Ghajar shop's own
+                // services list, so a service looks the same wherever it was
+                // bought.
+                val asOwned = list.map { it.toOwned() }
+                ServiceSortChips(asOwned, sort) { sort = it }
+                val shown = asOwned.sortedFor(sort)
+                if (shown.isEmpty()) {
+                    Text("سرویسی در این دسته نیست.", color = c.textMuted)
+                }
+                shown.forEach { owned ->
+                    val service = list.first { it.username == owned.username && it.invoiceId == owned.invoiceId }
+                    OwnedServiceCard(owned,
                         onImport = {
+                            importing = service.username
                             scope.launch {
-                                runCatching { api.marketServiceDelivery(shopId, service.invoiceId, service.username) }
-                                    .onSuccess { delivery = it }
-                                    .onFailure { error = it.message ?: "کانفیگ‌ها دریافت نشد" }
+                                // One tap, like the Ghajar shop: fetched and
+                                // added to the servers list straight away.
+                                runCatching {
+                                    val d = api.marketServiceDelivery(shopId, service.invoiceId, service.username)
+                                    delivery = d
+                                    if (d.subscription.isBlank() && d.configs.isEmpty()) {
+                                        throw GhajarApiException("فروشنده هنوز کانفیگی برای این سرویس برنگردانده است؛ چند لحظه بعد دوباره بزنید.")
+                                    }
+                                    api.importServiceOnce(store, GhajarServiceDetails(
+                                        username = d.username, productName = service.productName.ifBlank { "سرویس فروشگاه" },
+                                        status = "active", usedGb = null, totalGb = null, remainingGb = null, expiresAt = "",
+                                        subscriptionUrl = d.subscription.takeIf { it.isNotBlank() }, outputs = d.configs))
+                                }.onSuccess { count ->
+                                    notice = if (count > 0) "✅ به لیست سرورها اضافه شد." else "این سرویس قبلاً اضافه شده است."
+                                    error = null
+                                }.onFailure { error = it.message ?: "کانفیگ‌ها دریافت نشد" }
+                                importing = null
                             }
                         },
-                        onRenew = { renewing = service })
+                        onRenew = { if (!service.isTest) renewing = service })
+                    if (!service.reachable) {
+                        Text("پنل فروشنده برای این سرویس جواب نداد؛ مصرف نمایش داده نمی‌شود.",
+                            style = MaterialTheme.typography.labelSmall, color = c.warning)
+                    }
                 }
+                importing?.let { SkinLoading("در حال دریافت کانفیگ‌های $it") }
+                notice?.let { Text(it, color = c.primary, style = MaterialTheme.typography.labelMedium) }
                 delivery?.let { MarketDelivery(it, api, store) }
                 error?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
                 GhostPill("بازخوانی", { reload++ }, icon = Icons.Filled.Refresh)
@@ -709,6 +781,21 @@ private fun MarketServicesTab(
         }
     }
 }
+
+/** A marketplace service in the Ghajar shop's own shape. */
+private fun GhajarMarketService.toOwned() = GhajarOwnedService(
+    username = username,
+    productName = productName.ifBlank { username },
+    status = status.ifBlank { if (reachable) "active" else "" },
+    location = panelName,
+    invoiceId = invoiceId,
+    dataLimitBytes = dataLimit.takeIf { it > 0 },
+    usedBytes = used,
+    expireTimestamp = expire.takeIf { it > 0 },
+    planGb = volumeGb.takeIf { it > 0 }?.toDouble(),
+    planDays = timeDays.takeIf { it > 0 },
+    soldAt = boughtAt.takeIf { it > 0 }
+)
 
 @Composable
 private fun MarketServiceCard(service: GhajarMarketService, onImport: () -> Unit, onRenew: () -> Unit) {
@@ -933,6 +1020,9 @@ private fun MarketWalletTab(api: GhajarStoreApi, home: GhajarMarketHome, onOrder
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
         Slab(padding = 18.dp, spacing = GhajarSpacing.sm) {
             Rail("کیف پول " + home.shop.name)
+            if (wallet == null && error != null) {
+                SkinError(error!!, retryText = "تلاش دوباره", onRetry = { error = null; reload++ })
+            }
             Text(
                 wallet?.let { localizeDigits(formatToman(it.balance), lang) } ?: "…",
                 style = MaterialTheme.typography.displaySmall, fontWeight = FontWeight.Bold, color = c.highlight

@@ -139,6 +139,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     var message by checkoutModel.message
     var refreshKey by remember { mutableIntStateOf(0) }
     var section by rememberSaveable { mutableIntStateOf(0) }
+    var ownedSort by rememberSaveable { mutableStateOf(ServiceSort.NEWEST) }
     // Which storefront is open. The page opens on the list of every shop -
     // Ghajar included, as one entry among them - rather than inside Ghajar's
     // own tabs with the others one tap deeper.
@@ -770,8 +771,15 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
 
             if (section == 1) {
                 item(key = "shop-block-11") { SectionTitle("سرویس‌های من", "برای دریافت خودکار کانفیگ روی سرویس بزن") }
+                if (owned.isNotEmpty()) item(key = "shop-owned-sort") {
+                    ServiceSortChips(owned, ownedSort) { ownedSort = it }
+                }
+                val shownOwned = owned.sortedFor(ownedSort)
                 if (owned.isEmpty() && !busy) item(key = "shop-block-12") { Text("هنوز سرویسی برای این حساب ثبت نشده است.") }
-                items(owned, key = { "owned:${it.username}" }) { service ->
+                if (owned.isNotEmpty() && shownOwned.isEmpty()) item(key = "shop-owned-none") {
+                    Text("سرویسی در این دسته نیست.", color = ghajarColors.textMuted)
+                }
+                items(shownOwned, key = { "owned:${it.username}" }) { service ->
                     OwnedServiceCard(service, onImport = { checkoutModel.importOwned(service.username) },
                         onRenew = { renewUsername = service.username })
                 }
@@ -1601,7 +1609,7 @@ internal fun SectionTitle(title: String, subtitle: String) {
 }
 
 @Composable
-private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, onRenew: () -> Unit) {
+internal fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, onRenew: () -> Unit) {
     val c = ghajarColors
     Card(
         onClick = onImport,
@@ -1636,6 +1644,51 @@ private fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit, 
             ServiceRemaining(service)
         }
     }
+}
+
+/**
+ * How a list of services is ordered and narrowed: newest first, the ones that
+ * need renewing soon, and the ones already finished. Shared by the Ghajar
+ * shop and every marketplace shop so the same chips mean the same thing.
+ */
+internal enum class ServiceSort(val label: String) {
+    NEWEST("جدیدترین"),
+    RENEW_SOON("نیاز به تمدید"),
+    ENDED("تمام‌شده"),
+    ACTIVE("فعال")
+}
+
+internal fun GhajarOwnedService.isEnded(): Boolean {
+    val state = status.lowercase()
+    return state in setOf("expired", "limited", "disabled", "inactive", "منقضی") ||
+        daysRemaining == 0 || remainingBytes == 0L
+}
+
+internal fun GhajarOwnedService.needsRenewSoon(): Boolean =
+    !isEnded() && ((daysRemaining ?: Int.MAX_VALUE) <= 3 || (volumeFraction ?: 0f) >= 0.85f)
+
+internal fun List<GhajarOwnedService>.sortedFor(sort: ServiceSort): List<GhajarOwnedService> {
+    val newest = sortedByDescending { it.soldAt ?: 0L }
+    return when (sort) {
+        ServiceSort.NEWEST -> newest
+        ServiceSort.RENEW_SOON -> newest.filter { it.needsRenewSoon() }
+            .sortedWith(compareBy<GhajarOwnedService> { it.daysRemaining ?: Int.MAX_VALUE }
+                .thenByDescending { it.volumeFraction ?: 0f })
+        ServiceSort.ENDED -> newest.filter { it.isEnded() }
+        ServiceSort.ACTIVE -> newest.filter { !it.isEnded() }
+    }
+}
+
+/** The chips over a services list, each with its count. */
+@Composable
+internal fun ServiceSortChips(services: List<GhajarOwnedService>, selected: ServiceSort, onSelect: (ServiceSort) -> Unit) {
+    TabRail(
+        tabs = ServiceSort.entries.map { sort ->
+            RailTab(sort.label, badge = services.sortedFor(sort).size.takeIf { sort != ServiceSort.NEWEST && it > 0 })
+        },
+        selected = ServiceSort.entries.indexOf(selected),
+        onSelect = { onSelect(ServiceSort.entries[it]) }
+    )
 }
 
 /**

@@ -1457,7 +1457,9 @@ class GhajarStoreApi(context: Context) {
         invoiceId: String = "",
         username: String = "",
         /** For a top-up: how much. */
-        amount: Long = 0
+        amount: Long = 0,
+        /** The shop's discount code, if the buyer entered one. */
+        discountCode: String = ""
     ): GhajarMarketOrder {
         val envelope = marketAction("order_start", method = "POST", body = JSONObject()
             .put("shop_id", shopId)
@@ -1470,7 +1472,8 @@ class GhajarStoreApi(context: Context) {
             .put("time_days", timeDays)
             .put("invoice_id", invoiceId)
             .put("username", username)
-            .put("amount", amount))
+            .put("amount", amount)
+            .put("discount_code", discountCode))
         val payload = envelope.payloadObject()
         return GhajarMarketOrder(
             id = payload.optInt("id"),
@@ -1602,6 +1605,14 @@ class GhajarStoreApi(context: Context) {
     }
 
     private fun shopParam(shopId: Int) = mapOf("shop_id" to shopId.toString())
+
+    /** What a shop's discount code does to a price: (new price, message). */
+    suspend fun marketDiscountCheck(shopId: Int, code: String, amount: Long): Pair<Long, String> {
+        val envelope = marketAction("discount_check", params = shopParam(shopId) +
+            mapOf("code" to code, "amount" to amount.toString()), allowAnonymous = true)
+        val payload = envelope.payloadObject()
+        return (payload.optNullableDouble("amount") ?: amount.toDouble()).toLong() to visible(envelope.optString("msg"))
+    }
 
     /** What this buyer bought at one shop, with live usage from the seller's panel. */
     suspend fun marketServices(shopId: Int): List<GhajarMarketService> =

@@ -592,7 +592,7 @@ class MainActivity : ComponentActivity() {
                         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                             while (true) {
                                 GhajarNotificationMonitor.refresh(applicationContext)
-                                delay(60_000)
+                                delay(30_000)
                             }
                         }
                     }
