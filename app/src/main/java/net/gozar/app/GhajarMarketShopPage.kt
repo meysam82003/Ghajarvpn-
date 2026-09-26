@@ -194,6 +194,8 @@ internal fun MarketShopHome(
     shopId: Int,
     /** A discount code from an announcement, applied to every price shown. */
     initialCode: String = "",
+    /** A service username whose renewal should open on arrival (services tab). */
+    initialRenew: String = "",
     signedIn: Boolean,
     onSignIn: () -> Unit,
     onBack: () -> Unit,
@@ -207,7 +209,7 @@ internal fun MarketShopHome(
     var error by remember(shopId) { mutableStateOf<String?>(null) }
     var busy by remember(shopId) { mutableStateOf(true) }
     var reload by remember(shopId) { mutableIntStateOf(0) }
-    var tab by rememberSaveable(shopId) { mutableIntStateOf(0) }
+    var tab by rememberSaveable(shopId, initialRenew) { mutableIntStateOf(if (initialRenew.isNotBlank()) 1 else 0) }
 
     LaunchedEffect(shopId, reload, appliedCode) {
         busy = true
@@ -313,7 +315,7 @@ internal fun MarketShopHome(
         }
         when (tab) {
             0 -> MarketBuyTab(api, loaded, signedIn, onSignIn, onOrdered)
-            1 -> MarketServicesTab(api, store, loaded, onOrdered)
+            1 -> MarketServicesTab(api, store, loaded, onOrdered, initialRenew)
             2 -> MarketMessagesTab(api, shopId) { reload++ }
             3 -> MarketWalletTab(api, loaded, onOrdered)
             4 -> MarketSupportTab(api, shopId)
@@ -722,11 +724,13 @@ private fun MarketServicesTab(
     api: GhajarStoreApi,
     store: ConfigStore,
     home: GhajarMarketHome,
-    onOrdered: (GhajarMarketOrder) -> Unit
+    onOrdered: (GhajarMarketOrder) -> Unit,
+    initialRenew: String = ""
 ) {
     val c = ghajarColors
     val shopId = home.shop.id
     var services by remember(shopId) { mutableStateOf<List<GhajarMarketService>?>(null) }
+    var renewHandled by remember(shopId, initialRenew) { mutableStateOf(initialRenew.isBlank()) }
     var error by remember(shopId) { mutableStateOf<String?>(null) }
     var reload by remember(shopId) { mutableIntStateOf(0) }
     var renewing by remember(shopId) { mutableStateOf<GhajarMarketService?>(null) }
@@ -738,7 +742,16 @@ private fun MarketServicesTab(
 
     LaunchedEffect(shopId, reload) {
         runCatching { api.marketServices(shopId) }
-            .onSuccess { services = it; error = null }
+            .onSuccess { list ->
+                services = list; error = null
+                // Opened from "renew" on a subscription: straight to that
+                // service's renewal at this shop.
+                if (!renewHandled) {
+                    renewHandled = true
+                    list.firstOrNull { it.username.equals(initialRenew, ignoreCase = true) && !it.isTest }
+                        ?.let { renewing = it }
+                }
+            }
             .onFailure { error = it.message ?: "سرویس‌ها خوانده نشد" }
     }
 

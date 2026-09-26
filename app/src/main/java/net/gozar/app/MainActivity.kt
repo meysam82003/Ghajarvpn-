@@ -1821,7 +1821,18 @@ private fun GozarApp(
                             // can be renewed; the shop already listens for the
                             // request, the servers list just never made one.
                             onRenewService = { username ->
-                                GhajarRenewRequest.request(username)
+                                // A service bought from a marketplace shop is
+                                // renewed at that shop: its subscription is our
+                                // market_sub.php?s=<shop id> link. Everything
+                                // else is the Ghajar shop's own service.
+                                val marketShop = store.subscriptions.value
+                                    .firstOrNull { it.serviceUsername == username }
+                                    ?.let { GhajarShopOpenRequest.shopIdFromSubscription(it.url) }
+                                if (marketShop != null && marketShop > 0) {
+                                    GhajarShopOpenRequest.request(marketShop, "", renew = username)
+                                } else {
+                                    GhajarRenewRequest.request(username)
+                                }
                                 showPicker = false
                                 scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
                             }

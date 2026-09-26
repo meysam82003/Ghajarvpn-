@@ -88,7 +88,7 @@ internal const val MARKET_STATUS_FAILED = "failed"
 /** Where the marketplace currently is. One value, so back is unambiguous. */
 private sealed interface MarketRoute {
     object List : MarketRoute
-    data class Shop(val id: Int, val code: String = "") : MarketRoute
+    data class Shop(val id: Int, val code: String = "", val renew: String = "") : MarketRoute
     data class Order(val shopId: Int, val order: GhajarMarketOrder) : MarketRoute
     object Register : MarketRoute
 }
@@ -181,7 +181,7 @@ fun GhajarMarketScreen(
     LaunchedEffect(openRequest) {
         val req = openRequest ?: return@LaunchedEffect
         if (req.shopId > 0) {
-            route = MarketRoute.Shop(req.shopId, req.code)
+            route = MarketRoute.Shop(req.shopId, req.code, req.renew)
             GhajarShopOpenRequest.consume()
         }
     }
@@ -222,6 +222,7 @@ fun GhajarMarketScreen(
                 store = store,
                 shopId = where.id,
                 initialCode = where.code,
+                initialRenew = where.renew,
                 signedIn = signedIn,
                 onSignIn = onSignIn,
                 onBack = { route = MarketRoute.List; refreshKey++ },

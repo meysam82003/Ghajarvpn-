@@ -229,6 +229,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             }
             GhajarShopOpenRequest.consume()
         } else {
+            // A marketplace shop: the market list below takes the request.
             inGhajar = false
         }
     }

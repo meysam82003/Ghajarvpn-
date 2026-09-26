@@ -42,10 +42,17 @@ object GhajarRenewRequest {
  * shop) and, for a discount announcement, the code to apply there.
  */
 object GhajarShopOpenRequest {
-    data class Request(val shopId: Int, val code: String)
+    /** [renew]: a service username at that shop whose renewal should open. */
+    data class Request(val shopId: Int, val code: String, val renew: String = "")
     private val _requested = MutableStateFlow<Request?>(null)
     val requested = _requested.asStateFlow()
-    fun request(shopId: Int, code: String) { _requested.value = Request(shopId, code) }
+    fun request(shopId: Int, code: String, renew: String = "") { _requested.value = Request(shopId, code, renew) }
+
+    /** The marketplace shop a subscription came from, read from our market_sub.php?s=<id> link. */
+    fun shopIdFromSubscription(url: String): Int? {
+        if (!url.contains("market_sub.php")) return null
+        return Regex("[?&]s=(\\d+)").find(url)?.groupValues?.get(1)?.toIntOrNull()
+    }
     fun consume() { _requested.value = null }
 
     /** Parses a notice's action: market_shop with ref "shopId|code". */
