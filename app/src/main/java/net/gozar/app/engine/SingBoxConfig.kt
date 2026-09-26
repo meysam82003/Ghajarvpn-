@@ -19,7 +19,7 @@ import org.json.JSONObject
 object SingBoxConfig {
 
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
-    val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect")
+    val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect", "dnstt")
 
     /** Protocols carried as sing-box endpoints rather than outbounds. */
     private val ENDPOINTS = setOf("openconnect")
@@ -34,7 +34,11 @@ object SingBoxConfig {
     fun spec(config: ProxyConfig): String? {
         if (!handles(config)) return null
         val proxy = proxy(config)
-        return JSONObject().put(if (config.protocol in ENDPOINTS) "endpoint" else "outbound", proxy).toString()
+        val out = JSONObject().put(if (config.protocol in ENDPOINTS) "endpoint" else "outbound", proxy)
+        // A DNS tunnel runs dnstt first; SingBoxRunner starts it and points
+        // the outbound at its local port (server_port is filled in there).
+        if (config.protocol == "dnstt") out.put("dnstt", dnstt(config))
+        return out.toString()
     }
 
     /** The complete configuration for `sing-box run`, with the SOCKS inbound on [socksPort]. */
@@ -117,9 +121,38 @@ object SingBoxConfig {
                 if (c.pinnedCertSha256.isNotBlank()) t.put("peer_fingerprint", JSONArray().put(c.pinnedCertSha256))
                 if (t.length() > 0) o.put("tls", t)
             }
+            "dnstt" -> {
+                // What the tunnel server forwards to: an SSH server (the
+                // common setup) or a SOCKS5 proxy.
+                if (c.method == "ssh") {
+                    o.put("type", "ssh").put("server", "127.0.0.1").put("server_port", 0)
+                        .put("user", c.uuid.ifBlank { "root" })
+                        .putIf("password", c.password)
+                    if (c.privateKey.isNotBlank()) o.put("private_key", JSONArray().put(c.privateKey))
+                } else {
+                    o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
+                        .putIf("username", c.uuid)
+                        .putIf("password", c.password)
+                }
+            }
             else -> throw IllegalArgumentException("not a sing-box protocol: ${c.protocol}")
         }
         return o
+    }
+
+    /** The "dnstt" part of a spec: what DnsttRunner needs. For "dnstt" profiles, [ProxyConfig.host] is the tunnel domain. */
+    internal fun dnstt(c: ProxyConfig): JSONObject {
+        val transport = c.mode.takeIf { it == "doh" || it == "dot" } ?: "udp"
+        val resolver = when (transport) {
+            "doh" -> c.path.ifBlank { "https://${c.address}/dns-query" }
+            else -> {
+                val port = if (c.port in 1..65535) c.port else if (transport == "dot") 853 else 53
+                val host = if (c.address.contains(':')) "[${c.address}]" else c.address
+                "$host:$port"
+            }
+        }
+        return JSONObject().put("transport", transport).put("resolver", resolver)
+            .put("domain", c.host).put("pubkey", c.publicKey)
     }
 
     private fun tls(c: ProxyConfig, forceOn: Boolean): JSONObject {

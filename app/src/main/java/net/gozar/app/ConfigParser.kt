@@ -214,6 +214,7 @@ object ConfigParser {
             lower.startsWith("ssh://") -> parseSsh(trimmed.substring(6), source)
             lower.startsWith("openconnect://") -> parseOpenConnect(trimmed.substring(14), source)
             lower.startsWith("anyconnect://") -> parseOpenConnect(trimmed.substring(13), source)
+            lower.startsWith("dnstt://") -> parseDnstt(trimmed.substring(8), source)
             lower.startsWith("ikev2://") -> parseIkev2(trimmed.substring(8), source)
             lower.startsWith("wireguard://") -> parseWireguardUri(trimmed.substring(12), source)
             lower.startsWith("wg://") -> parseWireguardUri(trimmed.substring(5), source)
@@ -371,6 +372,34 @@ object ConfigParser {
             sni = p["sni"].orEmpty(), pinnedCertSha256 = p["pin"].orEmpty(),
             allowInsecure = insecure(p), source = source
         ).takeIf { it.address.isNotBlank() }
+    } catch (e: Exception) { null }
+
+    /**
+     * dnstt://[user[:pass]@]DOMAIN?pubkey=HEX&transport=udp|dot|doh&resolver=HOST[:PORT]&doh=URL&upstream=socks|ssh#name
+     *
+     * Ghajar's own link for a DNS tunnel (there is no common one). DOMAIN is
+     * the tunnel zone; the user/password are for the SOCKS5 or SSH server the
+     * tunnel server forwards to.
+     */
+    private fun parseDnstt(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "DNS tunnel")
+        val domain = uhp.substringAfterLast('@').trim().trim('/').trim('.')
+        val user = if (uhp.contains('@')) uhp.substringBeforeLast('@') else ""
+        val colon = user.indexOf(':')
+        val transport = p["transport"].orEmpty().lowercase().let { if (it == "doh" || it == "dot") it else if (p["doh"] != null) "doh" else "udp" }
+        val doh = p["doh"].orEmpty()
+        val (rHost, rPort) = if (transport == "doh") {
+            val u = java.net.URI(doh)
+            (u.host ?: "") to (if (u.port > 0) u.port else 443)
+        } else splitHostPortOrDefault(p["resolver"].orEmpty(), if (transport == "dot") 853 else 53)
+        ProxyConfig(
+            name = name, protocol = "dnstt", address = rHost, port = rPort,
+            host = domain, publicKey = p["pubkey"].orEmpty().trim(), mode = transport, path = doh,
+            method = if (p["upstream"].equals("ssh", true)) "ssh" else "socks",
+            uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user),
+            password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
+            source = source
+        ).takeIf { it.host.isNotBlank() && it.address.isNotBlank() && it.publicKey.isNotBlank() }
     } catch (e: Exception) { null }
 
     private fun splitHostPortOrDefault(raw: String, default: Int): Pair<String, Int> {

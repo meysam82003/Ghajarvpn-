@@ -127,6 +127,11 @@ jobs:
       - name: Build the sing-box core
         run: sh scripts/build-singbox.sh
 
+      # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
+      # module version and checksum - see scripts/build-dnstt.sh.
+      - name: Build the dnstt DNS tunnel client
+        run: sh scripts/build-dnstt.sh
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -285,6 +290,11 @@ jobs:
 
       - name: Build the sing-box core
         run: sh scripts/build-singbox.sh
+
+      # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
+      # module version and checksum - see scripts/build-dnstt.sh.
+      - name: Build the dnstt DNS tunnel client
+        run: sh scripts/build-dnstt.sh
 
       - name: Remove any committed local signing config
         run: rm -f keystore.properties

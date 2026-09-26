@@ -34,6 +34,8 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         private set
 
     @Volatile private var process: Process? = null
+    /** Runs first when the profile is a DNS tunnel; stopped with this runner. */
+    private val dnstt = DnsttRunner("$TAG-dnstt")
     @Volatile private var stopping = false
     private val tail = ArrayDeque<String>()
 
@@ -41,6 +43,9 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
     @Volatile var onUnexpectedExit: ((Int?) -> Unit)? = null
 
     fun isRunning(): Boolean = process?.isAlive == true
+
+    /** Whether a dnstt client is carrying this runner's upstream. */
+    fun dnsttRunning(): Boolean = dnstt.isRunning()
 
     private fun workDir(context: Context): File = File(context.noBackupFilesDir, subdir).apply { mkdirs() }
 
@@ -54,12 +59,33 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
     fun start(context: Context, spec: String, port: Int = 0): String? {
         stop()
         stopping = false
+        // Any failure after this point also tears down what did start
+        // (dnstt in front of sing-box), so nothing is left running.
+        val failure = startInner(context, spec, port)
+        if (failure != null) stop()
+        return failure
+    }
+
+    private fun startInner(context: Context, spec: String, port: Int): String? {
         val bin = binary(context)
         if (!bin.exists()) return "sing-box is not in this build"
         val chosen = if (port > 0) port else freePort() ?: return "no free local port"
         val dir = workDir(context)
         val file = File(dir, "config.json")
-        val json = runCatching { SingBoxConfig.full(spec, chosen) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
+        var effective = spec
+        val tunnel = runCatching { org.json.JSONObject(spec).optJSONObject("dnstt") }.getOrNull()
+        if (tunnel != null) {
+            if (!DnsttRunner.available(context)) return "dnstt is not in this build"
+            val dnsttPort = freePort() ?: return "no free local port"
+            val failure = dnstt.start(context, tunnel, dnsttPort)
+            if (failure != null) return failure
+            dnstt.onUnexpectedExit = { code -> if (!stopping) { stop(); onUnexpectedExit?.invoke(code) } }
+            effective = org.json.JSONObject(spec).apply {
+                optJSONObject("outbound")?.put("server_port", dnsttPort)
+                remove("dnstt")
+            }.toString()
+        }
+        val json = runCatching { SingBoxConfig.full(effective, chosen) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
         file.writeText(json)
 
         // Validate first: a configuration error is reported as one, instead
@@ -140,6 +166,8 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
 
     fun stop() {
         stopping = true
+        dnstt.onUnexpectedExit = null
+        dnstt.stop()
         val p = process ?: return
         process = null
         runCatching {

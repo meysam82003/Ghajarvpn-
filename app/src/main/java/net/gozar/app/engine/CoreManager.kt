@@ -3,8 +3,6 @@ package net.gozar.app.engine
 import android.content.Context
 import gozarcore.Gozarcore
 import net.gozar.app.AetherController
-import net.gozar.app.DnsTunnelController
-import net.gozar.app.DnsTunnelPhase
 import net.gozar.app.GhajarOpenVpnBridge
 import net.gozar.app.IkeController
 import net.gozar.app.PsiphonController
@@ -101,10 +99,17 @@ object CoreManager {
             availability = { if (ZeptunEngine.available) Availability.Available else Availability.Missing("libzeptun not in this build") },
             running = { ZeptunEngine.isRunning }),
         engine(EngineId.DNS_TUNNEL, "DNS tunnel (dnstt)",
-            EngineCapabilities(listOf("DNSTT over UDP DNS / DoH / DoT"), ownsTun = false, providesSocks = true,
-                license = "CC0 (dnstt)", integration = "subprocess libdnstt.so"),
-            availability = { ctx -> if (DnsTunnelController.available(ctx)) Availability.Available else Availability.Missing("libdnstt.so not in this build") },
-            running = { DnsTunnelController.phase.value.let { it == DnsTunnelPhase.LISTENING || it == DnsTunnelPhase.CARRYING || it == DnsTunnelPhase.STARTING } }),
+            EngineCapabilities(listOf("DNSTT over UDP DNS / DoH / DoT, to a SOCKS5 or SSH upstream"), ownsTun = false, providesSocks = true,
+                license = "CC0-1.0 (dnstt v1.20260501.0)",
+                integration = "subprocess libdnstt.so (scripts/build-dnstt.sh) -> sing-box SOCKS5/SSH outbound -> zeptun; dnstt:// servers"),
+            availability = { ctx ->
+                when {
+                    !DnsttRunner.available(ctx) -> Availability.Missing("libdnstt.so not in this build")
+                    !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("sing-box (carries the tunnel) not in this build")
+                    else -> Availability.Experimental("wired through dnstt:// servers; not device verified")
+                }
+            },
+            running = { SingBoxController.isRunning() && SingBoxController.dnsttRunning() }),
         engine(EngineId.SINGBOX, "sing-box",
             // Connect path: GozarVpnService EXTRA_SINGBOX -> SingBoxController (local SOCKS5) -> zeptun tun.
             // Protocol list = SingBoxConfig.PROTOCOLS, audited against the pinned source (v1.15.0-alpha.6);

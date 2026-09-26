@@ -32,6 +32,14 @@ object ConfigShare {
         "ssh" -> simpleLink("ssh", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf("hostkey" to c.publicKey))
         "openconnect" -> simpleLink("openconnect", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf(
             "flavor" to c.mode, "sni" to c.sni, "pin" to c.pinnedCertSha256, "insecure" to if (c.allowInsecure) "1" else ""))
+        "dnstt" -> {
+            val user = enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else "")
+            val params = listOf("pubkey" to c.publicKey, "transport" to c.mode.ifEmpty { "udp" },
+                if (c.mode == "doh") "doh" to c.path else "resolver" to (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port,
+                "upstream" to c.method.ifEmpty { "socks" })
+            val query = params.filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
+            "dnstt://" + (if (user.isEmpty() || user == ":") "" else "$user@") + c.host + "?" + query + "#" + enc(c.name)
+        }
         else -> ""
     }
 
