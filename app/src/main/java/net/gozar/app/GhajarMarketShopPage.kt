@@ -1073,6 +1073,10 @@ private fun MarketWalletTab(api: GhajarStoreApi, home: GhajarMarketHome, onOrder
                 icon = Icons.Filled.AccountBalanceWallet
             )
         }
+        MarketGiftRedeem(api, shopId, onRedeemed = { reload++ })
+        if (home.mine) {
+            MarketOwnerCodes(api, shopId)
+        }
         val history = wallet?.history.orEmpty()
         if (history.isNotEmpty()) {
             Rail("گردش کیف پول")
@@ -1094,6 +1098,146 @@ private fun MarketWalletTab(api: GhajarStoreApi, home: GhajarMarketHome, onOrder
                 }
             }
         }
+    }
+}
+
+/** A gift code into this shop's wallet: the shop's own codes and the seller bot's. */
+@Composable
+private fun MarketGiftRedeem(api: GhajarStoreApi, shopId: Int, onRedeemed: () -> Unit) {
+    val c = ghajarColors
+    val scope = rememberCoroutineScope()
+    var code by remember(shopId) { mutableStateOf("") }
+    var busy by remember(shopId) { mutableStateOf(false) }
+    var result by remember(shopId) { mutableStateOf<Pair<Boolean, String>?>(null) }
+    Slab(padding = 18.dp, spacing = GhajarSpacing.sm, accent = c.highlight) {
+        Rail("🎁 کد هدیه")
+        SkinField(value = code, onValueChange = { code = it.filter { ch -> ch.isLetterOrDigit() || ch == '_' || ch == '-' }.take(40) },
+            label = "کد هدیه این فروشگاه", placeholder = "مثلاً NOROOZ")
+        PillButton(if (busy) "در حال بررسی…" else "افزودن به کیف پول", {
+            busy = true; result = null
+            scope.launch {
+                result = runCatching { api.marketGiftRedeem(shopId, code.trim()) }
+                    .getOrElse { false to (it.message ?: "کد ثبت نشد") }
+                if (result?.first == true) { code = ""; onRedeemed() }
+                busy = false
+            }
+        }, enabled = !busy && code.trim().length >= 3, icon = Icons.Filled.CardGiftcard)
+        result?.let { (ok, msg) -> Text(msg, color = if (ok) c.primary else c.error, style = MaterialTheme.typography.labelMedium) }
+    }
+}
+
+/**
+ * The owner's own discount and gift codes, with the same fields as the web
+ * panel. Codes made in the seller's own bot are listed too: they work in the
+ * app, and are managed where they were made.
+ */
+@Composable
+private fun MarketOwnerCodes(api: GhajarStoreApi, shopId: Int) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    val scope = rememberCoroutineScope()
+    var codes by remember(shopId) { mutableStateOf<GhajarMarketCodes?>(null) }
+    var message by remember(shopId) { mutableStateOf<Pair<Boolean, String>?>(null) }
+    var gift by remember(shopId) { mutableStateOf(false) }
+    var busy by remember(shopId) { mutableStateOf(false) }
+    var code by remember(shopId) { mutableStateOf("") }
+    var value by remember(shopId) { mutableStateOf("") }
+    var days by remember(shopId) { mutableStateOf("") }
+    var hours by remember(shopId) { mutableStateOf("") }
+    var maxUses by remember(shopId) { mutableStateOf("") }
+    var perUser by remember(shopId) { mutableStateOf("") }
+    var firstOnly by remember(shopId) { mutableStateOf(false) }
+    var product by remember(shopId) { mutableStateOf("") }
+    var panel by remember(shopId) { mutableStateOf("") }
+
+    fun run(action: String, fields: Map<String, String> = emptyMap()) {
+        busy = true
+        scope.launch {
+            runCatching { api.marketCodes(shopId, action, fields) }
+                .onSuccess { (list, msg) -> codes = list; message = if (msg.isNotBlank()) true to msg else null
+                    if (action == "code_add") { code = ""; value = ""; days = ""; hours = ""; maxUses = ""; perUser = ""; firstOnly = false; product = ""; panel = "" } }
+                .onFailure { message = false to (it.message ?: "انجام نشد") }
+            busy = false
+        }
+    }
+    LaunchedEffect(shopId) { run("shop_codes") }
+    val digits: (String) -> String = { GhajarUiRules.asciiDigits(it).filter(Char::isDigit).take(9) }
+
+    Slab(padding = 18.dp, spacing = GhajarSpacing.sm, accent = c.primary) {
+        Rail("🛠 مدیریت کدهای فروشگاه شما")
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+            listOf(false to "🎟 کد تخفیف", true to "🎁 کد هدیه").forEach { (isGift, label) ->
+                val on = gift == isGift
+                Text(label, style = MaterialTheme.typography.labelLarge,
+                    fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
+                    color = if (on) c.onPrimary else c.textSecondary,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                    modifier = Modifier.weight(1f).clip(RoundedCornerShape(GhajarRadius.pill))
+                        .background(if (on) c.primary else c.card).clickable { gift = isGift }.padding(vertical = 10.dp))
+            }
+        }
+        val list = if (gift) codes?.gifts.orEmpty() else codes?.discounts.orEmpty()
+        if (codes == null && busy) SkinLoading("در حال خواندن کدها")
+        if (codes != null && list.isEmpty()) Text("هنوز کدی در این بخش نیست.", color = c.textMuted)
+        list.forEach { item ->
+            val expired = item.expiresAt in 1 until System.currentTimeMillis() / 1000
+            Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(GhajarRadius.md)).background(c.card)
+                .padding(horizontal = GhajarSpacing.md, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text((if (item.active && !expired) "🟢 " else "🔴 ") + item.code, fontWeight = FontWeight.Bold,
+                        color = c.textPrimary, modifier = Modifier.weight(1f))
+                    Text(if (gift) localizeDigits(formatToman(item.value.toLong()), lang) + " تومان"
+                        else localizeDigits(item.value.toBigDecimal().stripTrailingZeros().toPlainString(), lang) + "٪",
+                        color = c.highlight, fontWeight = FontWeight.Bold)
+                }
+                val facts = buildList {
+                    add("استفاده " + item.used + (if (item.maxUses > 0) "/" + item.maxUses else ""))
+                    add(if (item.expiresAt > 0) "تا " + marketJalali(item.expiresAt) else "بدون انقضا")
+                    if (item.perUser > 0) add("هر نفر ${item.perUser} بار")
+                    if (item.firstOnly) add("فقط خرید اول")
+                    if (item.product.isNotBlank()) add("پلن ${item.product}")
+                    if (item.panel.isNotBlank()) add("سرور ${item.panel}")
+                    add(if (item.source == "seller") "🤖 از ربات خودتان" else "قاجار")
+                }
+                Text(mixedText(localizeDigits(facts.joinToString(" · "), lang)), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                if (item.source != "seller" && item.id > 0) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                        GhostPill(if (item.active) "غیرفعال" else "فعال", {
+                            run("code_toggle", mapOf("kind" to if (gift) "gift" else "discount", "id" to item.id.toString()))
+                        }, modifier = Modifier.weight(1f), enabled = !busy, minHeight = 36.dp)
+                        GhostPill("حذف", {
+                            run("code_delete", mapOf("kind" to if (gift) "gift" else "discount", "id" to item.id.toString()))
+                        }, modifier = Modifier.weight(1f), enabled = !busy, accent = c.error, minHeight = 36.dp)
+                    }
+                }
+            }
+        }
+        Rail(if (gift) "کد هدیهٔ تازه" else "کد تخفیف تازه")
+        SkinField(code, { code = it.filter { ch -> ch.isLetterOrDigit() || ch == '_' || ch == '-' }.take(40).uppercase() }, "کد")
+        SkinField(value, { value = digits(it) }, if (gift) "مبلغ هدیه (تومان)" else "درصد تخفیف",
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+            SkinField(days, { days = digits(it) }, "روز", modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            SkinField(hours, { hours = digits(it) }, "ساعت", modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            SkinField(maxUses, { maxUses = digits(it) }, "سقف کل", modifier = Modifier.weight(1f), keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        }
+        if (!gift) {
+            SkinField(perUser, { perUser = digits(it) }, "سقف برای هر نفر (۰ = بی‌نهایت)", keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                SkinField(product, { product = it.take(100) }, "کد پلن (اختیاری)", modifier = Modifier.weight(1f))
+                SkinField(panel, { panel = it.take(100) }, "کد سرور (اختیاری)", modifier = Modifier.weight(1f))
+            }
+            ChoiceRow(title = "فقط برای اولین خرید", selected = firstOnly, onSelect = { firstOnly = !firstOnly })
+        }
+        Text("روز و ساعت خالی یعنی بدون انقضا؛ سقف خالی یعنی بی‌نهایت." + if (gift) " هر خریدار یک بار." else "",
+            style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+        message?.let { (ok, msg) -> Text(msg, color = if (ok) c.primary else c.error, style = MaterialTheme.typography.labelMedium) }
+        PillButton(if (busy) "در حال ثبت…" else "ثبت کد", {
+            run("code_add", mapOf("kind" to if (gift) "gift" else "discount", "code" to code,
+                (if (gift) "amount" else "percent") to value, "days" to days.ifBlank { "0" }, "hours" to hours.ifBlank { "0" },
+                "max_uses" to maxUses.ifBlank { "0" }, "per_user" to perUser.ifBlank { "0" },
+                "first_only" to if (firstOnly) "1" else "0", "product" to product.trim(), "panel" to panel.trim()))
+        }, enabled = !busy && code.length >= 3 && value.isNotBlank(), icon = Icons.Filled.CardGiftcard)
     }
 }
 

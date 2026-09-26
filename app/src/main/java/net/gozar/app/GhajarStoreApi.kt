@@ -323,8 +323,29 @@ data class GhajarMarketHome(
     /** The buyer's balance at this shop; null when not signed in. */
     val wallet: Long?,
     val unread: Int,
-    val blocked: Boolean
+    val blocked: Boolean,
+    /** True when the signed-in user owns this shop. */
+    val mine: Boolean = false
 )
+
+/** One discount or gift code, made in Ghajar's bot ("ghajar") or in the seller's own bot ("seller"). */
+data class GhajarMarketCode(
+    val source: String,
+    val id: Int,
+    val code: String,
+    /** Percent for a discount, toman for a gift. */
+    val value: Double,
+    val maxUses: Int,
+    val used: Int,
+    val expiresAt: Long,
+    val active: Boolean,
+    val perUser: Int,
+    val firstOnly: Boolean,
+    val product: String,
+    val panel: String
+)
+
+data class GhajarMarketCodes(val discounts: List<GhajarMarketCode>, val gifts: List<GhajarMarketCode>)
 
 data class GhajarMarketService(
     val invoiceId: String,
@@ -1445,7 +1466,8 @@ class GhajarStoreApi(context: Context) {
             testUsed = test.optBoolean("used"),
             wallet = me?.let { (it.optNullableDouble("wallet") ?: 0.0).toLong() },
             unread = me?.optInt("unread") ?: 0,
-            blocked = me?.optBoolean("blocked") ?: false
+            blocked = me?.optBoolean("blocked") ?: false,
+            mine = me?.optBoolean("mine") ?: false
         )
     }
 
@@ -1619,6 +1641,44 @@ class GhajarStoreApi(context: Context) {
             mapOf("code" to code, "amount" to amount.toString()), allowAnonymous = true)
         val payload = envelope.payloadObject()
         return (payload.optNullableDouble("amount") ?: amount.toDouble()).toLong() to visible(envelope.optString("msg"))
+    }
+
+    /** Redeems a gift code into the wallet at this shop: (ok, message). */
+    suspend fun marketGiftRedeem(shopId: Int, code: String): Pair<Boolean, String> {
+        val envelope = marketAction("gift_redeem", method = "POST",
+            body = JSONObject().put("shop_id", shopId).put("code", code))
+        return envelope.optBoolean("status") to visible(envelope.optString("msg"))
+    }
+
+    /**
+     * The owner's codes at their shop. [action] is shop_codes, code_add,
+     * code_toggle or code_delete; [fields] carries the form or the id.
+     */
+    suspend fun marketCodes(shopId: Int, action: String = "shop_codes", fields: Map<String, String> = emptyMap()): Pair<GhajarMarketCodes, String> {
+        require(action in setOf("shop_codes", "code_add", "code_toggle", "code_delete"))
+        val body = JSONObject().put("shop_id", shopId)
+        fields.forEach { (k, v) -> body.put(k, v) }
+        val envelope = marketAction(action, method = "POST", body = body)
+        val payload = envelope.optJSONObject("obj") ?: JSONObject()
+        fun list(key: String, gift: Boolean) = payload.optJSONArray(key).orEmpty().objects().map { row ->
+            GhajarMarketCode(
+                source = row.optString("source"),
+                id = row.optInt("id"),
+                code = row.optString("code"),
+                value = row.optNullableDouble(if (gift) "amount" else "percent") ?: 0.0,
+                maxUses = row.optInt("max_uses"),
+                used = row.optInt("used"),
+                expiresAt = row.optNullableLong("expires_at") ?: 0L,
+                active = row.optBoolean("active", true),
+                perUser = row.optInt("per_user"),
+                firstOnly = row.optBoolean("first_only"),
+                product = row.optString("product"),
+                panel = row.optString("panel")
+            )
+        }
+        val msg = visible(envelope.optString("msg"))
+        if (!envelope.optBoolean("status", true) && msg.isNotBlank()) throw GhajarApiException(msg)
+        return GhajarMarketCodes(list("discounts", false), list("gifts", true)) to msg
     }
 
     /** What this buyer bought at one shop, with live usage from the seller's panel. */
