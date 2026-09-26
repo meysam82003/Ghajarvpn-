@@ -106,17 +106,25 @@ object CoreManager {
             availability = { ctx -> if (DnsTunnelController.available(ctx)) Availability.Available else Availability.Missing("libdnstt.so not in this build") },
             running = { DnsTunnelController.phase.value.let { it == DnsTunnelPhase.LISTENING || it == DnsTunnelPhase.CARRYING || it == DnsTunnelPhase.STARTING } }),
         engine(EngineId.SINGBOX, "sing-box",
-            EngineCapabilities(listOf("Hysteria2", "TUIC", "AnyTLS", "ShadowTLS", "Snell", "ShadowsocksR", "WireGuard", "OpenConnect (with_openconnect)", "OpenVPN (with_openvpn)"),
+            // Connect path: GozarVpnService EXTRA_SINGBOX -> SingBoxController (local SOCKS5) -> zeptun tun.
+            // Protocol list = SingBoxConfig.PROTOCOLS, audited against the pinned source (v1.15.0-alpha.6);
+            // ShadowsocksR is only a removed stub there and is not offered.
+            EngineCapabilities(listOf("TUIC v5", "Hysteria (v1)", "AnyTLS", "SSH", "Snell v4/v6", "OpenConnect (AnyConnect, GlobalProtect, Fortinet, F5, Pulse, NC)"),
                 ownsTun = false, providesSocks = true, license = "GPL-3.0-or-later",
-                integration = "executable libsingbox.so built in CI (scripts/build-singbox.sh)"),
+                integration = "executable libsingbox.so built in CI (scripts/build-singbox.sh), SOCKS5 -> zeptun"),
             availability = { ctx ->
-                if (nativeFile(ctx, "libsingbox.so")) Availability.Experimental("built into the APK; no connect path uses it yet (EngineFlags.SINGBOX)")
-                else Availability.Missing("libsingbox.so not in this build")
+                when {
+                    !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("libsingbox.so not in this build")
+                    !ZeptunEngine.available -> Availability.Missing("zeptun (needed to carry sing-box) not in this build")
+                    else -> Availability.Experimental("wired; not device verified")
+                }
             },
-            running = { false })
+            running = { SingBoxController.isRunning() })
     )
 
     fun engine(id: EngineId): VpnEngine = engines.first { it.id == id }
+
+    fun engineFor(config: net.gozar.app.ProxyConfig): EngineId = EngineRouting.engineFor(config)
 
     /** Which core is carrying traffic now, if any. */
     fun running(): List<EngineId> = engines.filter { runCatching { it.isRunning() }.getOrDefault(false) }.map { it.id }
@@ -170,5 +178,25 @@ object EngineFlags {
 
     fun set(context: Context, flag: String, on: Boolean) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putBoolean(flag, on).apply()
+    }
+}
+
+/**
+ * Which core carries a config when it is connected. This is the same
+ * decision the launch sites make (MainActivity, QuickConnect, VpnLauncher
+ * and GozarVpnService.switchTunnel), kept in one place for the UI filters
+ * and the engine test. Free of Android and native references so it is
+ * unit-testable.
+ */
+object EngineRouting {
+    fun engineFor(config: net.gozar.app.ProxyConfig): EngineId = when {
+        config.protocol == "ikev2" -> EngineId.IKEV2
+        config.protocol == "openvpn" -> EngineId.OPENVPN
+        SingBoxConfig.handles(config) -> EngineId.SINGBOX
+        config.protocol == "aether" -> EngineId.AETHER
+        config.protocol == "psiphon" && runCatching { net.gozar.app.OblivionOptions(config.oblivionJson).aether }.getOrDefault(false) -> EngineId.AETHER
+        config.protocol == "psiphon" -> EngineId.PSIPHON
+        config.protocol == "tor" -> EngineId.TOR
+        else -> EngineId.XRAY
     }
 }

@@ -1,0 +1,145 @@
+package net.gozar.app.engine
+
+import net.gozar.app.ProxyConfig
+import org.json.JSONArray
+import org.json.JSONObject
+
+/**
+ * Turns a [ProxyConfig] into a sing-box configuration.
+ *
+ * Only the protocols Xray cannot carry are routed here; everything Xray
+ * already connects keeps connecting through Xray. Every field name below was
+ * checked against the option structs of the pinned sing-box source
+ * (scripts/build-singbox.sh, commit 8330820, v1.15.0-alpha.6):
+ * option/tuic.go, hysteria.go, anytls.go, ssh.go, snell.go, openconnect.go.
+ *
+ * The result is a local SOCKS5 proxy on 127.0.0.1:[socksPort]; zeptun owns
+ * the tun and forwards into it (docs/VPN_ENGINE_ARCHITECTURE.md rule 1).
+ */
+object SingBoxConfig {
+
+    /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
+    val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect")
+
+    /** Protocols carried as sing-box endpoints rather than outbounds. */
+    private val ENDPOINTS = setOf("openconnect")
+
+    fun handles(config: ProxyConfig): Boolean = config.protocol in PROTOCOLS
+
+    /**
+     * The proxy part only, as passed to the service in an intent extra:
+     * `{"outbound": {...}}` or `{"endpoint": {...}}`. Null when [config] is not
+     * a sing-box protocol.
+     */
+    fun spec(config: ProxyConfig): String? {
+        if (!handles(config)) return null
+        val proxy = proxy(config)
+        return JSONObject().put(if (config.protocol in ENDPOINTS) "endpoint" else "outbound", proxy).toString()
+    }
+
+    /** The complete configuration for `sing-box run`, with the SOCKS inbound on [socksPort]. */
+    fun full(spec: String, socksPort: Int, logLevel: String = "info"): String {
+        val s = JSONObject(spec)
+        val root = JSONObject()
+            .put("log", JSONObject().put("level", logLevel).put("timestamp", false))
+            // A server given by name needs a resolver in this sing-box
+            // version (common/dialer/dialer.go: "missing domain resolver").
+            // The local resolver is the system one, outside the tun because
+            // this app is excluded from its own VPN.
+            .put("dns", JSONObject().put("servers", JSONArray().put(JSONObject().put("type", "local").put("tag", "local"))))
+            .put("inbounds", JSONArray().put(
+                JSONObject().put("type", "socks").put("tag", "socks-in")
+                    .put("listen", "127.0.0.1").put("listen_port", socksPort)
+            ))
+        val outbounds = JSONArray()
+        s.optJSONObject("outbound")?.let { outbounds.put(it) }
+        outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
+        root.put("outbounds", outbounds)
+        s.optJSONObject("endpoint")?.let { root.put("endpoints", JSONArray().put(it)) }
+        root.put("route", JSONObject()
+            .put("final", "proxy")
+            .put("default_domain_resolver", JSONObject().put("server", "local")))
+        return root.toString()
+    }
+
+    internal fun proxy(c: ProxyConfig): JSONObject {
+        val o = JSONObject().put("tag", "proxy")
+        when (c.protocol) {
+            "tuic" -> {
+                o.put("type", "tuic").server(c)
+                    .put("uuid", c.uuid)
+                    .putIf("password", c.password)
+                    .putIf("congestion_control", c.method.takeIf { it in setOf("cubic", "new_reno", "bbr") })
+                    .putIf("udp_relay_mode", c.mode.takeIf { it in setOf("native", "quic") })
+                    .put("tls", tls(c, forceOn = true))
+            }
+            "hysteria" -> {
+                o.put("type", "hysteria").server(c)
+                    .putIf("auth_str", c.password)
+                    .put("up_mbps", c.hyUpMbps.takeIf { it > 0 } ?: 10)
+                    .put("down_mbps", c.hyDownMbps.takeIf { it > 0 } ?: 50)
+                    .putIf("obfs", c.hyObfsPassword.ifBlank { c.hyObfs.takeIf { it != "xplus" }.orEmpty() })
+                    .put("tls", tls(c, forceOn = true))
+            }
+            "anytls" -> {
+                o.put("type", "anytls").server(c)
+                    .put("password", c.password)
+                    .put("tls", tls(c, forceOn = true))
+            }
+            "ssh" -> {
+                o.put("type", "ssh").server(c)
+                    .put("user", c.uuid.ifBlank { "root" })
+                    .putIf("password", c.password)
+                if (c.privateKey.isNotBlank()) o.put("private_key", JSONArray().put(c.privateKey))
+                if (c.publicKey.isNotBlank()) o.put("host_key", JSONArray().put(c.publicKey))
+            }
+            "snell" -> {
+                o.put("type", "snell").server(c)
+                    .put("psk", c.password)
+                // option/snell.go: a client is version 4 (with obfs) or 6; no other value parses.
+                val version = if (c.alterId == 6) 6 else 4
+                o.put("version", version)
+                if (version == 4) {
+                    o.putIf("obfs_mode", c.hyObfs.takeIf { it == "http" || it == "tls" })
+                    o.putIf("obfs_host", c.host)
+                }
+            }
+            "openconnect" -> {
+                val server = if (c.port == 443 || c.port <= 0) c.address else "${c.address}:${c.port}"
+                o.put("type", "openconnect")
+                    .put("server", server)
+                    .put("flavor", c.mode.takeIf { it in setOf("anyconnect", "gp", "fortinet", "f5", "pulse", "nc") } ?: "anyconnect")
+                    .putIf("username", c.uuid)
+                    .putIf("password", c.password)
+                val t = JSONObject()
+                if (c.allowInsecure) t.put("insecure", true)
+                if (c.sni.isNotBlank()) t.put("server_name", c.sni)
+                if (c.pinnedCertSha256.isNotBlank()) t.put("peer_fingerprint", JSONArray().put(c.pinnedCertSha256))
+                if (t.length() > 0) o.put("tls", t)
+            }
+            else -> throw IllegalArgumentException("not a sing-box protocol: ${c.protocol}")
+        }
+        return o
+    }
+
+    private fun tls(c: ProxyConfig, forceOn: Boolean): JSONObject {
+        val t = JSONObject().put("enabled", forceOn || c.security == "tls")
+        t.putIf("server_name", c.sni.ifBlank { c.host })
+        if (c.allowInsecure) t.put("insecure", true)
+        val alpn = c.alpn.split(',').map { it.trim() }.filter { it.isNotEmpty() }
+        if (alpn.isNotEmpty()) t.put("alpn", JSONArray(alpn))
+        if (c.protocol == "anytls" && c.fingerprint.isNotBlank()) {
+            t.put("utls", JSONObject().put("enabled", true).put("fingerprint", c.fingerprint))
+        }
+        return t
+    }
+
+    private fun JSONObject.server(c: ProxyConfig): JSONObject =
+        put("server", c.address).put("server_port", c.port)
+
+    private fun JSONObject.putIf(key: String, value: Any?): JSONObject {
+        if (value == null) return this
+        if (value is String && value.isBlank()) return this
+        return put(key, value)
+    }
+}

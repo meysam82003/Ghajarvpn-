@@ -1140,13 +1140,14 @@ class MainActivity : ComponentActivity() {
             store.onionRouting.value -> "|1"
             else -> null
         }
-        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port) }; vpnPermission.launch(intent) }
-        else startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port)
+        val singbox = net.gozar.app.engine.SingBoxConfig.spec(config)
+        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port, singbox = singbox) }; vpnPermission.launch(intent) }
+        else startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port, singbox = singbox)
     }
 
     private fun startTunnel(
         configJson: String, name: String, aether: String, tor: String?, psiphon: String? = null,
-        address: String = "", port: Int = 0, attempt: Int = 0
+        address: String = "", port: Int = 0, attempt: Int = 0, singbox: String? = null
     ) {
         guardedConnect {
             try {
@@ -1157,6 +1158,7 @@ class MainActivity : ComponentActivity() {
                         .putExtra(GozarVpnService.EXTRA_AETHER, aether)
                         .putExtra(GozarVpnService.EXTRA_TOR, tor)
                         .putExtra(GozarVpnService.EXTRA_PSIPHON, psiphon)
+                        .putExtra(GozarVpnService.EXTRA_SINGBOX, singbox)
                         .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
                         .putExtra(GozarVpnService.EXTRA_ADDRESS, address)
                         .putExtra(GozarVpnService.EXTRA_PORT, port)
@@ -1180,7 +1182,7 @@ class MainActivity : ComponentActivity() {
                 if (processBad && attempt < 1) {
                     lifecycleScope.launch {
                         delay(700L)
-                        startTunnel(configJson, name, aether, tor, psiphon, address, port, attempt + 1)
+                        startTunnel(configJson, name, aether, tor, psiphon, address, port, attempt + 1, singbox)
                     }
                 } else if (processBad) {
                     VpnState.setError(Strings.get(store.lang.value, "err_process_bad"))

@@ -75,6 +75,7 @@ object VpnLauncher {
         val intent = Intent(appContext, GozarVpnService::class.java)
             .putExtra(GozarVpnService.EXTRA_CONFIG, json)
             .putExtra(GozarVpnService.EXTRA_AETHER, AetherSpec.from(config)?.toJson())
+            .putExtra(GozarVpnService.EXTRA_SINGBOX, net.gozar.app.engine.SingBoxConfig.spec(config))
             .putExtra(
                 GozarVpnService.EXTRA_TOR,
                 if (config.protocol == "tor")

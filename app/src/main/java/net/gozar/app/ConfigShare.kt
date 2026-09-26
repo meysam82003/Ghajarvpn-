@@ -18,7 +18,28 @@ object ConfigShare {
         "vmess" -> vmessLink(c)
         "shadowsocks" -> ssLink(c)
         "hysteria2" -> hysteria2Link(c)
+        "tuic" -> simpleLink("tuic", enc(c.uuid) + ":" + enc(c.password), c, listOf(
+            "sni" to c.sni, "alpn" to c.alpn, "congestion_control" to c.method,
+            "udp_relay_mode" to c.mode, "allow_insecure" to if (c.allowInsecure) "1" else ""))
+        "hysteria" -> simpleLink("hysteria", "", c, listOf(
+            "auth" to c.password, "peer" to c.sni, "alpn" to c.alpn,
+            "upmbps" to c.hyUpMbps.takeIf { it > 0 }?.toString().orEmpty(),
+            "downmbps" to c.hyDownMbps.takeIf { it > 0 }?.toString().orEmpty(),
+            "obfs" to c.hyObfs, "obfsParam" to c.hyObfsPassword, "insecure" to if (c.allowInsecure) "1" else ""))
+        "anytls" -> simpleLink("anytls", enc(c.password), c, listOf(
+            "sni" to c.sni, "fp" to c.fingerprint, "insecure" to if (c.allowInsecure) "1" else ""))
+        // The private key is never put in a share link.
+        "ssh" -> simpleLink("ssh", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf("hostkey" to c.publicKey))
+        "openconnect" -> simpleLink("openconnect", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf(
+            "flavor" to c.mode, "sni" to c.sni, "pin" to c.pinnedCertSha256, "insecure" to if (c.allowInsecure) "1" else ""))
         else -> ""
+    }
+
+    private fun simpleLink(scheme: String, userInfo: String, c: ProxyConfig, params: List<Pair<String, String>>): String {
+        val query = params.filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
+        val host = if (c.address.contains(':')) "[" + c.address + "]" else c.address
+        val user = if (userInfo.isEmpty() || userInfo == ":") "" else "$userInfo@"
+        return "$scheme://$user$host:${c.port}" + (if (query.isEmpty()) "" else "?$query") + "#" + enc(c.name)
     }
 
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")

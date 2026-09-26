@@ -84,6 +84,7 @@ object QuickConnect {
             .putExtra(GozarVpnService.EXTRA_CONFIG, json)
             .putExtra(GozarVpnService.EXTRA_AETHER, AetherController.spec(config))
             .putExtra(GozarVpnService.EXTRA_PSIPHON, PsiphonSpec.from(config)?.toJson())
+            .putExtra(GozarVpnService.EXTRA_SINGBOX, net.gozar.app.engine.SingBoxConfig.spec(config))
             .putExtra(
                 GozarVpnService.EXTRA_TOR,
                 if (config.protocol == "tor")

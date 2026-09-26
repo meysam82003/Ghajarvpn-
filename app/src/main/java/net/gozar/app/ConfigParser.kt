@@ -207,6 +207,13 @@ object ConfigParser {
             lower.startsWith("http://") -> parseProxyUrl(trimmed.substring(7), "http", source)
             lower.startsWith("hysteria2://") -> parseHysteria2(trimmed.substring(12), source)
             lower.startsWith("hy2://") -> parseHysteria2(trimmed.substring(6), source)
+            // Carried by sing-box (engine/SingBoxConfig.kt), not Xray.
+            lower.startsWith("tuic://") -> parseTuic(trimmed.substring(7), source)
+            lower.startsWith("hysteria://") -> parseHysteria1(trimmed.substring(11), source)
+            lower.startsWith("anytls://") -> parseAnyTls(trimmed.substring(9), source)
+            lower.startsWith("ssh://") -> parseSsh(trimmed.substring(6), source)
+            lower.startsWith("openconnect://") -> parseOpenConnect(trimmed.substring(14), source)
+            lower.startsWith("anyconnect://") -> parseOpenConnect(trimmed.substring(13), source)
             lower.startsWith("ikev2://") -> parseIkev2(trimmed.substring(8), source)
             lower.startsWith("wireguard://") -> parseWireguardUri(trimmed.substring(12), source)
             lower.startsWith("wg://") -> parseWireguardUri(trimmed.substring(5), source)
@@ -282,6 +289,96 @@ object ConfigParser {
             source = source
         )
     } catch (e: Exception) { null }
+
+    private fun insecure(p: Map<String, String>): Boolean =
+        (p["insecure"] ?: p["allowInsecure"] ?: p["allow_insecure"] ?: "") in setOf("1", "true")
+
+    /** tuic://uuid:password@host:port?sni=&alpn=&congestion_control=&udp_relay_mode=&allow_insecure=#name */
+    private fun parseTuic(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "TUIC")
+        val (user, address, port) = splitUserHostPort(uhp)
+        val colon = user.indexOf(':')
+        ProxyConfig(
+            name = name, protocol = "tuic", address = address, port = port,
+            uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user),
+            password = pctDecode(if (colon >= 0) user.substring(colon + 1) else p["password"].orEmpty()),
+            sni = p["sni"].orEmpty(), alpn = p["alpn"].orEmpty(), security = "tls",
+            method = (p["congestion_control"] ?: p["congestion"] ?: "").lowercase(),
+            mode = (p["udp_relay_mode"] ?: "").lowercase(),
+            allowInsecure = insecure(p), source = source
+        ).takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+    } catch (e: Exception) { null }
+
+    /** hysteria://host:port?auth=&peer=&insecure=&upmbps=&downmbps=&alpn=&obfs=xplus&obfsParam=#name (Hysteria v1). */
+    private fun parseHysteria1(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, hostPort, p) = splitUserUri(body, "Hysteria")
+        val hp = splitHostPort(hostPort.substringAfterLast('@'))
+        val auth = if (hostPort.contains('@')) pctDecode(hostPort.substringBeforeLast('@')) else p["auth"].orEmpty()
+        ProxyConfig(
+            name = name, protocol = "hysteria", address = hp.first, port = hp.second,
+            password = auth, sni = p["peer"].orEmpty().ifEmpty { p["sni"].orEmpty() },
+            alpn = p["alpn"].orEmpty(), security = "tls",
+            hyObfs = p["obfs"].orEmpty(), hyObfsPassword = p["obfsParam"].orEmpty(),
+            hyUpMbps = (p["upmbps"] ?: p["up"] ?: "").toIntOrNull() ?: 0,
+            hyDownMbps = (p["downmbps"] ?: p["down"] ?: "").toIntOrNull() ?: 0,
+            allowInsecure = insecure(p), source = source
+        ).takeIf { it.address.isNotBlank() && it.port in 1..65535 }
+    } catch (e: Exception) { null }
+
+    /** anytls://password@host:port?sni=&insecure=&fp=#name */
+    private fun parseAnyTls(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "AnyTLS")
+        val (password, address, port) = splitUserHostPort(uhp)
+        ProxyConfig(
+            name = name, protocol = "anytls", address = address, port = port,
+            password = pctDecode(password), sni = p["sni"].orEmpty().ifEmpty { p["peer"].orEmpty() },
+            alpn = p["alpn"].orEmpty(), security = "tls",
+            fingerprint = p["fp"].orEmpty(), allowInsecure = insecure(p), source = source
+        ).takeIf { it.password.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+    } catch (e: Exception) { null }
+
+    /** ssh://user:password@host:port?hostkey=&pk=#name (pk = base64 of a PEM private key). */
+    private fun parseSsh(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "SSH")
+        val hasUser = uhp.contains('@')
+        val hp = splitHostPortOrDefault(uhp.substringAfterLast('@'), 22)
+        val user = if (hasUser) uhp.substringBeforeLast('@') else ""
+        val colon = user.indexOf(':')
+        val pk = p["pk"].orEmpty().let { raw ->
+            if (raw.isBlank()) "" else runCatching {
+                String(java.util.Base64.getUrlDecoder().decode(raw.replace('+', '-').replace('/', '_').trimEnd('=')))
+            }.getOrDefault("")
+        }
+        ProxyConfig(
+            name = name, protocol = "ssh", address = hp.first, port = hp.second,
+            uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user),
+            password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
+            privateKey = pk, publicKey = p["hostkey"].orEmpty(), source = source
+        ).takeIf { it.address.isNotBlank() && it.port in 1..65535 }
+    } catch (e: Exception) { null }
+
+    /** openconnect://user:password@host[:port]?flavor=anyconnect|gp|fortinet|f5|pulse|nc&insecure=&pin=#name */
+    private fun parseOpenConnect(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "OpenConnect")
+        val hp = splitHostPortOrDefault(uhp.substringAfterLast('@'), 443)
+        val user = if (uhp.contains('@')) uhp.substringBeforeLast('@') else ""
+        val colon = user.indexOf(':')
+        ProxyConfig(
+            name = name, protocol = "openconnect", address = hp.first, port = hp.second,
+            uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user),
+            password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
+            mode = p["flavor"].orEmpty().lowercase().ifEmpty { "anyconnect" },
+            sni = p["sni"].orEmpty(), pinnedCertSha256 = p["pin"].orEmpty(),
+            allowInsecure = insecure(p), source = source
+        ).takeIf { it.address.isNotBlank() }
+    } catch (e: Exception) { null }
+
+    private fun splitHostPortOrDefault(raw: String, default: Int): Pair<String, Int> {
+        val s = raw.trim().substringBefore('/')
+        val bracket = s.startsWith("[")
+        val hasPort = if (bracket) s.contains("]:") else s.count { it == ':' } == 1
+        return if (hasPort) splitHostPort(s) else s.removePrefix("[").removeSuffix("]") to default
+    }
 
     private fun parseHysteria2(body: String, source: ConfigSource): ProxyConfig? = try {
         val (name, userHostPort, p) = splitUserUri(body, "Hysteria2")
