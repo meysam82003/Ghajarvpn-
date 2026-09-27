@@ -128,6 +128,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.BugReport
@@ -1357,6 +1358,7 @@ private fun GozarApp(
     // section. The brief puts notifications in categorized Settings, so they
     // get a page of their own here.
     var notifDetail by remember { mutableStateOf(false) }
+    var backupDetail by remember { mutableStateOf(false) }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
     val sortMode by store.sortMode.collectAsState()
     val selectedId by store.selectedId.collectAsState()
@@ -1533,7 +1535,7 @@ private fun GozarApp(
     var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
+    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail || backupDetail))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
@@ -1547,6 +1549,7 @@ private fun GozarApp(
         page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
         page == PAGE_HOME -> "connection"
+        onSettingsTab && backupDetail -> "backup"
         onSettingsTab && sshDetail -> "ssh"
         onSettingsTab && debugDetail -> "debugger"
         onSettingsTab && usageDetail -> "usage"
@@ -1580,6 +1583,7 @@ private fun GozarApp(
             showOpenVpnHub -> showOpenVpnHub = false
             showPsiphonHub -> showPsiphonHub = false
             showPicker -> showPicker = false
+            backupDetail -> backupDetail = false
             usageDetail -> usageDetail = false
             perAppDetail -> perAppDetail = false
             logsDetail -> logsDetail = false
@@ -1667,6 +1671,7 @@ private fun GozarApp(
                                 "psiphonhub" -> "Psiphon"
                                 "scanqr" -> t("scan_qr")
                                 "usage" -> t("data_usage")
+                                "backup" -> t("backup_title")
                                 "perapp" -> t("per_app")
                                 "logs" -> t("xray_logs")
                                 "stability" -> t("stab_title")
@@ -1700,6 +1705,7 @@ private fun GozarApp(
                         "openvpnhub" -> BounceIconButton(onClick = { showOpenVpnHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "psiphonhub" -> BounceIconButton(onClick = { showPsiphonHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "scanqr" -> BounceIconButton(onClick = { showScanner = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "backup" -> BounceIconButton(onClick = { backupDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "usage" -> BounceIconButton(onClick = { usageDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "perapp" -> BounceIconButton(onClick = { perAppDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "logs" -> BounceIconButton(onClick = { logsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1754,6 +1760,7 @@ private fun GozarApp(
                     },
                     SkinNavItem(R.drawable.ic_royal_settings, t("settings")) {
                         usageDetail = false
+                        backupDetail = false
                         perAppDetail = false
                         logsDetail = false
                         stabilityDetail = false
@@ -1929,6 +1936,7 @@ private fun GozarApp(
                 }
             } else {
                 val setKey = when {
+                    backupDetail -> "backup"
                     sshDetail -> "ssh"
                     debugDetail -> "debugger"
                     usageDetail -> "usage"
@@ -1974,6 +1982,11 @@ private fun GozarApp(
                             active = pagerState.settledPage == PAGE_SETTINGS && !pagerState.isScrollInProgress
                         )
                         "usage" -> DataUsageScreen()
+                        "backup" -> Column(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                                .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+                            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+                        ) { BackupRow(store) }
                         "perapp" -> AppProxyScreen(store = store)
                         "logs" -> LogsScreen(store = store)
                         "stability" -> StabilityTestScreen(store = store)
@@ -2016,7 +2029,8 @@ private fun GozarApp(
                             onOpenConnection = { connDetail = true },
                             onOpenPreferences = { prefsDetail = true },
                             onOpenAbout = { aboutDetail = true },
-                            onOpenNetMon = { netMonDetail = true }
+                            onOpenNetMon = { netMonDetail = true },
+                            onOpenBackup = { backupDetail = true }
                         )
                     }
                 }
@@ -6457,6 +6471,7 @@ private fun SettingsScreen(
     onOpenNetMon: () -> Unit,
     onOpenSsh: () -> Unit,
     onOpenDebugger: () -> Unit,
+    onOpenBackup: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -6570,7 +6585,17 @@ private fun SettingsScreen(
         }
 
         Rail(t("sec_data"))
-        BackupRow(store)
+        // One row that opens the backup page, rather than the whole backup
+        // form expanded at the bottom of Settings.
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("backup_title"),
+                subtitle = t("backup_sub"),
+                icon = Icons.Filled.Backup,
+                chevron = true,
+                onClick = onOpenBackup
+            )
+        }
     }
 }
 
@@ -9516,8 +9541,12 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
     var ulLive by remember { mutableStateOf(result?.uploadMbps ?: 0.0) }
     var livePing by remember { mutableStateOf(0.0) }
     var testJob by remember { mutableStateOf<Job?>(null) }
+    val qContext = LocalContext.current
+    // Through the tunnel (the connected server) or straight out, to compare.
+    var directMode by remember { mutableStateOf(false) }
+    var history by remember { mutableStateOf(QualityHistory.list(qContext)) }
     fun start() {
-        val cfg = target
+        val cfg = if (directMode) null else target
         running = true; failed = false; result = null
         dlLive = 0.0; ulLive = 0.0; livePing = 0.0
         phase = StabilityTest.Phase.PING
@@ -9540,6 +9569,8 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
                 val now = System.currentTimeMillis()
                 store.saveLastTest(StabilityTest.toJson(r), now)
                 lastTestTime = now
+                QualityHistory.add(qContext, cfg?.name ?: t("stab_mode_direct"), r, now)
+                history = QualityHistory.list(qContext)
             }
             result = r; failed = r == null; running = false
             phase = StabilityTest.Phase.DONE
@@ -9700,8 +9731,15 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
             modifier = Modifier.fillMaxWidth().appearOnce(140)
         )
 
+        if (target != null) {
+            SlidingSegments(
+                labels = listOf(t("stab_mode_tunnel"), t("stab_mode_direct")),
+                selected = if (directMode) 1 else 0,
+                onSelect = { if (!running) directMode = it == 1 }
+            )
+        }
         InfoBox(
-            if (target != null) t("stab_testing_server") + " " + target.name
+            if (target != null && !directMode) t("stab_testing_server") + " " + target.name
             else t("stab_direct"),
             centered = true,
             modifier = Modifier.appearOnce(200)
@@ -9780,6 +9818,74 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
                     }
                 }
             }
+        }
+
+        // What dedicated speed tests add: the bufferbloat grade, sharing the
+        // result, and the record of earlier runs to compare against.
+        result?.let { r ->
+            val grade = bufferbloatGrade(r)
+            val gradeTint = when (grade) {
+                "A", "B" -> ghajarColors.good
+                "C" -> ghajarColors.warning
+                else -> ghajarColors.error
+            }
+            Slab(spacing = 0.dp) {
+                SlabRow(
+                    title = t("stab_bufferbloat"),
+                    subtitle = t("stab_bufferbloat_sub"),
+                    icon = Icons.Filled.GraphicEq,
+                    accent = gradeTint,
+                    value = grade
+                )
+            }
+            GhostPill(
+                text = t("stab_share"),
+                icon = Icons.Filled.Share,
+                onClick = {
+                    val txt = buildString {
+                        appendLine(t("stab_title"))
+                        appendLine("${t("download")}: ${String.format(java.util.Locale.US, "%.1f", r.downloadMbps)} Mbps")
+                        appendLine("${t("upload")}: ${String.format(java.util.Locale.US, "%.1f", r.uploadMbps)} Mbps")
+                        appendLine("${t("stab_idle_latency")}: ${r.idleLatency.toInt()} ms")
+                        appendLine("${t("stab_jitter")}: ${r.jitter.toInt()} ms")
+                        appendLine("${t("stab_bufferbloat")}: $grade")
+                    }
+                    runCatching {
+                        qContext.startActivity(
+                            android.content.Intent.createChooser(
+                                android.content.Intent(android.content.Intent.ACTION_SEND)
+                                    .setType("text/plain")
+                                    .putExtra(android.content.Intent.EXTRA_TEXT, txt),
+                                t("stab_share")
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }
+            )
+        }
+
+        Rail(t("stab_history"))
+        if (history.isEmpty()) {
+            Text(t("stab_history_empty"), style = MaterialTheme.typography.bodySmall, color = ghajarColors.textSecondary)
+        } else {
+            Slab(spacing = 0.dp) {
+                history.forEachIndexed { i, e ->
+                    if (i > 0) SlabDivider()
+                    SlabRow(
+                        title = e.target,
+                        subtitle = formatTestTime(e.timeMs, lang) + "  ·  " +
+                            localizeDigits("${e.result.idleLatency.toInt()}", lang) + " " + t("unit_ms"),
+                        icon = Icons.Filled.Speed,
+                        value = "↓" + localizeDigits(String.format(java.util.Locale.US, "%.1f", e.result.downloadMbps), lang) +
+                            "  ↑" + localizeDigits(String.format(java.util.Locale.US, "%.1f", e.result.uploadMbps), lang)
+                    )
+                }
+            }
+            GhostPill(
+                text = t("stab_clear"),
+                onClick = { QualityHistory.clear(qContext); history = emptyList() },
+                accent = ghajarColors.textSecondary
+            )
         }
     }
 }
