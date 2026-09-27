@@ -2038,12 +2038,14 @@ private fun GozarApp(
                             onOpenCleanIp = { cleanIpDetail = true },
                             onOpenDnsLab = { dnsLabDetail = true },
                             onOpenMap = { mapDetail = true },
-                            onSwitch = onSwitch
+                            onSwitch = onSwitch,
+                            onOpenExtra = { extraPage = it }
                         )
                         "connection_settings" -> ConnectionSettingsScreen(
                             store = store,
                             onOpenPerApp = { perAppDetail = true },
-                            onOpenLogs = { logsDetail = true }
+                            onOpenLogs = { logsDetail = true },
+                            onOpenExtra = { extraPage = it }
                         )
                         "preferences" -> PreferencesScreen(
                             store = store,
@@ -7076,6 +7078,7 @@ private fun ToolsScreen(
     onOpenDnsLab: () -> Unit,
     onOpenMap: () -> Unit,
     onSwitch: (ProxyConfig) -> Unit,
+    onOpenExtra: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -7095,6 +7098,16 @@ private fun ToolsScreen(
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
         ScreenHeader(title = t("tools"), context = t("tools_header_sub"))
+
+        // The tools used most, one tap away.
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+            GlyphTile(Icons.Filled.Speed, t("stab_title"), onOpenStability, Modifier.weight(1f))
+            GlyphTile(Icons.Filled.MonitorHeart, t("livemon_title"), { onOpenExtra("livemon") }, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+            GlyphTile(Icons.Filled.Dns, t("dnsproto_title"), { onOpenExtra("dnsproto") }, Modifier.weight(1f))
+            GlyphTile(Icons.Filled.Public, t("geodata_title"), { onOpenExtra("geodata") }, Modifier.weight(1f))
+        }
 
         Rail(t("sec_sharing"))
         Slab(spacing = 0.dp) {
@@ -7918,6 +7931,11 @@ private fun ConfigDebuggerScreen(
 
         ServerChecksGroup(config)
         PanelChecksGroup(config)
+        // The engine-level view of the same server: real test, DPI fingerprint.
+        var engineDetails by remember(config.id) { mutableStateOf(false) }
+        GhostPill(text = t("srv_details") + " · " + t("srv_dpi"), icon = Icons.Filled.Info, onClick = { engineDetails = true })
+        if (engineDetails) ServerDetailsDialog(config = config, conn = Connection.DISCONNECTED,
+            onDismiss = { engineDetails = false }, onConnect = null, onEdit = { engineDetails = false })
     }
 }
 
@@ -8232,6 +8250,7 @@ private fun ConnectionSettingsScreen(
     store: ConfigStore,
     onOpenPerApp: () -> Unit,
     onOpenLogs: () -> Unit,
+    onOpenExtra: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -8280,6 +8299,15 @@ private fun ConnectionSettingsScreen(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        ScreenHeader(title = t("connection_settings"), context = t("connection_settings_sub"))
+        // The engine-level settings that live on their own pages.
+        Slab(spacing = 0.dp) {
+            SlabRow(title = t("dnsproto_title"), subtitle = t("dnsproto_sub"), icon = Icons.Filled.Dns, chevron = true,
+                onClick = { onOpenExtra("dnsproto") })
+            SlabDivider()
+            SlabRow(title = t("geodata_title"), subtitle = t("geodata_sub"), icon = Icons.Filled.Public, chevron = true,
+                onClick = { onOpenExtra("geodata") })
+        }
         SettingsGroup(t("routing")) {
             SettingRow(
                 title = t("fakedns_title"),
@@ -8811,7 +8839,6 @@ private fun PreferencesScreen(
     val t = stringsFn()
     val lang = LocalLang.current
     val curLang by store.lang.collectAsState()
-    var langOpen by remember { mutableStateOf(false) }
     val autoRefreshHours by store.autoRefreshHours.collectAsState()
     var autoRefreshOpen by remember { mutableStateOf(false) }
     val coreLogLevel by store.coreLogLevel.collectAsState()
@@ -8826,71 +8853,32 @@ private fun PreferencesScreen(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        SettingsHubCard(
-            icon = Icons.Filled.Palette,
-            title = t("theme_settings"),
-            subtitle = t("theme_settings_sub"),
-            onClick = onOpenTheme
+        ScreenHeader(title = t("preferences"), context = t("preferences_sub"))
+        // Language first, as a two-way switch rather than a menu.
+        SlidingSegments(
+            labels = listOf("English", "فارسی"),
+            selected = if (curLang == Lang.FA) 1 else 0,
+            onSelect = { store.setLang(if (it == 1) Lang.FA else Lang.EN) }
         )
-        SettingsHubCard(
-            icon = Icons.Filled.Notifications,
-            title = t("notif_settings"),
-            subtitle = t("notif_settings_sub"),
-            onClick = onOpenNotifications
-        )
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("theme_settings"),
+                subtitle = t("theme_settings_sub"),
+                icon = Icons.Filled.Palette,
+                chevron = true,
+                onClick = onOpenTheme
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("notif_settings"),
+                subtitle = t("notif_settings_sub"),
+                icon = Icons.Filled.Notifications,
+                chevron = true,
+                onClick = onOpenNotifications
+            )
+        }
 
         SettingsGroup {
-            Text(t("language"), style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary)
-            Box {
-                OutlinedButton(
-                    onClick = { langOpen = true },
-                    shape = RoundedCornerShape(16.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        if (curLang == Lang.FA) "فارسی" else "English",
-                        fontFamily = if (curLang == Lang.FA) VazirFont else LexendFont,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = langOpen,
-                    onDismissRequest = { langOpen = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = ghajarColors.surface,
-                    border = BorderStroke(1.dp, ghajarColors.border)
-                ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "English",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = LexendFont
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { store.setLang(Lang.EN); langOpen = false }
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "فارسی",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = VazirFont
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { store.setLang(Lang.FA); langOpen = false }
-                    )
-                }
-            }
-
             Text(t("auto_refresh"), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary)
             Box {
@@ -10664,11 +10652,42 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
         ?: longArrayOf(0L, 0L)
     val perConfig = ranged.filter { it.first != UsageStore.DIRECT_KEY }
     val grand = configDirect[0] + configDirect[1] + perConfig.sumOf { it.second[0] + it.second[1] }
+    // The same range, grouped by protocol and by the engine that carried it.
+    val usageConfigs by remember { ConfigStore.get(context) }.configs.collectAsState()
+    val byProtocol = remember(perConfig, usageConfigs) {
+        val index = usageConfigs.associateBy { it.id }
+        perConfig.groupBy { (id, _) -> index[id]?.let { it.protocol.uppercase() + " · " + net.gozar.app.engine.EngineRouting.engineFor(it).name } ?: t("usage_removed") }
+            .mapValues { (_, rows) -> rows.sumOf { it.second[0] + it.second[1] } }
+            .entries.sortedByDescending { it.value }
+    }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        StatStrip(
+            listOf(
+                StatCell(t("usage_total"), formatBytes(total[0] + total[1], lang), ghajarColors.primary),
+                StatCell(t("usage_vpn"), formatBytes(rangeVpn, lang), ghajarColors.good),
+                StatCell(t("usage_direct"), formatBytes(rangeDirect, lang), ghajarColors.textSecondary)
+            )
+        )
+        if (byProtocol.isNotEmpty()) {
+            Rail(t("usage_by_protocol"))
+            Slab(spacing = GhajarSpacing.sm) {
+                val top = byProtocol.first().value.coerceAtLeast(1L)
+                byProtocol.take(8).forEach { (label, bytes) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = ghajarColors.textPrimary, modifier = Modifier.weight(1f))
+                        Text(formatBytes(bytes, lang), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ghajarColors.primary)
+                    }
+                    Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(GhajarRadius.pill)).background(ghajarColors.primary.copy(alpha = 0.12f))) {
+                        Box(Modifier.fillMaxWidth((bytes.toFloat() / top).coerceIn(0.02f, 1f)).height(6.dp)
+                            .clip(RoundedCornerShape(GhajarRadius.pill)).background(ghajarColors.primary))
+                    }
+                }
+            }
+        }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 t("range"),
