@@ -186,8 +186,10 @@ jobs:
   # proves MainActivity resumed, taps every clickable element on every screen
   # it can reach (with back navigation), stresses rapid open/back, then runs
   # monkey. Any crash, native fatal signal or ANR in the app process fails
-  # this job and names the tap path that caused it. Animations stay on so
-  # exit-animation races reproduce as they do on a phone.
+  # this job and names the tap path that caused it. The crawl reads screens
+  # with animations off (uiautomator needs an idle screen); the rapid
+  # open/back stress and monkey run with animations on, so exit-animation
+  # races reproduce as they do on a phone.
   crash-hunt:
     needs: build
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
@@ -214,6 +216,8 @@ jobs:
           target: google_apis
           arch: x86_64
           ram-size: 4096M
+          # A phone-sized screen; the default AVD is 320x640.
+          profile: pixel_6
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"

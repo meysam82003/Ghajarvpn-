@@ -120,6 +120,7 @@ def dump():
                 continue
             nodes.append((label or f"@{x1},{y1}", ((x1 + x2) // 2, (y1 + y2) // 2)))
         return nodes
+    log("uiautomator dump failed: " + raw[:160].replace("\n", " "))
     return []
 
 
@@ -135,9 +136,26 @@ def same_screen(a, b):
     return len(x & y) / max(1, len(x | y)) >= 0.6
 
 
+SCREEN = [1080, 2400]
+
+
+def read_screen_size():
+    m = re.search(r"(\d+)x(\d+)", adb("shell", "wm", "size"))
+    if m:
+        SCREEN[0], SCREEN[1] = int(m.group(1)), int(m.group(2))
+
+
 def swipe_up():
-    adb("shell", "input", "swipe", "540", "1700", "540", "700", "300")
+    w, h = SCREEN
+    adb("shell", "input", "swipe", str(w // 2), str(h * 3 // 4), str(w // 2), str(h // 3), "300")
     time.sleep(0.8)
+
+
+def animations(on):
+    """uiautomator only reads a screen once it is idle, which endless
+    animations never are: crawl with them off, stress with them on."""
+    for k in ("window_animation_scale", "transition_animation_scale", "animator_duration_scale"):
+        adb("shell", "settings", "put", "global", k, "1" if on else "0")
 
 
 def find_and_tap(label, scrolls=6):
@@ -310,12 +328,15 @@ def stress():
             nodes = dict(dump())
             if path[-1] not in nodes:
                 break
+            animations(True)
             adb("shell", "input", "tap", *map(str, nodes[path[-1]]))
             time.sleep(0.25)
             adb("shell", "input", "keyevent", "KEYCODE_BACK")
             time.sleep(0.1)
             adb("shell", "input", "keyevent", "KEYCODE_BACK") if len(path) > 1 else None
             time.sleep(0.6)
+            animations(False)
+            time.sleep(0.4)
             if check(path + ["(rapid open/back)"], before_pid, before_crash):
                 replay(path[:-1])
                 break
@@ -352,6 +373,9 @@ def main():
     time.sleep(3)
     adb("wait-for-device", timeout=120)
     log("device ABIs: " + adb("shell", "getprop", "ro.product.cpu.abilist").strip())
+    read_screen_size()
+    animations(False)
+    log(f"screen {SCREEN[0]}x{SCREEN[1]}")
     out = subprocess.run(["adb", "install", "-r", "-g", apk], capture_output=True, text=True).stdout
     if "Success" not in out:
         print("::error::install failed: " + out)
@@ -390,6 +414,7 @@ def main():
     log(f"crawl done: {len(screens)} screens, {sum(len(v) for v in done_labels.values())} taps")
     stress()
     log("stress done")
+    animations(True)
     before_pid, before_crash = pid(), crash_lines()
     adb("shell", "monkey", "-p", PKG, "-s", "7", "--pct-syskeys", "0", "--pct-appswitch", "0",
         "--throttle", "120", "--ignore-security-exceptions", "-v", "1500", timeout=600)
