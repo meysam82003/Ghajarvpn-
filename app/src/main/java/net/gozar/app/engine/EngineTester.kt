@@ -205,7 +205,12 @@ object EngineTester {
 
     private fun preflight(cfg: ProxyConfig, steps: MutableList<TestStep>): Boolean {
         val target = Reach.target(cfg)
-        if (target.host.isBlank()) { steps += TestStep("dns", false, "no server address"); return false }
+        if (target.host.isBlank()) {
+            // mieru:// full links keep the servers inside their own encoded
+            // configuration; the engine resolves and dials them itself.
+            if (cfg.protocol == "mieru") { steps += TestStep("dns", null, "inside the engine's configuration"); return true }
+            steps += TestStep("dns", false, "no server address"); return false
+        }
         val dnsStart = System.nanoTime()
         val addr = runCatching { InetAddress.getAllByName(target.host).first() }.getOrNull()
         if (addr == null) { steps += TestStep("dns", false, "cannot resolve ${target.host}"); return false }

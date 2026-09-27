@@ -20,7 +20,8 @@ object SingBoxConfig {
 
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
     val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect",
-        "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream")
+        "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream",
+        "amneziawg", "mieru", "brook")
 
     /** DNS tunnels whose server forwards to a SOCKS5 or SSH upstream. */
     val DNSTT_FAMILY = setOf("dnstt", "vaydns", "noizdns", "slipstream")
@@ -97,10 +98,16 @@ object SingBoxConfig {
                     .put("password", c.password)
                     .put("tls", tls(c, forceOn = true))
             }
+            "amneziawg", "mieru", "brook" -> {
+                o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
+            }
             "ssh" -> {
                 o.put("type", "ssh").server(c)
                     .put("user", c.uuid.ifBlank { "root" })
                     .putIf("password", c.password)
+                // Through a disguise the helper carries the bytes; sing-box
+                // still speaks SSH (and checks the host key) end to end.
+                if (sshTransport(c) != null) o.put("server", "127.0.0.1").put("server_port", 0)
                 if (c.privateKey.isNotBlank()) o.put("private_key", JSONArray().put(c.privateKey))
                 if (c.publicKey.isNotBlank()) o.put("host_key", JSONArray().put(c.publicKey))
             }
@@ -156,6 +163,11 @@ object SingBoxConfig {
             val x = c.extraJson()
             listOf("recordType", "dnsttCompat", "maxQnameLen", "clientIdSize", "noiz", "stealth", "authoritative", "cc", "cert").forEach { k -> if (x.has(k)) put(k, x.get(k)) }
         }
+        "ssh" -> sshTransport(c)?.let { t ->
+            JSONObject(t.toString()).put("kind", "sshtransport").put("host", c.address).put("port", c.port)
+        }
+        "amneziawg" -> JSONObject().put("kind", "awg").put("conf", c.extraJson().optString("conf"))
+        "mieru", "brook" -> JSONObject().put("kind", c.protocol).put("url", c.extraJson().optString("url"))
         in MASTERDNS_FAMILY -> {
             val x = c.extraJson()
             val first = if (c.address.isBlank()) "" else (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + (if (c.port in 1..65535) c.port else 53)
@@ -165,6 +177,10 @@ object SingBoxConfig {
         }
         else -> null
     }
+
+    /** The SSH disguise, or null for plain SSH. */
+    internal fun sshTransport(c: ProxyConfig): JSONObject? =
+        c.extraJson().optJSONObject("transport")?.takeIf { it.optString("mode") in Sidecars.SSH_MODES }
 
     /** DNS tunnel fields. For DNS tunnel profiles, [ProxyConfig.host] is the tunnel domain. */
     internal fun dnstt(c: ProxyConfig): JSONObject {

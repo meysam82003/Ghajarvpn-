@@ -49,3 +49,4 @@ app/src/main/jniLibs/*/libmasterdns.so
 app/src/main/jniLibs/*/libstormdns.so
 app/src/main/jniLibs/*/libcottendns.so
 app/src/main/jniLibs/*/libslipstream.so
+app/src/main/jniLibs/*/libghajarhelper.so

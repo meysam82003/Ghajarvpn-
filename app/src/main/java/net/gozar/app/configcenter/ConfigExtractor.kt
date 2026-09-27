@@ -8,7 +8,7 @@ package net.gozar.app.configcenter
 object ConfigExtractor {
 
     private val LINK_REGEX = Regex(
-        "(?im)\\b(?:vless|vmess|trojan|ss|socks5?|hysteria2?|hy2|tuic|anytls|ssh|openconnect|anyconnect|dnstt|vaydns|noizdns|masterdns|stormdns|cottendns|slipstream)://\\S+"
+        "(?im)\\b(?:vless|vmess|trojan|ss|socks5?|hysteria2?|hy2|tuic|anytls|ssh|openconnect|anyconnect|dnstt|vaydns|noizdns|masterdns|stormdns|cottendns|slipstream|mierus?|brook|amneziawg)://\\S+"
     )
 
     data class Extraction(

@@ -215,6 +215,16 @@ object ConfigParser {
             lower.startsWith("openconnect://") -> parseOpenConnect(trimmed.substring(14), source)
             lower.startsWith("anyconnect://") -> parseOpenConnect(trimmed.substring(13), source)
             lower.startsWith("dnstt://") -> parseDnstt(trimmed.substring(8), source)
+            lower.startsWith("mieru://") || lower.startsWith("mierus://") -> parseMieru(trimmed, source)
+            lower.startsWith("brook://") -> parseBrook(trimmed, source)
+            lower.startsWith("amneziawg://") || lower.startsWith("awg://") -> runCatching {
+                val body = trimmed.substringAfter("://")
+                val conf = String(java.util.Base64.getUrlDecoder().decode(body.substringBefore('#').replace('+', '-').replace('/', '_').trimEnd('=')))
+                parseWireguardConf(conf, source)?.let { c ->
+                    val n = body.substringAfter('#', "").takeIf { it.isNotBlank() }?.let { formDecode(it) }
+                    if (n != null) c.copy(name = n) else c
+                }
+            }.getOrNull()
             lower.startsWith("vaydns://") -> parseDnstt(trimmed.substring(9), source, "vaydns")
             lower.startsWith("noizdns://") -> parseDnstt(trimmed.substring(10), source, "noizdns")
             lower.startsWith("slipstream://") -> parseDnstt(trimmed.substring(13), source, "slipstream")
@@ -360,8 +370,66 @@ object ConfigParser {
             name = name, protocol = "ssh", address = hp.first, port = hp.second,
             uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user),
             password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
-            privateKey = pk, publicKey = p["hostkey"].orEmpty(), source = source
+            privateKey = pk, publicKey = p["hostkey"].orEmpty(), source = source,
+            extra = sshTransportExtra(p)
         ).takeIf { it.address.isNotBlank() && it.port in 1..65535 }
+    } catch (e: Exception) { null }
+
+    /**
+     * The SSH disguise, from Ghajar's ssh:// parameters:
+     * mode=payload|http-proxy|https-proxy|tls|payload-tls|ws|wss, proxy=HOST:PORT,
+     * sni=, payload=BASE64URL, wspath=, wshost=, wsframing=1, verify=1, ua=.
+     */
+    private fun sshTransportExtra(p: Map<String, String>): String {
+        val mode = p["mode"].orEmpty().lowercase()
+        if (mode.isBlank() || mode == "direct") return ""
+        val t = org.json.JSONObject().put("mode", mode)
+        p["proxy"]?.takeIf { it.isNotBlank() }?.let { v ->
+            val (h, port) = splitHostPortOrDefault(v, if (mode == "https-proxy" || mode.contains("tls") || mode == "wss") 443 else 80)
+            t.put("proxyHost", h).put("proxyPort", port)
+        }
+        p["sni"]?.takeIf { it.isNotBlank() }?.let { t.put("sni", it) }
+        p["payload"]?.takeIf { it.isNotBlank() }?.let { raw ->
+            runCatching { String(java.util.Base64.getUrlDecoder().decode(raw.replace('+', '-').replace('/', '_').trimEnd('='))) }
+                .getOrNull()?.let { t.put("payload", it) }
+        }
+        p["wspath"]?.takeIf { it.isNotBlank() }?.let { t.put("wsPath", it) }
+        p["wshost"]?.takeIf { it.isNotBlank() }?.let { t.put("wsHost", it) }
+        p["ua"]?.takeIf { it.isNotBlank() }?.let { t.put("ua", it) }
+        if (p["wsframing"] == "1") t.put("wsFraming", true)
+        if (p["verify"] == "1") t.put("verify", true)
+        return org.json.JSONObject().put("transport", t).toString()
+    }
+
+    /** mieru:// (full configuration) and mierus:// (simple) links: carried by the upstream mieru client. */
+    private fun parseMieru(link: String, source: ConfigSource): ProxyConfig? = try {
+        val hash = link.indexOf('#')
+        val name = (if (hash >= 0) formDecode(link.substring(hash + 1)).trim() else "").ifEmpty { "Mieru" }
+        val url = if (hash >= 0) link.substring(0, hash) else link
+        var host = ""; var port = 0; var user = ""
+        if (url.startsWith("mierus://", true)) {
+            val (_, uhp, p) = splitUserUri(url.substring(9), "Mieru")
+            host = uhp.substringAfterLast('@').substringBefore('/').trim('[', ']')
+            user = pctDecode(uhp.substringBeforeLast('@', "").substringBefore(':'))
+            port = p["port"]?.substringBefore('-')?.toIntOrNull() ?: 0
+        }
+        ProxyConfig(name = name, protocol = "mieru", address = host, port = port, uuid = user,
+            extra = org.json.JSONObject().put("url", url).toString(), source = source)
+    } catch (e: Exception) { null }
+
+    /** brook:// links (server, wsserver, wssserver, quicserver, socks5): carried by the upstream brook library. */
+    private fun parseBrook(link: String, source: ConfigSource): ProxyConfig? = try {
+        val hash = link.indexOf('#')
+        val url = if (hash >= 0) link.substring(0, hash) else link
+        val q = parseQuery(url.substringAfter('?', ""))
+        val kind = url.removePrefix("brook://").substringBefore('?').substringBefore('/')
+        val server = q[kind].orEmpty()
+        val hostPort = server.substringAfter("://").substringBefore('/')
+        val (host, port) = splitHostPortOrDefault(hostPort, 443)
+        val name = (if (hash >= 0) formDecode(link.substring(hash + 1)).trim() else q["name"].orEmpty()).ifEmpty { "Brook $kind" }
+        ProxyConfig(name = name, protocol = "brook", address = host, port = port, mode = kind,
+            extra = org.json.JSONObject().put("url", url).toString(), source = source)
+            .takeIf { kind.isNotBlank() && host.isNotBlank() }
     } catch (e: Exception) { null }
 
     /** openconnect://user:password@host[:port]?flavor=anyconnect|gp|fortinet|f5|pulse|nc&insecure=&pin=#name */
@@ -587,6 +655,7 @@ object ConfigParser {
             var endpoint = ""
             var reserved = ""
             var label = ""
+            var amnezia = false
             for (raw in text.lines()) {
                 val line = raw.substringBefore('#').trim()
                 if (line.isEmpty()) continue
@@ -605,6 +674,11 @@ object ConfigParser {
                         "mtu" -> mtu = value.toIntOrNull() ?: 0
                         "reserved" -> reserved = value
                         "name" -> label = value
+                        // AmneziaWG obfuscation keys (1.x and 2.0). Any of them
+                        // set to something other than 0 means plain WireGuard
+                        // (Xray) cannot talk to this server.
+                        "jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5" ->
+                            if (value.isNotBlank() && value != "0") amnezia = true
                     }
                 } else if (section == "[peer]") {
                     when (key) {
@@ -619,6 +693,13 @@ object ConfigParser {
             if (colon <= 0) return null
             val host = endpoint.substring(0, colon).trim('[', ']')
             val port = endpoint.substring(colon + 1).toIntOrNull() ?: return null
+            if (amnezia) return ProxyConfig(
+                name = if (label.isNotEmpty()) label else "AmneziaWG $host",
+                protocol = "amneziawg", address = host, port = port,
+                privateKey = privateKey, publicKey = publicKey, localAddress = address, mtu = mtu,
+                extra = org.json.JSONObject().put("conf", text.trim()).toString(),
+                source = source
+            )
             ProxyConfig(
                 name = if (label.isNotEmpty()) label else "WireGuard $host",
                 protocol = "wireguard",

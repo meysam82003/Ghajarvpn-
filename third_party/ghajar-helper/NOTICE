@@ -1,0 +1,10 @@
+ghajar-helper (native/ghajar-helper) is part of Ghajar VPN, GPL-3.0.
+It links, unmodified, the following libraries (pinned in native/ghajar-helper/go.sum):
+
+  github.com/amnezia-vpn/amneziawg-go/v3  v3.1.20260828 (b5928ef)  MIT
+  github.com/enfein/mieru/v3              v3.38.0 (b961978)          GPL-3.0
+  github.com/txthinking/brook             5ad0c40                    GPL-3.0
+  gvisor.dev/gvisor (via amneziawg-go netstack)                      Apache-2.0
+  golang.org/x/*                                                     BSD-3-Clause
+
+Full dependency list with versions and checksums: native/ghajar-helper/go.sum.

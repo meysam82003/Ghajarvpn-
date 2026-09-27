@@ -37,6 +37,8 @@ data class SidecarLaunch(
 ) {
     companion object {
         const val PORT = "{port}"
+        /** A second free local port, for engines that need one (Mieru's RPC). */
+        const val PORT2 = "{port2}"
         const val DIR = "{dir}"
     }
 }
@@ -65,7 +67,8 @@ class SidecarRunner(private val tag: String, private val subdir: String) {
         val bin = File(context.applicationInfo.nativeLibraryDir, launch.binary)
         if (!bin.exists()) return "${launch.binary.removePrefix("lib").removeSuffix(".so")} is not in this build"
         val dir = File(context.noBackupFilesDir, subdir).apply { mkdirs() }
-        fun fill(s: String) = s.replace(SidecarLaunch.PORT, port.toString()).replace(SidecarLaunch.DIR, dir.absolutePath)
+        val port2 = SingBoxRunner.freePort() ?: 0
+        fun fill(s: String) = s.replace(SidecarLaunch.PORT2, port2.toString()).replace(SidecarLaunch.PORT, port.toString()).replace(SidecarLaunch.DIR, dir.absolutePath)
         runCatching { launch.files.forEach { (name, content) -> File(dir, name).writeText(fill(content)) } }
             .onFailure { return "could not write the engine configuration" }
         val p = runCatching {
@@ -137,6 +140,7 @@ object Sidecars {
         "stormdns" -> "libstormdns.so"
         "cottendns" -> "libcottendns.so"
         "slipstream" -> "libslipstream.so"
+        "sshtransport", "awg", "mieru", "brook" -> HELPER
         else -> throw IllegalArgumentException("unknown engine: $kind")
     }
 
@@ -146,6 +150,16 @@ object Sidecars {
         "noizdns" -> SidecarLaunch("libnoizdns.so", noizdnsArgs(spec, SidecarLaunch.PORT), socks = false)
         "masterdns", "stormdns", "cottendns" -> masterFamily(kind, spec)
         "slipstream" -> slipstream(spec)
+        "sshtransport" -> sshTransport(spec)
+        "awg" -> SidecarLaunch(HELPER, listOf("awg", "-listen", SidecarLaunch.PORT, "-config", "${SidecarLaunch.DIR}/awg.conf"),
+            socks = true, files = mapOf("awg.conf" to spec.optString("conf").also {
+                require(it.contains("[Interface]", true) && it.contains("[Peer]", true)) { "AmneziaWG: the profile needs an [Interface] and a [Peer]" }
+            }))
+        "mieru" -> SidecarLaunch(HELPER, listOf("mieru", "-listen", SidecarLaunch.PORT, "-rpc", SidecarLaunch.PORT2,
+            "-url", spec.optString("url").also { require(it.startsWith("mieru://") || it.startsWith("mierus://")) { "Mieru: a mieru:// or mierus:// link is needed" } },
+            "-dir", SidecarLaunch.DIR), socks = true, readyTimeoutMs = 20_000)
+        "brook" -> SidecarLaunch(HELPER, listOf("brook", "-listen", SidecarLaunch.PORT,
+            "-url", spec.optString("url").also { require(it.startsWith("brook://")) { "Brook: a brook:// link is needed" } }), socks = true)
         else -> throw IllegalArgumentException("unknown engine: $kind")
     }
 
@@ -240,6 +254,39 @@ object Sidecars {
             args += listOf("--cert", "${SidecarLaunch.DIR}/server.pem")
         }
         return SidecarLaunch("libslipstream.so", args, socks = false, files = files, secretFiles = emptySet())
+    }
+
+    /** The in-repo helper (native/ghajar-helper, GPL-3.0), built in CI. */
+    const val HELPER = "libghajarhelper.so"
+
+    /** SSH transport modes the helper implements; "direct" needs no helper at all. */
+    val SSH_MODES = setOf("payload", "http-proxy", "https-proxy", "tls", "payload-tls", "ws", "wss")
+
+    /**
+     * ghajar-helper sshtransport (native/ghajar-helper/sshtransport.go): a raw
+     * forward to the SSH server through the chosen disguise; sing-box's SSH
+     * client (with its host-key check) runs on top.
+     */
+    fun sshTransport(spec: JSONObject): SidecarLaunch {
+        val mode = spec.optString("mode")
+        require(mode in SSH_MODES) { "SSH: unknown transport mode $mode" }
+        val host = spec.optString("host").also { require(it.isNotBlank()) { "SSH: no server" } }
+        val args = mutableListOf("sshtransport", "-listen", SidecarLaunch.PORT, "-mode", mode,
+            "-host", host, "-port", spec.optInt("port", 22).toString())
+        val proxyHost = spec.optString("proxyHost")
+        if (proxyHost.isNotBlank()) args += listOf("-proxy", proxyHost + ":" + spec.optInt("proxyPort", if (mode == "https-proxy" || mode.contains("tls") || mode == "wss") 443 else 80))
+        else require(mode != "http-proxy" && mode != "https-proxy") { "SSH: this mode needs a proxy address" }
+        spec.optString("sni").takeIf { it.isNotBlank() }?.let { args += listOf("-sni", it) }
+        spec.optString("payload").takeIf { it.isNotBlank() }?.let {
+            args += listOf("-payload", java.util.Base64.getEncoder().encodeToString(it.toByteArray()))
+        }
+        spec.optString("wsPath").takeIf { it.isNotBlank() }?.let { args += listOf("-ws-path", it) }
+        spec.optString("wsHost").takeIf { it.isNotBlank() }?.let { args += listOf("-ws-host", it) }
+        spec.optString("ua").takeIf { it.isNotBlank() }?.let { args += listOf("-ua", it) }
+        if (spec.optBoolean("wsFraming")) args += "-ws-framing"
+        if (spec.optBoolean("verify")) args += "-verify"
+        require(mode !in setOf("payload", "payload-tls") || spec.optString("payload").isNotBlank()) { "SSH: this mode needs a payload" }
+        return SidecarLaunch(HELPER, args, socks = false)
     }
 
     private fun tomlString(s: String) = "\"" + s.replace("\\", "\\\\").replace("\"", "\\\"") + "\""

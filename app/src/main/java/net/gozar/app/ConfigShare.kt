@@ -29,7 +29,21 @@ object ConfigShare {
         "anytls" -> simpleLink("anytls", enc(c.password), c, listOf(
             "sni" to c.sni, "fp" to c.fingerprint, "insecure" to if (c.allowInsecure) "1" else ""))
         // The private key is never put in a share link.
-        "ssh" -> simpleLink("ssh", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf("hostkey" to c.publicKey))
+        "ssh" -> {
+            val t = c.extraJson().optJSONObject("transport")
+            val tp = if (t == null) emptyList() else listOf(
+                "mode" to t.optString("mode"),
+                "proxy" to (t.optString("proxyHost").takeIf { it.isNotBlank() }?.let { it + ":" + t.optInt("proxyPort") } ?: ""),
+                "sni" to t.optString("sni"),
+                "payload" to t.optString("payload").takeIf { it.isNotEmpty() }?.let { java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray()) }.orEmpty(),
+                "wspath" to t.optString("wsPath"), "wshost" to t.optString("wsHost"), "ua" to t.optString("ua"),
+                "wsframing" to if (t.optBoolean("wsFraming")) "1" else "", "verify" to if (t.optBoolean("verify")) "1" else "")
+            simpleLink("ssh", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf("hostkey" to c.publicKey) + tp)
+        }
+        "mieru", "brook" -> c.extraJson().optString("url").takeIf { it.isNotBlank() }?.let { it + "#" + enc(c.name) }.orEmpty()
+        "amneziawg" -> c.extraJson().optString("conf").takeIf { it.isNotBlank() }?.let {
+            "amneziawg://" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray()) + "#" + enc(c.name)
+        }.orEmpty()
         "openconnect" -> simpleLink("openconnect", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf(
             "flavor" to c.mode, "sni" to c.sni, "pin" to c.pinnedCertSha256, "insecure" to if (c.allowInsecure) "1" else ""))
         "masterdns", "stormdns", "cottendns" -> {
