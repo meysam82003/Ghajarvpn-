@@ -25,15 +25,12 @@ import (
 	"hash"
 	"io"
 	"net"
-	"net/netip"
 	"os"
 	"strings"
 	"sync"
 	"time"
 	"unicode/utf16"
 
-	"github.com/amnezia-vpn/amneziawg-go/v3/tun"
-	"github.com/amnezia-vpn/amneziawg-go/v3/tun/netstack"
 	"golang.org/x/crypto/md4"
 )
 
@@ -53,30 +50,6 @@ const (
 	sstpAttrEncapsulatedProtocol = 1
 	sstpAttrCryptoBinding        = 3
 	sstpAttrCryptoBindingReq     = 4
-
-	pppLCP    = 0xc021
-	pppPAP    = 0xc023
-	pppCHAP   = 0xc223
-	pppIPCP   = 0x8021
-	pppIPv4   = 0x0021
-	chapMSv2  = 0x81
-	lcpMRU    = 1
-	lcpACCM   = 2
-	lcpAuth   = 3
-	lcpMagic  = 5
-	ipcpAddr  = 3
-	ipcpDNS1  = 129
-	ipcpDNS2  = 131
-	confReq   = 1
-	confAck   = 2
-	confNak   = 3
-	confRej   = 4
-	termReq   = 5
-	termAck   = 6
-	codeRej   = 7
-	protoRej  = 8
-	echoReq   = 9
-	echoReply = 10
 )
 
 // sstpConn is the SSTP layer on top of the TLS stream.
@@ -152,23 +125,6 @@ func (s *sstpConn) sendPPP(proto uint16, payload []byte) error {
 	binary.BigEndian.PutUint16(b[2:], proto)
 	copy(b[4:], payload)
 	return s.writePacket(false, b)
-}
-
-// splitPPP strips the optional FF 03 header and returns protocol + payload.
-func splitPPP(b []byte) (uint16, []byte, error) {
-	if len(b) >= 2 && b[0] == 0xff && b[1] == 0x03 {
-		b = b[2:]
-	}
-	if len(b) < 1 {
-		return 0, nil, errors.New("ppp: empty frame")
-	}
-	if b[0]&1 == 1 { // compressed protocol field
-		return uint16(b[0]), b[1:], nil
-	}
-	if len(b) < 2 {
-		return 0, nil, errors.New("ppp: short frame")
-	}
-	return binary.BigEndian.Uint16(b), b[2:], nil
 }
 
 // dialSSTP opens TLS, performs the HTTP handshake and returns the SSTP layer.
@@ -376,41 +332,7 @@ func callConnected(hashProto byte, nonce, certDER, hlak []byte) []byte {
 	return sstpControl(sstpMsgConnected, sstpAttr(sstpAttrCryptoBinding, v))
 }
 
-// ---- PPP negotiation ----
-
-type pppOpt struct {
-	t byte
-	v []byte
-}
-
-func parseOpts(b []byte) ([]pppOpt, error) {
-	var o []pppOpt
-	for len(b) > 0 {
-		if len(b) < 2 || int(b[1]) < 2 || int(b[1]) > len(b) {
-			return nil, errors.New("ppp: bad option")
-		}
-		o = append(o, pppOpt{b[0], b[2:b[1]]})
-		b = b[b[1]:]
-	}
-	return o, nil
-}
-
-func packOpts(o []pppOpt) []byte {
-	var b []byte
-	for _, x := range o {
-		b = append(b, x.t, byte(2+len(x.v)))
-		b = append(b, x.v...)
-	}
-	return b
-}
-
-func cp(code, id byte, data []byte) []byte {
-	b := make([]byte, 4+len(data))
-	b[0], b[1] = code, id
-	binary.BigEndian.PutUint16(b[2:], uint16(len(b)))
-	copy(b[4:], data)
-	return b
-}
+// ---- SSTP call ----
 
 type sstpOptions struct {
 	server, sni, pin, user, pass, auth string
@@ -420,474 +342,86 @@ type sstpOptions struct {
 	log                                func(string, ...any)
 }
 
-type sstpLink struct {
-	s      *sstpConn
-	local  netip.Addr
-	dns    []netip.Addr
-	magic  uint32
-	frames chan []byte
-	errc   chan error
-}
-
-// negotiate runs SSTP call setup, LCP, authentication and IPCP until the
-// IPv4 link is up.
-func negotiate(o sstpOptions) (*sstpLink, error) {
+// sstpCall opens the SSTP call and returns the PPP frame channel; control
+// messages after the call is accepted are answered here.
+func sstpCall(o sstpOptions) (*sstpConn, byte, []byte, chan []byte, chan error, error) {
 	s, err := dialSSTP(o.server, o.sni, o.pin, o.insecure, o.timeout)
 	if err != nil {
-		return nil, err
+		return nil, 0, nil, nil, nil, err
 	}
-	l := &sstpLink{s: s, frames: make(chan []byte, 256), errc: make(chan error, 1)}
-	fail := func(e error) (*sstpLink, error) {
+	fail := func(e error) (*sstpConn, byte, []byte, chan []byte, chan error, error) {
 		s.sendControl(sstpMsgAbort)
 		s.c.Close()
-		return nil, e
+		return nil, 0, nil, nil, nil, e
 	}
-	var mb [4]byte
-	rand.Read(mb[:])
-	l.magic = binary.BigEndian.Uint32(mb[:])
-
-	proto := []byte{0, 1}
-	if err := s.sendControl(sstpMsgConnectRequest, sstpAttr(sstpAttrEncapsulatedProtocol, proto)); err != nil {
+	if err := s.sendControl(sstpMsgConnectRequest, sstpAttr(sstpAttrEncapsulatedProtocol, []byte{0, 1})); err != nil {
 		return fail(err)
 	}
-
-	type inPkt struct {
-		control bool
-		body    []byte
+	s.c.SetReadDeadline(time.Now().Add(o.timeout))
+	var hashProto byte
+	var nonce []byte
+	for nonce == nil {
+		control, body, err := s.readPacket()
+		if err != nil {
+			return fail(fmt.Errorf("sstp call: %w", err))
+		}
+		if !control || len(body) < 4 {
+			continue
+		}
+		switch binary.BigEndian.Uint16(body) {
+		case sstpMsgConnectAck:
+			attrs := body[4:]
+			if len(attrs) < 40 || attrs[1] != sstpAttrCryptoBindingReq {
+				return fail(errors.New("sstp: ack without crypto binding request"))
+			}
+			mask := attrs[7]
+			if mask&2 != 0 {
+				hashProto = 2
+			} else if mask&1 != 0 {
+				hashProto = 1
+			} else {
+				return fail(fmt.Errorf("sstp: unsupported hash bitmask %d", mask))
+			}
+			nonce = append([]byte(nil), attrs[8:40]...)
+		case sstpMsgConnectNak:
+			return fail(errors.New("sstp: server refused the call (NAK)"))
+		case sstpMsgAbort, sstpMsgDisconnect:
+			return fail(errors.New("sstp: server aborted the call"))
+		case sstpMsgEchoRequest:
+			s.sendControl(sstpMsgEchoResponse)
+		}
 	}
-	in := make(chan inPkt, 64)
+	s.c.SetReadDeadline(time.Time{})
+	o.log("sstp call accepted")
+	frames := make(chan []byte, 256)
+	errc := make(chan error, 1)
 	go func() {
+		defer close(frames)
 		for {
-			c, b, err := s.readPacket()
-			if err != nil {
-				l.errc <- err
-				close(in)
-				return
-			}
-			in <- inPkt{c, b}
-		}
-	}()
-
-	var (
-		hashProto  byte
-		nonce      []byte
-		acked      bool
-		lcpOurs    = []pppOpt{{lcpMRU, []byte{byte(o.mtu >> 8), byte(o.mtu)}}, {lcpMagic, mb[:]}}
-		lcpOurOK   bool
-		lcpPeerOK  bool
-		authProto  uint16
-		authOK     bool
-		papSent    bool
-		ipcpOurs   = []pppOpt{{ipcpAddr, make([]byte, 4)}, {ipcpDNS1, make([]byte, 4)}, {ipcpDNS2, make([]byte, 4)}}
-		ipcpOurOK  bool
-		ipcpPeerOK bool
-		ipcpSent   bool
-		id         byte = 1
-		peerChal        = make([]byte, 16)
-		nt         []byte
-		authChal   []byte
-		hlak       []byte
-	)
-	rand.Read(peerChal)
-	nextID := func() byte { id++; return id }
-	lcpID := nextID()
-	sendLCPReq := func() error { return s.sendPPP(pppLCP, cp(confReq, lcpID, packOpts(lcpOurs))) }
-	ipcpID := nextID()
-	sendIPCPReq := func() error { return s.sendPPP(pppIPCP, cp(confReq, ipcpID, packOpts(ipcpOurs))) }
-	papID := nextID()
-	sendPAP := func() error {
-		d := append([]byte{byte(len(o.user))}, o.user...)
-		d = append(d, byte(len(o.pass)))
-		d = append(d, o.pass...)
-		return s.sendPPP(pppPAP, cp(1, papID, d))
-	}
-	wantAuth := func(p uint16, algo byte) bool {
-		switch o.auth {
-		case "pap":
-			return p == pppPAP
-		case "mschapv2":
-			return p == pppCHAP && algo == chapMSv2
-		}
-		return p == pppPAP || (p == pppCHAP && algo == chapMSv2)
-	}
-	preferred := func() []byte {
-		if o.auth == "pap" {
-			return []byte{0xc0, 0x23}
-		}
-		return []byte{0xc2, 0x23, chapMSv2}
-	}
-
-	deadline := time.After(o.timeout)
-	tick := time.NewTicker(3 * time.Second)
-	defer tick.Stop()
-	for {
-		// Phase transitions.
-		if acked && lcpOurOK && lcpPeerOK && authProto == pppPAP && !papSent {
-			papSent = true
-			o.log("lcp up; pap")
-			if err := sendPAP(); err != nil {
-				return fail(err)
-			}
-		}
-		if authOK && !ipcpSent {
-			ipcpSent = true
-			if err := s.writePacket(true, callConnected(hashProto, nonce, s.certDER, hlak)); err != nil {
-				return fail(err)
-			}
-			if err := sendIPCPReq(); err != nil {
-				return fail(err)
-			}
-		}
-		if ipcpOurOK && ipcpPeerOK {
-			for _, x := range ipcpOurs {
-				a, _ := netip.AddrFromSlice(x.v)
-				switch x.t {
-				case ipcpAddr:
-					l.local = a
-				case ipcpDNS1, ipcpDNS2:
-					if !a.IsUnspecified() {
-						l.dns = append(l.dns, a)
-					}
-				}
-			}
-			if !l.local.IsValid() || l.local.IsUnspecified() {
-				return fail(errors.New("ipcp: server gave no address"))
-			}
-			go func() {
-				for p := range in {
-					if p.control {
-						l.control(p.body)
-						continue
-					}
-					l.frames <- p.body
-				}
-			}()
-			return l, nil
-		}
-
-		var p inPkt
-		var ok bool
-		select {
-		case p, ok = <-in:
-			if !ok {
-				return fail(fmt.Errorf("connection closed during setup: %v", <-l.errc))
-			}
-		case <-tick.C:
-			if !acked {
-				continue
-			}
-			if !lcpOurOK {
-				sendLCPReq()
-			} else if authProto == pppPAP && !authOK {
-				sendPAP()
-			} else if ipcpSent && !ipcpOurOK {
-				sendIPCPReq()
-			}
-			continue
-		case <-deadline:
-			stage := "sstp call"
-			switch {
-			case acked && !(lcpOurOK && lcpPeerOK):
-				stage = "lcp"
-			case lcpOurOK && lcpPeerOK && !authOK:
-				stage = "authentication"
-			case authOK:
-				stage = "ipcp"
-			}
-			return fail(fmt.Errorf("timeout during %s", stage))
-		}
-
-		if p.control {
-			if len(p.body) < 4 {
-				return fail(errors.New("sstp: short control"))
-			}
-			switch binary.BigEndian.Uint16(p.body) {
-			case sstpMsgConnectAck:
-				attrs := p.body[4:]
-				if len(attrs) < 40 || attrs[1] != sstpAttrCryptoBindingReq {
-					return fail(errors.New("sstp: ack without crypto binding request"))
-				}
-				mask := attrs[7]
-				if mask&2 != 0 {
-					hashProto = 2
-				} else if mask&1 != 0 {
-					hashProto = 1
-				} else {
-					return fail(fmt.Errorf("sstp: unsupported hash bitmask %d", mask))
-				}
-				nonce = append([]byte(nil), attrs[8:40]...)
-				acked = true
-				o.log("sstp call accepted")
-				if err := sendLCPReq(); err != nil {
-					return fail(err)
-				}
-			case sstpMsgConnectNak:
-				return fail(errors.New("sstp: server refused the call (NAK)"))
-			case sstpMsgAbort, sstpMsgDisconnect:
-				return fail(errors.New("sstp: server aborted the call"))
-			case sstpMsgEchoRequest:
-				s.sendControl(sstpMsgEchoResponse)
-			}
-			continue
-		}
-
-		pr, pl, err := splitPPP(p.body)
-		if err != nil || len(pl) < 4 {
-			continue
-		}
-		code, pid := pl[0], pl[1]
-		n := int(binary.BigEndian.Uint16(pl[2:]))
-		if n < 4 || n > len(pl) {
-			continue
-		}
-		data := pl[4:n]
-		switch pr {
-		case pppLCP:
-			switch code {
-			case confReq:
-				opts, err := parseOpts(data)
-				if err != nil {
-					continue
-				}
-				var rej, nak []pppOpt
-				var auth uint16
-				for _, x := range opts {
-					switch x.t {
-					case lcpMRU, lcpACCM, lcpMagic:
-					case lcpAuth:
-						if len(x.v) < 2 {
-							rej = append(rej, x)
-							continue
-						}
-						pp := binary.BigEndian.Uint16(x.v)
-						var algo byte
-						if len(x.v) > 2 {
-							algo = x.v[2]
-						}
-						if wantAuth(pp, algo) {
-							auth = pp
-						} else {
-							nak = append(nak, pppOpt{lcpAuth, preferred()})
-						}
-					default:
-						rej = append(rej, x)
-					}
-				}
-				switch {
-				case len(rej) > 0:
-					s.sendPPP(pppLCP, cp(confRej, pid, packOpts(rej)))
-				case len(nak) > 0:
-					s.sendPPP(pppLCP, cp(confNak, pid, packOpts(nak)))
-				default:
-					authProto = auth
-					if auth == 0 {
-						authOK = true // server asks no authentication
-					}
-					lcpPeerOK = true
-					s.sendPPP(pppLCP, cp(confAck, pid, data))
-				}
-			case confAck:
-				if pid == lcpID {
-					lcpOurOK = true
-				}
-			case confNak, confRej:
-				if pid != lcpID {
-					continue
-				}
-				opts, _ := parseOpts(data)
-				for _, x := range opts {
-					for i := range lcpOurs {
-						if lcpOurs[i].t == x.t {
-							if code == confRej {
-								lcpOurs = append(lcpOurs[:i], lcpOurs[i+1:]...)
-							} else {
-								lcpOurs[i].v = x.v
-							}
-							break
-						}
-					}
-				}
-				lcpID = nextID()
-				sendLCPReq()
-			case echoReq:
-				s.sendPPP(pppLCP, cp(echoReply, pid, mb[:]))
-			case termReq:
-				s.sendPPP(pppLCP, cp(termAck, pid, nil))
-				return fail(errors.New("lcp: server terminated the link"))
-			}
-		case pppPAP:
-			if pid != papID {
-				continue
-			}
-			switch code {
-			case 2:
-				authOK = true
-				o.log("pap: accepted")
-			case 3:
-				return fail(fmt.Errorf("authentication failed (PAP): %s", string(data[min(1, len(data)):])))
-			}
-		case pppCHAP:
-			switch code {
-			case 1: // challenge
-				if len(data) < 17 || data[0] != 16 {
-					return fail(errors.New("chap: bad challenge"))
-				}
-				authProto = pppCHAP
-				authChal = append([]byte(nil), data[1:17]...)
-				nt = ntResponse(authChal, peerChal, o.user, o.pass)
-				v := make([]byte, 49)
-				copy(v, peerChal)
-				copy(v[24:], nt)
-				d := append([]byte{49}, v...)
-				d = append(d, o.user...)
-				s.sendPPP(pppCHAP, cp(2, pid, d))
-				o.log("lcp up; ms-chapv2")
-			case 3: // success
-				want := authenticatorResponse(o.pass, nt, peerChal, authChal, o.user)
-				if !strings.HasPrefix(strings.ToUpper(string(data)), want) {
-					return fail(errors.New("chap: server did not prove it knows the password (bad authenticator response)"))
-				}
-				hlak = clientHLAK(o.pass, nt)
-				authOK = true
-				o.log("ms-chapv2: accepted")
-			case 4:
-				return fail(fmt.Errorf("authentication failed (MS-CHAPv2): %s", string(data)))
-			}
-		case pppIPCP:
-			switch code {
-			case confReq:
-				opts, err := parseOpts(data)
-				if err != nil {
-					continue
-				}
-				var rej []pppOpt
-				for _, x := range opts {
-					if x.t != ipcpAddr {
-						rej = append(rej, x)
-					}
-				}
-				if len(rej) > 0 {
-					s.sendPPP(pppIPCP, cp(confRej, pid, packOpts(rej)))
-				} else {
-					ipcpPeerOK = true
-					s.sendPPP(pppIPCP, cp(confAck, pid, data))
-				}
-			case confAck:
-				if pid == ipcpID {
-					ipcpOurOK = true
-				}
-			case confNak, confRej:
-				if pid != ipcpID {
-					continue
-				}
-				opts, _ := parseOpts(data)
-				for _, x := range opts {
-					for i := range ipcpOurs {
-						if ipcpOurs[i].t == x.t {
-							if code == confRej {
-								if x.t == ipcpAddr {
-									return fail(errors.New("ipcp: server rejected address negotiation"))
-								}
-								ipcpOurs = append(ipcpOurs[:i], ipcpOurs[i+1:]...)
-							} else if len(x.v) == 4 {
-								ipcpOurs[i].v = x.v
-							}
-							break
-						}
-					}
-				}
-				ipcpID = nextID()
-				sendIPCPReq()
-			}
-		default:
-			// Protocols we do not run (IPv6CP, CCP, …): Protocol-Reject.
-			rej := make([]byte, 2+len(pl))
-			binary.BigEndian.PutUint16(rej, pr)
-			copy(rej[2:], pl)
-			s.sendPPP(pppLCP, cp(protoRej, nextID(), rej))
-		}
-	}
-}
-
-// control answers SSTP control messages once the link is up.
-func (l *sstpLink) control(b []byte) {
-	if len(b) < 2 {
-		return
-	}
-	switch binary.BigEndian.Uint16(b) {
-	case sstpMsgEchoRequest:
-		l.s.sendControl(sstpMsgEchoResponse)
-	case sstpMsgDisconnect:
-		l.s.sendControl(sstpMsgDisconnectAck)
-		l.s.c.Close()
-	case sstpMsgAbort:
-		l.s.c.Close()
-	}
-}
-
-// pump moves IPv4 packets between the netstack and the PPP link and keeps
-// the call alive with SSTP echoes; it returns when the link dies.
-func (l *sstpLink) pump(dev tun.Device, mtu int) error {
-	errc := make(chan error, 2)
-	var lastRx sync.Map
-	lastRx.Store(0, time.Now())
-	go func() {
-		for f := range l.frames {
-			lastRx.Store(0, time.Now())
-			pr, pl, err := splitPPP(f)
-			if err != nil {
-				continue
-			}
-			switch pr {
-			case pppIPv4:
-				buf := make([]byte, 16+len(pl))
-				copy(buf[16:], pl)
-				dev.Write([][]byte{buf}, 16)
-			case pppLCP:
-				if len(pl) >= 4 && pl[0] == echoReq {
-					var m [4]byte
-					binary.BigEndian.PutUint32(m[:], l.magic)
-					l.s.sendPPP(pppLCP, cp(echoReply, pl[1], m[:]))
-				} else if len(pl) >= 4 && pl[0] == termReq {
-					l.s.sendPPP(pppLCP, cp(termAck, pl[1], nil))
-					errc <- errors.New("lcp: server terminated the link")
-					return
-				}
-			}
-		}
-		errc <- fmt.Errorf("link closed: %v", <-l.errc)
-	}()
-	go func() {
-		bufs := [][]byte{make([]byte, 16+mtu+64)}
-		sizes := []int{0}
-		for {
-			n, err := dev.Read(bufs, sizes, 16)
+			control, body, err := s.readPacket()
 			if err != nil {
 				errc <- err
 				return
 			}
-			for i := 0; i < n; i++ {
-				if err := l.s.sendPPP(pppIPv4, bufs[i][16:16+sizes[i]]); err != nil {
-					errc <- err
-					return
-				}
+			if !control {
+				frames <- body
+				continue
+			}
+			if len(body) < 2 {
+				continue
+			}
+			switch binary.BigEndian.Uint16(body) {
+			case sstpMsgEchoRequest:
+				s.sendControl(sstpMsgEchoResponse)
+			case sstpMsgDisconnect:
+				s.sendControl(sstpMsgDisconnectAck)
+				s.c.Close()
+			case sstpMsgAbort:
+				s.c.Close()
 			}
 		}
 	}()
-	t := time.NewTicker(30 * time.Second)
-	defer t.Stop()
-	for {
-		select {
-		case err := <-errc:
-			return err
-		case <-t.C:
-			v, _ := lastRx.Load(0)
-			if time.Since(v.(time.Time)) > 95*time.Second {
-				return errors.New("sstp: no answer from the server for 95s")
-			}
-			l.s.sendControl(sstpMsgEchoRequest)
-		}
-	}
+	return s, hashProto, nonce, frames, errc, nil
 }
 
 func runSSTP(args []string) error {
@@ -905,13 +439,9 @@ func runSSTP(args []string) error {
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
-	pass := os.Getenv("SSTP_PASSWORD")
-	if pf := os.Getenv("SSTP_PASSWORD_FILE"); pf != "" {
-		b, err := os.ReadFile(pf)
-		if err != nil {
-			return err
-		}
-		pass = strings.TrimRight(string(b), "\r\n")
+	pass, err := secretFromEnv("SSTP_PASSWORD")
+	if err != nil {
+		return err
 	}
 	if *server == "" || *user == "" {
 		return errors.New("sstp: -server and -user are required")
@@ -924,35 +454,34 @@ func runSSTP(args []string) error {
 			fmt.Fprintf(os.Stderr, "sstp: "+f+"\n", a...)
 		}
 	}
-	link, err := negotiate(sstpOptions{server: *server, sni: *sni, pin: *pin, user: *user, pass: pass, auth: *auth,
-		insecure: *insecure, mtu: *mtu, timeout: 25 * time.Second, log: logf})
+	o := sstpOptions{server: *server, sni: *sni, pin: *pin, user: *user, pass: pass, auth: *auth,
+		insecure: *insecure, mtu: *mtu, timeout: 25 * time.Second, log: logf}
+	s, hashProto, nonce, frames, errc, err := sstpCall(o)
 	if err != nil {
 		return err
 	}
-	if len(link.dns) == 0 {
-		for _, d := range strings.Split(*dns, ",") {
-			if a, err := netip.ParseAddr(strings.TrimSpace(d)); err == nil {
-				link.dns = append(link.dns, a)
-			}
+	defer s.c.Close()
+	send := func(proto uint16, payload []byte) error { return s.sendPPP(proto, payload) }
+	link, err := pppNegotiate(send, frames, pppConfig{user: *user, pass: pass, auth: *auth, mtu: *mtu, timeout: o.timeout, log: logf,
+		onAuth: func(hlak []byte) error { return s.writePacket(true, callConnected(hashProto, nonce, s.certDER, hlak)) }})
+	if err != nil {
+		s.sendControl(sstpMsgAbort)
+		select {
+		case e := <-errc:
+			return fmt.Errorf("%v (%v)", err, e)
+		default:
 		}
-	}
-	if len(link.dns) == 0 {
-		link.dns = []netip.Addr{netip.MustParseAddr("1.1.1.1")}
-	}
-	fmt.Fprintf(os.Stderr, "sstp: link up, address %s, dns %v\n", link.local, link.dns)
-	dev, tnet, err := netstack.CreateNetTUN([]netip.Addr{link.local}, link.dns, *mtu)
-	if err != nil {
-		return fmt.Errorf("netstack: %w", err)
-	}
-	ln, err := listenLocal(*listen)
-	if err != nil {
 		return err
 	}
-	go func() {
-		serveSocks5(ln, netstackBackend{tnet})
-	}()
-	err = link.pump(dev, *mtu)
-	link.s.sendControl(sstpMsgDisconnect)
-	link.s.c.Close()
-	return err
+	return servePPPLink("sstp", link, *dns, *mtu, *listen, send, frames, func(alive func() time.Time) error {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		for range t.C {
+			if time.Since(alive()) > 95*time.Second {
+				return errors.New("sstp: no answer from the server for 95s")
+			}
+			s.sendControl(sstpMsgEchoRequest)
+		}
+		return nil
+	}, func() { s.sendControl(sstpMsgDisconnect) })
 }
