@@ -169,6 +169,41 @@ jobs:
           path: app/build/outputs/apk/**/*.apk
           if-no-files-found: error
 
+  # Runs the debug APK on an emulator and drives it with monkey, printing
+  # every crash stack trace (logcat AndroidRuntime) into the job log. The
+  # arm64 APK runs on the x86_64 image through its ARM translation layer.
+  # Diagnostic only: it never blocks the build.
+  crash-hunt:
+    needs: build
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Ghajarvpn-Android-debug
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Drive the app on an emulator and collect crashes
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: sh scripts/crash-hunt.sh "$(find apk -name '*arm64-v8a*.apk' | head -n1)"
+
   release:
     needs: build
     # A manual run can publish too. Pushing a tag requires write access to
