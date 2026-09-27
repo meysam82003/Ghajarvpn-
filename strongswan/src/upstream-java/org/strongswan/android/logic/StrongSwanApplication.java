@@ -175,8 +175,23 @@ public class StrongSwanApplication extends Application
 	 * The libraries are extracted to /data/data/org.strongswan.android/...
 	 * during installation.  On newer releases most are loaded in JNI_OnLoad.
 	 */
+	/** Whether libandroidbridge.so loaded; IKEv2 is unavailable otherwise.
+	 * Declared before the static block: Java runs initialisers in text order. */
+	public static boolean NATIVE_LOADED;
+
 	static
 	{
-		System.loadLibrary("androidbridge");
+		/* Ghajar: this class is the whole app's Application. A missing or
+		 * unloadable IKEv2 library must only disable IKEv2, not stop the app
+		 * from starting at all. */
+		try
+		{
+			System.loadLibrary("androidbridge");
+			NATIVE_LOADED = true;
+		}
+		catch (Throwable t)
+		{
+			android.util.Log.e("StrongSwanApplication", "libandroidbridge not loaded: " + t);
+		}
 	}
 }
