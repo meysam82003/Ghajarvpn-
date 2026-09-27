@@ -8,6 +8,7 @@ pkg=com.ghajarvpn.app
 [ -f "$apk" ] || { echo "::error::no APK at '$apk'"; exit 1; }
 echo "APK: $apk"
 adb wait-for-device
+adb root >/dev/null 2>&1; sleep 3; adb wait-for-device
 adb shell getprop ro.product.cpu.abilist
 adb install -r -g "$apk" || { echo "::error::install failed"; exit 1; }
 adb shell pm grant "$pkg" android.permission.POST_NOTIFICATIONS 2>/dev/null || true
@@ -36,6 +37,13 @@ grep -c "FATAL EXCEPTION" crash.txt || true
 # One block per crash, de-duplicated by the exception + first app frame.
 awk '/FATAL EXCEPTION/{if(b!="")print b"\n----";b=$0;next} b!=""{b=b"\n"$0} END{if(b!="")print b}' crash.txt | head -n 1500
 
+echo "================ native crashes (crash buffer) ================"
+adb logcat -d -b crash | grep -v "^---------" | head -n 300
+echo "================ newest tombstones ================"
+for t in $(adb shell 'ls -t /data/tombstones/tombstone_* 2>/dev/null | grep -v "\.pb$" | head -n 3'); do
+    echo "---- $t"
+    adb shell cat "$t" | sed -n '1,80p'
+done
 echo "================ ghajar-crash.log ================"
 adb shell run-as "$pkg" sh -c 'find files cache no_backup -name "*.log" 2>/dev/null' | while read -r f; do
     adb shell run-as "$pkg" cat "$f" | awk '/== CRASH ==/{p=1} p{print} /^====================/{p=0}' | head -n 400
