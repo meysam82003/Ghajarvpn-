@@ -389,7 +389,7 @@ object Reach {
                     via?.optString("sni").orEmpty().ifBlank { c.address })
             }
             else -> Target(c.address, c.port, udp = c.protocol in UDP,
-                tls = c.security == "tls" || c.security == "reality" || c.protocol in setOf("anytls", "openconnect", "naive", "trojan", "sstp", "shadowtls"),
+                tls = c.security == "tls" || c.security == "reality" || c.protocol in setOf("anytls", "openconnect", "naive", "trojan", "sstp", "softether", "shadowtls"),
                 sni = c.sni.ifBlank { c.host.ifBlank { c.address } })
         }
     }

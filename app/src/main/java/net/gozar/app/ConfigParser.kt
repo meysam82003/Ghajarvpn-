@@ -227,6 +227,7 @@ object ConfigParser {
             lower.startsWith("naive+https://") || lower.startsWith("naive+quic://") || lower.startsWith("naive://") -> parseNaive(trimmed, source)
             lower.startsWith("juicity://") -> parseJuicity(trimmed.substring(10), source)
             lower.startsWith("sstp://") -> parseSstp(trimmed.substring(7), source)
+            lower.startsWith("softether://") -> parseSoftEther(trimmed.substring(12), source)
             lower.startsWith("amneziawg://") || lower.startsWith("awg://") -> runCatching {
                 val body = trimmed.substringAfter("://")
                 val conf = String(java.util.Base64.getUrlDecoder().decode(body.substringBefore('#').replace('+', '-').replace('/', '_').trimEnd('=')))
@@ -454,6 +455,29 @@ object ConfigParser {
             uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user), password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
             sni = p["sni"].orEmpty(), method = auth, allowInsecure = insecure(p), pinnedCertSha256 = p["pin"].orEmpty(),
             security = "tls", mtu = p["mtu"]?.toIntOrNull()?.takeIf { it in 576..1500 } ?: 0,
+            source = source).takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+    } catch (e: Exception) { null }
+
+    /**
+     * softether://user:password@host[:443]?hub=DEFAULT&sni=&pin=SHA256HEX&allow_insecure=1
+     *   &auth=plain&ip=a.b.c.d/nn&gw=&dns=&mtu=#name  (Ghajar's share format)
+     * SoftEther's own protocol, carried by ghajar-helper; auth=plain sends the
+     * password for RADIUS / NT-domain users instead of the SHA-0 challenge.
+     */
+    private fun parseSoftEther(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "SoftEther")
+        val at = uhp.lastIndexOf('@')
+        val hostPort = if (at >= 0) uhp.substring(at + 1) else uhp
+        val (_, address, port) = splitUserHostPort("x@" + if (hostPort.substringAfterLast(']').contains(':')) hostPort else "$hostPort:443")
+        val user = if (at >= 0) uhp.substring(0, at) else ""
+        val colon = user.indexOf(':')
+        val extra = org.json.JSONObject().put("hub", p["hub"].orEmpty().ifBlank { "DEFAULT" })
+        if (p["auth"].equals("plain", true)) extra.put("plain", true)
+        listOf("ip", "gw", "dns").forEach { k -> p[k]?.takeIf { it.isNotBlank() }?.let { extra.put(k, it) } }
+        ProxyConfig(name = name, protocol = "softether", address = address, port = port,
+            uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user), password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
+            sni = p["sni"].orEmpty(), allowInsecure = insecure(p), pinnedCertSha256 = p["pin"].orEmpty(), security = "tls",
+            mtu = p["mtu"]?.toIntOrNull()?.takeIf { it in 576..1500 } ?: 0, extra = extra.toString(),
             source = source).takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
 

@@ -117,3 +117,21 @@ func TestSSTPCallConnectedLayout(t *testing.T) {
 		t.Fatalf("splitPPP %x %v %v", proto, payload, err)
 	}
 }
+
+func TestSoftEtherSHA0AndPack(t *testing.T) {
+	// FIPS 180 (SHA-0) test vector.
+	if h := sha0([]byte("abc")); hex.EncodeToString(h[:]) != "0164b8a914cd2a5e74c4f7ff082c4d97f1edf880" {
+		t.Fatalf("sha0(abc) = %x", h)
+	}
+	p := newPack()
+	p.addStr("method", "login")
+	p.addInt("authtype", 1)
+	p.addData("secure_password", make([]byte, 20))
+	q, err := unmarshalPack(p.marshal())
+	if err != nil || q.getStr("method") != "login" || q.getInt("authtype") != 1 || len(q.getData("secure_password")) != 20 {
+		t.Fatalf("pack round trip: %v", err)
+	}
+	if len(seWaterMark) != 1411 || string(seWaterMark[:6]) != "GIF89a" {
+		t.Fatal("watermark not embedded")
+	}
+}

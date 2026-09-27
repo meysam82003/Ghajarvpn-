@@ -78,4 +78,18 @@ class MoreEnginesTest {
         val bad = runCatching { Sidecars.launch(spec.getJSONObject("sidecar").put("pin", "zz")) }.exceptionOrNull()
         assertTrue(bad?.message.orEmpty().contains("SHA-256"))
     }
+
+    @Test
+    fun softEtherLinkCarriesHubAndStaticAddress() {
+        val c = ConfigParser.parse("softether://bob:pw@se.example.com:5555?hub=VPN&ip=10.0.0.9%2F24&gw=10.0.0.1&dns=1.1.1.1&auth=plain#SE")!!
+        assertEquals("softether", c.protocol); assertEquals(5555, c.port)
+        assertEquals(EngineId.SINGBOX, EngineRouting.engineFor(c))
+        val l = Sidecars.launch(JSONObject(SingBoxConfig.spec(c)!!).getJSONObject("sidecar"))
+        assertEquals(listOf("softether", "-listen", "{port}", "-server", "se.example.com:5555", "-hub", "VPN", "-user", "bob",
+            "-mtu", "1400", "-plain", "-ip", "10.0.0.9/24", "-gw", "10.0.0.1", "-dns", "1.1.1.1"), l.args)
+        assertTrue(l.args.none { it == "pw" }); assertEquals("pw", l.files.getValue("se.pass"))
+        assertEquals(c.copy(id = "x"), ConfigParser.parse(ConfigShare.toLink(c))!!.copy(id = "x"))
+        val d = ConfigParser.parse("softether://u:p@h.example.com#d")!!
+        assertEquals(443, d.port); assertEquals("DEFAULT", d.extraJson().getString("hub"))
+    }
 }

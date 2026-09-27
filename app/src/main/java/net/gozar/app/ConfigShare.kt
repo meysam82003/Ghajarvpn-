@@ -43,6 +43,13 @@ object ConfigShare {
         "naive" -> simpleLink(if (c.mode == "quic") "naive+quic" else "naive+https",
             enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c,
             listOf("sni" to c.sni.takeIf { it != c.address }.orEmpty()))
+        "softether" -> c.extraJson().let { x ->
+            simpleLink("softether", enc(c.uuid) + ":" + enc(c.password), c, listOf(
+                "hub" to x.optString("hub"), "sni" to c.sni, "pin" to c.pinnedCertSha256,
+                "allow_insecure" to if (c.allowInsecure) "1" else "", "auth" to if (x.optBoolean("plain")) "plain" else "",
+                "ip" to x.optString("ip"), "gw" to x.optString("gw"), "dns" to x.optString("dns"),
+                "mtu" to c.mtu.takeIf { it > 0 }?.toString().orEmpty()))
+        }
         "sstp" -> simpleLink("sstp", enc(c.uuid) + ":" + enc(c.password), c, listOf(
             "sni" to c.sni, "auth" to c.method.takeIf { it == "pap" || it == "mschapv2" }.orEmpty(),
             "allow_insecure" to if (c.allowInsecure) "1" else "", "pin" to c.pinnedCertSha256,

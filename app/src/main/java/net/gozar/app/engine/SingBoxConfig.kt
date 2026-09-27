@@ -21,7 +21,7 @@ object SingBoxConfig {
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
     val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect",
         "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream",
-        "amneziawg", "mieru", "brook", "juicity", "naive", "shadowtls", "sstp")
+        "amneziawg", "mieru", "brook", "juicity", "naive", "shadowtls", "sstp", "softether")
 
     /** DNS tunnels whose server forwards to a SOCKS5 or SSH upstream. */
     val DNSTT_FAMILY = setOf("dnstt", "vaydns", "noizdns", "slipstream")
@@ -116,7 +116,7 @@ object SingBoxConfig {
                 o.put("type", "shadowsocks").put("method", ss.optString("method")).put("password", ss.optString("password"))
                     .put("detour", "shadowtls-out")
             }
-            "amneziawg", "mieru", "brook", "juicity", "sstp" -> {
+            "amneziawg", "mieru", "brook", "juicity", "sstp", "softether" -> {
                 o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
             }
             "ssh" -> {
@@ -186,6 +186,13 @@ object SingBoxConfig {
         }
         "amneziawg" -> JSONObject().put("kind", "awg").put("conf", c.extraJson().optString("conf"))
         "mieru", "brook" -> JSONObject().put("kind", c.protocol).put("url", c.extraJson().optString("url"))
+        "softether" -> c.extraJson().let { x ->
+            JSONObject().put("kind", "softether").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
+                .put("hub", x.optString("hub").ifBlank { "DEFAULT" }).put("user", c.uuid).put("password", c.password)
+                .put("plain", x.optBoolean("plain")).put("sni", c.sni).put("allowInsecure", c.allowInsecure).put("pin", c.pinnedCertSha256)
+                .put("ip", x.optString("ip")).put("gw", x.optString("gw")).put("dns", x.optString("dns"))
+                .put("mtu", c.mtu.takeIf { it in 576..1500 } ?: 1400)
+        }
         "sstp" -> JSONObject().put("kind", "sstp").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
             .put("user", c.uuid).put("password", c.password).put("sni", c.sni).put("auth", c.method.ifBlank { "auto" })
             .put("allowInsecure", c.allowInsecure).put("pin", c.pinnedCertSha256).put("mtu", c.mtu.takeIf { it in 576..1500 } ?: 1400)

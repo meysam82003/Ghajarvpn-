@@ -140,7 +140,7 @@ object Sidecars {
         "stormdns" -> "libstormdns.so"
         "cottendns" -> "libcottendns.so"
         "slipstream" -> "libslipstream.so"
-        "sshtransport", "awg", "mieru", "brook", "sstp" -> HELPER
+        "sshtransport", "awg", "mieru", "brook", "sstp", "softether" -> HELPER
         "juicity" -> "libjuicity.so"
         else -> throw IllegalArgumentException("unknown engine: $kind")
     }
@@ -161,6 +161,7 @@ object Sidecars {
             "-dir", SidecarLaunch.DIR), socks = true, readyTimeoutMs = 20_000)
         "juicity" -> juicity(spec)
         "sstp" -> sstp(spec)
+        "softether" -> softether(spec)
         "brook" -> SidecarLaunch(HELPER, listOf("brook", "-listen", SidecarLaunch.PORT,
             "-url", spec.optString("url").also { require(it.startsWith("brook://")) { "Brook: a brook:// link is needed" } }), socks = true)
         else -> throw IllegalArgumentException("unknown engine: $kind")
@@ -297,6 +298,34 @@ object Sidecars {
         if (spec.optBoolean("allowInsecure")) args += "-insecure"
         return SidecarLaunch(HELPER, args, socks = true, files = mapOf("sstp.pass" to spec.optString("password")),
             env = mapOf("SSTP_PASSWORD_FILE" to "${SidecarLaunch.DIR}/sstp.pass"), readyTimeoutMs = 30_000)
+    }
+
+    /**
+     * ghajar-helper softether (native/ghajar-helper/softether.go): SoftEther's
+     * own protocol to a Virtual Hub, DHCP (or a static address) and ARP in
+     * userspace, served as SOCKS5. Password via a file deleted once listening.
+     */
+    fun softether(spec: JSONObject): SidecarLaunch {
+        val args = mutableListOf("softether", "-listen", SidecarLaunch.PORT,
+            "-server", spec.optString("server").also { require(it.isNotBlank() && !it.startsWith(":")) { "SoftEther: no server" } },
+            "-hub", spec.optString("hub").ifBlank { "DEFAULT" },
+            "-user", spec.optString("user").also { require(it.isNotBlank()) { "SoftEther: no user name" } },
+            "-mtu", spec.optInt("mtu", 1400).coerceIn(576, 1500).toString())
+        if (spec.optBoolean("plain")) args += "-plain"
+        spec.optString("sni").takeIf { it.isNotBlank() }?.let { args += listOf("-sni", it) }
+        spec.optString("pin").takeIf { it.isNotBlank() }?.let {
+            require(Regex("^[0-9a-fA-F:]{64,95}$").matches(it)) { "SoftEther: the certificate pin must be a SHA-256 in hex" }
+            args += listOf("-pin", it)
+        }
+        if (spec.optBoolean("allowInsecure")) args += "-insecure"
+        spec.optString("ip").takeIf { it.isNotBlank() }?.let {
+            require(Regex("^\\d{1,3}(\\.\\d{1,3}){3}/\\d{1,2}$").matches(it)) { "SoftEther: static address must look like 10.0.0.2/24" }
+            args += listOf("-ip", it)
+        }
+        spec.optString("gw").takeIf { it.isNotBlank() }?.let { args += listOf("-gw", it) }
+        spec.optString("dns").takeIf { it.isNotBlank() }?.let { args += listOf("-dns", it) }
+        return SidecarLaunch(HELPER, args, socks = true, files = mapOf("se.pass" to spec.optString("password")),
+            env = mapOf("SE_PASSWORD_FILE" to "${SidecarLaunch.DIR}/se.pass"), readyTimeoutMs = 30_000)
     }
 
     /** The in-repo helper (native/ghajar-helper, GPL-3.0), built in CI. */

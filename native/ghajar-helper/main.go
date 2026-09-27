@@ -6,6 +6,7 @@
 //	mieru         Mieru client (upstream enfein/mieru code, unmodified)
 //	brook         Brook client (upstream txthinking/brook library, unmodified)
 //	sstp          SSTP (PPP over HTTPS, PAP / MS-CHAPv2) in userspace, as SOCKS5
+//	softether     SoftEther VPN protocol (Virtual Hub, DHCP, ARP) in userspace, as SOCKS5
 //
 // Every mode listens on one local TCP port on 127.0.0.1, printed as
 // "ready 127.0.0.1:PORT" once it accepts connections. Licence: GPL-3.0 (the
@@ -20,7 +21,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: ghajar-helper <sshtransport|awg|mieru|brook|sstp> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: ghajar-helper <sshtransport|awg|mieru|brook|sstp|softether> [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -35,6 +36,8 @@ func main() {
 		err = runBrook(os.Args[2:])
 	case "sstp":
 		err = runSSTP(os.Args[2:])
+	case "softether":
+		err = runSoftEther(os.Args[2:])
 	case "version":
 		fmt.Println("ghajar-helper 1")
 		return
