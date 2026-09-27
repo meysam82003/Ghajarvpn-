@@ -13145,6 +13145,14 @@ private fun ConfigRow(
     var renaming by remember { mutableStateOf(false) }
     var draftName by remember { mutableStateOf(config.name) }
     var qrFor by remember { mutableStateOf<String?>(null) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    if (detailsOpen) ServerDetailsDialog(
+        config = config,
+        conn = if (isActive) conn else Connection.DISCONNECTED,
+        onDismiss = { detailsOpen = false },
+        onConnect = onToggleConnection?.let { go -> { detailsOpen = false; go() } },
+        onEdit = { detailsOpen = false; onEdit() }
+    )
     val checked by remember { derivedStateOf { isChecked() } }
 
     qrFor?.let { link ->
@@ -13554,6 +13562,10 @@ private fun ConfigRow(
                                 CompactMenuItem(Icons.Filled.DriveFileMove, t("move_to_group")) {
                                     moreMenu = false
                                     onMoveToGroup()
+                                }
+                                CompactMenuItem(Icons.Filled.Info, t("srv_details")) {
+                                    moreMenu = false
+                                    detailsOpen = true
                                 }
                                 CompactMenuItem(Icons.Filled.NetworkCheck, t("tcp_ping")) {
                                     moreMenu = false
@@ -14708,5 +14720,133 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
         if (busy) SkinLoading(t("safebox_working"))
         if (message.isNotBlank()) InfoBox(message)
         InfoBox(t("safebox_note"), accent = c.info)
+    }
+}
+
+
+/**
+ * One server, everything known about it: profile (country, protocol, engine,
+ * transport, security, source), the last real test (latency, jitter, loss,
+ * handshake, exit, when, each step), and the actions TEST, DPI check,
+ * CONNECT and EDIT.
+ */
+@Composable
+private fun ServerDetailsDialog(
+    config: ProxyConfig,
+    conn: Connection,
+    onDismiss: () -> Unit,
+    onConnect: (() -> Unit)?,
+    onEdit: () -> Unit
+) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val c = ghajarColors
+    val version by net.gozar.app.engine.EngineTestStore.version.collectAsState()
+    val result = remember(version, config.id) { net.gozar.app.engine.EngineTestStore.get(config.id) }
+    var testing by remember { mutableStateOf(false) }
+    var dpi by remember { mutableStateOf<net.gozar.app.engine.DpiCheck.Result?>(null) }
+    var dpiRunning by remember { mutableStateOf(false) }
+    val engine = remember(config) { net.gozar.app.engine.EngineRouting.engineFor(config) }
+    val country = remember(config.name, result) {
+        splitFlags(config.name).firstOrNull { it.first }?.second?.uppercase() ?: result?.exitCountry.orEmpty()
+    }
+    fun ms(v: Int?) = v?.let { localizeDigits("$it", lang) + " " + t("unit_ms") } ?: "—"
+
+    GlassDialog(
+        onDismiss = onDismiss,
+        title = t("srv_details"),
+        confirmLabel = if (testing) t("srv_testing") else t("srv_test"),
+        onConfirm = {
+            if (!testing) {
+                testing = true
+                scope.launch {
+                    withContext(Dispatchers.IO) { runCatching { net.gozar.app.engine.EngineTester.test(config) } }
+                    testing = false
+                }
+            }
+        },
+        dismissLabel = t("close")
+    ) {
+        Column(
+            Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (country.length == 2) CountryFlag(country, height = 16.dp)
+                Text(flagRuns(GhajarUiRules.brandedConfigName(config.name), FontFamily.Default),
+                    inlineContent = flagInlineContent(config.name, MaterialTheme.typography.titleSmall.fontSize),
+                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = c.textPrimary)
+            }
+            val security = when {
+                config.security.equals("reality", true) -> "REALITY"
+                config.security.equals("tls", true) -> "TLS"
+                else -> config.security.uppercase().ifBlank { "—" }
+            }
+            listOf(
+                t("srv_country") to country.ifBlank { "—" },
+                t("srv_protocol") to config.protocol.uppercase(),
+                t("srv_engine") to engine.name,
+                t("srv_transport") to config.network.ifBlank { "—" },
+                t("srv_security") to security,
+                t("srv_source") to config.source.name.lowercase(),
+                t("srv_address") to if (config.locked || config.address.isBlank()) "—" else config.address + if (config.port > 0) ":" + config.port else ""
+            ).forEach { (k, v) -> DebugInfoRow(k, v) }
+
+            Rail(t("srv_last_test"))
+            if (result == null) {
+                Text(t("srv_never_tested"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            } else {
+                DebugInfoRow(t("srv_status"), if (result.internetOk) t("srv_ok") else (result.error ?: t("srv_failed")),
+                    if (result.internetOk) c.good else c.error)
+                DebugInfoRow(t("srv_latency"), ms(result.latencyMs))
+                DebugInfoRow(t("stab_jitter"), ms(result.jitterMs))
+                DebugInfoRow(t("srv_loss"), result.lossPct?.let { localizeDigits("$it", lang) + "%" } ?: "—")
+                DebugInfoRow(t("srv_handshake"), ms(result.handshakeMs))
+                DebugInfoRow(t("srv_exit"), listOfNotNull(result.exitIp, result.exitCountry).joinToString(" · ").ifBlank { "—" })
+                DebugInfoRow(t("srv_when"), formatTestTime(result.testedAt, lang))
+                result.steps.forEach { st ->
+                    DebugInfoRow(st.name, (st.detail.ifBlank { if (st.ok == true) "OK" else "—" }) + (st.ms?.let { " · ${it}ms" } ?: ""),
+                        when (st.ok) { true -> c.good; false -> c.error; null -> null })
+                }
+            }
+            if (testing) SkinLoading(t("srv_testing"))
+
+            Rail(t("srv_dpi"))
+            val d = dpi
+            when {
+                dpiRunning -> SkinLoading(t("srv_dpi_running"))
+                d == null -> Text(t("srv_dpi_hint"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                d.error != null -> Text(d.error, style = MaterialTheme.typography.bodySmall, color = c.error)
+                else -> {
+                    DebugInfoRow(t("srv_dpi_seen_as"), d.protocol ?: "Unknown")
+                    DebugInfoRow(t("srv_dpi_confidence"), d.confidence ?: "—")
+                    if (d.risks.isNotEmpty()) DebugInfoRow(t("srv_dpi_risks"), d.risks.joinToString(", "), c.warning)
+                    d.note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
+                }
+            }
+            GhostPill(
+                text = t("srv_dpi_run"),
+                enabled = !dpiRunning && !testing,
+                onClick = {
+                    dpiRunning = true
+                    scope.launch {
+                        dpi = withContext(Dispatchers.IO) { net.gozar.app.engine.DpiCheck.run(context, config) }
+                        dpiRunning = false
+                    }
+                }
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                if (onConnect != null) {
+                    GhostPill(
+                        text = if (conn == Connection.CONNECTED || conn == Connection.CONNECTING) t("disconnect") else t("connect"),
+                        onClick = onConnect,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                GhostPill(text = t("edit"), onClick = onEdit, modifier = Modifier.weight(1f))
+            }
+        }
     }
 }
