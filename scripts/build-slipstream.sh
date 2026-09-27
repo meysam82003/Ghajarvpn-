@@ -52,6 +52,9 @@ build() { # abi rust-target clang-prefix env-suffix
     export ANDROID_ABI="$abi" ANDROID_PLATFORM=android-26
     export PICOQUIC_BUILD_DIR="$work/.picoquic-build-$abi"
     eval "export CC_$(echo "$target" | tr '-' '_')=\"$cc\""
+    # slipstream-ffi compiles its own C shims for Android with this (or $CC,
+    # which would also hit host builds), falling back to the host "cc".
+    export RUST_ANDROID_GRADLE_CC="$cc"
     eval "export AR_$(echo "$target" | tr '-' '_')=\"$toolchain/llvm-ar\""
     eval "export CARGO_TARGET_${up}_LINKER=\"$cc\""
     # 16 KB page alignment for Android 15+ devices.
