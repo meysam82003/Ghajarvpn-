@@ -6305,7 +6305,10 @@ private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = 
     val states by RadarRunner.states.collectAsState()
     val running by RadarRunner.running.collectAsState()
     val conn by VpnState.state.collectAsState()
-    val viaTunnel = conn == Connection.CONNECTED
+    // Connected: through the tunnel by default, or straight out to compare.
+    var forceDirect by remember { mutableStateOf(false) }
+    val viaTunnel = conn == Connection.CONNECTED && !forceDirect
+    val radarContext = LocalContext.current
 
     fun run() {
         if (!running) RadarRunner.start(viaTunnel)
@@ -6322,6 +6325,24 @@ private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = 
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        val sanctioned = states.values.count { it is NetMonitor.State.Sanctioned }
+        val blocked = states.values.count { it is NetMonitor.State.Unreachable }
+        val avgMs = states.values.filterIsInstance<NetMonitor.State.Reachable>().map { it.ms }.takeIf { it.isNotEmpty() }?.average()?.toInt()
+        StatStrip(
+            listOf(
+                StatCell(t("netmon_open"), localizeDigits("$reachable", lang), ghajarColors.good),
+                StatCell(t("netmon_sanctioned"), localizeDigits("$sanctioned", lang), ghajarColors.warning),
+                StatCell(t("netmon_blocked"), localizeDigits("$blocked", lang), ghajarColors.error),
+                StatCell(t("netmon_avg"), avgMs?.let { localizeDigits("$it", lang) + " " + t("unit_ms") } ?: "—", ghajarColors.primary)
+            )
+        )
+        if (conn == Connection.CONNECTED) {
+            SlidingSegments(
+                labels = listOf(t("stab_mode_tunnel"), t("stab_mode_direct")),
+                selected = if (forceDirect) 1 else 0,
+                onSelect = { if (!running) { forceDirect = it == 1; RadarRunner.start(conn == Connection.CONNECTED && !forceDirect) } }
+            )
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             InfoBox(
                 if (viaTunnel) t("netmon_via_tunnel") else t("netmon_via_direct"),
@@ -6371,6 +6392,31 @@ private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = 
             title = t("netcat_title"),
             subtitle = t("netcat_sub"),
             onClick = onOpenCategories
+        )
+        GhostPill(
+            text = t("netmon_share"),
+            icon = Icons.Filled.Share,
+            enabled = done > 0 && !running,
+            onClick = {
+                val report = buildString {
+                    appendLine(t("netmon_title") + " — " + if (viaTunnel) t("netmon_via_tunnel") else t("netmon_via_direct"))
+                    NetMonitor.Essential.forEach { site ->
+                        val st = states[site.host]
+                        appendLine(site.name + ": " + when (st) {
+                            is NetMonitor.State.Reachable -> "${st.ms} ms"
+                            is NetMonitor.State.Sanctioned -> t("netmon_sanctioned")
+                            is NetMonitor.State.Unreachable -> t("netmon_blocked")
+                            else -> "—"
+                        })
+                    }
+                }
+                runCatching {
+                    radarContext.startActivity(android.content.Intent.createChooser(
+                        android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(android.content.Intent.EXTRA_TEXT, report), t("netmon_share")
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
         )
     }
 }
@@ -9176,6 +9222,43 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
         ) {
             AboutChip(t("app_version"), appVersion)
             AboutChip(t("xray_version"), xrayVersion)
+        }
+
+        // What this build carries: every connection engine, its licence and
+        // whether it is present, read from the engine registry itself.
+        val engineRows = remember {
+            net.gozar.app.engine.CoreManager.engines.map { e ->
+                val a = runCatching { e.availability(context) }.getOrNull()
+                Triple(e, a, e.capabilities.protocols.size)
+            }
+        }
+        Rail(t("about_engines"))
+        Slab(spacing = 0.dp) {
+            engineRows.forEachIndexed { i, (e, a, count) ->
+                if (i > 0) SlabDivider()
+                SlabRow(
+                    title = e.displayName,
+                    subtitle = e.capabilities.license + " · " + localizeDigits("$count", lang) + " " + t("about_protocols"),
+                    icon = Icons.Filled.Hub,
+                    accent = when (a) {
+                        is net.gozar.app.engine.Availability.Available -> ghajarColors.good
+                        is net.gozar.app.engine.Availability.Experimental -> ghajarColors.warning
+                        else -> ghajarColors.textMuted
+                    },
+                    value = when (a) {
+                        is net.gozar.app.engine.Availability.Available -> t("about_engine_ready")
+                        is net.gozar.app.engine.Availability.Experimental -> t("about_engine_experimental")
+                        else -> t("about_engine_missing")
+                    }
+                )
+            }
+        }
+        Rail(t("about_device"))
+        Slab(spacing = 0.dp) {
+            SlabRow(title = "Android", icon = Icons.Filled.Info,
+                value = localizeDigits("${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})", lang))
+            SlabDivider()
+            SlabRow(title = "ABI", icon = Icons.Filled.Build, value = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "—")
         }
 
         AboutCard(

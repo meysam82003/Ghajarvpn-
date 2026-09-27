@@ -1,5 +1,6 @@
 package net.gozar.app
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -32,50 +33,67 @@ private fun stateLabel(state: String): Pair<String, Boolean> = when (state) {
 }
 
 /**
- * Real, local-only history of this device's own connect/disconnect/error
- * transitions - built by filtering the existing in-memory log ring buffer
- * (GhajarLog.entries) for the "VpnState" tag that every real state change
- * already logs, rather than a separate tracking mechanism. Nothing here
- * leaves the device; there is no share/export action on purpose, unlike
- * the full log export in GhajarLogActivity.
+ * Local-only connect/disconnect/error history, read from the log that every
+ * real VpnState transition writes (tag "VpnState"). Shown as a table: time,
+ * the profile by name with its flag, and what happened. Nothing leaves the
+ * device.
  */
 @Composable
 fun ConnectionHistoryDialog(onDismiss: () -> Unit) {
     val entries by GhajarLog.entries.collectAsState()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val configs by remember { ConfigStore.get(context) }.configs.collectAsState()
+    val names = remember(configs) { configs.associate { it.id to it.name } }
     val events = remember(entries) {
         entries.mapNotNull(::parseConnectionEvent).sortedByDescending { it.timeMs }.take(100)
     }
-    val timeFormat = remember { SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.US) }
+    val errors = remember(entries) {
+        entries.filter { it.tag == "VpnState" && it.message.contains("state -> ERROR") }
+            .associate { it.timeMs to it.message.substringAfter("msg=", "").substringBefore(" (was").trim() }
+    }
+    val timeFormat = remember { SimpleDateFormat("MM/dd HH:mm:ss", Locale.US) }
+    val c = ghajarColors
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("تاریخچهٔ اتصال") },
+        containerColor = c.surface,
+        title = { Text("تاریخچهٔ اتصال", fontWeight = FontWeight.Bold, color = c.textPrimary) },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
                 if (events.isEmpty()) {
-                    Text("هنوز رویداد اتصالی ثبت نشده است.", style = MaterialTheme.typography.bodySmall)
+                    Text("هنوز رویداد اتصالی ثبت نشده است.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                 } else {
+                    // Header row, then one row per event with the same column widths.
+                    Row(
+                        Modifier.fillMaxWidth().background(c.primary.copy(alpha = 0.12f)).padding(horizontal = 8.dp, vertical = 6.dp)
+                    ) {
+                        Text("زمان", Modifier.weight(0.9f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                        Text("کانفیگ", Modifier.weight(1.6f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                        Text("وضعیت", Modifier.weight(0.9f), style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                    }
                     events.forEach { event ->
                         val (label, isError) = stateLabel(event.state)
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column {
-                                Text(label, fontWeight = FontWeight.Bold,
-                                    color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-                                event.targetId?.let {
-                                    Text(it, style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        val name = event.targetId?.let { names[it] ?: "(حذف‌شده)" } ?: "—"
+                        HorizontalDivider(color = c.border.copy(alpha = 0.5f))
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                            Text(timeFormat.format(Date(event.timeMs)), Modifier.weight(0.9f),
+                                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                            Column(Modifier.weight(1.6f)) {
+                                // Names carry their flag emoji; flagRuns renders them as flags.
+                                Text(flagRuns(GhajarUiRules.brandedConfigName(name), androidx.compose.ui.text.font.FontFamily.Default),
+                                    inlineContent = flagInlineContent(name, MaterialTheme.typography.labelMedium.fontSize),
+                                    style = MaterialTheme.typography.labelMedium, color = c.textPrimary, maxLines = 2)
+                                if (isError) errors[event.timeMs]?.takeIf { it.isNotBlank() }?.let {
+                                    Text(it, style = MaterialTheme.typography.labelSmall, color = c.error, maxLines = 2)
                                 }
                             }
-                            Text(timeFormat.format(Date(event.timeMs)), style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(label, Modifier.weight(0.9f), style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = when { isError -> c.error; event.state == "CONNECTED" -> c.good; else -> c.textSecondary })
                         }
-                        HorizontalDivider(color = ghajarColors.border)
                     }
                 }
             }
         },
-        confirmButton = { TextButton(onClick = onDismiss) { Text("بستن") } }
+        confirmButton = { TextButton(onClick = onDismiss) { Text("بستن", color = c.primary) } }
     )
 }
