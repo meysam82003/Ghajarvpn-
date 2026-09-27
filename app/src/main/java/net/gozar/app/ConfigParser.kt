@@ -994,6 +994,14 @@ object ConfigParser {
         if (s.isEmpty()) return null
         val bare = s.trimEnd('=')
         val padded = if (bare.length % 4 == 0) bare else bare + "=".repeat(4 - bare.length % 4)
+        // java.util.Base64 (API 26+) first: it behaves the same on the device
+        // and in JVM unit tests, where android.util.Base64 is an unmocked stub.
+        for (candidate in arrayOf(padded, bare, s)) {
+            for (dec in arrayOf(java.util.Base64.getDecoder(), java.util.Base64.getUrlDecoder())) {
+                val r = runCatching { dec.decode(candidate) }.getOrNull()
+                if (r != null && r.isNotEmpty()) return r
+            }
+        }
         for (candidate in arrayOf(padded, bare, s)) {
             for (flags in intArrayOf(Base64.DEFAULT, Base64.URL_SAFE)) {
                 val r = runCatching { Base64.decode(candidate, flags) }.getOrNull()
