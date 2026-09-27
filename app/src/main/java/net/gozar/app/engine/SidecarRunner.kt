@@ -98,7 +98,9 @@ class SidecarRunner(private val tag: String, private val subdir: String) {
             if (!stopping && process === p) {
                 GhajarLog.e(tag, "exited unexpectedly, code=$code")
                 process = null
-                onUnexpectedExit?.invoke(code)
+                // A throw here would kill the whole app from a daemon thread.
+                runCatching { onUnexpectedExit?.invoke(code) }
+                    .onFailure { GhajarLog.e(tag, "exit handler failed: ${it.javaClass.simpleName}") }
             }
         }
         val deadline = System.currentTimeMillis() + launch.readyTimeoutMs

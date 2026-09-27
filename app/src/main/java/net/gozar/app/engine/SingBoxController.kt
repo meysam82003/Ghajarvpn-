@@ -158,7 +158,9 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
             if (!stopping && process === p) {
                 GhajarLog.e(TAG, "sing-box exited unexpectedly, code=$code")
                 process = null
-                onUnexpectedExit?.invoke(code)
+                // A throw here would kill the whole app from a daemon thread.
+                runCatching { onUnexpectedExit?.invoke(code) }
+                    .onFailure { GhajarLog.e(TAG, "exit handler failed: ${it.javaClass.simpleName}") }
             }
         }
         // The configuration holds credentials; sing-box has read it by the
