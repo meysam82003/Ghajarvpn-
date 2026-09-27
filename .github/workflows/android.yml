@@ -157,7 +157,7 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug -Pghajar.emulator=true
 
       - name: Run unit tests
         run: ./gradlew --no-daemon --stacktrace test
@@ -215,7 +215,7 @@ jobs:
           ram-size: 4096M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: sh scripts/crash-hunt.sh "$(find apk -name '*arm64-v8a*.apk' | head -n1)"
+          script: sh scripts/crash-hunt.sh "$(find apk -name '*x86_64*.apk' | head -n1)"
 
   release:
     needs: build

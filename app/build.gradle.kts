@@ -117,6 +117,9 @@ android {
             isEnable = true
             reset()
             include("arm64-v8a", "armeabi-v7a")
+            // CI's emulator crash test needs an x86_64 APK: the in-process Go
+            // core does not run under the emulator's ARM translation.
+            if (providers.gradleProperty("ghajar.emulator").orNull == "true") include("x86_64")
             isUniversalApk = false
         }
     }

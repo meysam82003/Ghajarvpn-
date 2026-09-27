@@ -49,8 +49,6 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.using
-import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.core.CubicBezierEasing
@@ -395,11 +393,11 @@ private const val PAGE_SHOP = 1
 private const val PAGE_SETTINGS = 2
 private const val PAGE_COUNT = 3
 
-@Composable
 /** Material 3 emphasized easing: quick start, long soft landing. */
 private val SmoothDecel = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 private val SmoothAccel = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 
+@Composable
 private fun stringsFn(): (String) -> String {
     val lang = LocalLang.current
     return { Strings.get(lang, it) }
@@ -1858,7 +1856,7 @@ private fun GozarApp(
                         (scaleIn(tween(340, easing = SmoothDecel), initialScale = 0.965f) +
                             fadeIn(tween(260, delayMillis = 40, easing = SmoothDecel))) togetherWith
                             (scaleOut(tween(200, easing = SmoothAccel), targetScale = 1.015f) +
-                                fadeOut(tween(160, easing = SmoothAccel))) using SizeTransform(clip = false)
+                                fadeOut(tween(160, easing = SmoothAccel)))
                     },
                     label = "connTab"
                 ) { key ->
@@ -2014,7 +2012,7 @@ private fun GozarApp(
                         (slideInHorizontally(tween(360, easing = SmoothDecel)) { sign * it / 5 } +
                             fadeIn(tween(280, delayMillis = 40, easing = SmoothDecel))) togetherWith
                             (slideOutHorizontally(tween(260, easing = SmoothAccel)) { -sign * it / 12 } +
-                                fadeOut(tween(180, easing = SmoothAccel))) using SizeTransform(clip = false)
+                                fadeOut(tween(180, easing = SmoothAccel)))
                     },
                     label = "setTab"
                 ) { key ->
