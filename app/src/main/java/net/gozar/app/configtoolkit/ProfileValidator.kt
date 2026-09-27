@@ -14,9 +14,26 @@ object ProfileValidator {
         })
     }
 
+    /**
+     * Profiles the engines outside Xray carry (sing-box, helpers, DNS tunnels,
+     * WireGuard, Tor, …). ConfigParser already checked their own fields; here
+     * only the address is checked, and only where the profile has one.
+     */
+    private val engineProtocols = setOf("hysteria2", "hysteria", "tuic", "anytls", "ssh", "snell", "openconnect", "naive",
+        "shadowtls", "juicity", "sstp", "softether", "amneziawg", "wireguard", "mieru", "brook", "http", "tor", "ikev2",
+        "dnstt", "vaydns", "noizdns", "slipstream", "masterdns", "stormdns", "cottendns")
+    private val linkCarried = setOf("tor", "mieru", "brook", "masterdns", "stormdns", "cottendns")
+
     fun validate(profile: NormalizedProfile): ValidationResult {
         val issues = mutableListOf<ValidationIssue>()
         val protocol = profile.protocol.lowercase()
+        if (protocol in engineProtocols) {
+            if (protocol !in linkCarried || profile.server.isNotBlank()) {
+                if (!validHost(profile.server)) issues += ValidationIssue("server", "آدرس سرور معتبر نیست.")
+                if (profile.port !in 1..65535 && protocol !in linkCarried) issues += ValidationIssue("port", "پورت باید بین 1 و 65535 باشد.")
+            }
+            return ValidationResult(issues)
+        }
         if (protocol !in supported) issues += ValidationIssue("protocol", "پروتکل ${profile.protocol} پشتیبانی نمی‌شود.")
         if (!validHost(profile.server)) issues += ValidationIssue("server", "آدرس سرور معتبر نیست.")
         if (profile.port !in 1..65535) issues += ValidationIssue("port", "پورت باید بین 1 و 65535 باشد.")

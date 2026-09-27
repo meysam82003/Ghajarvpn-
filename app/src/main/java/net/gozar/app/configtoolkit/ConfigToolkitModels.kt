@@ -15,7 +15,7 @@ enum class ConfigFormat(val extensions: Set<String>) {
     HAT(setOf("hat")),
     DARK(setOf("dark")),
     JSON(setOf("json")),
-    TEXT(setOf("txt")),
+    TEXT(setOf("txt", "conf", "yaml", "yml")),
     UNKNOWN(emptySet())
 }
 
@@ -66,9 +66,15 @@ data class NormalizedProfile(
     val encryption: String = "none",
     val alterId: Int = 0,
     val rawJson: String = "",
-    val sourceFormat: ConfigFormat
+    val sourceFormat: ConfigFormat,
+    /**
+     * The parsed profile this came from. Fields NormalizedProfile does not
+     * model (extra, MTU, keys, pins, DNS-tunnel mode, …) are kept from it, so
+     * importing a file never loses what the link or .conf carried.
+     */
+    val original: ProxyConfig? = null
 ) {
-    fun toProxyConfig(): ProxyConfig = ProxyConfig(
+    fun toProxyConfig(): ProxyConfig = (original ?: ProxyConfig(name = name, protocol = protocol, address = server, port = port)).copy(
         id = id,
         name = name,
         protocol = protocol.lowercase(),
@@ -120,7 +126,8 @@ data class NormalizedProfile(
             encryption = config.encryption,
             alterId = config.alterId,
             rawJson = rawJson,
-            sourceFormat = format
+            sourceFormat = format,
+            original = config
         )
     }
 }

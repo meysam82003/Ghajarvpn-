@@ -19,6 +19,11 @@ object ConfigParser {
             val fromJson = parseJsonOutbounds(trimmed, source)
             if (fromJson.isNotEmpty()) return fromJson
         }
+        // Clash / Clash Meta / Mihomo YAML subscriptions and files.
+        if (ForeignImport.looksLikeClash(trimmed)) {
+            val clash = ForeignImport.clash(trimmed, source).configs
+            if (clash.isNotEmpty()) return clash
+        }
         return trimmed.split('\n', '\r')
             .map { it.trim() }
             .filter { it.isNotEmpty() }
@@ -40,6 +45,11 @@ object ConfigParser {
             } else {
                 nodes.add(o to "")
             }
+        }
+
+        // sing-box configurations: typed outbounds / endpoints.
+        runCatching { JSONObject(text.trim()) }.getOrNull()?.takeIf { ForeignImport.looksLikeSingBox(it) }?.let { root ->
+            return ForeignImport.singBox(root, source).configs
         }
 
         runCatching {
