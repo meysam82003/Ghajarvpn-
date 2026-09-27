@@ -73,7 +73,24 @@ object SingBoxConfig {
         root.put("route", JSONObject()
             .put("final", "proxy")
             .put("default_domain_resolver", JSONObject().put("server", "local")))
+        remoteDns(root, DnsTunnelPrefs.current.remoteDns)
         return root.toString()
+    }
+
+    /**
+     * Settings -> DNS protocols -> remote DNS: name lookups coming through the
+     * tunnel are answered by this resolver, reached through the proxy, instead
+     * of wherever the app sent them. Server names are still resolved locally.
+     */
+    internal fun remoteDns(root: JSONObject, server: String) {
+        val ip = server.trim()
+        if (!Regex("^[0-9]{1,3}(\\.[0-9]{1,3}){3}$").matches(ip) && !(ip.contains(':') && ip.all { it.isLetterOrDigit() || it == ':' })) return
+        val dns = root.getJSONObject("dns")
+        dns.getJSONArray("servers").put(JSONObject().put("type", "udp").put("tag", "remote").put("server", ip).put("detour", "proxy"))
+        dns.put("final", "remote")
+        root.getJSONObject("route").put("rules", JSONArray()
+            .put(JSONObject().put("action", "sniff"))
+            .put(JSONObject().put("protocol", "dns").put("action", "hijack-dns")))
     }
 
     internal fun proxy(c: ProxyConfig): JSONObject {

@@ -164,6 +164,7 @@ object EngineTester {
     fun attach(context: Context) {
         appContext = context.applicationContext
         EngineTestStore.attach(context)
+        runCatching { DnsTunnelPrefs.load(context.applicationContext) }
     }
 
     /**

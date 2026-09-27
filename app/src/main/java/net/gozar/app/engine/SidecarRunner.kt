@@ -145,7 +145,9 @@ object Sidecars {
         else -> throw IllegalArgumentException("unknown engine: $kind")
     }
 
-    fun launch(spec: JSONObject): SidecarLaunch = when (val kind = spec.optString("kind")) {
+    fun launch(raw: JSONObject): SidecarLaunch = launchWith(DnsTunnelPrefs.applyTo(raw.optString("kind"), raw))
+
+    private fun launchWith(spec: JSONObject): SidecarLaunch = when (val kind = spec.optString("kind")) {
         "dnstt" -> SidecarLaunch("libdnstt.so", dnsttArgs(spec, SidecarLaunch.PORT), socks = false)
         "vaydns" -> SidecarLaunch("libvaydns.so", vaydnsArgs(spec, SidecarLaunch.PORT), socks = false)
         "noizdns" -> SidecarLaunch("libnoizdns.so", noizdnsArgs(spec, SidecarLaunch.PORT), socks = false)
@@ -221,6 +223,7 @@ object Sidecars {
             appendLine("LISTEN_IP = \"127.0.0.1\"")
             appendLine("LISTEN_PORT = ${SidecarLaunch.PORT}")
             appendLine("LOCAL_DNS_ENABLED = false")
+            DnsTunnelPrefs.masterTomlLines(kind).forEach { appendLine(it) }
             if (kind == "cottendns") {
                 when (spec.optString("transport")) {
                     "dot" -> appendLine("RESOLVER_TRANSPORT = \"dot\"")
