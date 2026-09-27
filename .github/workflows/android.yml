@@ -182,16 +182,17 @@ jobs:
           path: app/build/outputs/apk/preview/*.apk
           if-no-files-found: error
 
-  # Runs the debug APK on an emulator and drives it with monkey, printing
-  # every crash stack trace (logcat AndroidRuntime) into the job log. The
-  # arm64 APK runs on the x86_64 image through its ARM translation layer.
-  # Diagnostic only: it never blocks the build.
+  # Runs the real app (x86_64 debug split) on an emulator and crawls it:
+  # proves MainActivity resumed, taps every clickable element on every screen
+  # it can reach (with back navigation), stresses rapid open/back, then runs
+  # monkey. Any crash, native fatal signal or ANR in the app process fails
+  # this job and names the tap path that caused it. Animations stay on so
+  # exit-animation races reproduce as they do on a phone.
   crash-hunt:
     needs: build
     if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    continue-on-error: true
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -206,16 +207,24 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - name: Drive the app on an emulator and collect crashes
+      - name: Crawl the app on an emulator and fail on any crash
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
           target: google_apis
           arch: x86_64
           ram-size: 4096M
-          disable-animations: true
+          disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
-          script: sh scripts/crash-hunt.sh "$(find apk -name '*x86_64*.apk' | head -n1)"
+          script: python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"
+
+      - name: Upload crash-hunt logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-crash-hunt-logs
+          path: crash-hunt/
+          if-no-files-found: warn
 
   release:
     needs: build

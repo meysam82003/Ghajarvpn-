@@ -1860,8 +1860,10 @@ private fun GozarApp(
                     },
                     label = "connTab"
                 ) { key ->
-                    when {
-                        key.startsWith("protoform:") -> ProtocolFormScreen(
+                    // "protoform:<id>" carries the form id inside targetState, so
+                    // the outgoing screen keeps its own id during the exit animation.
+                    when (if (key.startsWith("protoform:")) "protoform" else key) {
+                        "protoform" -> ProtocolFormScreen(
                             // AnimatedContent keeps the outgoing screen alive during
                             // its exit animation. Capture the id in targetState so
                             // clearing protoForm cannot turn the still-composing form

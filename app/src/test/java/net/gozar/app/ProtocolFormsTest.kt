@@ -56,6 +56,25 @@ class ProtocolFormsTest {
         assertEquals("payload-tls", ok("ssh", cases.getValue("ssh")).extraJson().getJSONObject("transport").getString("mode"))
     }
 
+    /** Save on any form with any input returns a Result; it never throws (a throw here closed the app). */
+    @Test
+    fun buildNeverThrowsForAnyInput() {
+        val junk = listOf("", " ", "x", "[", "::", "a:b:c", "999999", "-1", "%zz", "\u0000", "é", "http://[bad")
+        for (f in ProtocolForms.forms) {
+            // Nothing filled in, only the required fields, every field, each with junk.
+            val required = f.fields.filter { it.required }
+            val inputs = mutableListOf<Map<String, String>>(emptyMap())
+            for (j in junk) {
+                inputs += required.associate { it.key to j }
+                inputs += f.fields.associate { it.key to j }
+            }
+            for (input in inputs) {
+                val r = runCatching { ProtocolForms.build(f.id, input) }
+                assertTrue("${f.id} threw for $input: ${r.exceptionOrNull()}", r.isSuccess)
+            }
+        }
+    }
+
     @Test
     fun unknownFormIdIsSafe() {
         assertEquals(null, ProtocolForms.formOrNull("__missing__"))
