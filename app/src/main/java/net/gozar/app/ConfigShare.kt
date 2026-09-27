@@ -43,6 +43,10 @@ object ConfigShare {
         "naive" -> simpleLink(if (c.mode == "quic") "naive+quic" else "naive+https",
             enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c,
             listOf("sni" to c.sni.takeIf { it != c.address }.orEmpty()))
+        "sstp" -> simpleLink("sstp", enc(c.uuid) + ":" + enc(c.password), c, listOf(
+            "sni" to c.sni, "auth" to c.method.takeIf { it == "pap" || it == "mschapv2" }.orEmpty(),
+            "allow_insecure" to if (c.allowInsecure) "1" else "", "pin" to c.pinnedCertSha256,
+            "mtu" to c.mtu.takeIf { it > 0 }?.toString().orEmpty()))
         "juicity" -> simpleLink("juicity", enc(c.uuid) + ":" + enc(c.password), c, listOf(
             "congestion_control" to c.method, "sni" to c.sni, "allow_insecure" to if (c.allowInsecure) "1" else "",
             "pinned_certchain_sha256" to c.pinnedCertSha256))

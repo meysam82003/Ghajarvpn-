@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"strings"
 	"testing"
 )
@@ -67,3 +69,51 @@ type fakeAddr struct{ s string }
 
 func (f *fakeAddr) Network() string { return "udp" }
 func (f *fakeAddr) String() string  { return f.s }
+
+// RFC 2759 section 9.2 and RFC 3079 section 3.5.3 test vectors.
+func TestMSCHAPv2Vectors(t *testing.T) {
+	unhex := func(s string) []byte { b, _ := hex.DecodeString(s); return b }
+	auth := unhex("5B5D7C7D7B3F2F3E3C2C602132262628")
+	peer := unhex("21402324255E262A28295F2B3A337C7E")
+	nt := ntResponse(auth, peer, "User", "clientPass")
+	if got := hex.EncodeToString(nt); got != strings.ToLower("82309ECD8D708B5EA08FAA3981CD83544233114A3D85D6DF") {
+		t.Fatalf("nt-response %s", got)
+	}
+	if got := authenticatorResponse("clientPass", nt, peer, auth, "User"); got != "S=407A5589115FD0D6209F510FE9C04566932CDA56" {
+		t.Fatalf("authenticator %s", got)
+	}
+	if got := hex.EncodeToString(masterKey("clientPass", nt)); got != strings.ToLower("FDECE3717A8C838CB388E527AE3CDD31") {
+		t.Fatalf("master key %s", got)
+	}
+	// RFC 3079's sample is the server's send key, which is the client's
+	// receive key: the second half of the client HLAK.
+	if got := hex.EncodeToString(clientHLAK("clientPass", nt)[16:]); got != strings.ToLower("8B7CDC149B993A1BA118CB153F56DCCB") {
+		t.Fatalf("send key %s", got)
+	}
+}
+
+func TestSSTPCallConnectedLayout(t *testing.T) {
+	nonce := make([]byte, 32)
+	for i := range nonce {
+		nonce[i] = byte(i)
+	}
+	m := callConnected(2, nonce, []byte("cert"), nil)
+	if len(m) != 4+104 || m[1] != sstpMsgConnected || m[3] != 1 || m[5] != sstpAttrCryptoBinding || m[7] != 104 {
+		t.Fatalf("layout % x", m[:8])
+	}
+	if m[11] != 2 || m[12] != 0 || m[43] != 31 {
+		t.Fatal("hash protocol / nonce misplaced")
+	}
+	sum := sha256.Sum256([]byte("cert"))
+	if string(m[44:76]) != string(sum[:]) {
+		t.Fatal("certificate hash misplaced")
+	}
+	// The MAC must be deterministic and change with the key.
+	if string(m[76:]) != string(callConnected(2, nonce, []byte("cert"), nil)[76:]) || string(m[76:]) == string(callConnected(2, nonce, []byte("cert"), []byte("another key"))[76:]) {
+		t.Fatal("compound MAC is not keyed by HLAK")
+	}
+	proto, payload, err := splitPPP([]byte{0xff, 0x03, 0x00, 0x21, 0x45})
+	if err != nil || proto != pppIPv4 || len(payload) != 1 {
+		t.Fatalf("splitPPP %x %v %v", proto, payload, err)
+	}
+}

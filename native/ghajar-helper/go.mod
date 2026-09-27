@@ -6,6 +6,7 @@ require (
 	github.com/amnezia-vpn/amneziawg-go/v3 v3.1.20260828
 	github.com/enfein/mieru/v3 v3.38.0
 	github.com/txthinking/brook v0.0.0-20260925045830-5ad0c40c3614
+	golang.org/x/crypto v0.45.0
 	google.golang.org/protobuf v1.34.2
 )
 
@@ -32,7 +33,6 @@ require (
 	github.com/txthinking/x v0.0.0-20240301021728-6f68aba84c87 // indirect
 	github.com/urfave/negroni v1.0.0 // indirect
 	go.uber.org/mock v0.4.0 // indirect
-	golang.org/x/crypto v0.45.0 // indirect
 	golang.org/x/exp v0.0.0-20240506185415-9bf2ced13842 // indirect
 	golang.org/x/mod v0.29.0 // indirect
 	golang.org/x/net v0.47.0 // indirect

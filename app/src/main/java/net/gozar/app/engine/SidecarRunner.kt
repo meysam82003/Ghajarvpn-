@@ -140,7 +140,7 @@ object Sidecars {
         "stormdns" -> "libstormdns.so"
         "cottendns" -> "libcottendns.so"
         "slipstream" -> "libslipstream.so"
-        "sshtransport", "awg", "mieru", "brook" -> HELPER
+        "sshtransport", "awg", "mieru", "brook", "sstp" -> HELPER
         "juicity" -> "libjuicity.so"
         else -> throw IllegalArgumentException("unknown engine: $kind")
     }
@@ -160,6 +160,7 @@ object Sidecars {
             "-url", spec.optString("url").also { require(it.startsWith("mieru://") || it.startsWith("mierus://")) { "Mieru: a mieru:// or mierus:// link is needed" } },
             "-dir", SidecarLaunch.DIR), socks = true, readyTimeoutMs = 20_000)
         "juicity" -> juicity(spec)
+        "sstp" -> sstp(spec)
         "brook" -> SidecarLaunch(HELPER, listOf("brook", "-listen", SidecarLaunch.PORT,
             "-url", spec.optString("url").also { require(it.startsWith("brook://")) { "Brook: a brook:// link is needed" } }), socks = true)
         else -> throw IllegalArgumentException("unknown engine: $kind")
@@ -275,6 +276,27 @@ object Sidecars {
         spec.optString("pin").takeIf { it.isNotBlank() }?.let { cfg.put("pinned_certchain_sha256", it) }
         return SidecarLaunch("libjuicity.so", listOf("run", "-c", "${SidecarLaunch.DIR}/juicity.json"), socks = true,
             files = mapOf("juicity.json" to cfg.toString()))
+    }
+
+    /**
+     * ghajar-helper sstp (native/ghajar-helper/sstp.go): SSTP + PPP in
+     * userspace, served as SOCKS5. The password goes through a file that is
+     * deleted once the helper listens, never on the command line.
+     */
+    fun sstp(spec: JSONObject): SidecarLaunch {
+        val args = mutableListOf("sstp", "-listen", SidecarLaunch.PORT,
+            "-server", spec.optString("server").also { require(it.isNotBlank() && !it.startsWith(":")) { "SSTP: no server" } },
+            "-user", spec.optString("user").also { require(it.isNotBlank()) { "SSTP: no user name" } },
+            "-auth", spec.optString("auth").ifBlank { "auto" },
+            "-mtu", spec.optInt("mtu", 1400).coerceIn(576, 1500).toString())
+        spec.optString("sni").takeIf { it.isNotBlank() }?.let { args += listOf("-sni", it) }
+        spec.optString("pin").takeIf { it.isNotBlank() }?.let {
+            require(Regex("^[0-9a-fA-F:]{64,95}$").matches(it)) { "SSTP: the certificate pin must be a SHA-256 in hex" }
+            args += listOf("-pin", it)
+        }
+        if (spec.optBoolean("allowInsecure")) args += "-insecure"
+        return SidecarLaunch(HELPER, args, socks = true, files = mapOf("sstp.pass" to spec.optString("password")),
+            env = mapOf("SSTP_PASSWORD_FILE" to "${SidecarLaunch.DIR}/sstp.pass"), readyTimeoutMs = 30_000)
     }
 
     /** The in-repo helper (native/ghajar-helper, GPL-3.0), built in CI. */

@@ -35,10 +35,10 @@ import (
 //	wss          the same over TLS
 type sshTransport struct {
 	mode, host, proxy, sni, payload, ua, wsPath, wsHost string
-	port                                              int
-	framing                                           bool
-	verify                                            bool
-	splitDelay                                        time.Duration
+	port                                                int
+	framing                                             bool
+	verify                                              bool
+	splitDelay                                          time.Duration
 }
 
 func runSSHTransport(args []string) error {

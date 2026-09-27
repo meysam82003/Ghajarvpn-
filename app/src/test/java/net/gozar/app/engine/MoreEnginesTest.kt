@@ -58,4 +58,24 @@ class MoreEnginesTest {
         val snow = TorBridges.from(c.copy(extra = JSONObject().put("pt", "snowflake").toString()))
         assertEquals(TorBridges.SNOWFLAKE_DEFAULT, snow.lines)
     }
+
+    @Test
+    fun sstpLinkRunsTheHelperWithThePasswordInAFile() {
+        val pin = "6ecdebdb14974ab295edaea132cd91c1cfbfa7812c386093b0d7eecc3b66ebac"
+        val c = ConfigParser.parse("sstp://ghtest:p%40ss@vpn.example.com?auth=mschapv2&pin=$pin&mtu=1350#S")!!
+        assertEquals("sstp", c.protocol); assertEquals(443, c.port); assertEquals("p@ss", c.password)
+        assertEquals(EngineId.SINGBOX, EngineRouting.engineFor(c))
+        val spec = JSONObject(SingBoxConfig.spec(c)!!)
+        assertEquals("socks", spec.getJSONObject("outbound").getString("type"))
+        val l = Sidecars.launch(spec.getJSONObject("sidecar"))
+        assertEquals(Sidecars.HELPER, l.binary)
+        assertEquals(listOf("sstp", "-listen", "{port}", "-server", "vpn.example.com:443", "-user", "ghtest", "-auth", "mschapv2",
+            "-mtu", "1350", "-pin", pin), l.args)
+        assertTrue("password must not be on the command line", l.args.none { it.contains("p@ss") })
+        assertEquals("p@ss", l.files.getValue("sstp.pass")); assertTrue("sstp.pass" in l.secretFiles)
+        assertEquals("{dir}/sstp.pass", l.env.getValue("SSTP_PASSWORD_FILE"))
+        assertEquals(c.copy(id = "x"), ConfigParser.parse(ConfigShare.toLink(c))!!.copy(id = "x"))
+        val bad = runCatching { Sidecars.launch(spec.getJSONObject("sidecar").put("pin", "zz")) }.exceptionOrNull()
+        assertTrue(bad?.message.orEmpty().contains("SHA-256"))
+    }
 }

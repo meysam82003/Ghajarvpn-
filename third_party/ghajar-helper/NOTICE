@@ -8,3 +8,10 @@ It links, unmodified, the following libraries (pinned in native/ghajar-helper/go
   golang.org/x/*                                                     BSD-3-Clause
 
 Full dependency list with versions and checksums: native/ghajar-helper/go.sum.
+
+SSTP mode (sstp.go) is Ghajar's own implementation of [MS-SSTP], RFC 1661,
+1332, 1877, 1334, 2759 and 3079 (verified against the RFC 2759 / RFC 3079
+test vectors in helper_test.go). The Open-SSTP-Client project
+(github.com/kittoku/Open-SSTP-Client, 5f97511, MIT, (c) 2019 KOBAYASHI
+Ittoku) was read as a reference for the message layouts; no code from it is
+included. MD4 comes from golang.org/x/crypto/md4 (BSD-3-Clause).
