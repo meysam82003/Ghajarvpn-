@@ -11,6 +11,13 @@ root=$(cd "$(dirname "$0")/.." && pwd)
 ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
 [ -n "$ndk" ] && [ -d "$ndk" ] || { echo "ERROR: set ANDROID_NDK_HOME" >&2; exit 1; }
 toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
+# autotools looks for GNU-prefixed binutils for --host; modern NDKs ship llvm-*.
+shim="${NDPI_WORK:-$root/build/ndpi}.ndk-shim"
+mkdir -p "$shim"
+for p in aarch64-linux-android arm-linux-androideabi; do
+    for t in ar ranlib nm strip objdump; do ln -sf "$toolchain/llvm-$t" "$shim/$p-$t"; done
+done
+export PATH="$shim:$PATH"
 tag=6.0
 commit=1a5293396337f9a72dfee1fa070b2c4b0a0a3aaf
 work=${NDPI_WORK:-$root/build/ndpi}

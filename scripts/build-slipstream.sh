@@ -20,6 +20,16 @@ ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
 toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
 export ANDROID_NDK_HOME="$ndk"
 
+# The vendored OpenSSL build calls the old GNU-prefixed binutils
+# (aarch64-linux-android-ranlib, arm-linux-androideabi-ar, ...), which modern
+# NDKs no longer ship; point those names at the NDK's llvm tools.
+shim="${SLIP_WORKDIR:-/tmp/slipstream-build}.ndk-shim"
+mkdir -p "$shim"
+for p in aarch64-linux-android arm-linux-androideabi armv7a-linux-androideabi; do
+    for t in ar ranlib nm strip; do ln -sf "$toolchain/llvm-$t" "$shim/$p-$t"; done
+done
+export PATH="$shim:$PATH"
+
 [ -d "$work/.git" ] || git clone -q "$SLIP_REPO" "$work"
 git -C "$work" fetch -q origin "$SLIP_COMMIT" 2>/dev/null || true
 git -C "$work" checkout -q "$SLIP_COMMIT"
