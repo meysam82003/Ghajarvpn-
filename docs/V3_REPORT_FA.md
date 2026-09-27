@@ -110,4 +110,59 @@
 
 ## ساخت نهایی
 
-(نتیجهٔ CI، SHA-256 و حجم APK پس از اجرای CI اینجا ثبت می‌شود.)
+- اجرای CI: Android CI شمارهٔ ۲۴۷ (run 36316203344) روی commit `ec57be1e` — **موفق (سبز)**.
+  - همهٔ مراحل ساخت native (sing-box، dnstt، خانوادهٔ DNS، Slipstream، ghajar-helper، lyrebird، Juicity، nDPI) موفق.
+  - `assembleDebug` موفق (۵ دقیقه و ۵۳ ثانیه)؛ تست‌های واحد: ۳۱۹ تست، همه موفق.
+- خروجی: artifact با نام `Ghajarvpn-Android-debug` (بیلد Debug؛ نسخهٔ Release نیست).
+  - حجم فایل zip آرتیفکت: ۲۹۴٬۷۰۹٬۷۶۳ بایت (حدود ۲۸۱ مگابایت).
+  - SHA-256 فایل zip آرتیفکت (گزارش‌شده توسط CI): `0e67cc74d8caccdd13196ecf267531d5fff0af9a30a4f7a255442d902d85d4e1`
+  - SHA-256 خود فایل APK در لاگ CI چاپ نمی‌شود و دانلود آرتیفکت از این محیط مسدود بود؛ پس از دانلود با `sha256sum` قابل محاسبه است.
+- رفع خطاهای CI در این مرحله:
+  - NDK 27 ← 28.2 (relocation کتابخانهٔ cronet در lld).
+  - نگاشت ابزارهای binutils با پیشوند GNU به llvm-* برای OpenSSL داخلی Slipstream و nDPI.
+  - پیدا شدن OpenSSL داخلی توسط CMake در picoquic زیر toolchain اندروید.
+  - کامپایل کدهای C کتابخانهٔ slipstream-ffi با clang اندروید.
+  - رمزگشایی Base64 لینک‌ها با `java.util.Base64` (در تست‌های JVM، کلاس Base64 اندروید پیاده‌سازی ندارد).
+
+### هم‌ترازی صفحهٔ ۱۶KB (خروجی `scripts/check-16kb.sh` در CI)
+
+| فایل | arm64-v8a | armeabi-v7a |
+|---|---|---|
+| libaether.so | ۱۶KB ✓ | ۴KB (پیش‌ساخته؛ دستگاه‌های ۳۲بیتی صفحهٔ ۴KB دارند) |
+| libcottendns.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libdnstt.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libghajarhelper.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libjuicity.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| liblyrebird.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libmasterdns.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libndpiclassify.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libnoizdns.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libsingbox.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libslipstream.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libstormdns.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libtor.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libvaydns.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libzeptun-jni.so | ۱۶KB ✓ | ۱۶KB ✓ |
+| libzeptun.so | ۱۶KB ✓ | ۱۶KB ✓ |
+
+### حجم فایل‌های native ساخته‌شده در CI (بایت، پس از strip)
+
+| فایل | arm64-v8a | armeabi-v7a |
+|---|---|---|
+| libghajarhelper.so | 24,551,928 | 23,487,948 |
+| liblyrebird.so | 17,349,688 | 16,567,884 |
+| libjuicity.so | 12,340,088 | 12,042,532 |
+| libnoizdns.so | 9,092,632 | 8,812,588 |
+| libvaydns.so | 9,071,768 | 8,800,700 |
+| libcottendns.so | 8,602,488 | 8,367,036 |
+| libslipstream.so | 6,087,920 | 4,062,620 |
+| libmasterdns.so | 5,005,304 | 4,835,284 |
+| libstormdns.so | 4,779,096 | 4,609,380 |
+| libndpiclassify.so | 3,487,800 | 2,430,992 |
+
+### وضعیت نهایی
+
+- **پیاده‌سازی‌شده و در بیلد:** همهٔ هسته‌های جدول بالا، از جمله SSTP و SoftEther (در ghajar-helper) و نسخهٔ LGPL از nDPI.
+- **آزمون اجرایی محلی (Runtime):** SSTP و SoftEther اتصال کامل با سرور آزمایشی محلی؛ طبقه‌بندی nDPI؛ تست‌های واحد Go و Kotlin.
+- **آزمون روی دستگاه:** هیچ هسته‌ای روی دستگاه واقعی آزموده نشده است.
+- **انجام‌نشده یا مسدود:** L2TP/IPsec، ذخیرهٔ ماندگار تاریخچهٔ اتصال، PPTP و فرمت‌های رمزشدهٔ injector (دلایل در بخش «مسدود» بالا).
