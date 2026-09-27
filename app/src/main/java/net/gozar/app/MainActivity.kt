@@ -1996,7 +1996,9 @@ private fun GozarApp(
                     dnsLabDetail -> "dnslab"
                     mapDetail -> "map"
                     checkHostDetail -> "checkhost"
-                    netCatIndex >= 0 -> "netcatone"
+                    // The index rides in the key, so the page keeps its own
+                    // category while it animates out after Back clears it.
+                    netCatIndex >= 0 -> "netcatone:$netCatIndex"
                     netCatDetail -> "netcat"
                     netMonDetail -> "netmon"
                     toolsDetail -> "tools"
@@ -2022,7 +2024,7 @@ private fun GozarApp(
                     },
                     label = "setTab"
                 ) { key ->
-                    when (key) {
+                    when (key.substringBefore(':')) {
                         "ssh" -> SshScreen(
                             store = SshStore.get(LocalContext.current),
                             onSubScreenChange = { sshSubScreen = it }
@@ -2051,7 +2053,7 @@ private fun GozarApp(
                         "netmon" -> NetMonitorScreen(onOpenCategories = { netCatDetail = true })
                         "netcat" -> NetCategoriesScreen(onOpen = { netCatIndex = it })
                         "checkhost" -> CheckHostScreen()
-                        "netcatone" -> NetCategoryScreen(index = netCatIndex)
+                        "netcatone" -> NetCategoryScreen(index = key.substringAfter(':').toIntOrNull() ?: -1)
                         "dnslab" -> DnsLabScreen(store = store)
                         "map" -> GhajarMapScreen()
                         "tools" -> ToolsScreen(
@@ -4894,7 +4896,7 @@ private fun LabeledDropdown(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-private fun settingsDepth(key: String): Int = when (key) {
+private fun settingsDepth(key: String): Int = when (key.substringBefore(':')) {
     "settings" -> 0
     "stability", "cleanip", "dnslab", "map", "perapp", "theme", "netcat" -> 2
     "checkhost" -> 3
