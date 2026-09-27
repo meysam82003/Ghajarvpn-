@@ -19,7 +19,7 @@ for spec in "arm64-v8a arm64 aarch64-linux-android26-clang" "armeabi-v7a arm arm
     set -- $spec
     dest="$root/app/src/main/jniLibs/$1"; mkdir -p "$dest"
     CGO_ENABLED=1 GOOS=android GOARCH="$2" CC="$toolchain/$3" \
-        go build -trimpath -ldflags "-checklinkname=0 -s -w -buildid=" -o "$dest/liblyrebird.so" "$MOD/cmd/lyrebird"
+        go build -trimpath -ldflags "-checklinkname=0 -s -w -buildid= -linkmode=external -extldflags=-Wl,-z,max-page-size=16384" -o "$dest/liblyrebird.so" "$MOD/cmd/lyrebird"
     echo "$1 liblyrebird.so $(stat -c %s "$dest/liblyrebird.so") bytes"
 done
 mkdir -p "$root/third_party/tor-pt"

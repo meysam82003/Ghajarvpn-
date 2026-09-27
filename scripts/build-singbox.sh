@@ -65,7 +65,7 @@ TAGS=with_quic,with_wireguard,with_utls,with_openconnect,with_openvpn,with_clash
 #
 # -s -w -buildid= strip the binary, which matters when it is shipped inside an
 # APK that is already large.
-LDFLAGS="-checklinkname=0 -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -s -w -buildid="
+LDFLAGS="-checklinkname=0 -X runtime.godebugDefault=multipathtcp=0,tlssha1=1 -s -w -buildid= -linkmode=external -extldflags=-Wl,-z,max-page-size=16384"
 
 ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
 if [ -z "$ndk" ] || [ ! -d "$ndk" ]; then

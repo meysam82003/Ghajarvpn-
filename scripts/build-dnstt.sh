@@ -52,7 +52,7 @@ build_abi() {
     mkdir -p "$dest"
     echo "building dnstt-client for $abi ($goarch)"
     CGO_ENABLED=1 GOOS=android GOARCH="$goarch" CC="$toolchain/$cc" \
-    go build -trimpath -ldflags "-s -w -buildid=" -o "$dest/libdnstt.so" "$DNSTT_MODULE/dnstt-client"
+    go build -trimpath -ldflags "-s -w -buildid= -linkmode=external -extldflags=-Wl,-z,max-page-size=16384" -o "$dest/libdnstt.so" "$DNSTT_MODULE/dnstt-client"
     ls -lh "$dest/libdnstt.so"
 }
 

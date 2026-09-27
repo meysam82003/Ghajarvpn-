@@ -35,6 +35,8 @@ build() { # abi rust-target clang-prefix env-suffix
     eval "export CC_$(echo "$target" | tr '-' '_')=\"$cc\""
     eval "export AR_$(echo "$target" | tr '-' '_')=\"$toolchain/llvm-ar\""
     eval "export CARGO_TARGET_${up}_LINKER=\"$cc\""
+    # 16 KB page alignment for Android 15+ devices.
+    eval "export CARGO_TARGET_${up}_RUSTFLAGS=\"-C link-arg=-Wl,-z,max-page-size=16384\""
     ( cd "$work" && cargo build --release --locked -p slipstream-client --target "$target" \
         --features openssl-vendored,picoquic-minimal-build )
     dest="$root/app/src/main/jniLibs/$abi"; mkdir -p "$dest"

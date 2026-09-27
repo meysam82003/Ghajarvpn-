@@ -14,7 +14,7 @@ for spec in "arm64-v8a arm64 aarch64-linux-android26-clang" "armeabi-v7a arm arm
     set -- $spec
     dest="$root/app/src/main/jniLibs/$1"; mkdir -p "$dest"
     CGO_ENABLED=1 GOOS=android GOARCH="$2" CC="$toolchain/$3" \
-        go build -mod=readonly -trimpath -ldflags "-s -w -buildid=" -o "$dest/libghajarhelper.so" .
+        go build -mod=readonly -trimpath -ldflags "-s -w -buildid= -linkmode=external -extldflags=-Wl,-z,max-page-size=16384" -o "$dest/libghajarhelper.so" .
     machine=$(readelf -h "$dest/libghajarhelper.so" | awk -F: '/Machine/ { gsub(/^ +/, "", $2); print $2 }')
     echo "$1 libghajarhelper.so: $machine $(stat -c %s "$dest/libghajarhelper.so") bytes"
 done

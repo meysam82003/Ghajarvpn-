@@ -1,5 +1,7 @@
 # Protocol matrix
 
+> وضعیت به‌روز مرحلهٔ سوم (SSTP، SoftEther، nDPI، ایمپورت Clash/sing-box، فرم‌های هر پروتکل، تصمیم PPTP/L2TP): [V3_REPORT_FA.md](V3_REPORT_FA.md)
+
 One row per protocol. "Import" = link/file import exists; "Connect" = a
 connect path exists; "Test" = the real-delay test runs on the engine that
 carries it (`engine/EngineTester.kt`). Statuses as in ENGINE_MATRIX.md.

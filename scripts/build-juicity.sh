@@ -20,7 +20,7 @@ for spec in "arm64-v8a arm64 aarch64-linux-android26-clang" "armeabi-v7a arm arm
     set -- $spec
     dest="$root/app/src/main/jniLibs/$1"; mkdir -p "$dest"
     ( cd "$work" && CGO_ENABLED=1 GOOS=android GOARCH="$2" CC="$toolchain/$3" \
-        go build -trimpath -ldflags "-s -w -buildid=" -o "$dest/libjuicity.so" ./cmd/client )
+        go build -trimpath -ldflags "-s -w -buildid= -linkmode=external -extldflags=-Wl,-z,max-page-size=16384" -o "$dest/libjuicity.so" ./cmd/client )
     echo "$1 libjuicity.so $(stat -c %s "$dest/libjuicity.so") bytes"
 done
 mkdir -p "$root/third_party/juicity"; cp "$work/LICENSE" "$root/third_party/juicity/LICENSE"

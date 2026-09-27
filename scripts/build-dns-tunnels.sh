@@ -33,7 +33,7 @@ fetch() {
 build() { # srcdir pkg output abi goarch cc
     dest="$root/app/src/main/jniLibs/$4"; mkdir -p "$dest"
     ( cd "$1" && CGO_ENABLED=1 GOOS=android GOARCH="$5" CC="$toolchain/$6" \
-        go build -trimpath -ldflags "-s -w -buildid=" -o "$dest/$3" "$2" )
+        go build -trimpath -ldflags "-s -w -buildid= -linkmode=external -extldflags=-Wl,-z,max-page-size=16384" -o "$dest/$3" "$2" )
     machine=$(readelf -h "$dest/$3" | awk -F: '/Machine/ { gsub(/^ +/, "", $2); print $2 }')
     echo "$4 $3: $machine $(stat -c %s "$dest/$3") bytes"
 }

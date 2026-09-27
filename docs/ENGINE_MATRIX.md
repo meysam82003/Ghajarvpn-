@@ -1,5 +1,7 @@
 # Engine matrix
 
+> وضعیت به‌روز مرحلهٔ سوم (SSTP، SoftEther، nDPI، ایمپورت Clash/sing-box، فرم‌های هر پروتکل، تصمیم PPTP/L2TP): [V3_REPORT_FA.md](V3_REPORT_FA.md)
+
 Status words: **Shipped** (in releases, used by users) · **Implemented** (code
 complete, tested off-device) · **Experimental** (wired, behind honest
 availability, not device verified) · **Import-only** · **Planned** ·
