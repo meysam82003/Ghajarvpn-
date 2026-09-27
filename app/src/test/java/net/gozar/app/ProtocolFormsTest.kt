@@ -57,6 +57,14 @@ class ProtocolFormsTest {
     }
 
     @Test
+    fun unknownFormIdIsSafe() {
+        assertEquals(null, ProtocolForms.formOrNull("__missing__"))
+        val result = ProtocolForms.build("__missing__", emptyMap())
+        assertTrue(result.isFailure)
+        assertEquals("f_invalid", result.exceptionOrNull()?.message)
+    }
+
+    @Test
     fun missingRequiredFieldIsNamed() {
         val err = ProtocolForms.build("sstp", mapOf("server" to "s.example.com")).exceptionOrNull()
         assertEquals("f_user", err?.message)
