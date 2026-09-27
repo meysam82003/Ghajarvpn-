@@ -24,10 +24,24 @@ ACTIVITY = PKG + "/net.gozar.app.MainActivity"
 OUT = "crash-hunt"
 MAX_DEPTH = 3
 PER_SCREEN = 30
-TIME_BUDGET = 22 * 60
+TIME_BUDGET = 32 * 60
 # Taps that would wipe the state the rest of the crawl needs, or leave the app.
 SKIP = re.compile(r"(?i)(delete|remove all|حذف|logout|log out|sign out|خروج از حساب|reset|بازنشانی|uninstall|"
                   r"clear all|پاک کردن همه|factory|telegram|تلگرام)")
+
+# The bottom bar and top-bar buttons are on every screen; they are crawled
+# once as roots, not again from inside every page.
+CHROME = re.compile(r"^(Home|Shop|Settings|خانه|فروشگاه|تنظیمات)( \1)?$|^(Toggle theme|Back|بازگشت)$")
+# Test profiles imported through the Config Center before the crawl, so the
+# server list, details, edit and test flows have something to act on. The
+# hosts are documentation addresses (RFC 5737): nothing is ever reached.
+SEED = "\n".join([
+    "vless://11111111-2222-3333-4444-555555555555@192.0.2.10:443?security=tls&sni=example.com&type=ws&path=%2F#crawl-vless",
+    "trojan://pw@192.0.2.11:443?sni=example.com#crawl-trojan",
+    "ss://YWVzLTI1Ni1nY206cHc@192.0.2.12:8388#crawl-ss",
+    "hysteria2://pw@192.0.2.13:443?sni=example.com#crawl-hy2",
+    "sstp://u:p@192.0.2.14:443#crawl-sstp",
+])
 
 os.makedirs(OUT, exist_ok=True)
 log_file = open(os.path.join(OUT, "crawl.log"), "w")
@@ -110,7 +124,31 @@ def dump():
 
 
 def signature(nodes):
-    return "|".join(sorted({l for l, _ in nodes}))[:400]
+    return "|".join(sorted({l for l, _ in nodes if not CHROME.match(l)}))[:400]
+
+
+def same_screen(a, b):
+    """Screens match when most of their labels do (counters and timers change)."""
+    x, y = set(a.split("|")), set(b.split("|"))
+    if not x and not y:
+        return True
+    return len(x & y) / max(1, len(x | y)) >= 0.6
+
+
+def swipe_up():
+    adb("shell", "input", "swipe", "540", "1700", "540", "700", "300")
+    time.sleep(0.8)
+
+
+def find_and_tap(label, scrolls=6):
+    for _ in range(scrolls + 1):
+        nodes = dict(dump())
+        if label in nodes:
+            adb("shell", "input", "tap", *map(str, nodes[label]))
+            time.sleep(1.2)
+            return True
+        swipe_up()
+    return False
 
 
 def check(path, before_pid, before_crash):
@@ -134,11 +172,11 @@ def check(path, before_pid, before_crash):
 
 def back_to(sig, tries=3):
     for _ in range(tries):
-        if signature(dump()) == sig:
+        if same_screen(signature(dump()), sig):
             return True
         adb("shell", "input", "keyevent", "KEYCODE_BACK")
-        time.sleep(0.8)
-    return signature(dump()) == sig
+        time.sleep(0.9)
+    return same_screen(signature(dump()), sig)
 
 
 def replay(path):
@@ -149,59 +187,117 @@ def replay(path):
         return False
     time.sleep(2)
     for label in path:
-        nodes = dict(dump())
-        if label not in nodes:
+        if not find_and_tap(label):
             return False
-        adb("shell", "input", "tap", *map(str, nodes[label]))
-        time.sleep(1.2)
     return True
 
 
-tried = set()
 screens = []  # (path, signature) of every screen reached
 
 
 def explore(path, depth):
     if time.time() - started > TIME_BUDGET:
         return
-    nodes = dump()
-    sig = signature(nodes)
-    if (sig, ) in tried:
+    sig = signature(dump())
+    if any(same_screen(sig, t) for t in seen_screens):
         return
-    tried.add((sig, ))
+    seen_screens.append(sig)
     screens.append((list(path), sig))
-    log(f"screen depth={depth} path={' > '.join(path) or '(home)'} clickables={len(nodes)}")
+    log(f"screen depth={depth} path={' > '.join(path) or '(root)'}")
     count = 0
-    for label, (x, y) in nodes:
-        if count >= PER_SCREEN or time.time() - started > TIME_BUDGET:
+    for page in range(7):  # the visible part, then up to six scrolls down
+        nodes = dump()
+        cur = signature(nodes)
+        fresh = [(l, xy) for l, xy in nodes if not CHROME.match(l) and not SKIP.search(l) and l not in done_labels.setdefault(sig, set())]
+        for label, (x, y) in fresh:
+            if count >= PER_SCREEN or time.time() - started > TIME_BUDGET:
+                return
+            done_labels[sig].add(label)
+            count += 1
+            before_pid, before_crash = pid(), crash_lines()
+            adb("shell", "input", "tap", str(x), str(y))
+            time.sleep(1.3)
+            step = path + [label]
+            log(f"tap: {' > '.join(step)}")
+            if check(step, before_pid, before_crash):
+                if not replay(path):
+                    return
+                break
+            if not foreground().startswith(PKG + "/"):
+                # Left the app (VPN dialog, browser, share sheet): come back.
+                adb("shell", "input", "keyevent", "KEYCODE_BACK")
+                time.sleep(1)
+                if not foreground().startswith(PKG + "/") and not replay(path):
+                    return
+                break
+            new_sig = signature(dump())
+            if not same_screen(new_sig, cur):
+                if depth < MAX_DEPTH:
+                    explore(step, depth + 1)
+                if not back_to(cur):
+                    if not replay(path):
+                        return
+                    break
+        before = signature(dump())
+        swipe_up()
+        if same_screen(signature(dump()), before) and signature(dump()) == before:
+            break  # the end of the page
+
+
+seen_screens = []
+done_labels = {}
+
+
+def explore_root(tab_label):
+    """Explores a bottom-bar tab; replays reopen the tab first."""
+    global replay
+    plain = replay
+
+    def via_tab(path):
+        adb("shell", "am", "force-stop", PKG)
+        launch()
+        if not wait_resumed(30):
+            return False
+        time.sleep(2)
+        nodes = dict(dump())
+        if tab_label in nodes:
+            adb("shell", "input", "tap", *map(str, nodes[tab_label]))
+            time.sleep(1.5)
+        for label in path:
+            if not find_and_tap(label):
+                return False
+        return True
+
+    replay = via_tab
+    try:
+        explore([], 0)
+    finally:
+        replay = plain
+
+
+def seed():
+    """Imports the test profiles through the Config Center, crawling it on the way."""
+    path = f"/sdcard/Android/data/{PKG}/files/crawl-seed.txt"
+    adb("shell", "mkdir", "-p", f"/sdcard/Android/data/{PKG}/files")
+    local = os.path.join(OUT, "crawl-seed.txt")
+    with open(local, "w") as f:
+        f.write(SEED + "\n")
+    adb("push", local, path)
+    before_pid, before_crash = pid(), crash_lines()
+    adb("shell", "am", "start", "-W", "-a", "android.intent.action.VIEW", "-t", "text/plain",
+        "-d", "file://" + path, "-n", PKG + "/net.gozar.app.ConfigCenterActivity", timeout=60)
+    time.sleep(3)
+    if check(["(Config Center import)"], before_pid, before_crash):
+        return
+    log("Config Center: " + ", ".join(l for l, _ in dump())[:300])
+    # Import whatever the Config Center offers, then crawl its screen.
+    for l, xy in dump():
+        if re.search(r"(?i)import|add|افزودن|وارد", l) and not SKIP.search(l):
+            before_pid, before_crash = pid(), crash_lines()
+            adb("shell", "input", "tap", *map(str, xy))
+            time.sleep(2)
+            check(["(Config Center)", l], before_pid, before_crash)
             break
-        if SKIP.search(label) or (sig, label) in tried:
-            continue
-        tried.add((sig, label))
-        count += 1
-        before_pid, before_crash = pid(), crash_lines()
-        adb("shell", "input", "tap", str(x), str(y))
-        time.sleep(1.3)
-        step = path + [label]
-        log(f"tap: {' > '.join(step)}")
-        if check(step, before_pid, before_crash):
-            if not replay(path):
-                return
-            continue
-        fg = foreground()
-        if not fg.startswith(PKG + "/"):
-            # Left the app (VPN dialog, browser, share sheet): come back.
-            adb("shell", "input", "keyevent", "KEYCODE_BACK")
-            time.sleep(1)
-            if not foreground().startswith(PKG + "/") and not replay(path):
-                return
-            continue
-        new_sig = signature(dump())
-        if new_sig != sig and depth < MAX_DEPTH:
-            explore(step, depth + 1)
-        if not back_to(sig):
-            if not replay(path):
-                return
 
 
 def stress():
@@ -215,7 +311,7 @@ def stress():
             if path[-1] not in nodes:
                 break
             adb("shell", "input", "tap", *map(str, nodes[path[-1]]))
-            time.sleep(0.15)
+            time.sleep(0.25)
             adb("shell", "input", "keyevent", "KEYCODE_BACK")
             time.sleep(0.1)
             adb("shell", "input", "keyevent", "KEYCODE_BACK") if len(path) > 1 else None
@@ -273,7 +369,25 @@ def main():
     time.sleep(4)
     # First-run screens (intro, permission prompts) are part of the crawl.
     explore([], 0)
-    log(f"crawl done: {len(screens)} screens, {len(tried)} taps/signatures")
+    seed()
+    for tab in (["Home", "خانه"], ["Shop", "فروشگاه"], ["Settings", "تنظیمات"]):
+        if time.time() - started > TIME_BUDGET:
+            break
+        adb("shell", "am", "force-stop", PKG)
+        launch()
+        wait_resumed(30)
+        time.sleep(2)
+        label = next((l for l, _ in dump() if CHROME.match(l) and l.split(" ")[0] in tab), None)
+        if label is None:
+            log(f"tab {tab[0]} not found")
+            continue
+        before_pid, before_crash = pid(), crash_lines()
+        adb("shell", "input", "tap", *map(str, dict(dump())[label]))
+        time.sleep(1.5)
+        if check([label], before_pid, before_crash):
+            continue
+        explore_root(label)
+    log(f"crawl done: {len(screens)} screens, {sum(len(v) for v in done_labels.values())} taps")
     stress()
     log("stress done")
     before_pid, before_crash = pid(), crash_lines()
