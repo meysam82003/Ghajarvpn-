@@ -89,6 +89,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -14501,12 +14502,13 @@ private fun DnsProtocolsScreen(modifier: Modifier = Modifier) {
     }
 }
 
-/** Settings -> Live monitor: what the tunnel is doing right now. */
+/** Settings -> Live monitor: what this app takes from the phone right now, and what the tunnel is doing. */
 @Composable
 private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     val t = stringsFn()
     val lang = LocalLang.current
     val c = ghajarColors
+    val context = LocalContext.current
     val conn by VpnState.state.collectAsState()
     val activeId by VpnState.activeId.collectAsState()
     val connectedAt by VpnState.connectedAt.collectAsState()
@@ -14515,7 +14517,7 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
     val logs by GhajarLog.entries.collectAsState()
     val active = configs.find { it.id == activeId }
 
-    // The last sixty one-second samples, newest last.
+    // The last sixty samples, newest last.
     val down = remember { mutableStateListOf<Long>() }
     val up = remember { mutableStateListOf<Long>() }
     LaunchedEffect(counters) {
@@ -14523,31 +14525,141 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
         while (down.size > 60) down.removeAt(0)
         while (up.size > 60) up.removeAt(0)
     }
+    val cpuHist = remember { mutableStateListOf<Float>() }
+    val memHist = remember { mutableStateListOf<Float>() }
+    val tempHist = remember { mutableStateListOf<Float>() }
+    var device by remember { mutableStateOf<DeviceMonitor.Sample?>(null) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
-    var engine by remember { mutableStateOf(net.gozar.app.engine.CoreManager.status()) }
+    var engine by remember { mutableStateOf(runCatching { net.gozar.app.engine.CoreManager.status() }.getOrNull()) }
     LaunchedEffect(Unit) {
+        val sampler = DeviceMonitor.Sampler(context)
         while (true) {
+            val s = withContext(Dispatchers.IO) { runCatching { sampler.sample() }.getOrNull() }
+            if (s != null) {
+                device = s
+                s.cpuPct?.let { cpuHist.add(it); while (cpuHist.size > 40) cpuHist.removeAt(0) }
+                s.memoryMb?.let { memHist.add(it.toFloat()); while (memHist.size > 40) memHist.removeAt(0) }
+                s.batteryTempC?.let { tempHist.add(it); while (tempHist.size > 40) tempHist.removeAt(0) }
+            }
             now = System.currentTimeMillis()
             engine = runCatching { net.gozar.app.engine.CoreManager.status() }.getOrDefault(engine)
-            kotlinx.coroutines.delay(1000)
+            kotlinx.coroutines.delay(2000)
         }
     }
-    val elapsed = if (conn == Connection.CONNECTED && connectedAt > 0) (now - connectedAt) / 1000 else 0L
+    val elapsed = if (conn == Connection.CONNECTED && connectedAt > 0) ((now - connectedAt) / 1000).coerceAtLeast(0L) else 0L
+    val d = device
+    val num = { v: String -> localizeDigits(v, lang) }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        ScreenHeader(
-            title = t("livemon_title"),
-            context = when (conn) {
-                Connection.CONNECTED -> (active?.name ?: "") + " · " +
-                    localizeDigits(String.format(java.util.Locale.US, "%02d:%02d:%02d", elapsed / 3600, elapsed / 60 % 60, elapsed % 60), lang)
-                Connection.CONNECTING -> t("livemon_connecting")
-                else -> t("livemon_idle")
+        ScreenHeader(title = t("livemon_title"), context = t("livemon_sub"))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md), modifier = Modifier.height(IntrinsicSize.Max)) {
+            // Battery: level gauge and what the phone draws right now.
+            Slab(Modifier.weight(1f).fillMaxHeight()) {
+                Text(t("livemon_battery"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                val pct = d?.batteryPct
+                Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.size(112.dp)) {
+                        val stroke = 10.dp.toPx()
+                        val arc = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+                        val tl = Offset(stroke / 2, stroke / 2)
+                        drawArc(c.border, 135f, 270f, false, tl, arc, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = StrokeCap.Round))
+                        if (pct != null) drawArc(
+                            if (pct <= 15) c.error else c.primary, 135f, 270f * pct / 100f, false, tl, arc,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = StrokeCap.Round)
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(pct?.let { num(it.toString()) } ?: "—", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                        Text("%", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                    }
+                }
+                Text(
+                    (if (d?.charging == true) t("livemon_charging") else t("livemon_draw")) + " " +
+                        (d?.currentMa?.let { num("$it mA") } ?: "—"),
+                    style = MaterialTheme.typography.bodySmall, color = c.textSecondary
+                )
             }
-        )
+            // Heat: the system's own thermal status and how close it is to throttling.
+            Slab(Modifier.weight(1f).fillMaxHeight(), accent = thermalColor(d?.thermalStatus)) {
+                Text(t("livemon_heat"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(thermalLabel(d?.thermalStatus, t), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = thermalColor(d?.thermalStatus))
+                    d?.headroomPct?.let { Text(num(String.format(java.util.Locale.US, "%.1f%%", it)), style = MaterialTheme.typography.labelMedium, color = c.textSecondary) }
+                }
+                if (d?.headroomPct != null) {
+                    Text(t("livemon_headroom"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.border)) {
+                        Box(Modifier.fillMaxWidth((d.headroomPct / 100f).coerceIn(0.02f, 1f)).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(thermalColor(d.thermalStatus)))
+                    }
+                }
+                d?.thermalStatus?.let { Text(t("livemon_throttle_" + it.coerceIn(0, 6)), style = MaterialTheme.typography.labelSmall, color = thermalColor(it)) }
+                Text(t("livemon_batt_temp"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Sparkline(tempHist, thermalColor(d?.thermalStatus), Modifier.weight(1f).height(36.dp))
+                    Text(d?.batteryTempC?.let { num(String.format(java.util.Locale.US, "%.1f°", it)) } ?: "—",
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                }
+            }
+        }
+
+        // CPU of this app plus the engines it runs, as a share of the whole phone.
+        Slab {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+                Column(Modifier.weight(1f)) {
+                    Text(t("livemon_cpu"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                    Text(d?.cpuPct?.let { num(String.format(java.util.Locale.US, "%.1f%%", it)) } ?: "—",
+                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = c.primary)
+                    Text(t("livemon_cpu_of"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                }
+                Sparkline(cpuHist, c.primary, Modifier.weight(1.3f).height(56.dp))
+            }
+        }
+        Slab {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+                Column(Modifier.weight(1f)) {
+                    Text(t("livemon_memory"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                    Text(d?.memoryMb?.let { num("$it MB") } ?: "—",
+                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = c.primary)
+                    d?.let { Text(num(t("livemon_procs").replace("%1", it.processes.toString()).replace("%2", (it.threads ?: 0).toString())),
+                        style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
+                }
+                Sparkline(memHist, c.primary, Modifier.weight(1.3f).height(56.dp), filled = true)
+            }
+        }
+
+        // The core: how long it has run and how it encrypts.
+        Rail(t("livemon_core"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("livemon_uptime"), icon = Icons.Filled.MonitorHeart,
+                value = when (conn) {
+                    Connection.CONNECTED -> num(formatUptime(elapsed))
+                    Connection.CONNECTING -> t("livemon_connecting")
+                    else -> t("livemon_idle")
+                }
+            )
+            SlabDivider()
+            SlabRow(title = t("livemon_hw_crypto"), icon = Icons.Filled.Lock,
+                value = if (DeviceMonitor.hardwareAes) t("livemon_active") else t("livemon_inactive"))
+            active?.let { a ->
+                SlabDivider()
+                SlabRow(title = t("livemon_cipher"), icon = Icons.Filled.Security, value = cipherOf(a))
+            }
+            SlabDivider()
+            SlabRow(title = t("livemon_state"), icon = Icons.Filled.Router,
+                value = when (conn) {
+                    Connection.CONNECTED -> t("livemon_connected")
+                    Connection.CONNECTING -> t("livemon_connecting")
+                    else -> t("livemon_idle")
+                })
+        }
+
+        Rail(t("livemon_traffic"))
         StatStrip(
             listOf(
                 StatCell(t("download"), formatBytes(counters.downSpeed, lang) + "/s", c.primary),
@@ -14555,10 +14667,10 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
                 StatCell(t("livemon_session"), formatBytes(counters.totalDown + counters.totalUp, lang), c.premium)
             )
         )
-        // Throughput over the last minute, download filled, upload as a line.
+        // Throughput over the last samples, download filled, upload as a line.
         Slab {
             val peak = maxOf(1L, down.maxOrNull() ?: 0L, up.maxOrNull() ?: 0L).toFloat()
-            Canvas(Modifier.fillMaxWidth().height(140.dp)) {
+            Canvas(Modifier.fillMaxWidth().height(120.dp)) {
                 val n = 60
                 val step = size.width / (n - 1)
                 fun y(v: Long) = size.height - (v / peak) * size.height * 0.92f
@@ -14593,13 +14705,13 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
             SlabRow(
                 title = t("livemon_running"),
                 icon = Icons.Filled.MonitorHeart,
-                value = engine.running.joinToString(", ") { it.name }.ifBlank { "—" }
+                value = engine?.running?.joinToString(", ") { it.name }?.ifBlank { null } ?: "—"
             )
             SlabDivider()
             SlabRow(
                 title = t("livemon_helper"),
                 icon = Icons.Filled.Build,
-                value = listOfNotNull(engine.sidecar, engine.socksPort?.let { "SOCKS 127.0.0.1:$it" }).joinToString(" · ").ifBlank { "—" }
+                value = listOfNotNull(engine?.sidecar, engine?.socksPort?.let { "SOCKS 127.0.0.1:$it" }).joinToString(" · ").ifBlank { "—" }
             )
             active?.let { a ->
                 SlabDivider()
@@ -14627,6 +14739,62 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
             }
         }
     }
+}
+
+/** A small trend line of the last samples, scaled to its own range. */
+@Composable
+private fun Sparkline(values: List<Float>, color: Color, modifier: Modifier = Modifier, filled: Boolean = true) {
+    Canvas(modifier) {
+        if (values.size < 2) return@Canvas
+        val lo = values.minOrNull() ?: 0f
+        val hi = values.maxOrNull() ?: 0f
+        val span = (hi - lo).takeIf { it > 0.0001f } ?: 1f
+        val step = size.width / (values.size - 1)
+        fun y(v: Float) = size.height - ((v - lo) / span) * size.height * 0.8f - size.height * 0.1f
+        val line = androidx.compose.ui.graphics.Path().apply {
+            values.forEachIndexed { i, v -> if (i == 0) moveTo(0f, y(v)) else lineTo(i * step, y(v)) }
+        }
+        if (filled) {
+            val area = androidx.compose.ui.graphics.Path().apply {
+                addPath(line); lineTo(size.width, size.height); lineTo(0f, size.height); close()
+            }
+            drawPath(area, Brush.verticalGradient(listOf(color.copy(alpha = 0.35f), Color.Transparent)))
+        }
+        drawPath(line, color, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+        drawCircle(color, 3.dp.toPx(), Offset((values.size - 1) * step, y(values.last())))
+    }
+}
+
+@Composable
+private fun thermalColor(status: Int?): Color = when (status) {
+    null, 0 -> ghajarColors.primary
+    1 -> ghajarColors.info
+    2 -> ghajarColors.premium
+    3 -> ghajarColors.warning
+    else -> ghajarColors.error
+}
+
+private fun thermalLabel(status: Int?, t: (String) -> String): String =
+    if (status == null) "—" else t("livemon_heat_" + status.coerceIn(0, 6))
+
+private fun formatUptime(seconds: Long): String {
+    val h = seconds / 3600; val m = seconds / 60 % 60; val s = seconds % 60
+    return when {
+        h > 0 -> "${h}h ${m}m"
+        m > 0 -> "${m}m ${s}s"
+        else -> "${s}s"
+    }
+}
+
+/** How the active profile encrypts, in the words its protocol uses. */
+private fun cipherOf(c: ProxyConfig): String {
+    val parts = listOfNotNull(
+        c.protocol.uppercase(),
+        c.method.takeIf { it.isNotBlank() },
+        c.security.takeIf { it.isNotBlank() && it != "none" }?.uppercase(),
+        c.encryption.takeIf { it.isNotBlank() && it != "none" && it != "auto" }
+    )
+    return parts.joinToString(" · ")
 }
 
 /** Settings -> Safebox: configs moved into a password-locked vault. */
