@@ -88,7 +88,7 @@ object QuickConnect {
             .putExtra(
                 GozarVpnService.EXTRA_TOR,
                 if (config.protocol == "tor")
-                    config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0")
+                    TorController.spec(config)
                 else if (store.onionRouting.value) "|1" else null
             )
             .putExtra(GozarVpnService.EXTRA_NAME, config.name)

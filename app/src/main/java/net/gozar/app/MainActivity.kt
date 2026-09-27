@@ -1136,7 +1136,7 @@ class MainActivity : ComponentActivity() {
         val intent = VpnService.prepare(this)
         val tor = when {
             config.protocol == "tor" ->
-                config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0")
+                TorController.spec(config)
             store.onionRouting.value -> "|1"
             else -> null
         }

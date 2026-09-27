@@ -81,8 +81,8 @@ object CoreManager {
             availability = { classPresent("org.strongswan.android.logic.CharonVpnService", "strongSwan module") },
             running = { IkeController.state.value.let { it == VpnStateService.State.CONNECTED || it == VpnStateService.State.CONNECTING } }),
         engine(EngineId.TOR, "Tor",
-            EngineCapabilities(listOf("Tor"), ownsTun = false, providesSocks = true,
-                license = "BSD-3-Clause (tor)", integration = "bundled executable"),
+            EngineCapabilities(listOf("Tor", "Bridges: obfs4, meek_lite, webtunnel, snowflake, vanilla"), ownsTun = false, providesSocks = true,
+                license = "BSD-3-Clause (tor, lyrebird)", integration = "bundled executable; lyrebird (liblyrebird.so) as ClientTransportPlugin"),
             availability = { ctx -> if (TorController.available(ctx)) Availability.Available else Availability.Missing("tor binary not in this build") },
             running = { TorController.isRunning() }),
         engine(EngineId.AETHER, "Aether (MASQUE / WARP)",
@@ -118,7 +118,9 @@ object CoreManager {
             // Connect path: GozarVpnService EXTRA_SINGBOX -> SingBoxController (local SOCKS5) -> zeptun tun.
             // Protocol list = SingBoxConfig.PROTOCOLS, audited against the pinned source (v1.15.0-alpha.6);
             // ShadowsocksR is only a removed stub there and is not offered.
-            EngineCapabilities(listOf("TUIC v5", "Hysteria (v1)", "AnyTLS", "SSH", "Snell v4/v6", "OpenConnect (AnyConnect, GlobalProtect, Fortinet, F5, Pulse, NC)"),
+            EngineCapabilities(listOf("TUIC v5", "Hysteria (v1)", "AnyTLS", "SSH (direct, payload, HTTP/HTTPS proxy, TLS-SNI, payload+TLS, WS, WSS)",
+                "Snell v4/v6", "OpenConnect (AnyConnect, GlobalProtect, Fortinet, F5, Pulse, NC)", "NaiveProxy (Cronet)", "ShadowTLS v1-3",
+                "AmneziaWG 1.x/2.0", "Mieru", "Brook", "Juicity"),
                 ownsTun = false, providesSocks = true, license = "GPL-3.0-or-later",
                 integration = "executable libsingbox.so built in CI (scripts/build-singbox.sh), SOCKS5 -> zeptun"),
             availability = { ctx ->

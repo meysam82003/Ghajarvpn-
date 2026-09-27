@@ -339,7 +339,8 @@ class GozarVpnService : VpnService() {
                         TorController.start(
                             applicationContext,
                             parts.getOrElse(0) { "" },
-                            parts.getOrElse(1) { "0" } == "1"
+                            parts.getOrElse(1) { "0" } == "1",
+                            TorBridges.fromSpec(parts)
                         )
                     }
                     if (!up) {
@@ -418,7 +419,7 @@ class GozarVpnService : VpnService() {
         singboxSpec = net.gozar.app.engine.SingBoxConfig.spec(config)
         psiphonSpec = PsiphonSpec.from(config)
         torSpec = if (config.protocol == "tor")
-            config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
+            TorController.spec(config) else null
         configName = config.name
         configAddress = config.address
         configPort = config.port

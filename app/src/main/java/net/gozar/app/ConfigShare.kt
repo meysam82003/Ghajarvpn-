@@ -40,6 +40,19 @@ object ConfigShare {
                 "wsframing" to if (t.optBoolean("wsFraming")) "1" else "", "verify" to if (t.optBoolean("verify")) "1" else "")
             simpleLink("ssh", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf("hostkey" to c.publicKey) + tp)
         }
+        "naive" -> simpleLink(if (c.mode == "quic") "naive+quic" else "naive+https",
+            enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c,
+            listOf("sni" to c.sni.takeIf { it != c.address }.orEmpty()))
+        "juicity" -> simpleLink("juicity", enc(c.uuid) + ":" + enc(c.password), c, listOf(
+            "congestion_control" to c.method, "sni" to c.sni, "allow_insecure" to if (c.allowInsecure) "1" else "",
+            "pinned_certchain_sha256" to c.pinnedCertSha256))
+        "shadowtls" -> {
+            val ss = c.extraJson().optJSONObject("ss") ?: org.json.JSONObject()
+            val user = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString((ss.optString("method") + ":" + ss.optString("password")).toByteArray())
+            val plugin = "shadow-tls;host=${c.sni};password=${c.password};version=${if (c.alterId in 1..3) c.alterId else 3}"
+            val host = if (c.address.contains(':')) "[${c.address}]" else c.address
+            "ss://$user@$host:${c.port}?plugin=" + enc(plugin) + "#" + enc(c.name)
+        }
         "mieru", "brook" -> c.extraJson().optString("url").takeIf { it.isNotBlank() }?.let { it + "#" + enc(c.name) }.orEmpty()
         "amneziawg" -> c.extraJson().optString("conf").takeIf { it.isNotBlank() }?.let {
             "amneziawg://" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray()) + "#" + enc(c.name)

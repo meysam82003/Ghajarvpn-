@@ -79,7 +79,7 @@ object VpnLauncher {
             .putExtra(
                 GozarVpnService.EXTRA_TOR,
                 if (config.protocol == "tor")
-                    config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
+                    TorController.spec(config) else null
             )
             .putExtra(GozarVpnService.EXTRA_NAME, config.name)
             .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))

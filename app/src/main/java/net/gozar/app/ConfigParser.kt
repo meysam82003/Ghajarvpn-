@@ -217,6 +217,15 @@ object ConfigParser {
             lower.startsWith("dnstt://") -> parseDnstt(trimmed.substring(8), source)
             lower.startsWith("mieru://") || lower.startsWith("mierus://") -> parseMieru(trimmed, source)
             lower.startsWith("brook://") -> parseBrook(trimmed, source)
+            // Tor bridge lines as bridges.torproject.org hands them out.
+            Regex("^(bridge\\s+)?(obfs4|webtunnel|snowflake|meek_lite)\\s", RegexOption.IGNORE_CASE).containsMatchIn(trimmed) -> {
+                val lines = trimmed.lines().map { it.trim().removePrefix("Bridge ").removePrefix("bridge ").trim() }.filter { it.isNotEmpty() }
+                val pt = lines.first().substringBefore(' ').lowercase()
+                ProxyConfig(name = "Tor ($pt)", protocol = "tor", address = "", port = 0,
+                    extra = org.json.JSONObject().put("pt", pt).put("bridges", lines.joinToString("\n")).toString(), source = source)
+            }
+            lower.startsWith("naive+https://") || lower.startsWith("naive+quic://") || lower.startsWith("naive://") -> parseNaive(trimmed, source)
+            lower.startsWith("juicity://") -> parseJuicity(trimmed.substring(10), source)
             lower.startsWith("amneziawg://") || lower.startsWith("awg://") -> runCatching {
                 val body = trimmed.substringAfter("://")
                 val conf = String(java.util.Base64.getUrlDecoder().decode(body.substringBefore('#').replace('+', '-').replace('/', '_').trimEnd('=')))
@@ -400,6 +409,32 @@ object ConfigParser {
         if (p["verify"] == "1") t.put("verify", true)
         return org.json.JSONObject().put("transport", t).toString()
     }
+
+    /** naive+https://user:pass@host[:port]?padding=…#name and naive+quic://… (NaiveProxy). */
+    private fun parseNaive(link: String, source: ConfigSource): ProxyConfig? = try {
+        val quic = link.lowercase().startsWith("naive+quic://")
+        val (name, uhp, p) = splitUserUri(link.substringAfter("://"), "NaiveProxy")
+        val hp = splitHostPortOrDefault(uhp.substringAfterLast('@'), 443)
+        val user = if (uhp.contains('@')) uhp.substringBeforeLast('@') else ""
+        val colon = user.indexOf(':')
+        ProxyConfig(name = name, protocol = "naive", address = hp.first, port = hp.second,
+            uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user),
+            password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
+            sni = p["sni"].orEmpty().ifEmpty { hp.first }, mode = if (quic) "quic" else "https",
+            security = "tls", source = source)
+    } catch (e: Exception) { null }
+
+    /** juicity://uuid:password@host:port?congestion_control=&sni=&allow_insecure=&pinned_certchain_sha256=#name */
+    private fun parseJuicity(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "Juicity")
+        val (user, address, port) = splitUserHostPort(uhp)
+        val colon = user.indexOf(':')
+        ProxyConfig(name = name, protocol = "juicity", address = address, port = port,
+            uuid = pctDecode(user.substring(0, colon.coerceAtLeast(0))), password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
+            sni = p["sni"].orEmpty(), method = p["congestion_control"].orEmpty().ifEmpty { "bbr" },
+            allowInsecure = insecure(p), pinnedCertSha256 = p["pinned_certchain_sha256"].orEmpty(), security = "tls",
+            source = source).takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+    } catch (e: Exception) { null }
 
     /** mieru:// (full configuration) and mierus:// (simple) links: carried by the upstream mieru client. */
     private fun parseMieru(link: String, source: ConfigSource): ProxyConfig? = try {
@@ -758,7 +793,7 @@ object ConfigParser {
         }
     }
 
-    private fun parseShadowsocks(body: String, source: ConfigSource): ProxyConfig? = try {
+    private fun parseShadowsocks(body: String, source: ConfigSource): ProxyConfig? { return try {
         val hash = body.indexOf('#')
         val name = (if (hash >= 0) formDecode(body.substring(hash + 1)).trim() else "").ifEmpty { "Shadowsocks" }
         var main = if (hash >= 0) body.substring(0, hash) else body
@@ -819,6 +854,18 @@ object ConfigParser {
             if (pluginOpts.containsKey("tls")) security = "tls"
         }
 
+        // shadow-tls plugin (SIP002 "shadow-tls;host=…;password=…;version=3"):
+        // the outer ShadowTLS server wraps the Shadowsocks stream; sing-box
+        // carries both (engine/SingBoxConfig.kt "shadowtls").
+        if (pluginName.startsWith("shadow-tls") || pluginName.startsWith("shadowtls")) {
+            return ProxyConfig(name = name, protocol = "shadowtls", address = address, port = port,
+                password = pluginOpts["password"].orEmpty().ifEmpty { pluginOpts["passwd"].orEmpty() },
+                sni = pluginOpts["host"].orEmpty(),
+                alterId = pluginOpts["version"]?.toIntOrNull() ?: if (pluginOpts.containsKey("v3")) 3 else 3,
+                fingerprint = p["fp"].orEmpty().ifEmpty { "chrome" },
+                extra = org.json.JSONObject().put("ss", org.json.JSONObject().put("method", method).put("password", password)).toString(),
+                source = source)
+        }
         ProxyConfig(name = name, protocol = "shadowsocks", address = address, port = port,
             method = method, password = password,
             network = network.ifEmpty { "tcp" }, headerType = headerType,
@@ -828,7 +875,7 @@ object ConfigParser {
             allowInsecure = (p["allowInsecure"] ?: p["insecure"] ?: "") in setOf("1", "true"),
             alpn = p["alpn"].orEmpty(),
             source = source)
-    } catch (e: Exception) { null }
+    } catch (e: Exception) { null } }
 
     private fun splitUserUri(body: String, default: String): Triple<String, String, Map<String, String>> {
         val hash = body.indexOf('#')

@@ -21,7 +21,7 @@ object SingBoxConfig {
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
     val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect",
         "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream",
-        "amneziawg", "mieru", "brook")
+        "amneziawg", "mieru", "brook", "juicity", "naive", "shadowtls")
 
     /** DNS tunnels whose server forwards to a SOCKS5 or SSH upstream. */
     val DNSTT_FAMILY = setOf("dnstt", "vaydns", "noizdns", "slipstream")
@@ -43,6 +43,7 @@ object SingBoxConfig {
         if (!handles(config)) return null
         val proxy = proxy(config)
         val out = JSONObject().put(if (config.protocol in ENDPOINTS) "endpoint" else "outbound", proxy)
+        if (config.protocol == "shadowtls") out.put("extraOutbounds", org.json.JSONArray().put(shadowTlsOut(config)))
         // Engines that run a helper process first (see Sidecars): the runner
         // starts it and points the outbound at its local port.
         sidecar(config)?.let { out.put("sidecar", it) }
@@ -65,6 +66,7 @@ object SingBoxConfig {
             ))
         val outbounds = JSONArray()
         s.optJSONObject("outbound")?.let { outbounds.put(it) }
+        s.optJSONArray("extraOutbounds")?.let { a -> for (i in 0 until a.length()) outbounds.put(a.get(i)) }
         outbounds.put(JSONObject().put("type", "direct").put("tag", "direct"))
         root.put("outbounds", outbounds)
         s.optJSONObject("endpoint")?.let { root.put("endpoints", JSONArray().put(it)) }
@@ -98,7 +100,23 @@ object SingBoxConfig {
                     .put("password", c.password)
                     .put("tls", tls(c, forceOn = true))
             }
-            "amneziawg", "mieru", "brook" -> {
+            "naive" -> {
+                // Needs sing-box built with with_naive_outbound (Cronet); see scripts/build-singbox.sh.
+                o.put("type", "naive").server(c)
+                    .putIf("username", c.uuid)
+                    .putIf("password", c.password)
+                    .put("tls", JSONObject().put("enabled", true).put("server_name", c.sni.ifBlank { c.address }))
+                if (c.mode == "quic") o.put("quic", true)
+            }
+            "shadowtls" -> {
+                // The Shadowsocks stream rides inside ShadowTLS: the proxy
+                // outbound is Shadowsocks with the ShadowTLS outbound as its
+                // detour (sing-box's documented pairing).
+                val ss = c.extraJson().optJSONObject("ss") ?: JSONObject()
+                o.put("type", "shadowsocks").put("method", ss.optString("method")).put("password", ss.optString("password"))
+                    .put("detour", "shadowtls-out")
+            }
+            "amneziawg", "mieru", "brook", "juicity" -> {
                 o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
             }
             "ssh" -> {
@@ -168,6 +186,9 @@ object SingBoxConfig {
         }
         "amneziawg" -> JSONObject().put("kind", "awg").put("conf", c.extraJson().optString("conf"))
         "mieru", "brook" -> JSONObject().put("kind", c.protocol).put("url", c.extraJson().optString("url"))
+        "juicity" -> JSONObject().put("kind", "juicity").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
+            .put("uuid", c.uuid).put("password", c.password).put("sni", c.sni).put("allowInsecure", c.allowInsecure)
+            .put("cc", c.method).put("pin", c.pinnedCertSha256)
         in MASTERDNS_FAMILY -> {
             val x = c.extraJson()
             val first = if (c.address.isBlank()) "" else (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + (if (c.port in 1..65535) c.port else 53)
@@ -176,6 +197,14 @@ object SingBoxConfig {
                 .put("resolvers", (listOf(first) + x.optString("resolvers").split(',', '\n', ' ')).map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(","))
         }
         else -> null
+    }
+
+    private fun shadowTlsOut(c: ProxyConfig): JSONObject {
+        val t = JSONObject().put("enabled", true).put("server_name", c.sni.ifBlank { c.address })
+        if (c.allowInsecure) t.put("insecure", true)
+        if (c.fingerprint.isNotBlank()) t.put("utls", JSONObject().put("enabled", true).put("fingerprint", c.fingerprint))
+        return JSONObject().put("type", "shadowtls").put("tag", "shadowtls-out").server(c)
+            .put("version", if (c.alterId in 1..3) c.alterId else 3).putIf("password", c.password).put("tls", t)
     }
 
     /** The SSH disguise, or null for plain SSH. */

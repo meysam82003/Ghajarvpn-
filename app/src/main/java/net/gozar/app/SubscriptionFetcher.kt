@@ -140,7 +140,7 @@ object SubscriptionFetcher {
         "socks5://", "socks4://", "socks://", "http://",
         "hysteria2://", "hysteria://", "hy2://", "hy://", "tuic://",
         "ikev2://", "wireguard://", "wg://", "warp://", "juicity://",
-        "anytls://", "mieru://", "naive+", "ssh://", "openconnect://", "anyconnect://", "dnstt://", "vaydns://", "noizdns://", "masterdns://", "stormdns://", "cottendns://", "slipstream://", "mieru://", "mierus://", "brook://", "amneziawg://"
+        "anytls://", "mieru://", "naive+", "ssh://", "openconnect://", "anyconnect://", "dnstt://", "vaydns://", "noizdns://", "masterdns://", "stormdns://", "cottendns://", "slipstream://", "mieru://", "mierus://", "brook://", "amneziawg://", "juicity://", "naive+https://", "naive+quic://"
     )
 
     private fun hasConfig(text: String): Boolean {

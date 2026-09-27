@@ -84,6 +84,19 @@ object TorController {
     fun binary(context: Context): File =
         File(context.applicationInfo.nativeLibraryDir, "libtor.so")
 
+    /** lyrebird (obfs4, meek_lite, webtunnel, snowflake), built in CI by scripts/build-tor-pt.sh. */
+    fun ptBinary(context: Context): File = File(context.applicationInfo.nativeLibraryDir, "liblyrebird.so")
+
+    /**
+     * The service extra for a Tor profile: "country|viaVpn|transport|base64(bridge lines)".
+     * The last two fields are empty for a direct Tor connection.
+     */
+    fun spec(config: ProxyConfig): String {
+        val b = TorBridges.from(config)
+        val lines = java.util.Base64.getEncoder().encodeToString(b.lines.joinToString("\n").toByteArray())
+        return config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") + "|" + b.transport + "|" + lines
+    }
+
     fun available(context: Context): Boolean = binary(context).exists()
 
     fun dataDir(context: Context): File = File(context.filesDir, "tor").apply { mkdirs() }
@@ -106,7 +119,7 @@ object TorController {
         return geo to geo6
     }
 
-    private fun writeTorrc(context: Context, exitCountry: String, throughVpn: Boolean): File {
+    private fun writeTorrc(context: Context, exitCountry: String, throughVpn: Boolean, bridges: TorBridges = TorBridges.NONE): File {
         val dir = dataDir(context)
         val (geo, geo6) = geoFiles(context)
         val sb = StringBuilder()
@@ -129,12 +142,13 @@ object TorController {
         if (throughVpn) {
             sb.appendLine("Socks5Proxy 127.0.0.1:" + BRIDGE_PORT)
         }
+        sb.append(bridges.torrc(ptBinary(context).absolutePath))
         val torrc = File(dir, "torrc")
         torrc.writeText(sb.toString())
         return torrc
     }
 
-    fun start(context: Context, exitCountry: String, throughVpn: Boolean): Boolean {
+    fun start(context: Context, exitCountry: String, throughVpn: Boolean, bridges: TorBridges = TorBridges.NONE): Boolean {
         stop()
         stopping = false
         bootstrapped = false
@@ -147,7 +161,11 @@ object TorController {
         }
 
         val dir = dataDir(context)
-        val torrc = writeTorrc(context, exitCountry, throughVpn)
+        if (bridges.transport.isNotEmpty() && bridges.transport != "vanilla" && !ptBinary(context).exists()) {
+            Log.e(TAG, "bridges need lyrebird, which is not in this build")
+            return false
+        }
+        val torrc = writeTorrc(context, exitCountry, throughVpn, bridges)
 
         val p = try {
             ProcessBuilder(listOf(bin.absolutePath, "-f", torrc.absolutePath))
@@ -221,6 +239,56 @@ object TorController {
         runCatching {
             p.destroy()
             if (!p.waitFor(3000, TimeUnit.MILLISECONDS)) p.destroyForcibly()
+        }
+    }
+}
+
+/**
+ * Tor bridges for a profile. Transports are served by lyrebird
+ * (gitlab.torproject.org/.../lyrebird, BSD-3-Clause), which carries obfs4,
+ * meek_lite, webtunnel and snowflake in one executable.
+ */
+data class TorBridges(val transport: String, val lines: List<String>) {
+
+    /** torrc lines; empty when no bridge is used. */
+    fun torrc(lyrebird: String): String {
+        if (transport.isEmpty() || lines.isEmpty()) return ""
+        val sb = StringBuilder("UseBridges 1\n")
+        if (transport != "vanilla") {
+            sb.append("ClientTransportPlugin obfs4,meek_lite,webtunnel,snowflake exec ").append(lyrebird).append("\n")
+        }
+        lines.forEach { sb.append("Bridge ").append(it.removePrefix("Bridge ").trim()).append("\n") }
+        return sb.toString()
+    }
+
+    companion object {
+        val NONE = TorBridges("", emptyList())
+        val TRANSPORTS = listOf("obfs4", "meek_lite", "webtunnel", "snowflake", "vanilla")
+
+        /**
+         * Snowflake's own default bridges, verbatim from the pinned snowflake
+         * v2.14.1 client/torrc (public, published by the Tor Project).
+         */
+        val SNOWFLAKE_DEFAULT = listOf(
+            "snowflake 192.0.2.3:80 2B280B23E1107BB62ABFC40DDCC8824814F80A72 fingerprint=2B280B23E1107BB62ABFC40DDCC8824814F80A72 url=https://1098762253.rsc.cdn77.org/ fronts=www.cdn77.com,www.phpmyadmin.net ice=stun:stun.antisip.com:3478,stun:stun.epygi.com:3478,stun:stun.uls.co.za:3478,stun:stun.voipgate.com:3478,stun:stun.mixvoip.com:3478,stun:stun.nextcloud.com:3478,stun:stun.bethesda.net:3478,stun:stun.nextcloud.com:443 utls-imitate=hellorandomizedalpn",
+            "snowflake 192.0.2.4:80 8838024498816A039FCBBAB14E6F40A0843051FA fingerprint=8838024498816A039FCBBAB14E6F40A0843051FA url=https://1098762253.rsc.cdn77.org/ fronts=www.cdn77.com,www.phpmyadmin.net ice=stun:stun.antisip.com:3478,stun:stun.epygi.com:3478,stun:stun.uls.co.za:3478,stun:stun.voipgate.com:3478,stun:stun.mixvoip.com:3478,stun:stun.nextcloud.com:3478,stun:stun.bethesda.net:3478,stun:stun.nextcloud.com:443 utls-imitate=hellorandomizedalpn"
+        )
+
+        fun from(config: ProxyConfig): TorBridges {
+            val x = config.extraJson()
+            val lines = x.optString("bridges").lines().map { it.trim().removePrefix("Bridge ").trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }
+            val declared = x.optString("pt").lowercase()
+            val transport = declared.ifEmpty { lines.firstOrNull()?.substringBefore(' ')?.lowercase()?.takeIf { it in TRANSPORTS } ?: if (lines.isNotEmpty()) "vanilla" else "" }
+            if (transport == "snowflake" && lines.isEmpty()) return TorBridges("snowflake", SNOWFLAKE_DEFAULT)
+            return if (lines.isEmpty()) NONE else TorBridges(transport, lines)
+        }
+
+        /** Parses the service extra written by [TorController.spec]. */
+        fun fromSpec(parts: List<String>): TorBridges {
+            val transport = parts.getOrElse(2) { "" }
+            val lines = runCatching { String(java.util.Base64.getDecoder().decode(parts.getOrElse(3) { "" })) }.getOrDefault("")
+                .lines().filter { it.isNotBlank() }
+            return if (transport.isEmpty() || lines.isEmpty()) NONE else TorBridges(transport, lines)
         }
     }
 }

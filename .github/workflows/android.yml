@@ -141,6 +141,12 @@ jobs:
       - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
         run: sh scripts/build-ghajar-helper.sh
 
+      - name: Build Tor pluggable transports (lyrebird)
+        run: sh scripts/build-tor-pt.sh
+
+      - name: Build Juicity client
+        run: sh scripts/build-juicity.sh
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -313,6 +319,12 @@ jobs:
 
       - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
         run: sh scripts/build-ghajar-helper.sh
+
+      - name: Build Tor pluggable transports (lyrebird)
+        run: sh scripts/build-tor-pt.sh
+
+      - name: Build Juicity client
+        run: sh scripts/build-juicity.sh
 
       - name: Remove any committed local signing config
         run: rm -f keystore.properties

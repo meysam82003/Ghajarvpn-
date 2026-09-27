@@ -46,7 +46,12 @@ work=${SINGBOX_WORKDIR:-/tmp/sing-box}
 # Left out on purpose: with_tailscale, with_usbip, with_naive_outbound. None
 # was asked for and each pulls in a large dependency tree, against an APK that
 # is already about 150 MB.
-TAGS=with_quic,with_wireguard,with_utls,with_openconnect,with_openvpn,with_clash_api,badlinkname,tfogo_checklinkname0
+# with_naive_outbound links Cronet (Chromium's network stack) from the
+# checksum-pinned module github.com/sagernet/cronet-go/lib/android_<arch>
+# (a static libcronet.a built by that project from naiveproxy's Chromium
+# source); it is what makes NaiveProxy work, and is the largest part of the
+# binary. The same tag sing-box uses for its own Android library.
+TAGS=with_quic,with_wireguard,with_utls,with_openconnect,with_openvpn,with_clash_api,with_naive_outbound,badlinkname,tfogo_checklinkname0
 
 # -checklinkname=0 is a LINKER flag and it is not optional. libbox and the
 # main package pull private runtime symbols in with //go:linkname, and since Go

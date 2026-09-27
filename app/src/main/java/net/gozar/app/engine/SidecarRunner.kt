@@ -141,6 +141,7 @@ object Sidecars {
         "cottendns" -> "libcottendns.so"
         "slipstream" -> "libslipstream.so"
         "sshtransport", "awg", "mieru", "brook" -> HELPER
+        "juicity" -> "libjuicity.so"
         else -> throw IllegalArgumentException("unknown engine: $kind")
     }
 
@@ -158,6 +159,7 @@ object Sidecars {
         "mieru" -> SidecarLaunch(HELPER, listOf("mieru", "-listen", SidecarLaunch.PORT, "-rpc", SidecarLaunch.PORT2,
             "-url", spec.optString("url").also { require(it.startsWith("mieru://") || it.startsWith("mierus://")) { "Mieru: a mieru:// or mierus:// link is needed" } },
             "-dir", SidecarLaunch.DIR), socks = true, readyTimeoutMs = 20_000)
+        "juicity" -> juicity(spec)
         "brook" -> SidecarLaunch(HELPER, listOf("brook", "-listen", SidecarLaunch.PORT,
             "-url", spec.optString("url").also { require(it.startsWith("brook://")) { "Brook: a brook:// link is needed" } }), socks = true)
         else -> throw IllegalArgumentException("unknown engine: $kind")
@@ -254,6 +256,25 @@ object Sidecars {
             args += listOf("--cert", "${SidecarLaunch.DIR}/server.pem")
         }
         return SidecarLaunch("libslipstream.so", args, socks = false, files = files, secretFiles = emptySet())
+    }
+
+    /**
+     * juicity-client (juicity/juicity v0.5.0, AGPL-3.0, separate program):
+     * `run -c FILE`; its "listen" address serves SOCKS5.
+     */
+    fun juicity(spec: JSONObject): SidecarLaunch {
+        val cfg = JSONObject()
+            .put("listen", "127.0.0.1:${SidecarLaunch.PORT}")
+            .put("server", spec.optString("server").also { require(it.isNotBlank()) { "Juicity: no server" } })
+            .put("uuid", spec.optString("uuid").also { require(it.isNotBlank()) { "Juicity: no UUID" } })
+            .put("password", spec.optString("password"))
+            .put("sni", spec.optString("sni"))
+            .put("allow_insecure", spec.optBoolean("allowInsecure"))
+            .put("congestion_control", spec.optString("cc").ifBlank { "bbr" })
+            .put("log_level", "info")
+        spec.optString("pin").takeIf { it.isNotBlank() }?.let { cfg.put("pinned_certchain_sha256", it) }
+        return SidecarLaunch("libjuicity.so", listOf("run", "-c", "${SidecarLaunch.DIR}/juicity.json"), socks = true,
+            files = mapOf("juicity.json" to cfg.toString()))
     }
 
     /** The in-repo helper (native/ghajar-helper, GPL-3.0), built in CI. */
