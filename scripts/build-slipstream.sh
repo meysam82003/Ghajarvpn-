@@ -36,6 +36,15 @@ git -C "$work" checkout -q "$SLIP_COMMIT"
 [ "$(git -C "$work" rev-parse HEAD)" = "$SLIP_COMMIT" ] || { echo "::error::slipstream not at $SLIP_COMMIT" >&2; exit 1; }
 git -C "$work" submodule update --init --recursive
 
+# The NDK toolchain file limits find_library/find_path to the sysroot
+# (CMAKE_FIND_ROOT_PATH_MODE_*=ONLY), so picoquic's find_package(OpenSSL)
+# cannot see the vendored openssl-src build that build.rs passes in
+# OPENSSL_ROOT_DIR. Add that directory to the find root path.
+git -C "$work" checkout -q -- scripts/build_picoquic.sh
+sed -i 's|^  CMAKE_ARGS+=("-DCMAKE_TOOLCHAIN_FILE=${TOOLCHAIN_FILE}")|&\n  if [[ -n "${OPENSSL_ROOT_DIR:-}" ]]; then CMAKE_ARGS+=("-DCMAKE_FIND_ROOT_PATH=${OPENSSL_ROOT_DIR}"); fi|' \
+    "$work/scripts/build_picoquic.sh"
+grep -q 'CMAKE_FIND_ROOT_PATH=' "$work/scripts/build_picoquic.sh" || { echo "::error::build_picoquic.sh patch did not apply" >&2; exit 1; }
+
 rustup target add aarch64-linux-android armv7-linux-androideabi
 
 build() { # abi rust-target clang-prefix env-suffix
