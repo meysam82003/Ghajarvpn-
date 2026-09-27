@@ -110,6 +110,12 @@ object EngineTestStore {
         }
     }
 
+    fun forget(id: String) {
+        if (results.remove(id) == null) return
+        val ctx = context ?: return
+        runCatching { ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(id).apply() }
+    }
+
     private fun load() {
         if (loaded) return
         val ctx = context ?: return

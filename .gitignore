@@ -52,3 +52,5 @@ app/src/main/jniLibs/*/libslipstream.so
 app/src/main/jniLibs/*/libghajarhelper.so
 app/src/main/jniLibs/*/liblyrebird.so
 app/src/main/jniLibs/*/libjuicity.so
+app/src/main/jniLibs/*/libndpiclassify.so
+build/ndpi/

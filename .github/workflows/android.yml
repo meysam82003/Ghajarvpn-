@@ -28,7 +28,7 @@ jobs:
           cache: gradle
 
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build autoconf automake libtool pkg-config
 
       - uses: android-actions/setup-android@v3
         with:
@@ -147,6 +147,9 @@ jobs:
       - name: Build Juicity client
         run: sh scripts/build-juicity.sh
 
+      - name: Build nDPI fingerprint check
+        run: sh scripts/build-ndpi.sh
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
@@ -250,7 +253,7 @@ jobs:
           cache: gradle
 
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build autoconf automake libtool pkg-config
 
       - uses: android-actions/setup-android@v3
         with:
@@ -325,6 +328,9 @@ jobs:
 
       - name: Build Juicity client
         run: sh scripts/build-juicity.sh
+
+      - name: Build nDPI fingerprint check
+        run: sh scripts/build-ndpi.sh
 
       - name: Remove any committed local signing config
         run: rm -f keystore.properties

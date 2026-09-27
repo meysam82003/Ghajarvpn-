@@ -7,6 +7,7 @@
 //	brook         Brook client (upstream txthinking/brook library, unmodified)
 //	sstp          SSTP (PPP over HTTPS, PAP / MS-CHAPv2) in userspace, as SOCKS5
 //	softether     SoftEther VPN protocol (Virtual Hub, DHCP, ARP) in userspace, as SOCKS5
+//	dpirelay      records a test connection for the nDPI fingerprint check
 //
 // Every mode listens on one local TCP port on 127.0.0.1, printed as
 // "ready 127.0.0.1:PORT" once it accepts connections. Licence: GPL-3.0 (the
@@ -21,7 +22,7 @@ import (
 
 func main() {
 	if len(os.Args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: ghajar-helper <sshtransport|awg|mieru|brook|sstp|softether> [flags]")
+		fmt.Fprintln(os.Stderr, "usage: ghajar-helper <sshtransport|awg|mieru|brook|sstp|softether|dpirelay> [flags]")
 		os.Exit(2)
 	}
 	var err error
@@ -38,6 +39,8 @@ func main() {
 		err = runSSTP(os.Args[2:])
 	case "softether":
 		err = runSoftEther(os.Args[2:])
+	case "dpirelay":
+		err = runDPIRelay(os.Args[2:])
 	case "version":
 		fmt.Println("ghajar-helper 1")
 		return
