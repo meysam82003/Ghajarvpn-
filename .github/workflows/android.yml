@@ -166,7 +166,20 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Ghajarvpn-Android-debug
-          path: app/build/outputs/apk/**/*.apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      # The APK to try the app with: release-optimised (R8, not debuggable,
+      # baseline profiles), debug-signed. The debug APK runs Compose several
+      # times slower and is only for the tests.
+      - name: Build preview APK
+        run: ./gradlew --no-daemon --stacktrace :app:assemblePreview
+
+      - name: Upload preview APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-Android-preview
+          path: app/build/outputs/apk/preview/*.apk
           if-no-files-found: error
 
   # Runs the debug APK on an emulator and drives it with monkey, printing

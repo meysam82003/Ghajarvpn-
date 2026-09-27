@@ -49,6 +49,11 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.using
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -391,6 +396,10 @@ private const val PAGE_SETTINGS = 2
 private const val PAGE_COUNT = 3
 
 @Composable
+/** Material 3 emphasized easing: quick start, long soft landing. */
+private val SmoothDecel = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+private val SmoothAccel = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+
 private fun stringsFn(): (String) -> String {
     val lang = LocalLang.current
     return { Strings.get(lang, it) }
@@ -1811,6 +1820,9 @@ private fun GozarApp(
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = !subScreenOpen,
+            // Neighbouring tabs stay composed, so switching tabs never waits
+            // on a first composition mid-animation.
+            beyondViewportPageCount = 1,
             modifier = Modifier
                 .padding(
                     start = padding.calculateStartPadding(layoutDir),
@@ -1843,8 +1855,10 @@ private fun GozarApp(
                 AnimatedContent(
                     targetState = connKey,
                     transitionSpec = {
-                        (scaleIn(tween(220), initialScale = 0.92f) + fadeIn(tween(220))) togetherWith
-                                (scaleOut(tween(180), targetScale = 0.92f) + fadeOut(tween(180)))
+                        (scaleIn(tween(340, easing = SmoothDecel), initialScale = 0.965f) +
+                            fadeIn(tween(260, delayMillis = 40, easing = SmoothDecel))) togetherWith
+                            (scaleOut(tween(200, easing = SmoothAccel), targetScale = 1.015f) +
+                                fadeOut(tween(160, easing = SmoothAccel))) using SizeTransform(clip = false)
                     },
                     label = "connTab"
                 ) { key ->
@@ -1990,13 +2004,17 @@ private fun GozarApp(
                 AnimatedContent(
                     targetState = setKey,
                     transitionSpec = {
-                        if (settingsDepth(targetState) > settingsDepth(initialState)) {
-                            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(250)) togetherWith
-                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(250))
-                        } else {
-                            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(250)) togetherWith
-                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(250))
-                        }
+                        // Parallax push: the new page travels a fifth of the
+                        // width while fading in, the old one drifts a little
+                        // and fades out. Two full-width slides move twice the
+                        // pixels and read as heavier.
+                        val forward = settingsDepth(targetState) > settingsDepth(initialState)
+                        val rtl = layoutDir == LayoutDirection.Rtl
+                        val sign = if (forward != rtl) 1 else -1
+                        (slideInHorizontally(tween(360, easing = SmoothDecel)) { sign * it / 5 } +
+                            fadeIn(tween(280, delayMillis = 40, easing = SmoothDecel))) togetherWith
+                            (slideOutHorizontally(tween(260, easing = SmoothAccel)) { -sign * it / 12 } +
+                                fadeOut(tween(180, easing = SmoothAccel))) using SizeTransform(clip = false)
                     },
                     label = "setTab"
                 ) { key ->
@@ -14818,30 +14836,45 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     fun persist(list: List<ProxyConfig>) {
         busy = true
         scope.launch {
-            withContext(Dispatchers.IO) { Safebox.save(context, list, password.toCharArray()) }
-            vault = list; exists = true; busy = false
+            val ok = withContext(Dispatchers.IO) { runCatching { Safebox.save(context, list, password.toCharArray()) }.isSuccess }
+            if (ok) { vault = list; exists = true } else message = t("safebox_io_error")
+            busy = false
         }
     }
 
     val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        val bytes = Safebox.raw(context)
-        if (uri != null && bytes != null) {
-            message = runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) }; t("safebox_exported") }
-                .getOrElse { t("safebox_io_error") }
+        if (uri != null) scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = Safebox.raw(context) ?: error("no vault")
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("no stream")
+                }.isSuccess
+            }
+            message = if (ok) t("safebox_exported") else t("safebox_io_error")
         }
     }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri == null) return@rememberLauncherForActivityResult
-        val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-        when {
-            bytes == null || !Safebox.isVault(bytes) -> message = t("safebox_not_vault")
-            else -> {
-                val opened = Safebox.open(bytes, password.toCharArray())
-                // Merge into the existing vault, never over it: open it first
-                // with the same password when the page is still locked.
-                val base = vault ?: Safebox.load(context, password.toCharArray())
-                if (opened == null || base == null) message = t("safebox_wrong_password")
-                else persist((base + opened).distinctBy { it.id }).also { message = t("safebox_imported") }
+        busy = true
+        scope.launch {
+            // Key derivation takes about a second: never on the UI thread.
+            val result = withContext(Dispatchers.IO) {
+                val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                if (bytes == null || !Safebox.isVault(bytes)) null to false
+                else {
+                    val opened = Safebox.open(bytes, password.toCharArray())
+                    // Merge into the existing vault, never over it: open it first
+                    // with the same password when the page is still locked.
+                    val base = vault ?: Safebox.load(context, password.toCharArray())
+                    (if (opened == null || base == null) null else (base + opened).distinctBy { it.id }) to true
+                }
+            }
+            busy = false
+            val merged = result.first
+            when {
+                !result.second -> message = t("safebox_not_vault")
+                merged == null -> message = t("safebox_wrong_password")
+                else -> { persist(merged); message = t("safebox_imported") }
             }
         }
     }

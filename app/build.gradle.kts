@@ -100,6 +100,16 @@ android {
                 "proguard-rules.pro"
             )
         }
+        // A test build that runs like the release: R8-optimised, not
+        // debuggable (so Compose and ART run at full speed and the bundled
+        // baseline profiles are installed), but signed like debug so CI can
+        // hand it out without the release keys. Not a release.
+        create("preview") {
+            initWith(getByName("release"))
+            signingConfig = if (ghajarSignedDemo) signingConfigs.getByName("demo") else signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+        }
     }
 
     splits {
@@ -128,6 +138,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
+    // Installs the libraries' baseline profiles (Compose ships one) at install time.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")
