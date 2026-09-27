@@ -1838,7 +1838,7 @@ private fun GozarApp(
                 GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
             } else if (p == PAGE_HOME) {
                 val connKey = when {
-                    protoForm.isNotEmpty() -> "protoform"
+                    protoForm.isNotEmpty() -> "protoform:$protoForm"
                     exportConfigs != null -> "export"
                     showManual -> "manual"
                     showScanner -> "scanqr"
@@ -1860,9 +1860,13 @@ private fun GozarApp(
                     },
                     label = "connTab"
                 ) { key ->
-                    when (key) {
-                        "protoform" -> ProtocolFormScreen(
-                            formId = protoForm,
+                    when {
+                        key.startsWith("protoform:") -> ProtocolFormScreen(
+                            // AnimatedContent keeps the outgoing screen alive during
+                            // its exit animation. Capture the id in targetState so
+                            // clearing protoForm cannot turn the still-composing form
+                            // into an empty/unknown id.
+                            formId = key.substringAfter("protoform:"),
                             onSave = { cfg -> store.add(cfg); protoForm = ""; showPicker = true },
                             onCancel = { protoForm = "" }
                         )
@@ -15112,7 +15116,13 @@ private fun ProtocolFormScreen(formId: String, onSave: (ProxyConfig) -> Unit, on
     val t = stringsFn()
     val context = LocalContext.current
     val c = ghajarColors
-    val form = remember(formId) { ProtocolForms.form(formId) }
+    val form = remember(formId) { ProtocolForms.formOrNull(formId) }
+    if (form == null) {
+        // Never let a stale/invalid navigation id take down the whole process.
+        // This is a safety net; valid navigation captures the id in connKey above.
+        LaunchedEffect(formId) { onCancel() }
+        return
+    }
     val values = remember(formId) { mutableStateMapOf<String, String>().apply { form.fields.forEach { put(it.key, it.default) } } }
     var advanced by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf("") }
