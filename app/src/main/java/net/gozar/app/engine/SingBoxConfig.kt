@@ -164,10 +164,20 @@ object SingBoxConfig {
                     .put("flavor", c.mode.takeIf { it in setOf("anyconnect", "gp", "fortinet", "f5", "pulse", "nc") } ?: "anyconnect")
                     .putIf("username", c.uuid)
                     .putIf("password", c.password)
+                val x = c.extraJson()
+                o.putIf("auth_group", x.optString("authGroup"))
+                    .putIf("reported_os", x.optString("reportedOs").takeIf { it in setOf("linux", "linux-64", "win", "mac-intel", "android", "apple-ios") })
+                    .putIf("user_agent", x.optString("userAgent"))
+                if (c.mtu in 576..9000) o.put("mtu", c.mtu)
+                x.optInt("reconnect", 0).takeIf { it > 0 }?.let { o.put("reconnect_timeout", "${it}s") }
+                if (x.optBoolean("noUdp")) o.put("no_udp", true)
+                if (x.optBoolean("ipv6Off")) o.put("ipv6_disabled", true)
                 val t = JSONObject()
                 if (c.allowInsecure) t.put("insecure", true)
                 if (c.sni.isNotBlank()) t.put("server_name", c.sni)
                 if (c.pinnedCertSha256.isNotBlank()) t.put("peer_fingerprint", JSONArray().put(c.pinnedCertSha256))
+                x.optString("clientCert").takeIf { it.contains("BEGIN CERTIFICATE") }?.let { t.put("client_certificate", JSONArray().put(it)) }
+                x.optString("clientKey").takeIf { it.contains("PRIVATE KEY") }?.let { t.put("client_key", JSONArray().put(it)) }
                 if (t.length() > 0) o.put("tls", t)
             }
             "masterdns", "stormdns", "cottendns" -> {

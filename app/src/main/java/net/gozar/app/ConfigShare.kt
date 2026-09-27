@@ -69,7 +69,14 @@ object ConfigShare {
             "amneziawg://" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray()) + "#" + enc(c.name)
         }.orEmpty()
         "openconnect" -> simpleLink("openconnect", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf(
-            "flavor" to c.mode, "sni" to c.sni, "pin" to c.pinnedCertSha256, "insecure" to if (c.allowInsecure) "1" else ""))
+            "flavor" to c.mode, "sni" to c.sni, "pin" to c.pinnedCertSha256, "insecure" to if (c.allowInsecure) "1" else "",
+            "mtu" to c.mtu.takeIf { it > 0 }?.toString().orEmpty(),
+            "authgroup" to c.extraJson().optString("authGroup"), "os" to c.extraJson().optString("reportedOs"),
+            "ua" to c.extraJson().optString("userAgent"),
+            "reconnect" to c.extraJson().optInt("reconnect", 0).takeIf { it > 0 }?.toString().orEmpty(),
+            "nodtls" to if (c.extraJson().optBoolean("noUdp")) "1" else "",
+            "noipv6" to if (c.extraJson().optBoolean("ipv6Off")) "1" else ""))
+        // The client certificate and key stay on this device: they are not put in share links.
         "masterdns", "stormdns", "cottendns" -> {
             val x = c.extraJson()
             val first = (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port

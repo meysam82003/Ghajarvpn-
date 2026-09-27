@@ -534,7 +534,16 @@ object ConfigParser {
             password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
             mode = p["flavor"].orEmpty().lowercase().ifEmpty { "anyconnect" },
             sni = p["sni"].orEmpty(), pinnedCertSha256 = p["pin"].orEmpty(),
-            allowInsecure = insecure(p), source = source
+            allowInsecure = insecure(p), source = source,
+            mtu = p["mtu"]?.toIntOrNull()?.takeIf { it in 576..9000 } ?: 0,
+            extra = org.json.JSONObject().apply {
+                p["authgroup"]?.takeIf { it.isNotBlank() }?.let { put("authGroup", it) }
+                p["os"]?.takeIf { it.isNotBlank() }?.let { put("reportedOs", it) }
+                p["ua"]?.takeIf { it.isNotBlank() }?.let { put("userAgent", it) }
+                p["reconnect"]?.toIntOrNull()?.takeIf { it > 0 }?.let { put("reconnect", it) }
+                if (p["nodtls"] == "1") put("noUdp", true)
+                if (p["noipv6"] == "1") put("ipv6Off", true)
+            }.let { if (it.length() == 0) "" else it.toString() }
         ).takeIf { it.address.isNotBlank() }
     } catch (e: Exception) { null }
 

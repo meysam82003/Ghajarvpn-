@@ -1363,6 +1363,8 @@ private fun GozarApp(
     // get a page of their own here.
     var notifDetail by remember { mutableStateOf(false) }
     var backupDetail by remember { mutableStateOf(false) }
+    // The per-protocol add-server form being filled, by ProtocolForms id.
+    var protoForm by remember { mutableStateOf("") }
     // New Settings pages share one slot: "geodata", "dnsproto", "livemon", "safebox".
     var extraPage by remember { mutableStateOf("") }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
@@ -1541,10 +1543,11 @@ private fun GozarApp(
     var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail || backupDetail || extraPage.isNotEmpty()))
+    val subScreenOpen = (page == PAGE_HOME && (protoForm.isNotEmpty() || showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail || backupDetail || extraPage.isNotEmpty()))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
+        page == PAGE_HOME && protoForm.isNotEmpty() -> "protoform"
         page == PAGE_HOME && exportConfigs != null -> "export"
         page == PAGE_HOME && showManual -> "manual"
         page == PAGE_HOME && showTorNodes -> "tornodes"
@@ -1581,6 +1584,7 @@ private fun GozarApp(
 
     fun pop() {
         when {
+            protoForm.isNotEmpty() -> protoForm = ""
             exportConfigs != null -> exportConfigs = null
             showManual -> { showManual = false; editingConfig = null }
             showWindscribe -> showWindscribe = false
@@ -1671,6 +1675,7 @@ private fun GozarApp(
                             mixedText(when (screenKey) {
                                 "manual" -> if (editingConfig != null) t("edit_config_title") else t("add_config_title")
                                 "export" -> t("export_title")
+                                "protoform" -> ProtocolForms.forms.firstOrNull { it.id == protoForm }?.title ?: t("add_server")
                                 "picker" -> t("choose_server")
                                 "projects" -> t("free_projects")
                                 "tornodes" -> t("tor_nodes")
@@ -1709,6 +1714,7 @@ private fun GozarApp(
                 navigationIcon = {
                     when (screenKey) {
                         "manual" -> BounceIconButton(onClick = { showManual = false; editingConfig = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "protoform" -> BounceIconButton(onClick = { protoForm = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "export" -> BounceIconButton(onClick = { exportConfigs = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "picker" -> BounceIconButton(onClick = { showPicker = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "projects" -> BounceIconButton(onClick = { showProjects = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1764,7 +1770,7 @@ private fun GozarApp(
                 selected = page,
                 items = listOf(
                     SkinNavItem(R.drawable.ic_royal_home, t("home")) {
-                        showPicker = false; showManual = false; showProjects = false
+                        showPicker = false; showManual = false; showProjects = false; protoForm = ""
                         showTorNodes = false; showWindscribe = false; editingConfig = null
                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
                     },
@@ -1821,6 +1827,7 @@ private fun GozarApp(
                 GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
             } else if (p == PAGE_HOME) {
                 val connKey = when {
+                    protoForm.isNotEmpty() -> "protoform"
                     exportConfigs != null -> "export"
                     showManual -> "manual"
                     showScanner -> "scanqr"
@@ -1841,6 +1848,11 @@ private fun GozarApp(
                     label = "connTab"
                 ) { key ->
                     when (key) {
+                        "protoform" -> ProtocolFormScreen(
+                            formId = protoForm,
+                            onSave = { cfg -> store.add(cfg); protoForm = ""; showPicker = true },
+                            onCancel = { protoForm = "" }
+                        )
                         "export" -> ExportConfigScreen(
                             configs = exportConfigs ?: emptyList(),
                             onCancel = { exportConfigs = null }
@@ -1885,6 +1897,7 @@ private fun GozarApp(
                                 sshDetail = true
                                 scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
                             },
+                            onProtocolForm = { id -> protoForm = id },
                             onDnsLab = {
                                 showPicker = false
                                 dnsLabDetail = true
@@ -2479,6 +2492,7 @@ private fun ConfigPickerScreen(
     onTor: () -> Unit = {},
     onSsh: () -> Unit = {},
     onDnsLab: () -> Unit = {},
+    onProtocolForm: (String) -> Unit = {},
     onConnectOpenVpn: (String) -> Unit = {},
     onDisconnectOpenVpn: () -> Unit = {},
     onTestOpenVpn: (String) -> Unit = {},
@@ -2864,7 +2878,8 @@ private fun ConfigPickerScreen(
             onTor = { addMenu = false; onTor() },
             onSsh = { addMenu = false; onSsh() },
             onDnsLab = { addMenu = false; onDnsLab() },
-            onSubscription = { addMenu = false; subDialog = true }
+            onSubscription = { addMenu = false; subDialog = true },
+            onProtocolForm = { id -> addMenu = false; onProtocolForm(id) }
         )
         }
 
@@ -4199,6 +4214,7 @@ private fun AddServerPanel(
     onSsh: () -> Unit = {},
     onDnsLab: () -> Unit = {},
     onSubscription: () -> Unit = {},
+    onProtocolForm: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -4395,6 +4411,23 @@ private fun AddServerPanel(
                 // A link that maintains its own list. It was only reachable by
                 // pasting one into the clipboard path and hoping the app
                 // recognised it as a subscription rather than a config.
+                // One entry per core: each opens its own form with the fields
+                // that protocol needs and an Advanced section.
+                listOf("vpn" to t("add_group_vpn_forms"), "tunnel" to t("add_group_tunnel_forms"),
+                    "dns" to t("add_group_dns_forms"), "proxy" to t("add_group_proxy_forms")).forEach { (group, label) ->
+                    Rail(label)
+                    ProtocolForms.forms.filter { it.group == group }.forEachIndexed { i, f ->
+                        if (i > 0) SlabDivider()
+                        SlabRow(
+                            title = f.title,
+                            subtitle = t("form_sub_" + f.id),
+                            icon = Icons.Filled.Add,
+                            chevron = true,
+                            onClick = { onProtocolForm(f.id) }
+                        )
+                    }
+                }
+
                 Rail(t("add_group_sub"))
                 SlabRow(
                     title = t("add_sub_row"),
@@ -14848,5 +14881,103 @@ private fun ServerDetailsDialog(
                 GhostPill(text = t("edit"), onClick = onEdit, modifier = Modifier.weight(1f))
             }
         }
+    }
+}
+
+/**
+ * The add-server form of one protocol (ProtocolForms): its own fields, the
+ * rest under Advanced, selects as menus, switches, and PEM fields that can be
+ * loaded from a file. Saving builds the profile through the protocol's link.
+ */
+@Composable
+private fun ProtocolFormScreen(formId: String, onSave: (ProxyConfig) -> Unit, onCancel: () -> Unit) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val c = ghajarColors
+    val form = remember(formId) { ProtocolForms.form(formId) }
+    val values = remember(formId) { mutableStateMapOf<String, String>().apply { form.fields.forEach { put(it.key, it.default) } } }
+    var advanced by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    var pemTarget by remember { mutableStateOf("") }
+    val pemPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && pemTarget.isNotEmpty()) {
+            runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } }
+                .getOrNull()?.takeIf { it.length < 64 * 1024 }?.let { values[pemTarget] = it.trim() }
+        }
+    }
+
+    @Composable
+    fun FieldView(f: ProtocolForms.Field) {
+        val label = t(f.label)
+        when (f.kind) {
+            ProtocolForms.Kind.SWITCH -> Slab(spacing = 0.dp) {
+                SlabRow(title = label, trailing = {
+                    SkinSwitch(checked = values[f.key] == "true", onCheckedChange = { values[f.key] = it.toString() })
+                })
+            }
+            ProtocolForms.Kind.SELECT -> {
+                var open by remember { mutableStateOf(false) }
+                Box {
+                    Slab(spacing = 0.dp) {
+                        SlabRow(title = label, value = values[f.key].orEmpty().ifBlank { "—" }, chevron = true, onClick = { open = true })
+                    }
+                    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                        f.options.forEach { opt ->
+                            DropdownMenuItem(text = { Text(opt.ifBlank { "—" }) }, onClick = { values[f.key] = opt; open = false })
+                        }
+                    }
+                }
+            }
+            ProtocolForms.Kind.PEM -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SkinField(value = values[f.key].orEmpty(), onValueChange = { values[f.key] = it }, label = label,
+                    placeholder = "-----BEGIN …-----", singleLine = false, minLines = 3)
+                GhostPill(text = t("form_load_file"), icon = Icons.Filled.UploadFile,
+                    onClick = { pemTarget = f.key; pemPicker.launch(arrayOf("*/*")) })
+            }
+            else -> SkinField(
+                value = values[f.key].orEmpty(),
+                onValueChange = { values[f.key] = it },
+                label = label + if (f.required) " *" else "",
+                placeholder = f.hint.ifBlank { null },
+                singleLine = f.kind != ProtocolForms.Kind.MULTILINE,
+                minLines = if (f.kind == ProtocolForms.Kind.MULTILINE) 3 else 1,
+                keyboardOptions = KeyboardOptions(keyboardType = when (f.kind) {
+                    ProtocolForms.Kind.NUMBER -> KeyboardType.Number
+                    ProtocolForms.Kind.PASSWORD -> KeyboardType.Password
+                    else -> KeyboardType.Text
+                }),
+                visualTransformation = if (f.kind == ProtocolForms.Kind.PASSWORD) PasswordVisualTransformation() else VisualTransformation.None
+            )
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ScreenHeader(title = form.title, context = t("form_sub_" + form.id))
+        form.fields.filter { !it.advanced }.forEach { FieldView(it) }
+        val adv = form.fields.filter { it.advanced }
+        if (adv.isNotEmpty()) {
+            Slab(spacing = 0.dp) {
+                SlabRow(title = t("form_advanced"), icon = Icons.Filled.Tune, value = if (advanced) "−" else "+",
+                    onClick = { advanced = !advanced })
+            }
+            AnimatedVisibility(visible = advanced) {
+                Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) { adv.forEach { FieldView(it) } }
+            }
+        }
+        if (error.isNotBlank()) InfoBox(error, accent = c.error)
+        PillButton(
+            text = t("save"),
+            icon = Icons.Filled.CheckCircle,
+            onClick = {
+                ProtocolForms.build(form.id, values.toMap())
+                    .onSuccess(onSave)
+                    .onFailure { e -> error = t("form_missing") + " " + t(e.message.orEmpty()) }
+            }
+        )
+        GhostPill(text = t("cancel"), accent = c.textSecondary, onClick = onCancel)
     }
 }
