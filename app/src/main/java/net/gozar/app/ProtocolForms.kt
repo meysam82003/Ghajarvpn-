@@ -101,7 +101,8 @@ object ProtocolForms {
             Field("bridges", "f_tor_bridges", Kind.MULTILINE, required = true, hint = "obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0")))
     )
 
-    fun form(id: String) = forms.first { it.id == id }
+    fun formOrNull(id: String): Form? = forms.firstOrNull { it.id == id }
+    fun form(id: String): Form = requireNotNull(formOrNull(id)) { "Unknown protocol form: $id" }
 
     private fun enc(s: String) = URLEncoder.encode(s, "UTF-8").replace("+", "%20")
     private fun hostPort(host: String, port: String): String {
@@ -115,7 +116,7 @@ object ProtocolForms {
 
     /** The profile, or a reason naming the first missing field. */
     fun build(id: String, input: Map<String, String>): Result<ProxyConfig> {
-        val f = form(id)
+        val f = formOrNull(id) ?: return Result.failure(IllegalArgumentException("f_invalid"))
         // A field left empty takes its default (e.g. port 443).
         val v = f.fields.filter { it.default.isNotEmpty() }.associate { it.key to it.default } +
             input.filterValues { it.isNotBlank() }
