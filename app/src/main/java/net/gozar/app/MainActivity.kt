@@ -198,6 +198,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingBag
 import android.Manifest
@@ -290,6 +291,7 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -9272,32 +9274,66 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
 
         // What this build carries: every connection engine, its licence and
         // whether it is present, read from the engine registry itself.
-        val engineRows = remember {
-            net.gozar.app.engine.CoreManager.engines.map { e ->
-                val a = runCatching { e.availability(context) }.getOrNull()
-                Triple(e, a, e.capabilities.protocols.size)
+        // Read off the main thread: the check loads native libraries.
+        var engineRows by remember { mutableStateOf<List<Triple<net.gozar.app.engine.VpnEngine, net.gozar.app.engine.Availability?, Int>>>(emptyList()) }
+        LaunchedEffect(Unit) {
+            engineRows = withContext(Dispatchers.IO) {
+                net.gozar.app.engine.CoreManager.engines.map { e ->
+                    Triple(e, runCatching { e.availability(context) }.getOrNull(), e.capabilities.protocols.size)
+                }
             }
         }
+        var enginesOpen by rememberSaveable { mutableStateOf(false) }
+        var engineReason by remember { mutableStateOf<String?>(null) }
         Rail(t("about_engines"))
         Slab(spacing = 0.dp) {
-            engineRows.forEachIndexed { i, (e, a, count) ->
-                if (i > 0) SlabDivider()
-                SlabRow(
-                    title = e.displayName,
-                    subtitle = e.capabilities.license + " · " + localizeDigits("$count", lang) + " " + t("about_protocols"),
-                    icon = Icons.Filled.Hub,
-                    accent = when (a) {
-                        is net.gozar.app.engine.Availability.Available -> ghajarColors.good
-                        is net.gozar.app.engine.Availability.Experimental -> ghajarColors.warning
-                        else -> ghajarColors.textMuted
-                    },
-                    value = when (a) {
-                        is net.gozar.app.engine.Availability.Available -> t("about_engine_ready")
-                        is net.gozar.app.engine.Availability.Experimental -> t("about_engine_experimental")
-                        else -> t("about_engine_missing")
+            val ready = engineRows.count { it.second is net.gozar.app.engine.Availability.Available || it.second is net.gozar.app.engine.Availability.Experimental }
+            SlabRow(
+                title = t("about_engines"),
+                subtitle = if (engineRows.isEmpty()) "…" else localizeDigits("$ready / ${engineRows.size}", lang) + " " + t("about_engine_ready"),
+                icon = Icons.Filled.Hub,
+                modifier = Modifier.clickable { enginesOpen = !enginesOpen },
+                trailing = {
+                    Icon(if (enginesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = ghajarColors.textSecondary)
+                }
+            )
+            AnimatedVisibility(enginesOpen, enter = fadeIn(tween(200)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(150)) + shrinkVertically(tween(200, easing = FastOutSlowInEasing))) {
+                Column {
+                    engineRows.forEach { (e, a, count) ->
+                        SlabDivider()
+                        SlabRow(
+                            title = e.displayName,
+                            subtitle = e.capabilities.license + " · " + localizeDigits("$count", lang) + " " + t("about_protocols"),
+                            icon = Icons.Filled.Hub,
+                            modifier = Modifier.clickable {
+                                engineReason = when (a) {
+                                    is net.gozar.app.engine.Availability.Missing -> e.displayName + "\n" + a.why
+                                    is net.gozar.app.engine.Availability.Experimental -> e.displayName + "\n" + a.why
+                                    else -> null
+                                }
+                            },
+                            accent = when (a) {
+                                is net.gozar.app.engine.Availability.Available -> ghajarColors.good
+                                is net.gozar.app.engine.Availability.Experimental -> ghajarColors.warning
+                                else -> ghajarColors.textMuted
+                            },
+                            value = when (a) {
+                                is net.gozar.app.engine.Availability.Available -> t("about_engine_ready")
+                                is net.gozar.app.engine.Availability.Experimental -> t("about_engine_experimental")
+                                else -> t("about_engine_missing")
+                            }
+                        )
                     }
-                )
+                }
             }
+        }
+        engineReason?.let { reason ->
+            AlertDialog(
+                onDismissRequest = { engineReason = null },
+                confirmButton = { TextButton(onClick = { engineReason = null }) { Text(t("close")) } },
+                text = { Text(reason, style = MaterialTheme.typography.bodySmall) }
+            )
         }
         Rail(t("about_device"))
         Slab(spacing = 0.dp) {

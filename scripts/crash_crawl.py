@@ -390,6 +390,11 @@ def main():
         print(crash_lines()[:6000])
         return 1
     log("MainActivity resumed; process " + pid())
+    time.sleep(3)
+    # Engines that load in-process report here (zeptun carries every sing-box profile).
+    for line in adb("logcat", "-d", "-s", "GhajarZeptun:*", "GhajarSingBox:*").splitlines():
+        if line.strip() and not line.startswith("-"):
+            log("engine: " + line.strip()[:200])
     time.sleep(4)
     # First-run screens (intro, permission prompts) are part of the crawl.
     explore([], 0)

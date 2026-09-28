@@ -93,8 +93,10 @@ jobs:
           cd /tmp/zeptun
           # Only the two ABIs this app ships; building x86 as well would double
           # the step for emulators the release never targets.
-          ABIS="armeabi-v7a arm64-v8a" sh scripts/build_android.sh
-          for abi in armeabi-v7a arm64-v8a; do
+          # x86_64 too, only for the emulator crash test's split; phones get
+          # the two ARM ABIs (splits in app/build.gradle.kts).
+          ABIS="armeabi-v7a arm64-v8a x86_64" sh scripts/build_android.sh
+          for abi in armeabi-v7a arm64-v8a x86_64; do
             dest="$GITHUB_WORKSPACE/app/src/main/jniLibs/$abi"
             mkdir -p "$dest"
             cp "zig-out/android/jniLibs/$abi/libzeptun.so" "$dest/"

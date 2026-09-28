@@ -96,7 +96,7 @@ object CoreManager {
         engine(EngineId.ZEPTUN_TUN, "zeptun tun2socks",
             EngineCapabilities(listOf("TUN → SOCKS5 (TCP/UDP/ICMP)"), ownsTun = true, providesSocks = false,
                 license = "MIT", integration = "JNI (libzeptun.so, libzeptun-jni.so), used for proxy-only cores"),
-            availability = { if (ZeptunEngine.available) Availability.Available else Availability.Missing("libzeptun not in this build") },
+            availability = { if (ZeptunEngine.available) Availability.Available else Availability.Missing(ZeptunEngine.loadError ?: "libzeptun not in this build") },
             running = { ZeptunEngine.isRunning }),
         engine(EngineId.DNS_TUNNEL, "DNS tunnels",
             EngineCapabilities(listOf("DNSTT (UDP/DoT/DoH)", "VayDNS", "NoizDNS", "Slipstream (QUIC over DNS)",
