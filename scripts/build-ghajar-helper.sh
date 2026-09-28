@@ -9,6 +9,16 @@ ndk=${ANDROID_NDK_HOME:-${ANDROID_NDK_ROOT:-}}
 [ -n "$ndk" ] && [ -d "$ndk" ] || { echo "ERROR: set ANDROID_NDK_HOME" >&2; exit 1; }
 toolchain="$ndk/toolchains/llvm/prebuilt/linux-x86_64/bin"
 cd "$root/native/ghajar-helper"
+# The module proxy drops the odd download mid-stream (INTERNAL_ERROR); fetch
+# the pinned modules up front with retries, falling back to direct from the
+# origin. go.sum still pins every byte, so the fallback cannot change them.
+export GOPROXY="${GOPROXY:-https://proxy.golang.org,direct}"
+for attempt in 1 2 3 4; do
+    go mod download && break
+    [ "$attempt" = 4 ] && { echo "::error::go mod download failed 4 times" >&2; exit 1; }
+    echo "go mod download failed (attempt $attempt); retrying" >&2
+    sleep $((attempt * 10))
+done
 go mod verify
 for spec in "arm64-v8a arm64 aarch64-linux-android26-clang" "armeabi-v7a arm armv7a-linux-androideabi26-clang"; do
     set -- $spec
