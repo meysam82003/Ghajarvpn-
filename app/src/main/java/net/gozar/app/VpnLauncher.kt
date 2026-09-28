@@ -75,10 +75,11 @@ object VpnLauncher {
         val intent = Intent(appContext, GozarVpnService::class.java)
             .putExtra(GozarVpnService.EXTRA_CONFIG, json)
             .putExtra(GozarVpnService.EXTRA_AETHER, AetherSpec.from(config)?.toJson())
+            .putExtra(GozarVpnService.EXTRA_SINGBOX, net.gozar.app.engine.SingBoxConfig.spec(config))
             .putExtra(
                 GozarVpnService.EXTRA_TOR,
                 if (config.protocol == "tor")
-                    config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
+                    TorController.spec(config) else null
             )
             .putExtra(GozarVpnService.EXTRA_NAME, config.name)
             .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))

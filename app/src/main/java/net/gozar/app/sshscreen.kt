@@ -1,6 +1,11 @@
 package net.gozar.app
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.material3.FilterChip
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material.icons.filled.VpnLock
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -158,6 +163,8 @@ fun SshScreen(
     var terminalOpen by remember { mutableStateOf(false) }
     var shellHost by remember { mutableStateOf<SshHost?>(null) }
     var sftpHost by remember { mutableStateOf<SshHost?>(null) }
+    var tunnelHost by remember { mutableStateOf<SshHost?>(null) }
+    tunnelHost?.let { h -> SshTunnelDialog(host = h, onDismiss = { tunnelHost = null }) }
     val editorOpen = creating || editing != null
 
     BackHandler(enabled = editorOpen) { editing = null; creating = false }
@@ -235,7 +242,8 @@ fun SshScreen(
                 onEdit = { h -> editing = h },
                 onDelete = { h -> confirmDelete = h },
                 onOpenShell = { h -> shellHost = h },
-                onOpenSftp = { h -> sftpHost = h }
+                onOpenSftp = { h -> sftpHost = h },
+                onMakeTunnel = { h -> tunnelHost = h }
             )
         }
     }
@@ -252,7 +260,8 @@ private fun SshHostList(
     onEdit: (SshHost) -> Unit,
     onDelete: (SshHost) -> Unit,
     onOpenShell: (SshHost) -> Unit,
-    onOpenSftp: (SshHost) -> Unit
+    onOpenSftp: (SshHost) -> Unit,
+    onMakeTunnel: (SshHost) -> Unit = {}
 ) {
     val t = sshT()
     LazyColumn(
@@ -318,7 +327,8 @@ private fun SshHostList(
                 onEdit = { onEdit(host) },
                 onDelete = { onDelete(host) },
                 onOpenShell = { onOpenShell(host) },
-                onOpenSftp = { onOpenSftp(host) }
+                onOpenSftp = { onOpenSftp(host) },
+                onMakeTunnel = { onMakeTunnel(host) }
             )
         }
     }
@@ -387,7 +397,8 @@ private fun SshHostCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onOpenShell: () -> Unit,
-    onOpenSftp: () -> Unit
+    onOpenSftp: () -> Unit,
+    onMakeTunnel: () -> Unit = {}
 ) {
     val t = sshT()
     val up = status is SshStatus.Up
@@ -527,6 +538,13 @@ private fun SshHostCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Spacer(Modifier.width(8.dp))
                         SshCardAction(
+                            icon = Icons.Filled.VpnLock,
+                            label = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            onClick = onMakeTunnel
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        SshCardAction(
                             icon = Icons.Filled.Edit,
                             label = null,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -583,6 +601,13 @@ private fun SshHostCard(
                             onClick = onDisconnect
                         )
                         Spacer(Modifier.width(8.dp))
+                        SshCardAction(
+                            icon = Icons.Filled.VpnLock,
+                            label = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            onClick = onMakeTunnel
+                        )
+                        Spacer(Modifier.width(6.dp))
                         SshCardAction(
                             icon = Icons.Filled.Edit,
                             label = null,
@@ -981,5 +1006,60 @@ private fun SshGlassDialog(
                 }
             }
         }
+    }
+}
+
+
+/**
+ * Turns a saved SSH host into a VPN profile in the server list, carried by
+ * the SSH engine in the chosen disguise (direct, HTTP payload, TLS/SNI,
+ * payload+TLS, WebSocket, WSS, HTTP(S) proxy).
+ */
+@OptIn(ExperimentalLayoutApi::class, ExperimentalMaterial3Api::class)
+@Composable
+private fun SshTunnelDialog(host: SshHost, onDismiss: () -> Unit) {
+    val t = sshT()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val modes = listOf("direct", "payload", "tls", "payload-tls", "ws", "wss", "http-proxy", "https-proxy")
+    var mode by remember { mutableStateOf("direct") }
+    var sni by remember { mutableStateOf("") }
+    var payload by remember { mutableStateOf("CONNECT [host_port] [protocol][crlf]Host: [host][crlf][crlf]") }
+    var wsPath by remember { mutableStateOf("/") }
+    var wsHost by remember { mutableStateOf("") }
+    var proxy by remember { mutableStateOf("") }
+    var error by remember { mutableStateOf("") }
+    fun enc(v: String) = java.net.URLEncoder.encode(v, "UTF-8").replace("+", "%20")
+    SshGlassDialog(
+        onDismiss = onDismiss,
+        title = t("ssh_make_tunnel"),
+        confirmLabel = t("ssh_add_to_servers"),
+        dismissLabel = t("cancel"),
+        onConfirm = {
+            val q = mutableListOf("mode=" + enc(mode))
+            if (sni.isNotBlank()) q += "sni=" + enc(sni)
+            if (mode.startsWith("payload")) q += "payload=" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toByteArray())
+            if (mode == "ws" || mode == "wss") { q += "wspath=" + enc(wsPath); if (wsHost.isNotBlank()) q += "wshost=" + enc(wsHost) }
+            if (proxy.isNotBlank()) q += "proxy=" + enc(proxy)
+            val h = if (host.address.contains(':')) "[${host.address.trim()}]" else host.address.trim()
+            val link = "ssh://" + enc(host.username) + ":" + enc(host.password) + "@" + h + ":" + host.port + "?" + q.joinToString("&") + "#" + enc(host.title)
+            val cfg = ConfigParser.parse(link)
+            if (cfg == null) error = t("ssh_tunnel_invalid")
+            else { ConfigStore.get(context).add(cfg); onDismiss() }
+        }
+    ) {
+        Text(t("ssh_mode"), style = MaterialTheme.typography.labelLarge)
+        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            modes.forEach { m ->
+                FilterChip(selected = mode == m, onClick = { mode = m }, label = { Text(m) })
+            }
+        }
+        if (mode != "direct") OutlinedTextField(value = sni, onValueChange = { sni = it.trim() }, label = { Text("SNI / Host") }, singleLine = true)
+        if (mode.startsWith("payload")) OutlinedTextField(value = payload, onValueChange = { payload = it }, label = { Text("Payload") }, minLines = 3)
+        if (mode == "ws" || mode == "wss") {
+            OutlinedTextField(value = wsPath, onValueChange = { wsPath = it.trim() }, label = { Text("WebSocket path") }, singleLine = true)
+            OutlinedTextField(value = wsHost, onValueChange = { wsHost = it.trim() }, label = { Text("WebSocket Host") }, singleLine = true)
+        }
+        if (mode != "direct") OutlinedTextField(value = proxy, onValueChange = { proxy = it.trim() }, label = { Text(t("ssh_front_proxy")) }, singleLine = true)
+        if (error.isNotBlank()) Text(error, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
     }
 }

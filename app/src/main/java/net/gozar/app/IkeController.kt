@@ -182,6 +182,12 @@ object IkeController {
     }
 
     fun connect(context: Context, config: ProxyConfig): Boolean {
+        // Without libandroidbridge the charon thread would die on its first
+        // native call and take the app with it.
+        if (!org.strongswan.android.logic.StrongSwanApplication.NATIVE_LOADED) {
+            GhajarLog.e(TAG, "IKEv2 engine is not available on this device")
+            return false
+        }
         active = true
         val uuid = profileFor(context, config)
         if (uuid == null) {

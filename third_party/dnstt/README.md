@@ -1,3 +1,28 @@
+# DNS tunnel engine — dnstt
+
+**Status (2026-09-26): built in CI and wired; not device verified.**
+
+- Source: upstream dnstt by David Fifield, **CC0-1.0** (`COPYING` in this
+  directory, copied from the built version).
+- Pinned: module `www.bamsoftware.com/git/dnstt.git` **v1.20260501.0**, git
+  `0c5c52a57d899c05428c116898941761a2ed83c2`, fetched through the Go module
+  proxy and verified against sum.golang.org (the upstream git host refuses the
+  CI network; the proxy does not). `scripts/build-dnstt.sh` fails the build if
+  the version resolves to another commit.
+- Output: `app/src/main/jniLibs/<abi>/libdnstt.so` (dnstt-client), run as a
+  subprocess by `engine/SidecarRunner.kt` (Sidecars "dnstt") with the invocation from
+  `dnstt-client/main.go`: `(-udp|-dot|-doh) RESOLVER -pubkey HEX DOMAIN 127.0.0.1:PORT`.
+- Chain: dnstt local port → sing-box SOCKS5 or SSH outbound → sing-box local
+  SOCKS5 → zeptun tun. Profiles are `dnstt://` links or DNS Lab "add to servers".
+- Verified off-device: the generated command line and sing-box config carried
+  HTTP through a real dnstt-server to a SOCKS5 upstream; a wrong server key
+  carried nothing (docs/ENGINE_RUNTIME_TESTS.md).
+
+The text below is the original note from when the binary could not be fetched;
+it is kept for the record.
+
+---
+
 # DNS tunnel engine — not bundled, and exactly what is missing
 
 This build ships no DNS tunnel engine. `DnsTunnelController` reports

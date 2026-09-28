@@ -1,5 +1,7 @@
 package net.gozar.app
 
+import java.util.UUID
+
 import android.content.Context
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -752,6 +754,74 @@ class ConfigStore private constructor(context: Context) {
 
     private fun sigOf(c: ProxyConfig): String =
         "${c.protocol}|${c.address}|${c.port}|${c.uuid}|${c.password}"
+
+    /** A config's display name only; everything else about it stays. */
+    fun renameConfig(id: String, newName: String) {
+        val name = newName.trim().take(120)
+        if (name.isEmpty()) return
+        _configs.value = _configs.value.map { if (it.id == id) it.copy(name = name) else it }
+        persistConfigs()
+    }
+
+    /** Groups a config can be moved into: the hand-made ones, not fetched subscriptions. */
+    fun localGroups(): List<Subscription> = _subscriptions.value.filter { it.url.isBlank() }
+
+    /**
+     * Moves configs into a hand-made group, creating it by name when needed.
+     *
+     * Only hand-made groups are targets. A fetched subscription replaces its
+     * own configs on every refresh, so a config moved into one would be
+     * silently dropped the next time it updated.
+     *
+     * @return how many moved
+     */
+    fun moveToGroup(ids: Set<String>, groupName: String): Int {
+        val name = groupName.trim().take(80)
+        if (ids.isEmpty() || name.isEmpty()) return 0
+        val existing = _subscriptions.value.firstOrNull { it.name == name && it.url.isBlank() }
+        val group = existing ?: Subscription(name = name, url = "", lastUpdated = System.currentTimeMillis())
+        if (existing == null) _subscriptions.value = listOf(group) + _subscriptions.value
+        var moved = 0
+        _configs.value = _configs.value.map {
+            if (it.id in ids && it.subId != group.id) { moved++; it.copy(subId = group.id) } else it
+        }
+        // A hand-made group left with nothing in it is removed with the move,
+        // rather than lingering as an empty header.
+        val emptied = _subscriptions.value.filter { sub ->
+            sub.url.isBlank() && sub.id != group.id && _configs.value.none { it.subId == sub.id }
+        }.map { it.id }.toSet()
+        if (emptied.isNotEmpty()) _subscriptions.value = _subscriptions.value.filterNot { it.id in emptied }
+        persistConfigs()
+        persistSubscriptions()
+        return moved
+    }
+
+    /**
+     * Copies configs into a hand-made group as new entries. Used for a fetched
+     * subscription, whose own copies must stay where its refresh expects them.
+     */
+    fun copyToGroup(ids: Set<String>, groupName: String): Int {
+        val name = groupName.trim().take(80)
+        val source = _configs.value.filter { it.id in ids }
+        if (source.isEmpty() || name.isEmpty()) return 0
+        val existing = _subscriptions.value.firstOrNull { it.name == name && it.url.isBlank() }
+        val group = existing ?: Subscription(name = name, url = "", lastUpdated = System.currentTimeMillis())
+        if (existing == null) _subscriptions.value = listOf(group) + _subscriptions.value
+        _configs.value = _configs.value + source.map {
+            it.copy(id = UUID.randomUUID().toString(), subId = group.id)
+        }
+        persistConfigs()
+        persistSubscriptions()
+        return source.size
+    }
+
+    /** A subscription's link, changed in place; its configs update on the next refresh. */
+    fun updateSubscriptionUrl(id: String, url: String) {
+        val clean = url.trim()
+        if (clean.isEmpty()) return
+        _subscriptions.value = _subscriptions.value.map { if (it.id == id) it.copy(url = clean) else it }
+        persistSubscriptions()
+    }
 
     fun renameSubscription(id: String, newName: String) {
         _subscriptions.value = _subscriptions.value.map { if (it.id == id) it.copy(name = newName) else it }

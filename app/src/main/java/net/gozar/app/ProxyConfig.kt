@@ -117,6 +117,14 @@ data class ProxyConfig(
     val psiphonCdnIps: String = "",
     val psiphonCdnSni: String = "",
     val oblivionJson: String = "",
+    /**
+     * Engine-specific settings that have no field of their own, as a JSON
+     * object: SSH transport (payload, proxy, SNI, WebSocket), AmneziaWG
+     * obfuscation, SSTP, Mieru, Juicity, Tor bridges, DNS-tunnel family
+     * options. Blank on every config that does not need it. See
+     * engine/SingBoxConfig.kt and engine/SidecarRunner.kt for the keys.
+     */
+    val extra: String = "",
     val source: ConfigSource = ConfigSource.PERSONAL,
     val locked: Boolean = false,
     val favorite: Boolean = false,
@@ -150,6 +158,10 @@ data class ProxyConfig(
         .put("torBaseId", torBaseId).put("chainId", chainId)
         .put("psiphonMode", psiphonMode).put("psiphonCountry", psiphonCountry)
         .put("psiphonCdnIps", psiphonCdnIps).put("psiphonCdnSni", psiphonCdnSni)
+        .put("extra", extra)
+
+    /** [extra] as an object; empty when blank or unreadable. */
+    fun extraJson(): JSONObject = runCatching { if (extra.isBlank()) JSONObject() else JSONObject(extra) }.getOrDefault(JSONObject())
 
     companion object {
         fun fromJson(o: JSONObject) = ProxyConfig(
@@ -206,6 +218,7 @@ data class ProxyConfig(
             psiphonCountry = o.optString("psiphonCountry", ""),
             psiphonCdnIps = o.optString("psiphonCdnIps", ""),
             psiphonCdnSni = o.optString("psiphonCdnSni", ""),
+            extra = o.optString("extra", ""),
             source = runCatching { ConfigSource.valueOf(o.optString("source", "PERSONAL")) }.getOrDefault(ConfigSource.PERSONAL),
             locked = o.optBoolean("locked", false),
             favorite = o.optBoolean("favorite", false),

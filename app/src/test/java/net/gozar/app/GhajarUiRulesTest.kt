@@ -9,14 +9,14 @@ class GhajarUiRulesTest {
     private val linkToken = "a".repeat(48)
 
     @Test fun nativeTelegramIntentCarriesTheSameCommandAsTheWebFallback() {
-        assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=link_012345",
-            "https://t.me/Ghajar_vpnbot?start=link_012345"),
+        assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=applink_012345",
+            "https://t.me/Ghajar_vpnbot?start=applink_012345"),
             GhajarUiRules.botLoginUrls("@Ghajar_vpnbot", "012345"))
     }
     @Test fun nativeTelegramIsOpenedWithoutLaunchingTheBrowserAgain() {
         val opened = mutableListOf<String>()
         assertTrue(GhajarUiRules.launchBotLogin("Ghajar_vpnbot", "123456") { opened += it; true })
-        assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=link_123456"), opened)
+        assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=applink_123456"), opened)
     }
     @Test fun unavailableTelegramFallsBackWithoutLosingTheCode() {
         val opened = mutableListOf<String>()
@@ -24,7 +24,12 @@ class GhajarUiRulesTest {
             opened += it; it.startsWith("https:")
         })
         assertEquals(2, opened.size)
-        assertEquals("https://t.me/Ghajar_vpnbot?start=link_123456", opened.last())
+        assertEquals("https://t.me/Ghajar_vpnbot?start=applink_123456", opened.last())
+    }
+    @Test fun alphanumericBotCodeIsKeptInBothLoginUrls() {
+        assertEquals(listOf("tg://resolve?domain=Ghajar_vpnbot&start=applink_K7P2QX",
+            "https://t.me/Ghajar_vpnbot?start=applink_K7P2QX"),
+            GhajarUiRules.botLoginUrls("@Ghajar_vpnbot", "K7P2QX"))
     }
     @Test fun invalidLoginCodeNeverOpensABareBotChat() {
         var launched = false
@@ -44,8 +49,30 @@ class GhajarUiRulesTest {
     }
     @Test fun expiredOrMalformedLinksCannotBeRestored() {
         assertFalse(GhajarUiRules.validPendingLink("123456", linkToken, 1_000, 2_000))
-        assertFalse(GhajarUiRules.validPendingLink("12345x", linkToken, 3_000, 2_000))
         assertFalse(GhajarUiRules.validPendingLink("123456", "not-a-session", 3_000, 2_000))
+        // Empty, too short, too long, and non-hex all stay refused.
+        assertFalse(GhajarUiRules.validPendingLink("", linkToken, 3_000, 2_000))
+        assertFalse(GhajarUiRules.validPendingLink("AB", linkToken, 3_000, 2_000))
+        assertFalse(GhajarUiRules.validPendingLink("K7P2QX", "a".repeat(200), 3_000, 2_000))
+        assertFalse(GhajarUiRules.validPendingLink("K7P2QX", "z".repeat(64), 3_000, 2_000))
+    }
+
+    /**
+     * The exact shapes the bot issues, which this rule used to reject.
+     *
+     * `FaoximaAppLink` mints the code from ABCDEFGHJKLMNPQRSTUVWXYZ23456789 -
+     * letters included, 0/1/I/O left out so it can be read aloud - and the
+     * session token as bin2hex(random_bytes(32)), which is 64 hex characters
+     * in a CHAR(64) column. The old rule demanded six digits and exactly 48
+     * hex, so signing in was impossible and the app blamed the phone's
+     * keystore for it.
+     */
+    @Test fun theShapesTheBotActuallyIssuesAreAccepted() {
+        val realToken = "3f".repeat(32)
+        assertEquals(64, realToken.length)
+        assertTrue(GhajarUiRules.validPendingLink("K7P2QX", realToken, 300_000, 1_000))
+        assertTrue(GhajarUiRules.validPendingLink("234567", realToken, 300_000, 1_000))
+        assertTrue(GhajarUiRules.validPendingLink("ZXWVUT", realToken, 300_000, 1_000))
     }
     @Test fun clockRollbackCannotGiveLinkAnUnboundedLifetime() {
         assertFalse(GhajarUiRules.validPendingLink("123456", linkToken, 2_000_000, 1_000))
@@ -62,10 +89,10 @@ class GhajarUiRulesTest {
         org.junit.Assert.assertFalse(GhajarUiRules.isLegacyAutomaticFreeFeed("Free Configs", "https://t.me/s/Ghajarvpn"))
     }
     @Test fun botReceivesTheExactLinkPayload() {
-        assertEquals("https://t.me/Ghajar_vpnbot?start=link_012345", GhajarUiRules.botLink("@Ghajar_vpnbot", "012345"))
+        assertEquals("https://t.me/Ghajar_vpnbot?start=applink_012345", GhajarUiRules.botLink("@Ghajar_vpnbot", "012345"))
     }
     @Test fun malformedBotCannotRedirectOutsideTelegram() {
-        assertEquals("https://t.me/Ghajar_vpnbot?start=link_123456", GhajarUiRules.botLink("evil.example/?x=", "123456"))
+        assertEquals("https://t.me/Ghajar_vpnbot?start=applink_123456", GhajarUiRules.botLink("evil.example/?x=", "123456"))
     }
     @Test fun malformedCodeIsNeverInjectedIntoDeepLink() {
         assertEquals("https://t.me/Ghajar_vpnbot", GhajarUiRules.botLink(null, "123&x=1"))

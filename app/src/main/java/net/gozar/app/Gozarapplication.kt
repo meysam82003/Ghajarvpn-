@@ -26,6 +26,7 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         de.blinkt.openvpn.api.AppRestrictions.getInstance(this).checkRestrictions(this)
         GhajarLog.i("Startup", "phase: app restrictions done")
         GhajarLog.init(this)
+        net.gozar.app.engine.EngineTester.attach(this)
         GhajarLog.installCrashHandler(this)
         GhajarLog.i("Startup", "phase: logger ready")
         val processName = if (android.os.Build.VERSION.SDK_INT >= 28) android.app.Application.getProcessName()

@@ -12,6 +12,7 @@ import gozarcore.Gozarcore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
@@ -52,9 +53,14 @@ class GhajarWidget : AppWidgetProvider() {
         // PendingResult it returns belongs to this delivery. Taking it here and
         // passing it in is why these run on a receiver, at all.
         when (intent.action) {
-            ACTION_PING -> { runAsync(context, intent, goAsyncOrNull()) { measurePing(context) }; return }
+            ACTION_PING -> { runAsync(context, intent, goAsyncOrNull(), timeoutMs = 120_000) { measurePing(context) }; return }
             ACTION_SUBS -> { runAsync(context, intent, goAsyncOrNull()) { refreshSubs(context) }; return }
             ACTION_NEXT -> { runAsync(context, intent, goAsyncOrNull()) { nextService(context) }; return }
+            ACTION_SELECT -> {
+                val id = intent.getStringExtra(EXTRA_CONFIG_ID)
+                if (id != null) runAsync(context, intent, goAsyncOrNull()) { selectAndConnect(context, id) }
+                return
+            }
         }
         if (intent.action == ACTION_TOGGLE) {
             when (VpnState.state.value) {
@@ -87,6 +93,8 @@ class GhajarWidget : AppWidgetProvider() {
         const val ACTION_PING = "net.gozar.app.WIDGET_PING"
         const val ACTION_SUBS = "net.gozar.app.WIDGET_SUBS"
         const val ACTION_NEXT = "net.gozar.app.WIDGET_NEXT"
+        const val ACTION_SELECT = "net.gozar.app.WIDGET_SELECT"
+        const val EXTRA_CONFIG_ID = "net.gozar.app.WIDGET_CONFIG_ID"
 
         /** The last ping the app measured, so the widget shows a real number
          *  or nothing at all - never a stale one presented as current. */
@@ -103,6 +111,8 @@ class GhajarWidget : AppWidgetProvider() {
                 if (ids.isNotEmpty()) {
                     val views = build(app)
                     ids.forEach { manager.updateAppWidget(it, views) }
+                    @Suppress("DEPRECATION")
+                    manager.notifyAppWidgetViewDataChanged(ids, R.id.widget_list)
                 }
             }.onFailure { GhajarLog.e(TAG, "refresh failed: ${it.javaClass.simpleName}") }
             // The small widget moves with it. Driving both from one call means
@@ -228,6 +238,19 @@ class GhajarWidget : AppWidgetProvider() {
                 }
             )
 
+            // The scrollable list of configs; a row tap selects and connects.
+            @Suppress("DEPRECATION")
+            views.setRemoteAdapter(R.id.widget_list, Intent(app, GhajarWidgetListService::class.java))
+            views.setEmptyView(R.id.widget_list, R.id.widget_list_empty)
+            views.setTextViewText(R.id.widget_list_empty, if (loading) "…" else t("hub_no_server"))
+            views.setPendingIntentTemplate(
+                R.id.widget_list,
+                PendingIntent.getBroadcast(
+                    app, 6, Intent(app, GhajarWidget::class.java).setAction(ACTION_SELECT),
+                    PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+
             val toggle = Intent(app, GhajarWidget::class.java).setAction(ACTION_TOGGLE)
             views.setOnClickPendingIntent(
                 R.id.widget_toggle,
@@ -332,6 +355,7 @@ class GhajarWidget : AppWidgetProvider() {
             context: Context,
             intent: Intent,
             pending: PendingResult?,
+            timeoutMs: Long = 25_000,
             block: suspend () -> Unit
         ) {
             val app = context.applicationContext
@@ -339,7 +363,7 @@ class GhajarWidget : AppWidgetProvider() {
             refresh(app)
             widgetScope.launch {
                 try {
-                    withTimeoutOrNull(25_000) { block() }
+                    withTimeoutOrNull(timeoutMs) { block() }
                 } catch (t: Throwable) {
                     GhajarLog.e(TAG, "widget action ${intent.action} failed: ${t.javaClass.simpleName}")
                 } finally {
@@ -362,12 +386,41 @@ class GhajarWidget : AppWidgetProvider() {
             val id = VpnState.activeId.value ?: store.selectedId.value
             val cfg = store.configs.value.firstOrNull { it.id == id } ?: return
             val ms: Long = withContext(Dispatchers.IO) {
-                runCatching { Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg)) }
+                runCatching { net.gozar.app.engine.EngineTester.realDelay(cfg) }
                     .getOrDefault(-1L)
             }
             // A failure clears the number rather than leaving the last good one
             // on screen, which would be presenting a stale measurement as now.
             lastPingMs = if (ms >= 0) ms.toInt() else null
+            WidgetConfigs.pings[cfg.id] = if (ms >= 0) ms.toInt() else -1
+            // Then every row in the list, a few at a time, redrawing as results
+            // arrive so the numbers appear in place.
+            val rows = WidgetConfigs.visible(app).filter { it.id != cfg.id }
+            rows.chunked(6).forEach { batch ->
+                kotlinx.coroutines.coroutineScope {
+                    batch.map { c ->
+                        async(Dispatchers.IO) {
+                            val d = runCatching { net.gozar.app.engine.EngineTester.realDelay(c) }.getOrDefault(-1L)
+                            WidgetConfigs.pings[c.id] = if (d >= 0) d.toInt() else -1
+                        }
+                    }.forEach { it.await() }
+                }
+                withContext(Dispatchers.Main) { refresh(app) }
+            }
+        }
+
+        /** A row tap: select that config and connect to it (switching if connected). */
+        private suspend fun selectAndConnect(context: Context, id: String) {
+            val app = context.applicationContext
+            val store = runCatching { ConfigStore.get(app) }.getOrNull() ?: return
+            store.awaitReady()
+            if (store.configs.value.none { it.id == id }) return
+            store.setSelectedId(id)
+            lastPingMs = WidgetConfigs.pings[id]?.takeIf { it >= 0 }
+            withContext(Dispatchers.Main) {
+                runCatching { app.startActivity(connectIntent(app)) }
+                    .onFailure { GhajarLog.e(TAG, "widget select connect failed: ${it.javaClass.simpleName}") }
+            }
         }
 
         private suspend fun refreshSubs(context: Context) {

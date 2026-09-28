@@ -336,7 +336,8 @@ fun ghajarPaletteFor(context: android.content.Context): GhajarPalette {
     val dark = (context.resources.configuration.uiMode and
         android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
         android.content.res.Configuration.UI_MODE_NIGHT_YES
-    return ghajarPaletteFor(ConfigStore.get(context).uiTheme.value, dark)
+    return GhajarLookStore.load(context).value
+        .apply(ghajarPaletteFor(ConfigStore.get(context).uiTheme.value, dark), null)
 }
 
 /**
@@ -406,14 +407,23 @@ fun GhajarTheme(
     // palette carries meaning - warning amber, error red, the connected green
     // - and handing all of it to the wallpaper would make an error message
     // green on somebody's phone. See GhajarAppearance.dynamicAccent.
-    val palette = remember(base, useDynamicAccent) {
-        if (!useDynamicAccent) base
+    val look by remember { GhajarLookStore.load(context) }.collectAsState()
+    val palette = remember(base, useDynamicAccent, look) {
+        val withDynamic = if (!useDynamicAccent) base
         else dynamicAccent(context)?.let { base.copy(primary = it, highlight = it) } ?: base
+        look.apply(withDynamic, if (look.dynamic || look.preset == "dynamic") dynamicAccent(context) else null)
+    }
+    // Font size from Personalization scales on top of the system's own.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val scaled = remember(density, look.fontScale) {
+        androidx.compose.ui.unit.Density(density.density, density.fontScale * look.fontScale)
     }
     CompositionLocalProvider(
         LocalGhajarPalette provides palette,
         LocalReduceMotion provides reduceMotion,
-        LocalListDensity provides listDensity
+        LocalListDensity provides listDensity,
+        LocalGhajarLook provides look,
+        androidx.compose.ui.platform.LocalDensity provides scaled
     ) {
         MaterialTheme(
             colorScheme = palette.toColorScheme(),

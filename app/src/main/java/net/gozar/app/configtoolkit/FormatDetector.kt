@@ -26,7 +26,9 @@ object FormatDetector {
             return FormatDetection(format, (base + extensionBonus).coerceAtMost(100), evidence)
         }
 
+        if (text.startsWith("NPVTSUB1", true)) return result(ConfigFormat.NPVT, 90, "NPVTSUB1")
         if (text.startsWith("NPVT1", true)) return result(ConfigFormat.NPVT, 90, "NPVT1")
+        if (text.startsWith("NPVO1", true)) return result(ConfigFormat.NPVS, 95, "NPVO1")
         if (text.startsWith("NPVS", true)) return result(ConfigFormat.NPVS, 90, "NPVS")
         if (lower.startsWith("happ://crypt")) return result(ConfigFormat.HAPP, 95, "happ://crypt")
         if (lower.startsWith("happ://") || lower.startsWith("happ-proxy://")) {
@@ -51,8 +53,15 @@ object FormatDetector {
             return result(hinted, if (hinted == ConfigFormat.JSON) 80 else 75, "json")
         }
 
-        val standardLink = Regex("(?im)^\\s*(vless|vmess|trojan|ss|socks|socks5)://").containsMatchIn(text)
+        val standardLink = Regex("(?im)^\\s*(vless|vmess|trojan|ss|socks5?|hysteria2?|hy2|tuic|anytls|ssh|openconnect|anyconnect|" +
+            "dnstt|vaydns|noizdns|slipstream|masterdns|stormdns|cottendns|mierus?|brook|juicity|naive\\+https|naive\\+quic|naive|" +
+            "sstp|softether|amneziawg|awg|wireguard|wg|ikev2)://").containsMatchIn(text)
         if (standardLink) return result(ConfigFormat.TEXT, 90, "standard-link")
+        // WireGuard / AmneziaWG .conf and Tor bridge lines go through the same text path.
+        if (lower.contains("[interface]") && lower.contains("[peer]")) return result(ConfigFormat.TEXT, 85, "wg-conf")
+        if (Regex("(?im)^\\s*(bridge\\s+)?(obfs4|webtunnel|snowflake|meek_lite)\\s").containsMatchIn(text)) return result(ConfigFormat.TEXT, 80, "tor-bridges")
+        // Clash / Clash Meta / Mihomo YAML: parsed by ConfigParser.parseBundle.
+        if (Regex("(?m)^\\s*proxies\\s*:").containsMatchIn(text)) return result(ConfigFormat.TEXT, 85, "clash-yaml")
 
         val extensionFormat = ConfigFormat.entries.firstOrNull { ext in it.extensions }
         if (extensionFormat != null) return result(extensionFormat, 25)

@@ -15,7 +15,7 @@ enum class ConfigFormat(val extensions: Set<String>) {
     HAT(setOf("hat")),
     DARK(setOf("dark")),
     JSON(setOf("json")),
-    TEXT(setOf("txt")),
+    TEXT(setOf("txt", "conf", "yaml", "yml")),
     UNKNOWN(emptySet())
 }
 
@@ -66,9 +66,15 @@ data class NormalizedProfile(
     val encryption: String = "none",
     val alterId: Int = 0,
     val rawJson: String = "",
-    val sourceFormat: ConfigFormat
+    val sourceFormat: ConfigFormat,
+    /**
+     * The parsed profile this came from. Fields NormalizedProfile does not
+     * model (extra, MTU, keys, pins, DNS-tunnel mode, …) are kept from it, so
+     * importing a file never loses what the link or .conf carried.
+     */
+    val original: ProxyConfig? = null
 ) {
-    fun toProxyConfig(): ProxyConfig = ProxyConfig(
+    fun toProxyConfig(): ProxyConfig = (original ?: ProxyConfig(name = name, protocol = protocol, address = server, port = port)).copy(
         id = id,
         name = name,
         protocol = protocol.lowercase(),
@@ -120,7 +126,8 @@ data class NormalizedProfile(
             encryption = config.encryption,
             alterId = config.alterId,
             rawJson = rawJson,
-            sourceFormat = format
+            sourceFormat = format,
+            original = config
         )
     }
 }
@@ -140,7 +147,17 @@ sealed class ConfigToolkitException(message: String) : Exception(message) {
     )
 
     class PasskeyRequired : ConfigToolkitException("این فایل با passkey محافظت شده است.")
+    /**
+     * Sealed with the issuing app's own key, not a password the user holds.
+     * Never shown as a password prompt: there is no password to type.
+     */
+    class VendorLocked(format: ConfigFormat) : ConfigToolkitException(
+        "این فایل ${format.name} با قفل اختصاصی برنامهٔ سازنده رمز شده و رمزی برای وارد کردن ندارد. " +
+            "باز کردنش یعنی دور زدن قفل سازنده و پشتیبانی نمی‌شود؛ از سازنده لینک یا خروجی باز بخواهید."
+    )
     class WrongPasskey : ConfigToolkitException("passkey واردشده صحیح نیست.")
+    /** Sealed to a key the user does not hold (app key or recipient key); [message] says which. */
+    class Locked(message: String) : ConfigToolkitException(message)
     class InvalidConfig(message: String) : ConfigToolkitException(message)
     class TooLarge(limit: Long) : ConfigToolkitException("حجم فایل از سقف امن ${limit / 1024 / 1024} مگابایت بیشتر است.")
 }

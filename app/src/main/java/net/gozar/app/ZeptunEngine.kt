@@ -46,9 +46,15 @@ object ZeptunEngine {
             // engine, so it is safe to ask at any time.
             Zeptun.nativeVersion().isNotBlank()
         }.onFailure {
-            GhajarLog.i(TAG, "engine not in this build: ${it.javaClass.simpleName}")
+            loadError = "${it.javaClass.simpleName}: ${it.message}"
+            GhajarLog.e(TAG, "engine did not load: $loadError")
         }.getOrDefault(false)
     }
+
+    /** Why [available] is false, as the loader reported it; null while it loaded. */
+    @Volatile
+    var loadError: String? = null
+        private set
 
     /** The engine's own version string, or null when it is not present. */
     fun version(): String? =

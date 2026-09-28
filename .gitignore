@@ -42,3 +42,15 @@ Thumbs.db
 # The sing-box core, built by scripts/build-singbox.sh rather than
 # committed: it is around a hundred megabytes. See third_party/sing-box/.
 app/src/main/jniLibs/*/libsingbox.so
+app/src/main/jniLibs/*/libdnstt.so
+app/src/main/jniLibs/*/libvaydns.so
+app/src/main/jniLibs/*/libnoizdns.so
+app/src/main/jniLibs/*/libmasterdns.so
+app/src/main/jniLibs/*/libstormdns.so
+app/src/main/jniLibs/*/libcottendns.so
+app/src/main/jniLibs/*/libslipstream.so
+app/src/main/jniLibs/*/libghajarhelper.so
+app/src/main/jniLibs/*/liblyrebird.so
+app/src/main/jniLibs/*/libjuicity.so
+app/src/main/jniLibs/*/libndpiclassify.so
+build/ndpi/

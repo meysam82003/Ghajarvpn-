@@ -1248,6 +1248,49 @@ private fun DnsTunnelSection(
             onClick = { open = !open }
         )
 
+        // A complete profile becomes a normal server: dnstt carries it, and
+        // sing-box speaks SOCKS5 or SSH to what the tunnel server forwards to
+        // (engine/SingBoxConfig.kt, protocol "dnstt"). Being added is not
+        // being connected; the server list's test says whether it works.
+        if (engineAvailable && complete) {
+            val ctx = androidx.compose.ui.platform.LocalContext.current
+            var upstreamSsh by remember { mutableStateOf(false) }
+            var sshUser by remember { mutableStateOf("") }
+            var sshPass by remember { mutableStateOf("") }
+            Text(t("dnstun_upstream"), style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Chip(label = "SOCKS5", selected = !upstreamSsh, onClick = { upstreamSsh = false })
+                Chip(label = "SSH", selected = upstreamSsh, onClick = { upstreamSsh = true })
+            }
+            if (upstreamSsh) {
+                SkinField(value = sshUser, onValueChange = { sshUser = it }, label = t("dnstun_ssh_user"))
+                SkinField(value = sshPass, onValueChange = { sshPass = it }, label = t("dnstun_ssh_pass"))
+            }
+            GhostPill(
+                text = t("dnstun_add_server"),
+                onClick = {
+                    val r = chosenResolver!!
+                    val (mode, address, port, url) = when (r.transport) {
+                        DnsTransport.DOH -> {
+                            val u = runCatching { java.net.URI(r.address) }.getOrNull()
+                            listOf("doh", u?.host.orEmpty(), (u?.port?.takeIf { it > 0 } ?: 443).toString(), r.address)
+                        }
+                        DnsTransport.DOT -> listOf("dot", r.address.substringBeforeLast(':').ifBlank { r.address },
+                            r.address.substringAfterLast(':', "853").toIntOrNull()?.toString() ?: "853", "")
+                        else -> listOf("udp", r.address, "53", "")
+                    }
+                    store.add(ProxyConfig(
+                        name = name.ifBlank { domain },
+                        protocol = "dnstt", address = address, port = port.toInt(),
+                        host = domain.trim().trim('.'), publicKey = key.trim(), mode = mode, path = url,
+                        method = if (upstreamSsh) "ssh" else "socks",
+                        uuid = if (upstreamSsh) sshUser.trim() else "", password = if (upstreamSsh) sshPass else ""
+                    ))
+                    android.widget.Toast.makeText(ctx, t("dnstun_added"), android.widget.Toast.LENGTH_LONG).show()
+                }
+            )
+        }
+
         AnimatedVisibility(visible = open) {
             Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
                 SlabDivider()

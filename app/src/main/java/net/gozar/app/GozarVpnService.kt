@@ -22,12 +22,15 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.CancellationException
 import java.io.File
+import net.gozar.app.engine.SingBoxController
 
 class GozarVpnService : VpnService() {
 
     private var tunFd: ParcelFileDescriptor? = null
     private var aetherSpec: AetherSpec? = null
     private var psiphonSpec: PsiphonSpec? = null
+    /** sing-box proxy part (SingBoxConfig.spec) when this session runs on sing-box; null otherwise. */
+    private var singboxSpec: String? = null
     private var oblivionOptions: OblivionOptions? = null
     @Volatile private var enginesReady = false
     @Volatile private var pendingEnd = false
@@ -50,8 +53,20 @@ class GozarVpnService : VpnService() {
     /** True when the zeptun engine, not the Xray core, owns this session's tun. */
     @Volatile private var zeptunOwnsTun = false
 
+    // Shop notices while the tunnel is up. The scheduled job runs at most
+    // every fifteen minutes (Android's floor for periodic work); a running
+    // VPN is already a foreground service, so it checks every two minutes
+    // and warnings and announcements arrive close to when they are sent.
+    private var noticeJob: kotlinx.coroutines.Job? = null
+
     override fun onCreate() {
         super.onCreate()
+        noticeJob = scope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(120_000)
+                runCatching { GhajarNotificationMonitor.refresh(applicationContext) }
+            }
+        }
         // Nothing in here may throw. A throw from onCreate() aborts service
         // creation, and two aborts in a row make ActivityManager flag the
         // hosting process "bad" - after which every startForegroundService()
@@ -107,6 +122,7 @@ class GozarVpnService : VpnService() {
                 aetherSpec = AetherSpec.parse(intent?.getStringExtra(EXTRA_AETHER))
                 psiphonSpec = PsiphonSpec.parse(intent?.getStringExtra(EXTRA_PSIPHON))
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
+                singboxSpec = intent?.getStringExtra(EXTRA_SINGBOX)?.takeIf { it.isNotBlank() }
                 configName = intent?.getStringExtra(EXTRA_NAME) ?: "VPN"
                 configAddress = intent?.getStringExtra(EXTRA_ADDRESS).orEmpty()
                 configPort = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
@@ -155,8 +171,8 @@ class GozarVpnService : VpnService() {
             // that resolver - pointing apps at a real one instead would send
             // every query past the thing meant to answer it. The address is
             // inside the tun's own 0.0.0.0/0 route, so nothing else changes.
-            val fakeIpDns = options?.proxyOnly == true &&
-                store.zeptunTunnel.value &&
+            val singbox = singboxSpec
+            val fakeIpDns = ((options?.proxyOnly == true && store.zeptunTunnel.value) || singbox != null) &&
                 ZeptunEngine.available &&
                 store.zeptunDns.value == ZeptunEngine.DnsMode.FAKE_IP
             val resolvers = if (fakeIpDns) listOf(ZeptunEngine.FAKE_DNS_ADDRESS)
@@ -175,9 +191,16 @@ class GozarVpnService : VpnService() {
             // own. Everything about the Xray path below is unchanged, and when
             // the setting is off or the engine is not in this build, pfd stays
             // null exactly as before.
-            val wantZeptun = options?.proxyOnly == true &&
+            // sing-box has no tun of its own in this app: it always publishes
+            // a local SOCKS5 and zeptun carries the device into it, so it
+            // needs zeptun whatever the proxy-only setting says.
+            if (singbox != null && !ZeptunEngine.available) {
+                die("sing-box needs the zeptun tun engine, which is not in this build")
+                return@launch
+            }
+            val wantZeptun = (options?.proxyOnly == true &&
                 store.zeptunTunnel.value &&
-                ZeptunEngine.available
+                ZeptunEngine.available) || singbox != null
             val pfd = if (options?.proxyOnly == true) {
                 if (wantZeptun) builder.establish() else null
             } else builder.establish()
@@ -229,6 +252,23 @@ class GozarVpnService : VpnService() {
                         return@launch
                     }
                 }
+                if (singbox != null) {
+                    if (!net.gozar.app.engine.SingBoxRunner.available(applicationContext)) {
+                        die("sing-box is not bundled in this build")
+                        return@launch
+                    }
+                    val failure = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+                        SingBoxController.start(applicationContext, singbox)
+                    }
+                    if (failure != null) {
+                        SingBoxController.stop()
+                        die(failure)
+                        return@launch
+                    }
+                    // A core that dies mid-session must not leave a tunnel
+                    // that looks connected and carries nothing.
+                    SingBoxController.onUnexpectedExit = { code -> if (!tearingDown) die("sing-box stopped (exit $code)") }
+                }
                 runCatching { Gozarcore.stop() }
                 ensureActive()
                 val readyJson = if (psi != null) PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT) else configJson
@@ -238,6 +278,7 @@ class GozarVpnService : VpnService() {
                 // proxy-only engine published.
                 if (zeptunOwnsTun && pfd != null) {
                     val socksPort = when {
+                        singbox != null -> SingBoxController.socksPort
                         psi != null -> PsiphonController.SOCKS_PORT
                         else -> AetherController.SOCKS_PORT
                     }
@@ -298,7 +339,8 @@ class GozarVpnService : VpnService() {
                         TorController.start(
                             applicationContext,
                             parts.getOrElse(0) { "" },
-                            parts.getOrElse(1) { "0" } == "1"
+                            parts.getOrElse(1) { "0" } == "1",
+                            TorBridges.fromSpec(parts)
                         )
                     }
                     if (!up) {
@@ -370,11 +412,14 @@ class GozarVpnService : VpnService() {
         AetherController.stop()
         PsiphonController.stop()
         TorController.stop()
+        SingBoxController.onUnexpectedExit = null
+        SingBoxController.stop()
         runCatching { tunFd?.close() }; tunFd = null
         aetherSpec = AetherSpec.from(config)
+        singboxSpec = net.gozar.app.engine.SingBoxConfig.spec(config)
         psiphonSpec = PsiphonSpec.from(config)
         torSpec = if (config.protocol == "tor")
-            config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0") else null
+            TorController.spec(config) else null
         configName = config.name
         configAddress = config.address
         configPort = config.port
@@ -463,8 +508,12 @@ class GozarVpnService : VpnService() {
             var lastUp = 0L
             var lastDown = 0L
             while (isActive && !tearingDown) {
-                val up = if (oblivionOptions?.proxyOnly == true) 0L else Gozarcore.queryUplink()
-                val down = if (oblivionOptions?.proxyOnly == true) 0L else Gozarcore.queryDownlink()
+                // When zeptun owns the tun, Xray is not running and its
+                // counters are meaningless; zeptun's own are the real ones
+                // (rx = read from the tun = sent by apps, tx = written back).
+                val z = if (zeptunOwnsTun) ZeptunEngine.counters() else null
+                val up = when { z != null -> z.rxBytes; oblivionOptions?.proxyOnly == true || singboxSpec != null -> 0L; else -> Gozarcore.queryUplink() }
+                val down = when { z != null -> z.txBytes; oblivionOptions?.proxyOnly == true || singboxSpec != null -> 0L; else -> Gozarcore.queryDownlink() }
                 val upSpeed = (up - lastUp).coerceAtLeast(0L)
                 val downSpeed = (down - lastDown).coerceAtLeast(0L)
                 lastUp = up; lastDown = down
@@ -511,6 +560,8 @@ class GozarVpnService : VpnService() {
                 PsiphonController.stop()
                 AetherController.stop()
                 TorController.stop()
+                SingBoxController.onUnexpectedExit = null
+                SingBoxController.stop()
                 runCatching { tunFd?.close() }; tunFd = null
                 val killOn = ConfigStore.get(applicationContext).killSwitch.value
                 if (error != null && killOn && oblivionOptions?.proxyOnly != true) {
@@ -544,11 +595,28 @@ class GozarVpnService : VpnService() {
      */
     private fun trackUnderlyingNetwork() {
         if (underlyingListener != null) return
+        var lastNetwork: android.net.Network? = null
         val listener: (NetKind?, android.net.Network?) -> Unit = { kind, network ->
             runCatching {
                 setUnderlyingNetworks(network?.let { arrayOf(it) })
                 GhajarLog.i(TAG, "tunnel now rides $kind")
             }.onFailure { GhajarLog.e(TAG, "underlying network not set: ${it.javaClass.simpleName}") }
+            // Engines run as subprocesses (sing-box and the helper in front
+            // of it) keep sockets bound to the network they were opened on.
+            // After a real switch (Wi-Fi <-> mobile) they are restarted on the
+            // same local port, so zeptun carries on; Xray handles this itself.
+            val previous = lastNetwork
+            if (network != null) lastNetwork = network
+            if (previous != null && network != null && network != previous &&
+                singboxSpec != null && enginesReady && !tearingDown) {
+                scope.launch {
+                    GhajarLog.i(TAG, "network changed; reconnecting the proxy engine")
+                    val failure = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+                        SingBoxController.reconnect(applicationContext)
+                    }
+                    if (failure != null && !tearingDown) die("reconnect after network change failed: $failure")
+                }
+            }
         }
         underlyingListener = listener
         NetworkWatcher.initialize(applicationContext)
@@ -583,6 +651,7 @@ class GozarVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        noticeJob?.cancel()
         tearingDown = true
         enginesReady = false
         startJob?.cancel()
@@ -598,6 +667,8 @@ class GozarVpnService : VpnService() {
                 AetherController.stop()
                 PsiphonController.stop()
                 TorController.stop()
+                SingBoxController.onUnexpectedExit = null
+                SingBoxController.stop()
                 runCatching { tunFd?.close() }; tunFd = null
                 runCatching { blockFd?.close() }; blockFd = null
                 runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
@@ -721,6 +792,7 @@ class GozarVpnService : VpnService() {
         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"
         const val EXTRA_AETHER = "net.gozar.app.AETHER"
         const val EXTRA_PSIPHON = "net.gozar.app.PSIPHON"
+        const val EXTRA_SINGBOX = "net.gozar.app.SINGBOX"
         const val EXTRA_TOR = "net.gozar.app.TOR"
         const val EXTRA_NAME = "net.gozar.app.NAME"
         const val EXTRA_STOP_LABEL = "net.gozar.app.STOP_LABEL"

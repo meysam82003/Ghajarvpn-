@@ -26,10 +26,23 @@ class GhajarAccountStore(context: Context) {
         return link
     }
 
-    /** Called on the API's IO dispatcher before the external bot is opened. */
+    /**
+     * Called on the API's IO dispatcher before the external bot is opened.
+     *
+     * Two different failures, told apart on purpose. A refused *shape* is the
+     * server and this app disagreeing about what a code looks like; a refused
+     * *write* is this phone's storage. Reporting both as "secure storage
+     * failed" sent a real format mismatch to the wrong place entirely, so the
+     * shape failure now throws with its own message.
+     */
     fun savePendingLink(link: GhajarLinkSession): Boolean = synchronized(LOCK) {
         if (!GhajarUiRules.validPendingLink(link.code, link.sessionToken,
-                link.expiresAtMillis, System.currentTimeMillis())) return false
+                link.expiresAtMillis, System.currentTimeMillis())) {
+            throw GhajarApiException(
+                "کد اتصالی که ربات صادر کرد با این نسخهٔ برنامه هم‌خوان نیست؛ " +
+                    "برنامه یا فایل‌های ربات باید بروزرسانی شود."
+            )
+        }
         val plain = JSONObject().put("version", 1).put("code", link.code)
             .put("session_token", link.sessionToken).put("bot_username", link.botUsername)
             .put("expires_in", link.expiresInSeconds).put("expires_at_ms", link.expiresAtMillis).toString()

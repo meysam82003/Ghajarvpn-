@@ -18,7 +18,99 @@ object ConfigShare {
         "vmess" -> vmessLink(c)
         "shadowsocks" -> ssLink(c)
         "hysteria2" -> hysteria2Link(c)
+        "tuic" -> simpleLink("tuic", enc(c.uuid) + ":" + enc(c.password), c, listOf(
+            "sni" to c.sni, "alpn" to c.alpn, "congestion_control" to c.method,
+            "udp_relay_mode" to c.mode, "allow_insecure" to if (c.allowInsecure) "1" else ""))
+        "hysteria" -> simpleLink("hysteria", "", c, listOf(
+            "auth" to c.password, "peer" to c.sni, "alpn" to c.alpn,
+            "upmbps" to c.hyUpMbps.takeIf { it > 0 }?.toString().orEmpty(),
+            "downmbps" to c.hyDownMbps.takeIf { it > 0 }?.toString().orEmpty(),
+            "obfs" to c.hyObfs, "obfsParam" to c.hyObfsPassword, "insecure" to if (c.allowInsecure) "1" else ""))
+        "anytls" -> simpleLink("anytls", enc(c.password), c, listOf(
+            "sni" to c.sni, "fp" to c.fingerprint, "insecure" to if (c.allowInsecure) "1" else ""))
+        // The private key is never put in a share link.
+        "ssh" -> {
+            val t = c.extraJson().optJSONObject("transport")
+            val tp = if (t == null) emptyList() else listOf(
+                "mode" to t.optString("mode"),
+                "proxy" to (t.optString("proxyHost").takeIf { it.isNotBlank() }?.let { it + ":" + t.optInt("proxyPort") } ?: ""),
+                "sni" to t.optString("sni"),
+                "payload" to t.optString("payload").takeIf { it.isNotEmpty() }?.let { java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray()) }.orEmpty(),
+                "wspath" to t.optString("wsPath"), "wshost" to t.optString("wsHost"), "ua" to t.optString("ua"),
+                "wsframing" to if (t.optBoolean("wsFraming")) "1" else "", "verify" to if (t.optBoolean("verify")) "1" else "")
+            simpleLink("ssh", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf("hostkey" to c.publicKey) + tp)
+        }
+        "naive" -> simpleLink(if (c.mode == "quic") "naive+quic" else "naive+https",
+            enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c,
+            listOf("sni" to c.sni.takeIf { it != c.address }.orEmpty()))
+        "softether" -> c.extraJson().let { x ->
+            simpleLink("softether", enc(c.uuid) + ":" + enc(c.password), c, listOf(
+                "hub" to x.optString("hub"), "sni" to c.sni, "pin" to c.pinnedCertSha256,
+                "allow_insecure" to if (c.allowInsecure) "1" else "", "auth" to if (x.optBoolean("plain")) "plain" else "",
+                "ip" to x.optString("ip"), "gw" to x.optString("gw"), "dns" to x.optString("dns"),
+                "mtu" to c.mtu.takeIf { it > 0 }?.toString().orEmpty()))
+        }
+        "sstp" -> simpleLink("sstp", enc(c.uuid) + ":" + enc(c.password), c, listOf(
+            "sni" to c.sni, "auth" to c.method.takeIf { it == "pap" || it == "mschapv2" }.orEmpty(),
+            "allow_insecure" to if (c.allowInsecure) "1" else "", "pin" to c.pinnedCertSha256,
+            "mtu" to c.mtu.takeIf { it > 0 }?.toString().orEmpty()))
+        "juicity" -> simpleLink("juicity", enc(c.uuid) + ":" + enc(c.password), c, listOf(
+            "congestion_control" to c.method, "sni" to c.sni, "allow_insecure" to if (c.allowInsecure) "1" else "",
+            "pinned_certchain_sha256" to c.pinnedCertSha256))
+        "shadowtls" -> {
+            val ss = c.extraJson().optJSONObject("ss") ?: org.json.JSONObject()
+            val user = java.util.Base64.getUrlEncoder().withoutPadding().encodeToString((ss.optString("method") + ":" + ss.optString("password")).toByteArray())
+            val plugin = "shadow-tls;host=${c.sni};password=${c.password};version=${if (c.alterId in 1..3) c.alterId else 3}"
+            val host = if (c.address.contains(':')) "[${c.address}]" else c.address
+            "ss://$user@$host:${c.port}?plugin=" + enc(plugin) + "#" + enc(c.name)
+        }
+        "mieru", "brook" -> c.extraJson().optString("url").takeIf { it.isNotBlank() }?.let { it + "#" + enc(c.name) }.orEmpty()
+        "amneziawg" -> c.extraJson().optString("conf").takeIf { it.isNotBlank() }?.let {
+            "amneziawg://" + java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray()) + "#" + enc(c.name)
+        }.orEmpty()
+        "openconnect" -> simpleLink("openconnect", enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf(
+            "flavor" to c.mode, "sni" to c.sni, "pin" to c.pinnedCertSha256, "insecure" to if (c.allowInsecure) "1" else "",
+            "mtu" to c.mtu.takeIf { it > 0 }?.toString().orEmpty(),
+            "authgroup" to c.extraJson().optString("authGroup"), "os" to c.extraJson().optString("reportedOs"),
+            "ua" to c.extraJson().optString("userAgent"),
+            "reconnect" to c.extraJson().optInt("reconnect", 0).takeIf { it > 0 }?.toString().orEmpty(),
+            "nodtls" to if (c.extraJson().optBoolean("noUdp")) "1" else "",
+            "noipv6" to if (c.extraJson().optBoolean("ipv6Off")) "1" else ""))
+        // The client certificate and key stay on this device: they are not put in share links.
+        "masterdns", "stormdns", "cottendns" -> {
+            val x = c.extraJson()
+            val first = (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port
+            val resolvers = (listOf(first) + x.optString("resolvers").split(',')).map { it.trim() }.filter { it.isNotEmpty() }
+            val params = listOf("resolver" to resolvers.joinToString(","), "enc" to x.optInt("enc", 1).toString(),
+                "transport" to c.mode.ifEmpty { "udp" })
+            c.protocol + "://" + enc(c.password) + "@" + c.host + "?" + params.joinToString("&") { it.first + "=" + enc(it.second) } + "#" + enc(c.name)
+        }
+        "dnstt", "vaydns", "noizdns", "slipstream" -> {
+            val user = enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else "")
+            val params = listOf("pubkey" to c.publicKey, "transport" to c.mode.ifEmpty { "udp" },
+                if (c.mode == "doh") "doh" to c.path else "resolver" to (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port,
+                "upstream" to c.method.ifEmpty { "socks" })
+            val x = c.extraJson()
+            val opts = listOfNotNull(
+                x.optString("recordType").takeIf { it.isNotEmpty() }?.let { "record" to it },
+                if (x.has("dnsttCompat")) "compat" to (if (x.optBoolean("dnsttCompat")) "1" else "0") else null,
+                x.optInt("maxQnameLen", 0).takeIf { it > 0 }?.let { "qname" to it.toString() },
+                x.optInt("clientIdSize", 0).takeIf { it > 0 }?.let { "clientid" to it.toString() },
+                if (x.has("noiz")) "noiz" to (if (x.optBoolean("noiz")) "1" else "0") else null,
+                if (x.has("stealth")) "stealth" to (if (x.optBoolean("stealth")) "1" else "0") else null,
+                x.optString("authoritative").takeIf { it.isNotEmpty() }?.let { "authoritative" to it },
+                x.optString("cc").takeIf { it.isNotEmpty() }?.let { "cc" to it })
+            val query = (params + opts).filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
+            c.protocol + "://" + (if (user.isEmpty() || user == ":") "" else "$user@") + c.host + "?" + query + "#" + enc(c.name)
+        }
         else -> ""
+    }
+
+    private fun simpleLink(scheme: String, userInfo: String, c: ProxyConfig, params: List<Pair<String, String>>): String {
+        val query = params.filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
+        val host = if (c.address.contains(':')) "[" + c.address + "]" else c.address
+        val user = if (userInfo.isEmpty() || userInfo == ":") "" else "$userInfo@"
+        return "$scheme://$user$host:${c.port}" + (if (query.isEmpty()) "" else "?$query") + "#" + enc(c.name)
     }
 
     private fun enc(s: String): String = URLEncoder.encode(s, "UTF-8")

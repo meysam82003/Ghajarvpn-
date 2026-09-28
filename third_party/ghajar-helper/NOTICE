@@ -1,0 +1,25 @@
+ghajar-helper (native/ghajar-helper) is part of Ghajar VPN, GPL-3.0.
+It links, unmodified, the following libraries (pinned in native/ghajar-helper/go.sum):
+
+  github.com/amnezia-vpn/amneziawg-go/v3  v3.1.20260828 (b5928ef)  MIT
+  github.com/enfein/mieru/v3              v3.38.0 (b961978)          GPL-3.0
+  github.com/txthinking/brook             5ad0c40                    GPL-3.0
+  gvisor.dev/gvisor (via amneziawg-go netstack)                      Apache-2.0
+  golang.org/x/*                                                     BSD-3-Clause
+
+Full dependency list with versions and checksums: native/ghajar-helper/go.sum.
+
+SSTP mode (sstp.go) is Ghajar's own implementation of [MS-SSTP], RFC 1661,
+1332, 1877, 1334, 2759 and 3079 (verified against the RFC 2759 / RFC 3079
+test vectors in helper_test.go). The Open-SSTP-Client project
+(github.com/kittoku/Open-SSTP-Client, 5f97511, MIT, (c) 2019 KOBAYASHI
+Ittoku) was read as a reference for the message layouts; no code from it is
+included. MD4 comes from golang.org/x/crypto/md4 (BSD-3-Clause).
+
+SoftEther mode (softether.go) is a port of SoftEther VPN 5.02.5187
+(github.com/SoftEtherVPN/SoftEtherVPN, tag 5.02.5187, commit 5d1ce1a,
+Apache-2.0, (c) SoftEther Project / Daiyuu Nobori): Cedar/Protocol.c,
+Mayaqua/Pack.c, Cedar/Sam.c, Cedar/Account.c, Cedar/Connection.c.
+softether_watermark.gif is the WaterMark array of Cedar/WaterMark.c,
+unchanged (1411 bytes, SHA-256 96a706bb...df12a0). Apache-2.0 terms:
+https://www.apache.org/licenses/LICENSE-2.0

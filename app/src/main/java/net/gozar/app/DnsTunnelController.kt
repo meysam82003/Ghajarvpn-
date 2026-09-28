@@ -82,7 +82,13 @@ data class DnsTunnelProfile(
  * three things that cannot be inferred from a resolver's IP - the domain, the
  * server's public key, and a server actually running at the other end.
  *
- * **The engine binary is not bundled in this build.** It is a Go program and
+ * **Update:** the dnstt client is now built in CI (scripts/build-dnstt.sh,
+ * upstream v1.20260501.0) and a complete profile is connected as a normal
+ * server of protocol `dnstt` (DNS Lab "add to servers", or a dnstt:// link):
+ * engine/SidecarRunner runs it and sing-box carries its upstream. This
+ * standalone controller is kept for the lab's state display only.
+ *
+ * Original note: the engine binary was not bundled. It is a Go program and
  * this app already ships Go binaries the same way (see AetherController and
  * the sing-box build), so the mechanism is in place: a `lib*.so` in jniLibs,
  * executed from `nativeLibraryDir`. What is missing is the binary itself, and

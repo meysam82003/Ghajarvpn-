@@ -207,6 +207,11 @@ object GhajarLog {
         val out = File(sharedDir, "ghajar-log-export.txt")
         runCatching {
             val raw = buildString {
+                // Which cores this build really has and which one is running,
+                // so a report says what was available without guessing.
+                append("=== cores ===\n")
+                append(runCatching { net.gozar.app.engine.CoreManager.report(context) }.getOrElse { "unavailable: ${it.javaClass.simpleName}" })
+                append("\n=== log ===\n")
                 for (n in ROTATED_FILES downTo 1) {
                     val f = rotatedFile(n)
                     if (f.exists()) append(f.readText(Charsets.UTF_8))
@@ -228,6 +233,11 @@ object GhajarLog {
      */
     internal val redactionPatterns: List<Pair<Regex, String>> = listOf(
         Regex("(?i)bearer\\s+[A-Za-z0-9\\-_.]{8,}") to "Bearer [REDACTED]",
+        // Helper engines that print their own secrets: MasterDnsVPN/StormDNS
+        // log "Active Encryption Key: …", and TOML/JSON engine configs carry
+        // ENCRYPTION_KEY / obfs keys.
+        Regex("(?i)((?:encryption[ _-]?key|obfs[_-]?password|preshared[_-]?key)\"?\\s*[:=]\\s*\"?)[^\\s\",}]{4,}") to "$1[REDACTED]",
+        Regex("(?i)(active encryption key:\\s*)\\S+") to "$1[REDACTED]",
         // The key list covers what this app actually carries, not just the
         // generic three: "pass" as well as "password", the private/public keys
         // and short id a Reality config is useless without, the pre-shared key
@@ -237,7 +247,13 @@ object GhajarLog {
         // A share link carries the credential in its userinfo, so the whole
         // link is the secret. Everything up to the @ goes; the host and port
         // stay, because which server failed is the point of a diagnostic.
-        Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|hy2|tuic|socks5?|http)://[^@\\s/]+@") to "$1://[REDACTED]@",
+        Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|hy2|tuic|socks5?|http|ssh|anytls|wireguard|wg)://[^@\\s/]+@") to "$1://[REDACTED]@",
+        // Whole PEM blocks: an .ovpn certificate or private key, a WireGuard or
+        // SSH key pasted into a profile.
+        Regex("-----BEGIN [A-Z ]+-----[\\s\\S]*?-----END [A-Z ]+-----") to "[PEM REDACTED]",
+        Regex("(?is)<(key|cert|ca|tls-auth|tls-crypt|tls-crypt-v2|secret)>.*?</\\1>") to "<$1>[REDACTED]</$1>",
+        // An OpenConnect session cookie and an NPVS passphrase.
+        Regex("(?i)(\"?(?:webvpn|cookie|passphrase|passkey|preshared[_-]?key)\"?\\s*[:=]\\s*\"?)[^\"\\s,;}]{4,}") to "$1[REDACTED]",
         // A bare vmess:// link is a base64 blob with no @ at all.
         Regex("(?i)\\bvmess://[A-Za-z0-9+/=]{16,}") to "vmess://[REDACTED]",
         // A VLESS/VMess uuid is that server's whole authentication.

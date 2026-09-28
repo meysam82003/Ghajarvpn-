@@ -7,8 +7,28 @@ internal object GhajarUiRules {
     fun linkExpiresAt(nowMillis: Long, ttlSeconds: Int): Long =
         nowMillis + ttlSeconds.coerceIn(0, (MAX_LINK_LIFETIME_MS / 1000).toInt()) * 1000L
 
+    /**
+     * Whether a freshly issued pairing code is one this app will keep.
+     *
+     * Both patterns were wrong against the bot that actually issues them, and
+     * either one alone made signing in impossible - the app refused the code
+     * before it ever reached storage, and said "ذخیرهٔ امن کد اتصال ناموفق بود",
+     * which pointed at the phone's keystore instead of at this line:
+     *
+     *  - The code is six characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`
+     *    (`FaoximaAppLink::ALPHABET` - no 0/1/I/O, so it can be read aloud),
+     *    not six digits. `K7P2QX` is a valid code and `[0-9]{6}` rejected it.
+     *  - The session token is `bin2hex(random_bytes(32))`, so 64 hex
+     *    characters, stored in a `CHAR(64)` column. The rule demanded exactly
+     *    48 and rejected every real one.
+     *
+     * Now bounded rather than exact. The app's job here is to refuse something
+     * malformed or absurdly long before it goes into storage and into a bot
+     * command; the precise length and alphabet are the server's business, and
+     * pinning them here is how one change on that side locked everybody out.
+     */
     fun validPendingLink(code: String, token: String, expiresAtMillis: Long, nowMillis: Long): Boolean =
-        code.matches(Regex("[0-9]{6}")) && token.matches(Regex("[a-fA-F0-9]{48}")) &&
+        code.matches(LINK_CODE) && token.matches(Regex("[a-fA-F0-9]{32,128}")) &&
             expiresAtMillis > nowMillis && expiresAtMillis - nowMillis <= MAX_LINK_LIFETIME_MS
 
     fun isLegacyAutomaticFreeFeed(name: String, url: String): Boolean =
@@ -92,17 +112,44 @@ internal object GhajarUiRules {
     fun ovpnNeedsSavedCredentials(username: String?, password: String?): Boolean =
         username.isNullOrBlank() || password.isNullOrBlank()
 
+    /**
+     * The one shape a pairing code may have on its way into a URL.
+     *
+     * Same correction as [validPendingLink], and it had the same consequence
+     * in a quieter way: a code with a letter in it produced no deep link at
+     * all, so "open the bot" did nothing and there was no error to read. A
+     * deep-link payload must stay strictly alphanumeric - that is what keeps
+     * it out of Telegram's start-parameter grammar - but it is not digits.
+     */
+    private val LINK_CODE = Regex("[A-Za-z0-9]{4,12}")
+
+    /**
+     * The start-parameter prefix the bot actually matches.
+     *
+     * `applink_`, from `rx_app_link_try_claim`'s
+     * `/^\/start\s+applink[_-]([A-Za-z0-9]{4,16})$/`. This used to send
+     * `link_`, which the bot ignores - so the deep link opened the bot,
+     * handed it a payload it had no pattern for, and the code was never
+     * claimed. Deliberately matched on a prefix on that side, so it has to be
+     * exactly this word here.
+     */
+    private const val LINK_PAYLOAD_PREFIX = "applink_"
+
     fun botLink(username: String?, code: String?): String {
         val bot = botUsername(username)
-        val payload = code?.takeIf { it.matches(Regex("[0-9]{6}")) }?.let { "?start=link_$it" }.orEmpty()
+        val payload = code?.takeIf { it.matches(LINK_CODE) }
+            ?.let { "?start=$LINK_PAYLOAD_PREFIX$it" }.orEmpty()
         return "https://t.me/$bot$payload"
     }
 
     /** Login must never silently degrade into opening a bot without its code. */
     fun botLoginUrls(username: String?, code: String?): List<String> {
-        if (code == null || !code.matches(Regex("[0-9]{6}"))) return emptyList()
+        if (code == null || !code.matches(LINK_CODE)) return emptyList()
         val bot = botUsername(username)
-        return listOf("tg://resolve?domain=$bot&start=link_$code", botLink(bot, code))
+        return listOf(
+            "tg://resolve?domain=$bot&start=$LINK_PAYLOAD_PREFIX$code",
+            botLink(bot, code)
+        )
     }
 
     fun launchBotLogin(username: String?, code: String?, launch: (String) -> Boolean): Boolean =

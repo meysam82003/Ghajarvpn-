@@ -49,6 +49,9 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.border
@@ -89,6 +92,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -128,8 +132,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.MonitorHeart
+import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Build
@@ -157,6 +166,9 @@ import androidx.compose.material.icons.filled.PowerSettingsNew
 import androidx.compose.material.icons.filled.CardGiftcard
 import androidx.compose.material.icons.filled.Layers
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.DriveFileRenameOutline
+import androidx.compose.material.icons.filled.DriveFileMove
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Wifi
@@ -187,6 +199,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.material.icons.filled.ExpandLess
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.ShoppingBag
 import android.Manifest
@@ -275,9 +288,11 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
@@ -381,6 +396,10 @@ private const val PAGE_SHOP = 1
 private const val PAGE_SETTINGS = 2
 private const val PAGE_COUNT = 3
 
+/** Material 3 emphasized easing: quick start, long soft landing. */
+private val SmoothDecel = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
+private val SmoothAccel = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
+
 @Composable
 private fun stringsFn(): (String) -> String {
     val lang = LocalLang.current
@@ -435,6 +454,8 @@ object ImportBus {
 class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_RENEW_SERVICE_USERNAME = "ghajar_renew_service_username"
+        const val EXTRA_OPEN_SHOP_ID = "ghajar_open_shop_id"
+        const val EXTRA_OPEN_SHOP_CODE = "ghajar_open_shop_code"
     }
 
     private lateinit var store: ConfigStore
@@ -513,6 +534,7 @@ class MainActivity : ComponentActivity() {
         GhajarLog.i("Startup", "phase: bridges registered")
         handleImportIntent(intent)
         handleRenewIntent(intent)
+        handleOpenShopIntent(intent)
         IkeController.bind(this)
         watchTunnel()
         // At first launch, not at first connect. The warning this app most
@@ -552,7 +574,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val uiTheme by store.uiTheme.collectAsState()
             val systemDark = isSystemInDarkTheme()
-            val palette = ghajarPaletteFor(uiTheme, systemDark)
+            val look by GhajarLookStore.load(this).collectAsState()
+            val palette = look.apply(ghajarPaletteFor(uiTheme, systemDark), null)
             val dark = palette.dark
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             androidx.compose.runtime.SideEffect {
@@ -589,7 +612,7 @@ class MainActivity : ComponentActivity() {
                         lifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
                             while (true) {
                                 GhajarNotificationMonitor.refresh(applicationContext)
-                                delay(60_000)
+                                delay(30_000)
                             }
                         }
                     }
@@ -667,6 +690,17 @@ class MainActivity : ComponentActivity() {
         setIntent(intent)
         handleImportIntent(intent)
         handleRenewIntent(intent)
+        handleOpenShopIntent(intent)
+    }
+
+    /** An announcement's "go to shop" / "use discount code" notification action. */
+    private fun handleOpenShopIntent(intent: Intent?) {
+        if (intent?.hasExtra(EXTRA_OPEN_SHOP_ID) != true) return
+        val id = intent.getIntExtra(EXTRA_OPEN_SHOP_ID, -1)
+        val code = intent.getStringExtra(EXTRA_OPEN_SHOP_CODE).orEmpty()
+        intent.removeExtra(EXTRA_OPEN_SHOP_ID)
+        intent.removeExtra(EXTRA_OPEN_SHOP_CODE)
+        if (id >= 0) GhajarShopOpenRequest.request(id, code)
     }
 
     /** Notification's "renew this service" action asks the store screen to open
@@ -677,8 +711,19 @@ class MainActivity : ComponentActivity() {
         GhajarRenewRequest.request(username)
     }
 
+    /** ghajarvpn://payment-return from the payment page: back to the shop, re-check. */
+    private fun handlePaymentReturn(intent: Intent?): Boolean {
+        val data = intent?.data ?: return false
+        if (!data.scheme.equals("ghajarvpn", true)) return false
+        intent.data = null
+        GhajarLog.i("Payment", "returned to app from the payment page")
+        GhajarPaymentReturn.signal()
+        return true
+    }
+
     private fun handleImportIntent(intent: Intent?) {
         intent ?: return
+        if (handlePaymentReturn(intent)) return
         val uri = when (intent.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND ->
@@ -1119,17 +1164,18 @@ class MainActivity : ComponentActivity() {
         val intent = VpnService.prepare(this)
         val tor = when {
             config.protocol == "tor" ->
-                config.torCountry + "|" + (if (config.torThroughVpn) "1" else "0")
+                TorController.spec(config)
             store.onionRouting.value -> "|1"
             else -> null
         }
-        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port) }; vpnPermission.launch(intent) }
-        else startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port)
+        val singbox = net.gozar.app.engine.SingBoxConfig.spec(config)
+        if (intent != null) { afterPermission = { startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port, singbox = singbox) }; vpnPermission.launch(intent) }
+        else startTunnel(json, config.name, aether, tor, psiphon, config.address, config.port, singbox = singbox)
     }
 
     private fun startTunnel(
         configJson: String, name: String, aether: String, tor: String?, psiphon: String? = null,
-        address: String = "", port: Int = 0, attempt: Int = 0
+        address: String = "", port: Int = 0, attempt: Int = 0, singbox: String? = null
     ) {
         guardedConnect {
             try {
@@ -1140,6 +1186,7 @@ class MainActivity : ComponentActivity() {
                         .putExtra(GozarVpnService.EXTRA_AETHER, aether)
                         .putExtra(GozarVpnService.EXTRA_TOR, tor)
                         .putExtra(GozarVpnService.EXTRA_PSIPHON, psiphon)
+                        .putExtra(GozarVpnService.EXTRA_SINGBOX, singbox)
                         .putExtra(GozarVpnService.EXTRA_STOP_LABEL, Strings.get(store.lang.value, "disconnect"))
                         .putExtra(GozarVpnService.EXTRA_ADDRESS, address)
                         .putExtra(GozarVpnService.EXTRA_PORT, port)
@@ -1163,7 +1210,7 @@ class MainActivity : ComponentActivity() {
                 if (processBad && attempt < 1) {
                     lifecycleScope.launch {
                         delay(700L)
-                        startTunnel(configJson, name, aether, tor, psiphon, address, port, attempt + 1)
+                        startTunnel(configJson, name, aether, tor, psiphon, address, port, attempt + 1, singbox)
                     }
                 } else if (processBad) {
                     VpnState.setError(Strings.get(store.lang.value, "err_process_bad"))
@@ -1261,6 +1308,31 @@ private fun GozarApp(
     val settingsScroll = rememberScrollState()
 
     var showPicker by remember { mutableStateOf(false) }
+    // A renewal asked for from outside the shop - the notification's
+    // "renew this service" button or the notice dialog - lands on the shop
+    // page, which opens that exact service's renewal. Without this the
+    // request waited silently until the user happened to open the shop.
+    val pendingRenew by GhajarRenewRequest.requested.collectAsState()
+    LaunchedEffect(pendingRenew) {
+        if (pendingRenew != null) {
+            showPicker = false
+            pagerState.animateScrollToPage(PAGE_SHOP)
+        }
+    }
+    val paymentReturn by GhajarPaymentReturn.ticks.collectAsState()
+    LaunchedEffect(paymentReturn) {
+        if (paymentReturn > 0L) {
+            showPicker = false
+            pagerState.animateScrollToPage(PAGE_SHOP)
+        }
+    }
+    val pendingShopOpen by GhajarShopOpenRequest.requested.collectAsState()
+    LaunchedEffect(pendingShopOpen) {
+        if (pendingShopOpen != null) {
+            showPicker = false
+            pagerState.animateScrollToPage(PAGE_SHOP)
+        }
+    }
     var showManual by remember { mutableStateOf(false) }
     var showProjects by remember { mutableStateOf(false) }
     var showTorNodes by remember { mutableStateOf(false) }
@@ -1320,6 +1392,11 @@ private fun GozarApp(
     // section. The brief puts notifications in categorized Settings, so they
     // get a page of their own here.
     var notifDetail by remember { mutableStateOf(false) }
+    var backupDetail by remember { mutableStateOf(false) }
+    // The per-protocol add-server form being filled, by ProtocolForms id.
+    var protoForm by remember { mutableStateOf("") }
+    // New Settings pages share one slot: "geodata", "dnsproto", "livemon", "safebox".
+    var extraPage by remember { mutableStateOf("") }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
     val sortMode by store.sortMode.collectAsState()
     val selectedId by store.selectedId.collectAsState()
@@ -1337,6 +1414,10 @@ private fun GozarApp(
     val importContext = LocalContext.current
     val pendingImport by ImportBus.pending.collectAsState()
     var importNeedsPassword by remember { mutableStateOf(false) }
+    // Which decoder the password belongs to: Ghajar's own GRT1 file, or the
+    // config toolkit (NPVS and the other app formats). Never guessed from a
+    // failed decode.
+    var importViaToolkit by remember { mutableStateOf(false) }
     var importPassword by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf("") }
     var importBusy by remember { mutableStateOf(false) }
@@ -1374,18 +1455,47 @@ private fun GozarApp(
                 }
             return@LaunchedEffect
         }
+        if (!net.gozar.app.configtoolkit.ImportRouter.isGhajarConfigFile(bytes)) {
+            // Every other file goes through the same decoders as the config
+            // toolkit. Only a real passphrase requirement opens the dialog; a
+            // file locked with another app's key, an unsupported format or a
+            // damaged file says exactly that.
+            importViaToolkit = true
+            val outcome = withContext(Dispatchers.Default) {
+                net.gozar.app.configtoolkit.ImportRouter.decode(bytes)
+            }
+            when (outcome) {
+                is net.gozar.app.configtoolkit.ImportRouter.Outcome.Imported -> {
+                    val n = store.addImported(outcome.configs)
+                    android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
+                    ImportBus.clear()
+                }
+                net.gozar.app.configtoolkit.ImportRouter.Outcome.NeedsPasskey -> importNeedsPassword = true
+                else -> {
+                    android.widget.Toast.makeText(importContext, importOutcomeMessage(outcome), android.widget.Toast.LENGTH_LONG).show()
+                    ImportBus.clear()
+                }
+            }
+            return@LaunchedEffect
+        }
+        importViaToolkit = false
         importNeedsPassword = runCatching { ConfigFile.isPasswordProtected(bytes) }.getOrDefault(false)
         if (!importNeedsPassword) {
             val configs = withContext(Dispatchers.Default) {
-                runCatching { ConfigFile.decode(importContext, bytes, null) }.getOrNull()
+                runCatching { ConfigFile.decode(importContext, bytes, null) }
             }
-            if (configs != null) {
-                val n = store.addImported(configs)
+            configs.onSuccess { list ->
+                val n = store.addImported(list)
                 android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
-                ImportBus.clear()
-            } else {
-                importNeedsPassword = true
+            }.onFailure { e ->
+                // An unprotected GRT1 file that fails is damaged or from another
+                // app - not password protected, so no password dialog.
+                android.widget.Toast.makeText(importContext, when (e) {
+                    is ConfigFile.ForeignApp -> t("import_foreign_app")
+                    else -> t("import_bad_file")
+                }, android.widget.Toast.LENGTH_LONG).show()
             }
+            ImportBus.clear()
         }
     }
 
@@ -1397,7 +1507,29 @@ private fun GozarApp(
             dismissLabel = t("cancel"),
             onConfirm = {
                 val bytes = pendingImport
-                if (bytes != null && !importBusy && importPassword.isNotEmpty()) {
+                if (bytes != null && !importBusy && importPassword.isNotEmpty() && importViaToolkit) {
+                    importBusy = true
+                    scope.launch {
+                        val pass = importPassword.toCharArray()
+                        val outcome = withContext(Dispatchers.Default) {
+                            net.gozar.app.configtoolkit.ImportRouter.decode(bytes, passkey = pass)
+                        }
+                        pass.fill('\u0000')
+                        importBusy = false
+                        when (outcome) {
+                            is net.gozar.app.configtoolkit.ImportRouter.Outcome.Imported -> {
+                                val n = store.addImported(outcome.configs)
+                                android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
+                                ImportBus.clear()
+                                importNeedsPassword = false
+                                importPassword = ""
+                            }
+                            net.gozar.app.configtoolkit.ImportRouter.Outcome.WrongPasskey,
+                            net.gozar.app.configtoolkit.ImportRouter.Outcome.NeedsPasskey -> importError = t("import_wrong_password")
+                            else -> importError = importOutcomeMessage(outcome)
+                        }
+                    }
+                } else if (bytes != null && !importBusy && importPassword.isNotEmpty()) {
                     importBusy = true
                     scope.launch {
                         val configs = withContext(Dispatchers.Default) {
@@ -1441,10 +1573,11 @@ private fun GozarApp(
     var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_HOME && (showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail))
+    val subScreenOpen = (page == PAGE_HOME && (protoForm.isNotEmpty() || showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail || backupDetail || extraPage.isNotEmpty()))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
+        page == PAGE_HOME && protoForm.isNotEmpty() -> "protoform"
         page == PAGE_HOME && exportConfigs != null -> "export"
         page == PAGE_HOME && showManual -> "manual"
         page == PAGE_HOME && showTorNodes -> "tornodes"
@@ -1455,6 +1588,8 @@ private fun GozarApp(
         page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
         page == PAGE_HOME -> "connection"
+        onSettingsTab && extraPage.isNotEmpty() -> extraPage
+        onSettingsTab && backupDetail -> "backup"
         onSettingsTab && sshDetail -> "ssh"
         onSettingsTab && debugDetail -> "debugger"
         onSettingsTab && usageDetail -> "usage"
@@ -1479,6 +1614,7 @@ private fun GozarApp(
 
     fun pop() {
         when {
+            protoForm.isNotEmpty() -> protoForm = ""
             exportConfigs != null -> exportConfigs = null
             showManual -> { showManual = false; editingConfig = null }
             showWindscribe -> showWindscribe = false
@@ -1488,6 +1624,8 @@ private fun GozarApp(
             showOpenVpnHub -> showOpenVpnHub = false
             showPsiphonHub -> showPsiphonHub = false
             showPicker -> showPicker = false
+            extraPage.isNotEmpty() -> extraPage = ""
+            backupDetail -> backupDetail = false
             usageDetail -> usageDetail = false
             perAppDetail -> perAppDetail = false
             logsDetail -> logsDetail = false
@@ -1567,6 +1705,7 @@ private fun GozarApp(
                             mixedText(when (screenKey) {
                                 "manual" -> if (editingConfig != null) t("edit_config_title") else t("add_config_title")
                                 "export" -> t("export_title")
+                                "protoform" -> ProtocolForms.forms.firstOrNull { it.id == protoForm }?.title ?: t("add_server")
                                 "picker" -> t("choose_server")
                                 "projects" -> t("free_projects")
                                 "tornodes" -> t("tor_nodes")
@@ -1575,6 +1714,11 @@ private fun GozarApp(
                                 "psiphonhub" -> "Psiphon"
                                 "scanqr" -> t("scan_qr")
                                 "usage" -> t("data_usage")
+                                "backup" -> t("backup_title")
+                                "geodata" -> t("geodata_title")
+                                "dnsproto" -> t("dnsproto_title")
+                                "livemon" -> t("livemon_title")
+                                "safebox" -> t("safebox_title")
                                 "perapp" -> t("per_app")
                                 "logs" -> t("xray_logs")
                                 "stability" -> t("stab_title")
@@ -1600,6 +1744,7 @@ private fun GozarApp(
                 navigationIcon = {
                     when (screenKey) {
                         "manual" -> BounceIconButton(onClick = { showManual = false; editingConfig = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "protoform" -> BounceIconButton(onClick = { protoForm = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "export" -> BounceIconButton(onClick = { exportConfigs = null }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "picker" -> BounceIconButton(onClick = { showPicker = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "projects" -> BounceIconButton(onClick = { showProjects = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1608,6 +1753,8 @@ private fun GozarApp(
                         "openvpnhub" -> BounceIconButton(onClick = { showOpenVpnHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "psiphonhub" -> BounceIconButton(onClick = { showPsiphonHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "scanqr" -> BounceIconButton(onClick = { showScanner = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "geodata", "dnsproto", "livemon", "safebox" -> BounceIconButton(onClick = { extraPage = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "backup" -> BounceIconButton(onClick = { backupDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "usage" -> BounceIconButton(onClick = { usageDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "perapp" -> BounceIconButton(onClick = { perAppDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "logs" -> BounceIconButton(onClick = { logsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1653,7 +1800,7 @@ private fun GozarApp(
                 selected = page,
                 items = listOf(
                     SkinNavItem(R.drawable.ic_royal_home, t("home")) {
-                        showPicker = false; showManual = false; showProjects = false
+                        showPicker = false; showManual = false; showProjects = false; protoForm = ""
                         showTorNodes = false; showWindscribe = false; editingConfig = null
                         scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
                     },
@@ -1662,6 +1809,8 @@ private fun GozarApp(
                     },
                     SkinNavItem(R.drawable.ic_royal_settings, t("settings")) {
                         usageDetail = false
+                        backupDetail = false
+                        extraPage = ""
                         perAppDetail = false
                         logsDetail = false
                         stabilityDetail = false
@@ -1691,6 +1840,9 @@ private fun GozarApp(
         HorizontalPager(
             state = pagerState,
             userScrollEnabled = !subScreenOpen,
+            // Neighbouring tabs stay composed, so switching tabs never waits
+            // on a first composition mid-animation.
+            beyondViewportPageCount = 1,
             modifier = Modifier
                 .padding(
                     start = padding.calculateStartPadding(layoutDir),
@@ -1708,6 +1860,7 @@ private fun GozarApp(
                 GhajarShopScreen(active = pagerState.settledPage == PAGE_SHOP)
             } else if (p == PAGE_HOME) {
                 val connKey = when {
+                    protoForm.isNotEmpty() -> "protoform:$protoForm"
                     exportConfigs != null -> "export"
                     showManual -> "manual"
                     showScanner -> "scanqr"
@@ -1719,15 +1872,32 @@ private fun GozarApp(
                     showPicker -> "picker"
                     else -> "connection"
                 }
+                val lookNow = LocalGhajarLook.current
+                val reduceNow = LocalReduceMotion.current
+                val rtlNow = layoutDir == LayoutDirection.Rtl
                 AnimatedContent(
                     targetState = connKey,
                     transitionSpec = {
-                        (scaleIn(tween(220), initialScale = 0.92f) + fadeIn(tween(220))) togetherWith
-                                (scaleOut(tween(180), targetScale = 0.92f) + fadeOut(tween(180)))
+                        lookNow.pageTransition(targetState != "connection", rtlNow, reduceNow) ?:
+                        (scaleIn(tween(340, easing = SmoothDecel), initialScale = 0.965f) +
+                            fadeIn(tween(260, delayMillis = 40, easing = SmoothDecel))) togetherWith
+                            (scaleOut(tween(200, easing = SmoothAccel), targetScale = 1.015f) +
+                                fadeOut(tween(160, easing = SmoothAccel)))
                     },
                     label = "connTab"
                 ) { key ->
-                    when (key) {
+                    // "protoform:<id>" carries the form id inside targetState, so
+                    // the outgoing screen keeps its own id during the exit animation.
+                    when (if (key.startsWith("protoform:")) "protoform" else key) {
+                        "protoform" -> ProtocolFormScreen(
+                            // AnimatedContent keeps the outgoing screen alive during
+                            // its exit animation. Capture the id in targetState so
+                            // clearing protoForm cannot turn the still-composing form
+                            // into an empty/unknown id.
+                            formId = key.substringAfter("protoform:"),
+                            onSave = { cfg -> store.add(cfg); protoForm = ""; showPicker = true },
+                            onCancel = { protoForm = "" }
+                        )
                         "export" -> ExportConfigScreen(
                             configs = exportConfigs ?: emptyList(),
                             onCancel = { exportConfigs = null }
@@ -1772,6 +1942,7 @@ private fun GozarApp(
                                 sshDetail = true
                                 scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
                             },
+                            onProtocolForm = { id -> protoForm = id },
                             onDnsLab = {
                                 showPicker = false
                                 dnsLabDetail = true
@@ -1786,7 +1957,18 @@ private fun GozarApp(
                             // can be renewed; the shop already listens for the
                             // request, the servers list just never made one.
                             onRenewService = { username ->
-                                GhajarRenewRequest.request(username)
+                                // A service bought from a marketplace shop is
+                                // renewed at that shop: its subscription is our
+                                // market_sub.php?s=<shop id> link. Everything
+                                // else is the Ghajar shop's own service.
+                                val marketShop = store.subscriptions.value
+                                    .firstOrNull { it.serviceUsername == username }
+                                    ?.let { GhajarShopOpenRequest.shopIdFromSubscription(it.url) }
+                                if (marketShop != null && marketShop > 0) {
+                                    GhajarShopOpenRequest.request(marketShop, "", renew = username)
+                                } else {
+                                    GhajarRenewRequest.request(username)
+                                }
                                 showPicker = false
                                 scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
                             }
@@ -1826,6 +2008,8 @@ private fun GozarApp(
                 }
             } else {
                 val setKey = when {
+                    extraPage.isNotEmpty() -> extraPage
+                    backupDetail -> "backup"
                     sshDetail -> "ssh"
                     debugDetail -> "debugger"
                     usageDetail -> "usage"
@@ -1838,7 +2022,9 @@ private fun GozarApp(
                     dnsLabDetail -> "dnslab"
                     mapDetail -> "map"
                     checkHostDetail -> "checkhost"
-                    netCatIndex >= 0 -> "netcatone"
+                    // The index rides in the key, so the page keeps its own
+                    // category while it animates out after Back clears it.
+                    netCatIndex >= 0 -> "netcatone:$netCatIndex"
                     netCatDetail -> "netcat"
                     netMonDetail -> "netmon"
                     toolsDetail -> "tools"
@@ -1847,20 +2033,32 @@ private fun GozarApp(
                     prefsDetail -> "preferences"
                     else -> "settings"
                 }
+                val lookNow = LocalGhajarLook.current
+                val reduceNow = LocalReduceMotion.current
                 AnimatedContent(
                     targetState = setKey,
                     transitionSpec = {
-                        if (settingsDepth(targetState) > settingsDepth(initialState)) {
-                            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(250)) togetherWith
-                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Left, tween(250))
-                        } else {
-                            slideIntoContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(250)) togetherWith
-                                    slideOutOfContainer(AnimatedContentTransitionScope.SlideDirection.Right, tween(250))
-                        }
+                        val chosen = lookNow.pageTransition(
+                            settingsDepth(targetState) > settingsDepth(initialState),
+                            layoutDir == LayoutDirection.Rtl,
+                            reduceNow
+                        )
+                        if (chosen != null) return@AnimatedContent chosen
+                        // Parallax push: the new page travels a fifth of the
+                        // width while fading in, the old one drifts a little
+                        // and fades out. Two full-width slides move twice the
+                        // pixels and read as heavier.
+                        val forward = settingsDepth(targetState) > settingsDepth(initialState)
+                        val rtl = layoutDir == LayoutDirection.Rtl
+                        val sign = if (forward != rtl) 1 else -1
+                        (slideInHorizontally(tween(360, easing = SmoothDecel)) { sign * it / 5 } +
+                            fadeIn(tween(280, delayMillis = 40, easing = SmoothDecel))) togetherWith
+                            (slideOutHorizontally(tween(260, easing = SmoothAccel)) { -sign * it / 12 } +
+                                fadeOut(tween(180, easing = SmoothAccel)))
                     },
                     label = "setTab"
                 ) { key ->
-                    when (key) {
+                    when (key.substringBefore(':')) {
                         "ssh" -> SshScreen(
                             store = SshStore.get(LocalContext.current),
                             onSubScreenChange = { sshSubScreen = it }
@@ -1871,16 +2069,25 @@ private fun GozarApp(
                             active = pagerState.settledPage == PAGE_SETTINGS && !pagerState.isScrollInProgress
                         )
                         "usage" -> DataUsageScreen()
+                        "geodata" -> GeoDataScreen()
+                        "dnsproto" -> DnsProtocolsScreen()
+                        "livemon" -> LiveMonitorScreen(store = store)
+                        "safebox" -> SafeboxScreen(store = store)
+                        "backup" -> Column(
+                            Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+                                .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+                            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+                        ) { BackupRow(store) }
                         "perapp" -> AppProxyScreen(store = store)
                         "logs" -> LogsScreen(store = store)
                         "stability" -> StabilityTestScreen(store = store)
                         "about" -> AboutScreen()
-                        "theme" -> ThemeSettingsScreen(store = store)
+                        "theme" -> PersonalizeScreen(store = store)
                         "cleanip" -> CleanIpScreen()
                         "netmon" -> NetMonitorScreen(onOpenCategories = { netCatDetail = true })
                         "netcat" -> NetCategoriesScreen(onOpen = { netCatIndex = it })
                         "checkhost" -> CheckHostScreen()
-                        "netcatone" -> NetCategoryScreen(index = netCatIndex)
+                        "netcatone" -> NetCategoryScreen(index = key.substringAfter(':').toIntOrNull() ?: -1)
                         "dnslab" -> DnsLabScreen(store = store)
                         "map" -> GhajarMapScreen()
                         "tools" -> ToolsScreen(
@@ -1890,12 +2097,14 @@ private fun GozarApp(
                             onOpenCleanIp = { cleanIpDetail = true },
                             onOpenDnsLab = { dnsLabDetail = true },
                             onOpenMap = { mapDetail = true },
-                            onSwitch = onSwitch
+                            onSwitch = onSwitch,
+                            onOpenExtra = { extraPage = it }
                         )
                         "connection_settings" -> ConnectionSettingsScreen(
                             store = store,
                             onOpenPerApp = { perAppDetail = true },
-                            onOpenLogs = { logsDetail = true }
+                            onOpenLogs = { logsDetail = true },
+                            onOpenExtra = { extraPage = it }
                         )
                         "preferences" -> PreferencesScreen(
                             store = store,
@@ -1913,7 +2122,9 @@ private fun GozarApp(
                             onOpenConnection = { connDetail = true },
                             onOpenPreferences = { prefsDetail = true },
                             onOpenAbout = { aboutDetail = true },
-                            onOpenNetMon = { netMonDetail = true }
+                            onOpenNetMon = { netMonDetail = true },
+                            onOpenBackup = { backupDetail = true },
+                            onOpenExtra = { extraPage = it }
                         )
                     }
                 }
@@ -2038,7 +2249,14 @@ private fun ConnectionScreen(
                 .verticalScroll(rememberScrollState())
                 .heightIn(min = floor)
                 .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically),
+            verticalArrangement = Arrangement.spacedBy(
+                when (LocalGhajarLook.current.density) {
+                    "compact" -> GhajarSpacing.sm
+                    "spacious" -> GhajarSpacing.xl
+                    else -> GhajarSpacing.md
+                },
+                Alignment.CenterVertically
+            ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             ConnectOrb(
@@ -2084,7 +2302,7 @@ private fun ConnectionScreen(
             // A tight inset: this slab holds exactly one row, so the default
             // card padding was drawing a frame around a frame and making the
             // single most-looked-at line on the screen the tallest thing on it.
-            Slab(spacing = 0.dp, padding = GhajarSpacing.sm) {
+            Slab(spacing = 0.dp, padding = GhajarSpacing.sm, color = lookColor(LookElement.CONFIG_CARD)) {
                 // While OpenVPN owns the tunnel, the route is that profile -
                 // not whichever Xray config happens to still be selected. The
                 // active id is "ovpn:<uuid>", which is never in `configs`, so
@@ -2095,7 +2313,8 @@ private fun ConnectionScreen(
                         "OPENVPN · ⁦${p.host}:${p.port}⁩"
                     } ?: "OPENVPN"
                     else -> selectedConfig?.let { cfg ->
-                        val engine = cfg.protocol.uppercase(java.util.Locale.ROOT)
+                        val engine = cfg.protocol.uppercase(java.util.Locale.ROOT) +
+                            if (net.gozar.app.engine.SingBoxConfig.handles(cfg)) " · sing-box" else ""
                         val endpoint = when {
                             cfg.locked -> t("locked_endpoint")
                             cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
@@ -2117,6 +2336,7 @@ private fun ConnectionScreen(
                             ?: t("hub_no_server")
                     },
                     subtitle = routeSubtitle,
+                    titleColor = lookColor(LookElement.CONFIG_TEXT),
                     icon = if (onOpenVpn) Icons.Filled.Security else Icons.Filled.Shield,
                     accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
                     chevron = true,
@@ -2148,21 +2368,11 @@ private fun ConnectionScreen(
             // Throughput: one object, two readings, totals underneath.
             val downParts = formatBytesParts(downSpeed, lang)
             val upParts = formatBytesParts(upSpeed, lang)
-            StatStrip(
-                listOf(
-                    StatCell(
-                        label = t("download"),
-                        value = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
-                        accent = c.info,
-                        sub = t("home_total").format(formatBytes(totalDown, lang))
-                    ),
-                    StatCell(
-                        label = t("upload"),
-                        value = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
-                        accent = c.premium,
-                        sub = t("home_total").format(formatBytes(totalUp, lang))
-                    )
-                )
+            TrafficTiles(
+                downValue = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
+                downTotal = t("home_total").format(formatBytes(totalDown, lang)),
+                upValue = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
+                upTotal = t("home_total").format(formatBytes(totalUp, lang))
             )
 
             // Measured facts. The latency row doubles as the real-delay test:
@@ -2223,7 +2433,8 @@ private fun ConnectionScreen(
             ovpnProfile = if (onOpenVpn) ovpnProfile else null,
             engineError = error,
             tunnelUp = conn == Connection.CONNECTED,
-            onDismiss = { showDoctor = false }
+            onDismiss = { showDoctor = false },
+            onConnect = if (onOpenVpn) null else ({ cfg -> onConnect(cfg) })
         )
     }
 }
@@ -2341,6 +2552,7 @@ private fun ConfigPickerScreen(
     onTor: () -> Unit = {},
     onSsh: () -> Unit = {},
     onDnsLab: () -> Unit = {},
+    onProtocolForm: (String) -> Unit = {},
     onConnectOpenVpn: (String) -> Unit = {},
     onDisconnectOpenVpn: () -> Unit = {},
     onTestOpenVpn: (String) -> Unit = {},
@@ -2418,6 +2630,8 @@ private fun ConfigPickerScreen(
     var favoritesOnly by remember { mutableStateOf(false) }
     var pickingFastest by remember { mutableStateOf(false) }
     var protocolFilter by remember { mutableStateOf<String?>(null) }
+    // Which core would carry the config (engine/CoreManager.kt EngineRouting).
+    var engineFilter by remember { mutableStateOf<net.gozar.app.engine.EngineId?>(null) }
     var protocolMenu by remember { mutableStateOf(false) }
     val expandedSubs by store.expandedSubs.collectAsState()
     val scope = rememberCoroutineScope()
@@ -2439,6 +2653,27 @@ private fun ConfigPickerScreen(
     var confirmDelete by remember { mutableStateOf(false) }
     var chainFor by remember { mutableStateOf<ProxyConfig?>(null) }
     var openActionsId by remember { mutableStateOf<String?>(null) }
+    // Configs waiting for a group to be chosen: moved (a single config, or
+    // a hand-made group's contents) or copied (a fetched subscription's,
+    // which its own refresh has to keep finding where it left them).
+    var groupFor by remember { mutableStateOf<Pair<Set<String>, Boolean>?>(null) }
+    // One config's TCP handshake and real-delay tests, run from its menu.
+    fun tcpPingOne(cfg: ProxyConfig) {
+        pings[cfg.id] = PingResult.Testing
+        scope.launch {
+            pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") Pinger.pingIke(cfg.address)
+            else Pinger.ping(cfg.address, cfg.port)
+        }
+    }
+    fun realDelayOne(cfg: ProxyConfig) {
+        pings[cfg.id] = PingResult.Testing
+        scope.launch {
+            pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2") Pinger.pingIke(cfg.address) else {
+                val ms = withContext(Dispatchers.IO) { net.gozar.app.engine.EngineTester.realDelay(cfg) }
+                if (ms >= 0) PingResult.Ok(ms.toInt()) else PingResult.Failed
+            }
+        }
+    }
     // Adding a subscription by its link. The clipboard path already handled a
     // URL, but only if you had first put one on the clipboard and knew the app
     // would treat it as a subscription rather than a config - which is not a
@@ -2486,7 +2721,8 @@ private fun ConfigPickerScreen(
     }
     val q = query.trim()
     fun matchesFilters(cfg: ProxyConfig): Boolean =
-        (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter)
+        (!favoritesOnly || cfg.favorite) && (protocolFilter == null || cfg.protocol == protocolFilter) &&
+            (engineFilter == null || net.gozar.app.engine.EngineRouting.engineFor(cfg) == engineFilter)
     // Search used to match the name only, which is the one field a subscription
     // controls and often truncates. Matching the host and the protocol too is
     // what makes "arazmta" or "vless" find anything.
@@ -2494,7 +2730,7 @@ private fun ConfigPickerScreen(
         cfg.name.contains(q, true) ||
         cfg.address.contains(q, true) ||
         cfg.protocol.contains(q, true)
-    val grouped = remember(configs, subscriptions, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter) {
+    val grouped = remember(configs, subscriptions, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter, engineFilter) {
         subscriptions.map { sub ->
             val all = sortMaybe(configs.filter { it.subId == sub.id && matchesFilters(it) })
             sub to when {
@@ -2504,7 +2740,7 @@ private fun ConfigPickerScreen(
         }.filter { (sub, list) -> q.isEmpty() || list.isNotEmpty() || sub.name.contains(q, true) }
             .sortedByDescending { (sub, _) -> WindscribeBrand.isWindscribe(sub) }
     }
-    val loose = remember(configs, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter) {
+    val loose = remember(configs, sortMode, newestFirst, pingSortKey, q, favoritesOnly, protocolFilter, engineFilter) {
         sortMaybe(configs.filter {
             it.subId.isEmpty() && matchesFilters(it) && matchesQuery(it)
         })
@@ -2702,7 +2938,8 @@ private fun ConfigPickerScreen(
             onTor = { addMenu = false; onTor() },
             onSsh = { addMenu = false; onSsh() },
             onDnsLab = { addMenu = false; onDnsLab() },
-            onSubscription = { addMenu = false; subDialog = true }
+            onSubscription = { addMenu = false; subDialog = true },
+            onProtocolForm = { id -> addMenu = false; onProtocolForm(id) }
         )
         }
 
@@ -2746,7 +2983,7 @@ private fun ConfigPickerScreen(
                                             Pinger.pingIke(cfg.address)
                                         } else {
                                             val ms = withContext(Dispatchers.IO) {
-                                                Gozarcore.measureDelay(ConfigBuilder.buildForTest(cfg))
+                                                net.gozar.app.engine.EngineTester.realDelay(cfg)
                                             }
                                             if (ms >= 0) PingResult.Ok(ms.toInt())
                                             else PingResult.Failed
@@ -3036,18 +3273,30 @@ private fun ConfigPickerScreen(
                         Icon(
                             Icons.Filled.FilterList,
                             contentDescription = "فیلتر پروتکل",
-                            tint = if (protocolFilter != null) MaterialTheme.colorScheme.primary
+                            tint = if (protocolFilter != null || engineFilter != null) MaterialTheme.colorScheme.primary
                                 else MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                     DropdownMenu(expanded = protocolMenu, onDismissRequest = { protocolMenu = false }) {
-                        DropdownMenuItem(text = { Text("همهٔ پروتکل‌ها") }, onClick = {
-                            protocolFilter = null; protocolMenu = false
+                        DropdownMenuItem(text = { Text("همهٔ پروتکل‌ها و موتورها") }, onClick = {
+                            protocolFilter = null; engineFilter = null; protocolMenu = false
                         })
                         configs.map { it.protocol }.distinct().sorted().forEach { proto ->
                             DropdownMenuItem(text = { Text(proto) }, onClick = {
                                 protocolFilter = proto; protocolMenu = false
-                            })
+                            }, trailingIcon = { if (protocolFilter == proto) Icon(Icons.Filled.Check, null) })
+                        }
+                        val enginesHere = configs.map { net.gozar.app.engine.EngineRouting.engineFor(it) }.distinct()
+                        if (enginesHere.size > 1) {
+                            HorizontalDivider()
+                            Text("موتور", style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp))
+                            enginesHere.sortedBy { it.ordinal }.forEach { e ->
+                                DropdownMenuItem(text = { Text(net.gozar.app.engine.CoreManager.engine(e).displayName) }, onClick = {
+                                    engineFilter = if (engineFilter == e) null else e; protocolMenu = false
+                                }, trailingIcon = { if (engineFilter == e) Icon(Icons.Filled.Check, null) })
+                            }
                         }
                     }
                 }
@@ -3112,6 +3361,40 @@ private fun ConfigPickerScreen(
         }
 
         val wsRowColor = windscribeRowColor()
+        // Two columns (Personalization > Cards). Paint-selection maps a drag's
+        // y position to one row, which a grid cannot do, so in this mode a
+        // long press toggles the one row instead.
+        val twoCols = LocalGhajarLook.current.columns == 2
+        @Composable
+        fun PickerRow(cfg: ProxyConfig, container: Color?, rowModifier: Modifier) {
+            ConfigRow(
+                config = cfg,
+                isSelected = cfg.id == selectedId,
+                isActive = cfg.id == activeId,
+                ping = pings[cfg.id],
+                selectionMode = selectionMode,
+                isChecked = { selected.containsKey(cfg.id) },
+                onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
+                onLongPress = { if (twoCols) toggle(cfg.id) else beginPaint(cfg.id) },
+                onEdit = { onEdit(cfg) },
+                onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
+                onShareFile = { onShareFile(listOf(cfg)) },
+                onChain = { chainFor = cfg },
+                actionsOpen = openActionsId == cfg.id,
+                onToggleActions = {
+                    openActionsId = if (openActionsId == cfg.id) null else cfg.id
+                },
+                modifier = rowModifier,
+                containerColor = container,
+                conn = conn,
+                onToggleConnection = { toggleConnection(cfg) },
+                onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) },
+                onRename = { store.renameConfig(cfg.id, it) },
+                onMoveToGroup = { groupFor = setOf(cfg.id) to false },
+                onTcpPing = { tcpPingOne(cfg) },
+                onRealDelay = { realDelayOne(cfg) }
+            )
+        }
 
         LazyColumn(
             state = listState,
@@ -3185,6 +3468,27 @@ private fun ConfigPickerScreen(
                             }
                         },
                         onRename = { newName -> store.renameSubscription(sub.id, newName) },
+                        onEditLink = if (sub.url.isNotBlank() && sub.url != FreeConfigs.SOURCE_URL)
+                            { link -> store.updateSubscriptionUrl(sub.id, link) } else null,
+                        onGroup = { groupFor = subConfigs.map { it.id }.toSet() to sub.url.isNotBlank() },
+                        onTcpPing = {
+                            if (sub.id !in pingingSubs && subConfigs.isNotEmpty()) {
+                                pingingSubs = pingingSubs + sub.id
+                                subConfigs.forEach { pings[it.id] = PingResult.Testing }
+                                scope.launch {
+                                    val sem = Semaphore(8)
+                                    subConfigs.map { cfg ->
+                                        launch {
+                                            sem.withPermit {
+                                                pings[cfg.id] = if (cfg.protocol.trim().lowercase() == "ikev2")
+                                                    Pinger.pingIke(cfg.address) else Pinger.ping(cfg.address, cfg.port)
+                                            }
+                                        }
+                                    }.joinAll()
+                                    pingingSubs = pingingSubs - sub.id
+                                }
+                            }
+                        },
                         onRemove = { store.deleteSubscription(sub.id) },
                         timedOutCount = subConfigs.count { pings[it.id] == PingResult.Failed },
                         onRemoveTimedOut = {
@@ -3210,9 +3514,7 @@ private fun ConfigPickerScreen(
                                                     Pinger.pingIke(cfg.address)
                                                 } else {
                                                     val ms = withContext(Dispatchers.IO) {
-                                                        Gozarcore.measureDelay(
-                                                            ConfigBuilder.buildForTest(cfg)
-                                                        )
+                                                        net.gozar.app.engine.EngineTester.realDelay(cfg)
                                                     }
                                                     if (ms >= 0) PingResult.Ok(ms.toInt())
                                                     else PingResult.Failed
@@ -3228,30 +3530,23 @@ private fun ConfigPickerScreen(
                     )
                 }
                 if (sub.id in expandedSubs || q.isNotEmpty()) {
-                    items(subConfigs, key = { it.id }) { cfg ->
-                        ConfigRow(
-                            config = cfg,
-                            isSelected = cfg.id == selectedId,
-                            isActive = cfg.id == activeId,
-                            ping = pings[cfg.id],
-                            selectionMode = selectionMode,
-                            isChecked = { selected.containsKey(cfg.id) },
-                            onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
-                            onLongPress = { beginPaint(cfg.id) },
-                            onEdit = { onEdit(cfg) },
-                            onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
-                            onShareFile = { onShareFile(listOf(cfg)) },
-                            onChain = { chainFor = cfg },
-                            actionsOpen = openActionsId == cfg.id,
-                            onToggleActions = {
-                                openActionsId = if (openActionsId == cfg.id) null else cfg.id
-                            },
-                            modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
-                            containerColor = wsRow,
-                            conn = conn,
-                            onToggleConnection = { toggleConnection(cfg) },
-                            onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) }
-                        )
+                    if (twoCols) {
+                        items(subConfigs.chunked(2), key = { p -> p.joinToString("|") { it.id } }) { pair ->
+                            Row(
+                                Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                pair.forEach { cfg -> PickerRow(cfg, wsRow, Modifier.weight(1f)) }
+                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    } else {
+                        items(subConfigs, key = { it.id }) { cfg ->
+                            PickerRow(
+                                cfg, wsRow,
+                                Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200))
+                            )
+                        }
                     }
                 }
             }
@@ -3288,29 +3583,23 @@ private fun ConfigPickerScreen(
                         }
                     }
                 }
-                items(loose, key = { it.id }) { cfg ->
-                    ConfigRow(
-                        config = cfg,
-                        isSelected = cfg.id == selectedId,
-                        isActive = cfg.id == activeId,
-                        ping = pings[cfg.id],
-                        selectionMode = selectionMode,
-                        isChecked = { selected.containsKey(cfg.id) },
-                        onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
-                        onLongPress = { beginPaint(cfg.id) },
-                        onEdit = { onEdit(cfg) },
-                        onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
-                        onShareFile = { onShareFile(listOf(cfg)) },
-                        onChain = { chainFor = cfg },
-                        actionsOpen = openActionsId == cfg.id,
-                        onToggleActions = {
-                            openActionsId = if (openActionsId == cfg.id) null else cfg.id
-                        },
-                        modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
-                        conn = conn,
-                        onToggleConnection = { toggleConnection(cfg) },
-                        onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) }
-                    )
+                if (twoCols) {
+                    items(loose.chunked(2), key = { p -> p.joinToString("|") { it.id } }) { pair ->
+                        Row(
+                            Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            pair.forEach { cfg -> PickerRow(cfg, null, Modifier.weight(1f)) }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                } else {
+                    items(loose, key = { it.id }) { cfg ->
+                        PickerRow(
+                            cfg, null,
+                            Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200))
+                        )
+                    }
                 }
             }
         }
@@ -3380,6 +3669,19 @@ private fun ConfigPickerScreen(
                 )
             }
         }
+    }
+
+    groupFor?.let { (ids, copy) ->
+        GroupPickDialog(
+            groups = store.localGroups(),
+            title = if (copy) t("copy_to_group") else t("move_to_group"),
+            onPick = { name ->
+                groupFor = null
+                val count = if (copy) store.copyToGroup(ids, name) else store.moveToGroup(ids, name)
+                addDone = n(t(if (copy) "copied_n" else "moved_n").format(count))
+            },
+            onDismiss = { groupFor = null }
+        )
     }
 
     chainFor?.let { target ->
@@ -3985,6 +4287,7 @@ private fun AddServerPanel(
     onSsh: () -> Unit = {},
     onDnsLab: () -> Unit = {},
     onSubscription: () -> Unit = {},
+    onProtocolForm: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -4106,112 +4409,77 @@ private fun AddServerPanel(
                     }
                 }
 
-                // Engines that carry traffic without a config of their own.
-                // Psiphon first because nobody finds it by looking for
-                // somewhere to paste something.
-                Rail(t("add_group_tunnels"))
-                SlabRow(
-                    title = "Psiphon",
-                    subtitle = t("add_psiphon_sub"),
-                    icon = Icons.Filled.Public,
-                    accent = c.good,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onPsiphon
-                )
+                // The main entries on top, in the order people reach for them:
+                // engines that need no config, the full VPN protocols, a
+                // subscription link, then the providers that hand out configs.
+                // Everything else (SSH, the DNS lab, one form per core) sits in
+                // one fold below so the sheet opens short.
+                Rail(t("add_group_main"))
+                SlabRow(title = "Psiphon", subtitle = t("add_psiphon_sub"), icon = Icons.Filled.Public,
+                    accent = c.good, chevron = true, enabled = !busy, onClick = onPsiphon)
                 SlabDivider()
-                SlabRow(
-                    title = "Tor",
-                    subtitle = t("add_tor_sub"),
-                    iconRes = R.drawable.tor,
-                    accent = c.premium,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onTor
-                )
+                SlabRow(title = "Tor", subtitle = t("add_tor_sub"), iconRes = R.drawable.tor,
+                    accent = c.premium, chevron = true, enabled = !busy, onClick = onTor)
                 SlabDivider()
-                SlabRow(
-                    title = "SSH",
-                    subtitle = t("add_ssh_sub"),
-                    icon = Icons.Filled.Terminal,
-                    accent = c.highlight,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onSsh
-                )
-
-                // DNS is its own kind of thing: the laboratory measures
-                // resolvers and the tunnel rides on one, and neither is a
-                // server you paste in.
-                Rail(t("add_group_dns"))
-                SlabRow(
-                    title = t("dnslab_title"),
-                    subtitle = t("add_dnslab_sub"),
-                    icon = Icons.Filled.Dns,
-                    accent = c.info,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onDnsLab
-                )
-
-                // The two full VPN protocols. OpenVPN reads a profile file;
-                // IKEv2 is typed in, and the manual form already has it in its
-                // protocol list - this is the entry point that says so.
-                Rail(t("add_group_vpn"))
-                SlabRow(
-                    title = "OpenVPN",
-                    subtitle = t("add_ovpn_sub"),
-                    icon = Icons.Filled.Security,
-                    accent = c.accentAlt,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onOpenVpn
-                )
+                SlabRow(title = "OpenVPN", subtitle = t("add_ovpn_sub"), icon = Icons.Filled.Security,
+                    accent = c.accentAlt, chevron = true, enabled = !busy, onClick = onOpenVpn)
                 SlabDivider()
-                SlabRow(
-                    title = "IKEv2 / IPsec",
-                    subtitle = t("add_ikev2_sub"),
-                    icon = Icons.Filled.Lock,
-                    accent = c.warning,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onManual
-                )
-
-                // A link that maintains its own list. It was only reachable by
-                // pasting one into the clipboard path and hoping the app
-                // recognised it as a subscription rather than a config.
-                Rail(t("add_group_sub"))
-                SlabRow(
-                    title = t("add_sub_row"),
-                    subtitle = t("add_sub_row_sub"),
-                    icon = Icons.Filled.Hub,
-                    accent = c.primary,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onSubscription
-                )
-
-                Rail(t("add_group_providers"))
-                SlabRow(
-                    title = t("free_projects"),
-                    subtitle = t("add_free_sub"),
-                    icon = Icons.Filled.CardGiftcard,
-                    accent = c.premium,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onProjects
-                )
+                SlabRow(title = "IKEv2 / IPsec", subtitle = t("add_ikev2_sub"), icon = Icons.Filled.Lock,
+                    accent = c.warning, chevron = true, enabled = !busy, onClick = onManual)
+                ProtocolForms.forms.firstOrNull { it.id == "openconnect" }?.let { f ->
+                    SlabDivider()
+                    SlabRow(title = f.title, subtitle = t("form_sub_" + f.id), icon = Icons.Filled.VpnKey,
+                        accent = c.info, chevron = true, enabled = !busy, onClick = { onProtocolForm(f.id) })
+                }
                 SlabDivider()
+                SlabRow(title = t("add_sub_row"), subtitle = t("add_sub_row_sub"), icon = Icons.Filled.Hub,
+                    accent = c.primary, chevron = true, enabled = !busy, onClick = onSubscription)
+                SlabDivider()
+                SlabRow(title = t("free_projects"), subtitle = t("add_free_sub"), icon = Icons.Filled.CardGiftcard,
+                    accent = c.premium, chevron = true, enabled = !busy, onClick = onProjects)
+                SlabDivider()
+                SlabRow(title = t("ws_title"), subtitle = t("add_ws_sub"), icon = Icons.Filled.Shield,
+                    accent = c.info, chevron = true, enabled = !busy, onClick = onWindscribe)
+
+                var moreOpen by rememberSaveable { mutableStateOf(false) }
+                Spacer(Modifier.height(GhajarSpacing.xs))
                 SlabRow(
-                    title = t("ws_title"),
-                    subtitle = t("add_ws_sub"),
-                    icon = Icons.Filled.Shield,
-                    accent = c.info,
-                    chevron = true,
+                    title = t("add_more"),
+                    subtitle = t("add_more_sub"),
+                    icon = Icons.Filled.Apps,
+                    accent = c.textSecondary,
                     enabled = !busy,
-                    onClick = onWindscribe
+                    onClick = { moreOpen = !moreOpen },
+                    trailing = { Icon(if (moreOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = c.textSecondary) }
                 )
+                AnimatedVisibility(
+                    visible = moreOpen,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
+                    exit = fadeOut(tween(160)) + shrinkVertically(tween(200, easing = FastOutSlowInEasing))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                        Rail(t("add_group_tunnels"))
+                        SlabRow(title = "SSH", subtitle = t("add_ssh_sub"), icon = Icons.Filled.Terminal,
+                            accent = c.highlight, chevron = true, enabled = !busy, onClick = onSsh)
+                        SlabDivider()
+                        SlabRow(title = t("dnslab_title"), subtitle = t("add_dnslab_sub"), icon = Icons.Filled.Dns,
+                            accent = c.info, chevron = true, enabled = !busy, onClick = onDnsLab)
+                        // One entry per core: each opens its own form with the
+                        // fields that protocol needs and an Advanced section.
+                        listOf("vpn" to t("add_group_vpn_forms"), "tunnel" to t("add_group_tunnel_forms"),
+                            "dns" to t("add_group_dns_forms"), "proxy" to t("add_group_proxy_forms")).forEach { (group, label) ->
+                            val forms = ProtocolForms.forms.filter { it.group == group && it.id != "openconnect" }
+                            if (forms.isNotEmpty()) {
+                                Rail(label)
+                                forms.forEachIndexed { i, f ->
+                                    if (i > 0) SlabDivider()
+                                    SlabRow(title = f.title, subtitle = t("form_sub_" + f.id), icon = Icons.Filled.Add,
+                                        chevron = true, enabled = !busy, onClick = { onProtocolForm(f.id) })
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -4622,7 +4890,7 @@ private fun LabeledDropdown(
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
-private fun settingsDepth(key: String): Int = when (key) {
+private fun settingsDepth(key: String): Int = when (key.substringBefore(':')) {
     "settings" -> 0
     "stability", "cleanip", "dnslab", "map", "perapp", "theme", "netcat" -> 2
     "checkhost" -> 3
@@ -4854,6 +5122,11 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
                     ).joinToString("\n").takeIf { it.isNotBlank() }
                     readyFile = result.file
                     stage = 3
+                    // Straight to the system installer when allowed; the
+                    // «نصب» button stays for a second try.
+                    if (GhajarUpdateInstaller.canInstallPackages(context)) {
+                        runCatching { GhajarUpdateInstaller.install(context, result.file) }
+                    }
                 }
             }
         }
@@ -4876,7 +5149,7 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
             2 -> "لطفاً صبر کن…"
             3 -> "نصب"
             4 -> "تلاش دوباره"
-            else -> "دانلود و بروزرسانی"
+            else -> "دانلود"
         },
         dismissLabel = if (stage == 0) "بعداً" else if (stage == 1) null else "بستن",
         onConfirm = {
@@ -4893,13 +5166,22 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
         when (stage) {
             0 -> Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (upd.changelog.isNotBlank()) {
-                    Text("تغییرات این نسخه:", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                    // Collapsed by default: the download is one tap away and
+                    // the notes open only for whoever wants them.
+                    var notesOpen by remember(upd.version) { mutableStateOf(false) }
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { notesOpen = !notesOpen }
+                        .padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Text("تغییرات این نسخه", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.weight(1f))
+                        Text(if (notesOpen) "▲ بستن" else "▼ نمایش", style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
                     // The release body is Markdown. Rendering it as one flat
                     // bulleted list turned headings into bullets and a table
                     // into a row of pipe characters; ReleaseNotes parses the
                     // three shapes a release note actually uses.
                     val blocks = remember(upd.changelog) { ReleaseNotes.parse(upd.changelog) }
-                    Column(
+                    if (notesOpen) Column(
                         // The dialog bounds its own body now, so no second cap
                         // here: a long release note scrolls instead of being
                         // cut at a fixed height.
@@ -6077,7 +6359,10 @@ private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = 
     val states by RadarRunner.states.collectAsState()
     val running by RadarRunner.running.collectAsState()
     val conn by VpnState.state.collectAsState()
-    val viaTunnel = conn == Connection.CONNECTED
+    // Connected: through the tunnel by default, or straight out to compare.
+    var forceDirect by remember { mutableStateOf(false) }
+    val viaTunnel = conn == Connection.CONNECTED && !forceDirect
+    val radarContext = LocalContext.current
 
     fun run() {
         if (!running) RadarRunner.start(viaTunnel)
@@ -6094,6 +6379,24 @@ private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = 
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
     ) {
+        val sanctioned = states.values.count { it is NetMonitor.State.Sanctioned }
+        val blocked = states.values.count { it is NetMonitor.State.Unreachable }
+        val avgMs = states.values.filterIsInstance<NetMonitor.State.Reachable>().map { it.ms }.takeIf { it.isNotEmpty() }?.average()?.toInt()
+        StatStrip(
+            listOf(
+                StatCell(t("netmon_open"), localizeDigits("$reachable", lang), ghajarColors.good),
+                StatCell(t("netmon_sanctioned"), localizeDigits("$sanctioned", lang), ghajarColors.warning),
+                StatCell(t("netmon_blocked"), localizeDigits("$blocked", lang), ghajarColors.error),
+                StatCell(t("netmon_avg"), avgMs?.let { localizeDigits("$it", lang) + " " + t("unit_ms") } ?: "—", ghajarColors.primary)
+            )
+        )
+        if (conn == Connection.CONNECTED) {
+            SlidingSegments(
+                labels = listOf(t("stab_mode_tunnel"), t("stab_mode_direct")),
+                selected = if (forceDirect) 1 else 0,
+                onSelect = { if (!running) { forceDirect = it == 1; RadarRunner.start(conn == Connection.CONNECTED && !forceDirect) } }
+            )
+        }
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             InfoBox(
                 if (viaTunnel) t("netmon_via_tunnel") else t("netmon_via_direct"),
@@ -6143,6 +6446,31 @@ private fun NetMonitorScreen(onOpenCategories: () -> Unit, modifier: Modifier = 
             title = t("netcat_title"),
             subtitle = t("netcat_sub"),
             onClick = onOpenCategories
+        )
+        GhostPill(
+            text = t("netmon_share"),
+            icon = Icons.Filled.Share,
+            enabled = done > 0 && !running,
+            onClick = {
+                val report = buildString {
+                    appendLine(t("netmon_title") + " — " + if (viaTunnel) t("netmon_via_tunnel") else t("netmon_via_direct"))
+                    NetMonitor.Essential.forEach { site ->
+                        val st = states[site.host]
+                        appendLine(site.name + ": " + when (st) {
+                            is NetMonitor.State.Reachable -> "${st.ms} ms"
+                            is NetMonitor.State.Sanctioned -> t("netmon_sanctioned")
+                            is NetMonitor.State.Unreachable -> t("netmon_blocked")
+                            else -> "—"
+                        })
+                    }
+                }
+                runCatching {
+                    radarContext.startActivity(android.content.Intent.createChooser(
+                        android.content.Intent(android.content.Intent.ACTION_SEND).setType("text/plain")
+                            .putExtra(android.content.Intent.EXTRA_TEXT, report), t("netmon_share")
+                    ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                }
+            }
         )
     }
 }
@@ -6263,6 +6591,8 @@ private fun SettingsScreen(
     onOpenNetMon: () -> Unit,
     onOpenSsh: () -> Unit,
     onOpenDebugger: () -> Unit,
+    onOpenBackup: () -> Unit = {},
+    onOpenExtra: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -6343,6 +6673,33 @@ private fun SettingsScreen(
                 chevron = true,
                 onClick = onOpenSsh
             )
+            SlabDivider()
+            SlabRow(
+                title = t("livemon_title"),
+                subtitle = t("livemon_sub"),
+                icon = Icons.Filled.MonitorHeart,
+                chevron = true,
+                onClick = { onOpenExtra("livemon") }
+            )
+        }
+
+        Rail(t("sec_routing_data"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("dnsproto_title"),
+                subtitle = t("dnsproto_sub"),
+                icon = Icons.Filled.Dns,
+                chevron = true,
+                onClick = { onOpenExtra("dnsproto") }
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("geodata_title"),
+                subtitle = t("geodata_sub"),
+                icon = Icons.Filled.Public,
+                chevron = true,
+                onClick = { onOpenExtra("geodata") }
+            )
         }
 
         Rail(t("sec_usage"))
@@ -6376,7 +6733,25 @@ private fun SettingsScreen(
         }
 
         Rail(t("sec_data"))
-        BackupRow(store)
+        // One row that opens the backup page, rather than the whole backup
+        // form expanded at the bottom of Settings.
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("backup_title"),
+                subtitle = t("backup_sub"),
+                icon = Icons.Filled.Backup,
+                chevron = true,
+                onClick = onOpenBackup
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("safebox_title"),
+                subtitle = t("safebox_sub"),
+                icon = Icons.Filled.Lock,
+                chevron = true,
+                onClick = { onOpenExtra("safebox") }
+            )
+        }
     }
 }
 
@@ -6722,6 +7097,7 @@ private fun ToolsScreen(
     onOpenDnsLab: () -> Unit,
     onOpenMap: () -> Unit,
     onSwitch: (ProxyConfig) -> Unit,
+    onOpenExtra: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -6741,6 +7117,16 @@ private fun ToolsScreen(
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
         ScreenHeader(title = t("tools"), context = t("tools_header_sub"))
+
+        // The tools used most, one tap away.
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+            GlyphTile(Icons.Filled.Speed, t("stab_title"), onOpenStability, Modifier.weight(1f))
+            GlyphTile(Icons.Filled.MonitorHeart, t("livemon_title"), { onOpenExtra("livemon") }, Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+            GlyphTile(Icons.Filled.Dns, t("dnsproto_title"), { onOpenExtra("dnsproto") }, Modifier.weight(1f))
+            GlyphTile(Icons.Filled.Public, t("geodata_title"), { onOpenExtra("geodata") }, Modifier.weight(1f))
+        }
 
         Rail(t("sec_sharing"))
         Slab(spacing = 0.dp) {
@@ -7564,6 +7950,11 @@ private fun ConfigDebuggerScreen(
 
         ServerChecksGroup(config)
         PanelChecksGroup(config)
+        // The engine-level view of the same server: real test, DPI fingerprint.
+        var engineDetails by remember(config.id) { mutableStateOf(false) }
+        GhostPill(text = t("srv_details") + " · " + t("srv_dpi"), icon = Icons.Filled.Info, onClick = { engineDetails = true })
+        if (engineDetails) ServerDetailsDialog(config = config, conn = Connection.DISCONNECTED,
+            onDismiss = { engineDetails = false }, onConnect = null, onEdit = { engineDetails = false })
     }
 }
 
@@ -7878,6 +8269,7 @@ private fun ConnectionSettingsScreen(
     store: ConfigStore,
     onOpenPerApp: () -> Unit,
     onOpenLogs: () -> Unit,
+    onOpenExtra: (String) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -7926,6 +8318,15 @@ private fun ConnectionSettingsScreen(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        ScreenHeader(title = t("connection_settings"), context = t("connection_settings_sub"))
+        // The engine-level settings that live on their own pages.
+        Slab(spacing = 0.dp) {
+            SlabRow(title = t("dnsproto_title"), subtitle = t("dnsproto_sub"), icon = Icons.Filled.Dns, chevron = true,
+                onClick = { onOpenExtra("dnsproto") })
+            SlabDivider()
+            SlabRow(title = t("geodata_title"), subtitle = t("geodata_sub"), icon = Icons.Filled.Public, chevron = true,
+                onClick = { onOpenExtra("geodata") })
+        }
         SettingsGroup(t("routing")) {
             SettingRow(
                 title = t("fakedns_title"),
@@ -8457,7 +8858,6 @@ private fun PreferencesScreen(
     val t = stringsFn()
     val lang = LocalLang.current
     val curLang by store.lang.collectAsState()
-    var langOpen by remember { mutableStateOf(false) }
     val autoRefreshHours by store.autoRefreshHours.collectAsState()
     var autoRefreshOpen by remember { mutableStateOf(false) }
     val coreLogLevel by store.coreLogLevel.collectAsState()
@@ -8472,71 +8872,32 @@ private fun PreferencesScreen(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        SettingsHubCard(
-            icon = Icons.Filled.Palette,
-            title = t("theme_settings"),
-            subtitle = t("theme_settings_sub"),
-            onClick = onOpenTheme
+        ScreenHeader(title = t("preferences"), context = t("preferences_sub"))
+        // Language first, as a two-way switch rather than a menu.
+        SlidingSegments(
+            labels = listOf("English", "فارسی"),
+            selected = if (curLang == Lang.FA) 1 else 0,
+            onSelect = { store.setLang(if (it == 1) Lang.FA else Lang.EN) }
         )
-        SettingsHubCard(
-            icon = Icons.Filled.Notifications,
-            title = t("notif_settings"),
-            subtitle = t("notif_settings_sub"),
-            onClick = onOpenNotifications
-        )
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("theme_settings"),
+                subtitle = t("theme_settings_sub"),
+                icon = Icons.Filled.Palette,
+                chevron = true,
+                onClick = onOpenTheme
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("notif_settings"),
+                subtitle = t("notif_settings_sub"),
+                icon = Icons.Filled.Notifications,
+                chevron = true,
+                onClick = onOpenNotifications
+            )
+        }
 
         SettingsGroup {
-            Text(t("language"), style = MaterialTheme.typography.labelLarge,
-                color = MaterialTheme.colorScheme.primary)
-            Box {
-                OutlinedButton(
-                    onClick = { langOpen = true },
-                    shape = RoundedCornerShape(16.dp),
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        if (curLang == Lang.FA) "فارسی" else "English",
-                        fontFamily = if (curLang == Lang.FA) VazirFont else LexendFont,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Icon(Icons.Filled.ExpandMore, contentDescription = null, modifier = Modifier.size(20.dp))
-                }
-                DropdownMenu(
-                    expanded = langOpen,
-                    onDismissRequest = { langOpen = false },
-                    offset = DpOffset(0.dp, 8.dp),
-                    shape = RoundedCornerShape(16.dp),
-                    containerColor = ghajarColors.surface,
-                    border = BorderStroke(1.dp, ghajarColors.border)
-                ) {
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "English",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = LexendFont
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { store.setLang(Lang.EN); langOpen = false }
-                    )
-                    DropdownMenuItem(
-                        text = {
-                            Text(
-                                "فارسی",
-                                style = MaterialTheme.typography.bodyMedium,
-                                fontFamily = VazirFont
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 14.dp),
-                        modifier = Modifier.height(40.dp),
-                        onClick = { store.setLang(Lang.FA); langOpen = false }
-                    )
-                }
-            }
-
             Text(t("auto_refresh"), style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.primary)
             Box {
@@ -8901,6 +9262,77 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
         ) {
             AboutChip(t("app_version"), appVersion)
             AboutChip(t("xray_version"), xrayVersion)
+        }
+
+        // What this build carries: every connection engine, its licence and
+        // whether it is present, read from the engine registry itself.
+        // Read off the main thread: the check loads native libraries.
+        var engineRows by remember { mutableStateOf<List<Triple<net.gozar.app.engine.VpnEngine, net.gozar.app.engine.Availability?, Int>>>(emptyList()) }
+        LaunchedEffect(Unit) {
+            engineRows = withContext(Dispatchers.IO) {
+                net.gozar.app.engine.CoreManager.engines.map { e ->
+                    Triple(e, runCatching { e.availability(context) }.getOrNull(), e.capabilities.protocols.size)
+                }
+            }
+        }
+        var enginesOpen by rememberSaveable { mutableStateOf(false) }
+        var engineReason by remember { mutableStateOf<String?>(null) }
+        Rail(t("about_engines"))
+        Slab(spacing = 0.dp) {
+            val ready = engineRows.count { it.second is net.gozar.app.engine.Availability.Available || it.second is net.gozar.app.engine.Availability.Experimental }
+            SlabRow(
+                title = t("about_engines"),
+                subtitle = if (engineRows.isEmpty()) "…" else localizeDigits("$ready / ${engineRows.size}", lang) + " " + t("about_engine_ready"),
+                icon = Icons.Filled.Hub,
+                modifier = Modifier.clickable { enginesOpen = !enginesOpen },
+                trailing = {
+                    Icon(if (enginesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = ghajarColors.textSecondary)
+                }
+            )
+            AnimatedVisibility(enginesOpen, enter = fadeIn(tween(200)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
+                exit = fadeOut(tween(150)) + shrinkVertically(tween(200, easing = FastOutSlowInEasing))) {
+                Column {
+                    engineRows.forEach { (e, a, count) ->
+                        SlabDivider()
+                        SlabRow(
+                            title = e.displayName,
+                            subtitle = e.capabilities.license + " · " + localizeDigits("$count", lang) + " " + t("about_protocols"),
+                            icon = Icons.Filled.Hub,
+                            modifier = Modifier.clickable {
+                                engineReason = when (a) {
+                                    is net.gozar.app.engine.Availability.Missing -> e.displayName + "\n" + a.why
+                                    is net.gozar.app.engine.Availability.Experimental -> e.displayName + "\n" + a.why
+                                    else -> null
+                                }
+                            },
+                            accent = when (a) {
+                                is net.gozar.app.engine.Availability.Available -> ghajarColors.good
+                                is net.gozar.app.engine.Availability.Experimental -> ghajarColors.warning
+                                else -> ghajarColors.textMuted
+                            },
+                            value = when (a) {
+                                is net.gozar.app.engine.Availability.Available -> t("about_engine_ready")
+                                is net.gozar.app.engine.Availability.Experimental -> t("about_engine_experimental")
+                                else -> t("about_engine_missing")
+                            }
+                        )
+                    }
+                }
+            }
+        }
+        engineReason?.let { reason ->
+            AlertDialog(
+                onDismissRequest = { engineReason = null },
+                confirmButton = { TextButton(onClick = { engineReason = null }) { Text(t("close")) } },
+                text = { Text(reason, style = MaterialTheme.typography.bodySmall) }
+            )
+        }
+        Rail(t("about_device"))
+        Slab(spacing = 0.dp) {
+            SlabRow(title = "Android", icon = Icons.Filled.Info,
+                value = localizeDigits("${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})", lang))
+            SlabDivider()
+            SlabRow(title = "ABI", icon = Icons.Filled.Build, value = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "—")
         }
 
         AboutCard(
@@ -9322,8 +9754,12 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
     var ulLive by remember { mutableStateOf(result?.uploadMbps ?: 0.0) }
     var livePing by remember { mutableStateOf(0.0) }
     var testJob by remember { mutableStateOf<Job?>(null) }
+    val qContext = LocalContext.current
+    // Through the tunnel (the connected server) or straight out, to compare.
+    var directMode by remember { mutableStateOf(false) }
+    var history by remember { mutableStateOf(QualityHistory.list(qContext)) }
     fun start() {
-        val cfg = target
+        val cfg = if (directMode) null else target
         running = true; failed = false; result = null
         dlLive = 0.0; ulLive = 0.0; livePing = 0.0
         phase = StabilityTest.Phase.PING
@@ -9346,6 +9782,8 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
                 val now = System.currentTimeMillis()
                 store.saveLastTest(StabilityTest.toJson(r), now)
                 lastTestTime = now
+                QualityHistory.add(qContext, cfg?.name ?: t("stab_mode_direct"), r, now)
+                history = QualityHistory.list(qContext)
             }
             result = r; failed = r == null; running = false
             phase = StabilityTest.Phase.DONE
@@ -9506,8 +9944,15 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
             modifier = Modifier.fillMaxWidth().appearOnce(140)
         )
 
+        if (target != null) {
+            SlidingSegments(
+                labels = listOf(t("stab_mode_tunnel"), t("stab_mode_direct")),
+                selected = if (directMode) 1 else 0,
+                onSelect = { if (!running) directMode = it == 1 }
+            )
+        }
         InfoBox(
-            if (target != null) t("stab_testing_server") + " " + target.name
+            if (target != null && !directMode) t("stab_testing_server") + " " + target.name
             else t("stab_direct"),
             centered = true,
             modifier = Modifier.appearOnce(200)
@@ -9586,6 +10031,74 @@ private fun StabilityTestScreen(store: ConfigStore, modifier: Modifier = Modifie
                     }
                 }
             }
+        }
+
+        // What dedicated speed tests add: the bufferbloat grade, sharing the
+        // result, and the record of earlier runs to compare against.
+        result?.let { r ->
+            val grade = bufferbloatGrade(r)
+            val gradeTint = when (grade) {
+                "A", "B" -> ghajarColors.good
+                "C" -> ghajarColors.warning
+                else -> ghajarColors.error
+            }
+            Slab(spacing = 0.dp) {
+                SlabRow(
+                    title = t("stab_bufferbloat"),
+                    subtitle = t("stab_bufferbloat_sub"),
+                    icon = Icons.Filled.GraphicEq,
+                    accent = gradeTint,
+                    value = grade
+                )
+            }
+            GhostPill(
+                text = t("stab_share"),
+                icon = Icons.Filled.Share,
+                onClick = {
+                    val txt = buildString {
+                        appendLine(t("stab_title"))
+                        appendLine("${t("download")}: ${String.format(java.util.Locale.US, "%.1f", r.downloadMbps)} Mbps")
+                        appendLine("${t("upload")}: ${String.format(java.util.Locale.US, "%.1f", r.uploadMbps)} Mbps")
+                        appendLine("${t("stab_idle_latency")}: ${r.idleLatency.toInt()} ms")
+                        appendLine("${t("stab_jitter")}: ${r.jitter.toInt()} ms")
+                        appendLine("${t("stab_bufferbloat")}: $grade")
+                    }
+                    runCatching {
+                        qContext.startActivity(
+                            android.content.Intent.createChooser(
+                                android.content.Intent(android.content.Intent.ACTION_SEND)
+                                    .setType("text/plain")
+                                    .putExtra(android.content.Intent.EXTRA_TEXT, txt),
+                                t("stab_share")
+                            ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                        )
+                    }
+                }
+            )
+        }
+
+        Rail(t("stab_history"))
+        if (history.isEmpty()) {
+            Text(t("stab_history_empty"), style = MaterialTheme.typography.bodySmall, color = ghajarColors.textSecondary)
+        } else {
+            Slab(spacing = 0.dp) {
+                history.forEachIndexed { i, e ->
+                    if (i > 0) SlabDivider()
+                    SlabRow(
+                        title = e.target,
+                        subtitle = formatTestTime(e.timeMs, lang) + "  ·  " +
+                            localizeDigits("${e.result.idleLatency.toInt()}", lang) + " " + t("unit_ms"),
+                        icon = Icons.Filled.Speed,
+                        value = "↓" + localizeDigits(String.format(java.util.Locale.US, "%.1f", e.result.downloadMbps), lang) +
+                            "  ↑" + localizeDigits(String.format(java.util.Locale.US, "%.1f", e.result.uploadMbps), lang)
+                    )
+                }
+            }
+            GhostPill(
+                text = t("stab_clear"),
+                onClick = { QualityHistory.clear(qContext); history = emptyList() },
+                accent = ghajarColors.textSecondary
+            )
         }
     }
 }
@@ -10192,11 +10705,42 @@ private fun DataUsageScreen(modifier: Modifier = Modifier) {
         ?: longArrayOf(0L, 0L)
     val perConfig = ranged.filter { it.first != UsageStore.DIRECT_KEY }
     val grand = configDirect[0] + configDirect[1] + perConfig.sumOf { it.second[0] + it.second[1] }
+    // The same range, grouped by protocol and by the engine that carried it.
+    val usageConfigs by remember { ConfigStore.get(context) }.configs.collectAsState()
+    val byProtocol = remember(perConfig, usageConfigs) {
+        val index = usageConfigs.associateBy { it.id }
+        perConfig.groupBy { (id, _) -> index[id]?.let { it.protocol.uppercase() + " · " + net.gozar.app.engine.EngineRouting.engineFor(it).name } ?: t("usage_removed") }
+            .mapValues { (_, rows) -> rows.sumOf { it.second[0] + it.second[1] } }
+            .entries.sortedByDescending { it.value }
+    }
 
     Column(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        StatStrip(
+            listOf(
+                StatCell(t("usage_total"), formatBytes(total[0] + total[1], lang), ghajarColors.primary),
+                StatCell(t("usage_vpn"), formatBytes(rangeVpn, lang), ghajarColors.good),
+                StatCell(t("usage_direct"), formatBytes(rangeDirect, lang), ghajarColors.textSecondary)
+            )
+        )
+        if (byProtocol.isNotEmpty()) {
+            Rail(t("usage_by_protocol"))
+            Slab(spacing = GhajarSpacing.sm) {
+                val top = byProtocol.first().value.coerceAtLeast(1L)
+                byProtocol.take(8).forEach { (label, bytes) ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = ghajarColors.textPrimary, modifier = Modifier.weight(1f))
+                        Text(formatBytes(bytes, lang), style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = ghajarColors.primary)
+                    }
+                    Box(Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(GhajarRadius.pill)).background(ghajarColors.primary.copy(alpha = 0.12f))) {
+                        Box(Modifier.fillMaxWidth((bytes.toFloat() / top).coerceIn(0.02f, 1f)).height(6.dp)
+                            .clip(RoundedCornerShape(GhajarRadius.pill)).background(ghajarColors.primary))
+                    }
+                }
+            }
+        }
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(
                 t("range"),
@@ -11712,6 +12256,12 @@ private fun SubscriptionHeader(
     onRenew: (() -> Unit)? = null,
     /** How many configs this subscription holds, shown under its name. */
     configCount: Int = 0,
+    /** Change the link; null where there is no link to change. */
+    onEditLink: ((String) -> Unit)? = null,
+    /** Move (a hand-made group) or copy (a fetched one) its configs into a group. */
+    onGroup: () -> Unit = {},
+    /** TCP handshake to every config; [onPing] is the real-delay test. */
+    onTcpPing: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -11721,6 +12271,34 @@ private fun SubscriptionHeader(
     var renaming by remember { mutableStateOf(false) }
     var shareMenu by remember { mutableStateOf(false) }
     var draftName by remember { mutableStateOf(sub.name) }
+    var editingLink by remember { mutableStateOf(false) }
+    var draftLink by remember { mutableStateOf(sub.url) }
+    var showQr by remember { mutableStateOf(false) }
+
+    if (showQr && sub.url.isNotBlank()) {
+        QrDialog(link = sub.url, title = sub.name, onDismiss = { showQr = false })
+    }
+    if (editingLink && onEditLink != null) {
+        GlassDialog(
+            onDismiss = { editingLink = false },
+            title = t("sub_edit_link"),
+            confirmLabel = t("save"),
+            dismissLabel = t("cancel"),
+            onConfirm = {
+                val link = draftLink.trim()
+                if (link.startsWith("http://") || link.startsWith("https://")) onEditLink(link)
+                editingLink = false
+            }
+        ) {
+            OutlinedTextField(
+                value = draftLink,
+                onValueChange = { draftLink = it },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
 
     if (renaming) {
         GlassDialog(
@@ -11878,10 +12456,36 @@ private fun SubscriptionHeader(
                         }
                         context.startActivity(Intent.createChooser(send, sub.name))
                     }
+                    if (sub.url.isNotBlank()) {
+                        CompactMenuItem(Icons.Filled.QrCode2, t("qr_show")) {
+                            shareMenu = false
+                            showQr = true
+                        }
+                    }
                     CompactMenuItem(Icons.Filled.Edit, t("edit_sub_name")) {
                         shareMenu = false
                         draftName = sub.name
                         renaming = true
+                    }
+                    if (onEditLink != null) {
+                        CompactMenuItem(Icons.Filled.Link, t("sub_edit_link")) {
+                            shareMenu = false
+                            draftLink = sub.url
+                            editingLink = true
+                        }
+                    }
+                    CompactMenuItem(Icons.Filled.DriveFileMove,
+                        if (sub.url.isNotBlank()) t("copy_to_group") else t("move_to_group")) {
+                        shareMenu = false
+                        onGroup()
+                    }
+                    CompactMenuItem(Icons.Filled.NetworkCheck, t("tcp_ping")) {
+                        shareMenu = false
+                        onTcpPing()
+                    }
+                    CompactMenuItem(Icons.Filled.Speed, t("real_delay")) {
+                        shareMenu = false
+                        onPing()
                     }
                     HorizontalDivider(color = c.border)
                     DropdownMenuItem(
@@ -12241,6 +12845,55 @@ private fun ChainOptionRow(
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
+private fun GroupPickDialog(
+    groups: List<Subscription>,
+    title: String,
+    onPick: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    val t = stringsFn()
+    val c = ghajarColors
+    var newName by remember { mutableStateOf("") }
+    GlassDialog(
+        onDismiss = onDismiss,
+        title = title,
+        confirmLabel = t("save"),
+        dismissLabel = t("cancel"),
+        onConfirm = { if (newName.isNotBlank()) onPick(newName.trim()) else onDismiss() }
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            if (groups.isNotEmpty()) {
+                Text(t("group_pick"), style = MaterialTheme.typography.labelMedium, color = c.textMuted)
+                groups.forEach { group ->
+                    Row(
+                        Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(GhajarRadius.md))
+                            .background(c.secondaryCard)
+                            .clickable { onPick(group.name) }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.DriveFileMove, null, tint = c.primary, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text(group.name, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            OutlinedTextField(
+                value = newName,
+                onValueChange = { newName = it.take(80) },
+                singleLine = true,
+                label = { Text(t("group_new")) },
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
 private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
     val t = stringsFn()
     val context = LocalContext.current
@@ -12581,18 +13234,55 @@ private fun ConfigRow(
     containerColor: Color? = null,
     conn: Connection = Connection.DISCONNECTED,
     onToggleConnection: (() -> Unit)? = null,
-    onToggleFavorite: () -> Unit = {}
+    onToggleFavorite: () -> Unit = {},
+    /** The rest of what a single config can be asked to do, from its "more" menu. */
+    onRename: (String) -> Unit = {},
+    onMoveToGroup: () -> Unit = {},
+    onTcpPing: () -> Unit = {},
+    onRealDelay: () -> Unit = {}
 ) {
     val t = stringsFn()
     val lang = LocalLang.current
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var shareMenu by remember { mutableStateOf(false) }
+    var moreMenu by remember { mutableStateOf(false) }
+    var renaming by remember { mutableStateOf(false) }
+    var draftName by remember { mutableStateOf(config.name) }
     var qrFor by remember { mutableStateOf<String?>(null) }
+    var detailsOpen by remember { mutableStateOf(false) }
+    if (detailsOpen) ServerDetailsDialog(
+        config = config,
+        conn = if (isActive) conn else Connection.DISCONNECTED,
+        onDismiss = { detailsOpen = false },
+        onConnect = onToggleConnection?.let { go -> { detailsOpen = false; go() } },
+        onEdit = { detailsOpen = false; onEdit() }
+    )
     val checked by remember { derivedStateOf { isChecked() } }
 
     qrFor?.let { link ->
         QrDialog(link = link, title = GhajarUiRules.brandedConfigName(config.name), onDismiss = { qrFor = null })
+    }
+    if (renaming) {
+        GlassDialog(
+            onDismiss = { renaming = false },
+            title = t("cfg_rename"),
+            confirmLabel = t("save"),
+            dismissLabel = t("cancel"),
+            onConfirm = {
+                val nm = draftName.trim()
+                if (nm.isNotEmpty()) onRename(nm)
+                renaming = false
+            }
+        ) {
+            OutlinedTextField(
+                value = draftName,
+                onValueChange = { draftName = it.take(120) },
+                singleLine = true,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
     }
 
     val c = ghajarColors
@@ -12601,19 +13291,22 @@ private fun ConfigRow(
     // and were rejected: this list maps a drag's y position to a row id for
     // paint-selection, and a second column makes that mapping select the
     // wrong servers - silently, which is the worst way for it to be wrong.
-    val compact = LocalListDensity.current == ListDensity.TWO
+    val compact = LocalListDensity.current == ListDensity.TWO ||
+        LocalGhajarLook.current.density == "compact"
+    val activeTone = lookColor(LookElement.SERVER_ACTIVE)
+    val cardTone = lookColor(LookElement.SERVER_CARD)
     // Selection is a low-alpha brand wash rather than a filled container, so a
     // long list of selected rows stays readable instead of turning into a block
     // of solid colour.
     val highlight by animateColorAsState(
         targetValue = when {
-            checked || isSelected -> c.primary.copy(alpha = 0.16f)
+            checked || isSelected -> activeTone.copy(alpha = 0.16f)
             // The row actually carrying traffic. A 3dp accent bar is easy to
             // miss in a long list; the wash is the same signal at a glance,
             // and lighter than the selected one so the two stay distinct.
-            isActive -> c.primary.copy(alpha = 0.09f)
+            isActive -> activeTone.copy(alpha = 0.09f)
             containerColor != null -> containerColor
-            else -> Color.Transparent
+            else -> cardTone
         },
         animationSpec = tween(220),
         label = "rowHighlight"
@@ -12699,7 +13392,7 @@ private fun ConfigRow(
         // not exist. drawBehind runs after measurement, so it knows the real
         // height of whatever the two or three tiers came to, and it mirrors
         // itself under RTL because "leading" is the right-hand edge there.
-        val barColor = if (isActive) c.primary else Color.Transparent
+        val barColor = if (isActive) activeTone else Color.Transparent
         Column(
             Modifier
                 .fillMaxWidth()
@@ -12949,6 +13642,49 @@ private fun ConfigRow(
                             tint = c.primary,
                             onClick = onEdit
                         )
+                        Box {
+                            RowAction(
+                                icon = Icons.Filled.MoreVert,
+                                label = t("row_more"),
+                                tint = c.primary,
+                                onClick = { moreMenu = true }
+                            )
+                            DropdownMenu(
+                                expanded = moreMenu,
+                                onDismissRequest = { moreMenu = false },
+                                shape = RoundedCornerShape(GhajarRadius.lg),
+                                containerColor = c.card,
+                                border = null
+                            ) {
+                                if (!config.locked) {
+                                    CompactMenuItem(Icons.Filled.QrCode2, t("qr_show")) {
+                                        moreMenu = false
+                                        qrFor = ConfigShare.toLink(config)
+                                    }
+                                }
+                                CompactMenuItem(Icons.Filled.DriveFileRenameOutline, t("cfg_rename")) {
+                                    moreMenu = false
+                                    draftName = config.name
+                                    renaming = true
+                                }
+                                CompactMenuItem(Icons.Filled.DriveFileMove, t("move_to_group")) {
+                                    moreMenu = false
+                                    onMoveToGroup()
+                                }
+                                CompactMenuItem(Icons.Filled.Info, t("srv_details")) {
+                                    moreMenu = false
+                                    detailsOpen = true
+                                }
+                                CompactMenuItem(Icons.Filled.NetworkCheck, t("tcp_ping")) {
+                                    moreMenu = false
+                                    onTcpPing()
+                                }
+                                CompactMenuItem(Icons.Filled.Speed, t("real_delay")) {
+                                    moreMenu = false
+                                    onRealDelay()
+                                }
+                            }
+                        }
                         RowAction(
                             icon = Icons.Filled.Delete,
                             label = t("delete"),
@@ -13285,7 +14021,9 @@ private fun LivePingDot(ping: PingResult?) {
 @Composable
 private fun ProtocolTag(protocol: String, active: Boolean) {
     val c = ghajarColors
-    val label = protocol.trim().uppercase(java.util.Locale.ROOT).ifBlank { return }
+    val base = protocol.trim().uppercase(java.util.Locale.ROOT).ifBlank { return }
+    // Profiles Xray cannot carry run on sing-box; say so where the protocol is shown.
+    val label = if (protocol.trim().lowercase() in net.gozar.app.engine.SingBoxConfig.PROTOCOLS) "$base · sing-box" else base
     val tint = if (active) c.primary else c.textMuted
     Text(
         label,
@@ -13655,3 +14393,854 @@ private fun PerAppCoverage() {
     }
 }
 
+/** The user-facing sentence for an import that did not produce configs. */
+internal fun importOutcomeMessage(outcome: net.gozar.app.configtoolkit.ImportRouter.Outcome): String = when (outcome) {
+    is net.gozar.app.configtoolkit.ImportRouter.Outcome.Locked -> outcome.message
+    is net.gozar.app.configtoolkit.ImportRouter.Outcome.Unsupported -> outcome.message
+    is net.gozar.app.configtoolkit.ImportRouter.Outcome.Invalid -> outcome.message
+    net.gozar.app.configtoolkit.ImportRouter.Outcome.WrongPasskey -> "رمز واردشده درست نیست."
+    net.gozar.app.configtoolkit.ImportRouter.Outcome.NeedsPasskey -> "این فایل رمز دارد."
+    is net.gozar.app.configtoolkit.ImportRouter.Outcome.Imported -> ""
+}
+
+/** Settings -> Data files: the installed geoip/geosite, and verified updates. */
+@Composable
+private fun GeoDataScreen(modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var info by remember { mutableStateOf(GeoData.info(context)) }
+    var busy by remember { mutableStateOf(false) }
+    var report by remember { mutableStateOf<List<Pair<String, String?>>>(emptyList()) }
+    val c = ghajarColors
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ScreenHeader(title = t("geodata_title"), context = t("geodata_header"))
+        Slab(spacing = 0.dp) {
+            info.forEachIndexed { i, f ->
+                if (i > 0) SlabDivider()
+                val src = GeoData.sourceOf(context, f.name)
+                SlabRow(
+                    title = f.name,
+                    subtitle = (if (f.bundled) t("geodata_bundled") else t("geodata_updated") + " · " + (src ?: "")) +
+                        (if (f.modifiedMs > 0) "  ·  " + formatTestTime(f.modifiedMs, lang) else ""),
+                    icon = Icons.Filled.Public,
+                    value = if (f.size > 0) formatBytes(f.size, lang) else "—"
+                )
+            }
+        }
+        Rail(t("geodata_update"))
+        PillButton(
+            text = t("geodata_src_iran"),
+            icon = Icons.Filled.Download,
+            enabled = !busy,
+            onClick = {
+                busy = true
+                scope.launch { report = GeoData.update(context, GeoData.Source.IRAN); info = GeoData.info(context); busy = false }
+            }
+        )
+        GhostPill(
+            text = t("geodata_src_loyal"),
+            icon = Icons.Filled.Download,
+            enabled = !busy,
+            onClick = {
+                busy = true
+                scope.launch { report = GeoData.update(context, GeoData.Source.LOYALSOLDIER); info = GeoData.info(context); busy = false }
+            }
+        )
+        GhostPill(
+            text = t("geodata_restore"),
+            enabled = !busy,
+            accent = c.textSecondary,
+            onClick = {
+                busy = true
+                scope.launch { GeoData.restoreBundled(context); info = GeoData.info(context); report = emptyList(); busy = false }
+            }
+        )
+        if (busy) SkinLoading(t("geodata_working"))
+        if (report.isNotEmpty()) {
+            Slab(spacing = 0.dp) {
+                report.forEachIndexed { i, (name, err) ->
+                    if (i > 0) SlabDivider()
+                    SlabRow(
+                        title = name,
+                        subtitle = err ?: t("geodata_ok"),
+                        icon = if (err == null) Icons.Filled.CheckCircle else Icons.Filled.Error,
+                        accent = if (err == null) c.good else c.error
+                    )
+                }
+            }
+        }
+        InfoBox(t("geodata_note"))
+    }
+}
+
+/** Settings -> DNS protocols: global options for the DNS tunnel engines. */
+@Composable
+private fun DnsProtocolsScreen(modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val c = ghajarColors
+    val start = remember { net.gozar.app.engine.DnsTunnelPrefs.current }
+    var resolver by remember { mutableStateOf(start.overrideResolver) }
+    var transport by remember { mutableStateOf(start.overrideTransport) }
+    var pool by remember { mutableStateOf(start.pool.joinToString("\n")) }
+    var workers by remember { mutableStateOf(if (start.workers > 0) start.workers.toString() else "") }
+    var duplication by remember { mutableStateOf(if (start.duplication > 0) start.duplication.toString() else "") }
+    var keepSlow by remember { mutableStateOf(start.keepSlowResolvers) }
+    var remote by remember { mutableStateOf(start.remoteDns) }
+    var saved by remember { mutableStateOf(false) }
+    val transports = listOf("udp", "dot", "doh")
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ScreenHeader(title = t("dnsproto_title"), context = t("dnsproto_header"))
+
+        Rail(t("dnsproto_override"))
+        SkinField(value = resolver, onValueChange = { resolver = it; saved = false }, label = t("dnsproto_resolver"),
+            placeholder = "8.8.8.8:53", helper = t("dnsproto_resolver_help"))
+        SlidingSegments(
+            labels = listOf("UDP", "DoT", "DoH"),
+            selected = transports.indexOf(transport).coerceAtLeast(0),
+            onSelect = { transport = transports[it]; saved = false }
+        )
+
+        Rail(t("dnsproto_pool"))
+        SkinField(value = pool, onValueChange = { pool = it; saved = false }, label = t("dnsproto_pool_field"),
+            placeholder = "1.1.1.1\n8.8.8.8", helper = t("dnsproto_pool_help"), singleLine = false, minLines = 3)
+
+        Rail(t("dnsproto_perf"))
+        SkinField(value = workers, onValueChange = { v -> workers = v.filter(Char::isDigit).take(2); saved = false },
+            label = t("dnsproto_workers"), placeholder = t("dnsproto_default"),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        SkinField(value = duplication, onValueChange = { v -> duplication = v.filter(Char::isDigit).take(2); saved = false },
+            label = t("dnsproto_dup"), placeholder = t("dnsproto_default"), helper = t("dnsproto_dup_help"),
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("dnsproto_keep_slow"),
+                subtitle = t("dnsproto_keep_slow_sub"),
+                icon = Icons.Filled.Dns,
+                trailing = { SkinSwitch(checked = keepSlow, onCheckedChange = { keepSlow = it; saved = false }) }
+            )
+        }
+
+        Rail(t("dnsproto_remote"))
+        SkinField(value = remote, onValueChange = { remote = it.trim(); saved = false }, label = t("dnsproto_remote_field"),
+            placeholder = "1.1.1.1", helper = t("dnsproto_remote_help"))
+
+        PillButton(
+            text = if (saved) t("dnsproto_saved") else t("save"),
+            icon = Icons.Filled.CheckCircle,
+            onClick = {
+                net.gozar.app.engine.DnsTunnelPrefs.save(context, net.gozar.app.engine.DnsTunnelPrefs.Values(
+                    overrideResolver = resolver.trim(),
+                    overrideTransport = transport,
+                    pool = pool.split('\n', ',', ' ').map { it.trim() }.filter { it.isNotEmpty() },
+                    workers = workers.toIntOrNull()?.coerceIn(0, 32) ?: 0,
+                    duplication = duplication.toIntOrNull()?.coerceIn(0, 10) ?: 0,
+                    keepSlowResolvers = keepSlow,
+                    remoteDns = remote
+                ))
+                saved = true
+            }
+        )
+        InfoBox(t("dnsproto_note"), accent = c.info)
+    }
+}
+
+/** Settings -> Live monitor: what this app takes from the phone right now, and what the tunnel is doing. */
+@Composable
+private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val c = ghajarColors
+    val context = LocalContext.current
+    val conn by VpnState.state.collectAsState()
+    val activeId by VpnState.activeId.collectAsState()
+    val connectedAt by VpnState.connectedAt.collectAsState()
+    val counters by VpnBridge.counters.collectAsState()
+    val configs by store.configs.collectAsState()
+    val logs by GhajarLog.entries.collectAsState()
+    val active = configs.find { it.id == activeId }
+
+    // The last sixty samples, newest last.
+    val down = remember { mutableStateListOf<Long>() }
+    val up = remember { mutableStateListOf<Long>() }
+    LaunchedEffect(counters) {
+        down.add(counters.downSpeed); up.add(counters.upSpeed)
+        while (down.size > 60) down.removeAt(0)
+        while (up.size > 60) up.removeAt(0)
+    }
+    val cpuHist = remember { mutableStateListOf<Float>() }
+    val memHist = remember { mutableStateListOf<Float>() }
+    val tempHist = remember { mutableStateListOf<Float>() }
+    var device by remember { mutableStateOf<DeviceMonitor.Sample?>(null) }
+    var now by remember { mutableStateOf(System.currentTimeMillis()) }
+    var engine by remember { mutableStateOf(runCatching { net.gozar.app.engine.CoreManager.status() }.getOrNull()) }
+    LaunchedEffect(Unit) {
+        val sampler = DeviceMonitor.Sampler(context)
+        while (true) {
+            val s = withContext(Dispatchers.IO) { runCatching { sampler.sample() }.getOrNull() }
+            if (s != null) {
+                device = s
+                s.cpuPct?.let { cpuHist.add(it); while (cpuHist.size > 40) cpuHist.removeAt(0) }
+                s.memoryMb?.let { memHist.add(it.toFloat()); while (memHist.size > 40) memHist.removeAt(0) }
+                s.batteryTempC?.let { tempHist.add(it); while (tempHist.size > 40) tempHist.removeAt(0) }
+            }
+            now = System.currentTimeMillis()
+            engine = runCatching { net.gozar.app.engine.CoreManager.status() }.getOrDefault(engine)
+            kotlinx.coroutines.delay(2000)
+        }
+    }
+    val elapsed = if (conn == Connection.CONNECTED && connectedAt > 0) ((now - connectedAt) / 1000).coerceAtLeast(0L) else 0L
+    val d = device
+    val num = { v: String -> localizeDigits(v, lang) }
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ScreenHeader(title = t("livemon_title"), context = t("livemon_sub"))
+
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md), modifier = Modifier.height(IntrinsicSize.Max)) {
+            // Battery: level gauge and what the phone draws right now.
+            Slab(Modifier.weight(1f).fillMaxHeight()) {
+                Text(t("livemon_battery"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                val pct = d?.batteryPct
+                Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.size(112.dp)) {
+                        val stroke = 10.dp.toPx()
+                        val arc = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
+                        val tl = Offset(stroke / 2, stroke / 2)
+                        drawArc(c.border, 135f, 270f, false, tl, arc, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = StrokeCap.Round))
+                        if (pct != null) drawArc(
+                            if (pct <= 15) c.error else c.primary, 135f, 270f * pct / 100f, false, tl, arc,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = StrokeCap.Round)
+                        )
+                    }
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(pct?.let { num(it.toString()) } ?: "—", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                        Text("%", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                    }
+                }
+                Text(
+                    (if (d?.charging == true) t("livemon_charging") else t("livemon_draw")) + " " +
+                        (d?.currentMa?.let { num("$it mA") } ?: "—"),
+                    style = MaterialTheme.typography.bodySmall, color = c.textSecondary
+                )
+            }
+            // Heat: the system's own thermal status and how close it is to throttling.
+            Slab(Modifier.weight(1f).fillMaxHeight(), accent = thermalColor(d?.thermalStatus)) {
+                Text(t("livemon_heat"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(thermalLabel(d?.thermalStatus, t), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = thermalColor(d?.thermalStatus))
+                    d?.headroomPct?.let { Text(num(String.format(java.util.Locale.US, "%.1f%%", it)), style = MaterialTheme.typography.labelMedium, color = c.textSecondary) }
+                }
+                if (d?.headroomPct != null) {
+                    Text(t("livemon_headroom"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.border)) {
+                        Box(Modifier.fillMaxWidth((d.headroomPct / 100f).coerceIn(0.02f, 1f)).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(thermalColor(d.thermalStatus)))
+                    }
+                }
+                d?.thermalStatus?.let { Text(t("livemon_throttle_" + it.coerceIn(0, 6)), style = MaterialTheme.typography.labelSmall, color = thermalColor(it)) }
+                Text(t("livemon_batt_temp"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Sparkline(tempHist, thermalColor(d?.thermalStatus), Modifier.weight(1f).height(36.dp))
+                    Text(d?.batteryTempC?.let { num(String.format(java.util.Locale.US, "%.1f°", it)) } ?: "—",
+                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                }
+            }
+        }
+
+        // CPU of this app plus the engines it runs, as a share of the whole phone.
+        Slab {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+                Column(Modifier.weight(1f)) {
+                    Text(t("livemon_cpu"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                    Text(d?.cpuPct?.let { num(String.format(java.util.Locale.US, "%.1f%%", it)) } ?: "—",
+                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = c.primary)
+                    Text(t("livemon_cpu_of"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                }
+                Sparkline(cpuHist, c.primary, Modifier.weight(1.3f).height(56.dp))
+            }
+        }
+        Slab {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+                Column(Modifier.weight(1f)) {
+                    Text(t("livemon_memory"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
+                    Text(d?.memoryMb?.let { num("$it MB") } ?: "—",
+                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = c.primary)
+                    d?.let { Text(num(t("livemon_procs").replace("%1", it.processes.toString()).replace("%2", (it.threads ?: 0).toString())),
+                        style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
+                }
+                Sparkline(memHist, c.primary, Modifier.weight(1.3f).height(56.dp), filled = true)
+            }
+        }
+
+        // The core: how long it has run and how it encrypts.
+        Rail(t("livemon_core"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("livemon_uptime"), icon = Icons.Filled.MonitorHeart,
+                value = when (conn) {
+                    Connection.CONNECTED -> num(formatUptime(elapsed))
+                    Connection.CONNECTING -> t("livemon_connecting")
+                    else -> t("livemon_idle")
+                }
+            )
+            SlabDivider()
+            SlabRow(title = t("livemon_hw_crypto"), icon = Icons.Filled.Lock,
+                value = if (DeviceMonitor.hardwareAes) t("livemon_active") else t("livemon_inactive"))
+            active?.let { a ->
+                SlabDivider()
+                SlabRow(title = t("livemon_cipher"), icon = Icons.Filled.Security, value = cipherOf(a))
+            }
+            SlabDivider()
+            SlabRow(title = t("livemon_state"), icon = Icons.Filled.Router,
+                value = when (conn) {
+                    Connection.CONNECTED -> t("livemon_connected")
+                    Connection.CONNECTING -> t("livemon_connecting")
+                    else -> t("livemon_idle")
+                })
+        }
+
+        Rail(t("livemon_traffic"))
+        StatStrip(
+            listOf(
+                StatCell(t("download"), formatBytes(counters.downSpeed, lang) + "/s", c.primary),
+                StatCell(t("upload"), formatBytes(counters.upSpeed, lang) + "/s", c.info),
+                StatCell(t("livemon_session"), formatBytes(counters.totalDown + counters.totalUp, lang), c.premium)
+            )
+        )
+        // Throughput over the last samples, download filled, upload as a line.
+        Slab {
+            val peak = maxOf(1L, down.maxOrNull() ?: 0L, up.maxOrNull() ?: 0L).toFloat()
+            Canvas(Modifier.fillMaxWidth().height(120.dp)) {
+                val n = 60
+                val step = size.width / (n - 1)
+                fun y(v: Long) = size.height - (v / peak) * size.height * 0.92f
+                val offset = n - down.size
+                if (down.size > 1) {
+                    val path = androidx.compose.ui.graphics.Path().apply {
+                        moveTo(offset * step, size.height)
+                        down.forEachIndexed { i, v -> lineTo((offset + i) * step, y(v)) }
+                        lineTo((offset + down.size - 1) * step, size.height)
+                        close()
+                    }
+                    drawPath(path, c.primary.copy(alpha = 0.22f))
+                    for (i in 1 until down.size) {
+                        drawLine(c.primary, Offset((offset + i - 1) * step, y(down[i - 1])), Offset((offset + i) * step, y(down[i])), strokeWidth = 2.dp.toPx())
+                    }
+                }
+                val uo = n - up.size
+                for (i in 1 until up.size) {
+                    drawLine(c.info, Offset((uo + i - 1) * step, y(up[i - 1])), Offset((uo + i) * step, y(up[i])), strokeWidth = 1.5.dp.toPx())
+                }
+            }
+        }
+
+        Rail(t("livemon_engine"))
+        Slab(spacing = 0.dp) {
+            SlabRow(
+                title = t("livemon_profile"),
+                icon = Icons.Filled.Router,
+                value = active?.let { it.protocol.uppercase() + " · " + net.gozar.app.engine.EngineRouting.engineFor(it).name } ?: "—"
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("livemon_running"),
+                icon = Icons.Filled.MonitorHeart,
+                value = engine?.running?.joinToString(", ") { it.name }?.ifBlank { null } ?: "—"
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("livemon_helper"),
+                icon = Icons.Filled.Build,
+                value = listOfNotNull(engine?.sidecar, engine?.socksPort?.let { "SOCKS 127.0.0.1:$it" }).joinToString(" · ").ifBlank { "—" }
+            )
+            active?.let { a ->
+                SlabDivider()
+                SlabRow(title = t("livemon_server"), icon = Icons.Filled.Public,
+                    value = if (a.address.isBlank()) "—" else a.address + if (a.port > 0) ":" + a.port else "")
+            }
+        }
+
+        Rail(t("livemon_events"))
+        val recent = remember(logs) { logs.takeLast(30).asReversed() }
+        Slab(spacing = 2.dp) {
+            if (recent.isEmpty()) Text(t("livemon_no_events"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            recent.forEach { e ->
+                Text(
+                    java.text.SimpleDateFormat("HH:mm:ss", java.util.Locale.US).format(java.util.Date(e.timeMs)) + "  " + e.tag + "  " + e.message,
+                    style = MaterialTheme.typography.labelSmall,
+                    fontFamily = FontFamily.Monospace,
+                    color = when (e.level) {
+                        GhajarLogLevel.ERROR, GhajarLogLevel.CRASH -> c.error
+                        GhajarLogLevel.WARN -> c.warning
+                        else -> c.textSecondary
+                    },
+                    maxLines = 2
+                )
+            }
+        }
+    }
+}
+
+/** A small trend line of the last samples, scaled to its own range. */
+@Composable
+private fun Sparkline(values: List<Float>, color: Color, modifier: Modifier = Modifier, filled: Boolean = true) {
+    Canvas(modifier) {
+        if (values.size < 2) return@Canvas
+        val lo = values.minOrNull() ?: 0f
+        val hi = values.maxOrNull() ?: 0f
+        val span = (hi - lo).takeIf { it > 0.0001f } ?: 1f
+        val step = size.width / (values.size - 1)
+        fun y(v: Float) = size.height - ((v - lo) / span) * size.height * 0.8f - size.height * 0.1f
+        val line = androidx.compose.ui.graphics.Path().apply {
+            values.forEachIndexed { i, v -> if (i == 0) moveTo(0f, y(v)) else lineTo(i * step, y(v)) }
+        }
+        if (filled) {
+            val area = androidx.compose.ui.graphics.Path().apply {
+                addPath(line); lineTo(size.width, size.height); lineTo(0f, size.height); close()
+            }
+            drawPath(area, Brush.verticalGradient(listOf(color.copy(alpha = 0.35f), Color.Transparent)))
+        }
+        drawPath(line, color, style = androidx.compose.ui.graphics.drawscope.Stroke(2.dp.toPx(), cap = StrokeCap.Round))
+        drawCircle(color, 3.dp.toPx(), Offset((values.size - 1) * step, y(values.last())))
+    }
+}
+
+@Composable
+private fun thermalColor(status: Int?): Color = when (status) {
+    null, 0 -> ghajarColors.primary
+    1 -> ghajarColors.info
+    2 -> ghajarColors.premium
+    3 -> ghajarColors.warning
+    else -> ghajarColors.error
+}
+
+private fun thermalLabel(status: Int?, t: (String) -> String): String =
+    if (status == null) "—" else t("livemon_heat_" + status.coerceIn(0, 6))
+
+private fun formatUptime(seconds: Long): String {
+    val h = seconds / 3600; val m = seconds / 60 % 60; val s = seconds % 60
+    return when {
+        h > 0 -> "${h}h ${m}m"
+        m > 0 -> "${m}m ${s}s"
+        else -> "${s}s"
+    }
+}
+
+/** How the active profile encrypts, in the words its protocol uses. */
+private fun cipherOf(c: ProxyConfig): String {
+    val parts = listOfNotNull(
+        c.protocol.uppercase(),
+        c.method.takeIf { it.isNotBlank() },
+        c.security.takeIf { it.isNotBlank() && it != "none" }?.uppercase(),
+        c.encryption.takeIf { it.isNotBlank() && it != "none" && it != "auto" }
+    )
+    return parts.joinToString(" · ")
+}
+
+/** Settings -> Safebox: configs moved into a password-locked vault. */
+@Composable
+private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val c = ghajarColors
+    val configs by store.configs.collectAsState()
+    var exists by remember { mutableStateOf(Safebox.exists(context)) }
+    // The password lives only in this page's memory while it is open.
+    var password by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    var vault by remember { mutableStateOf<List<ProxyConfig>?>(null) }
+    var message by remember { mutableStateOf("") }
+    var busy by remember { mutableStateOf(false) }
+    var picking by remember { mutableStateOf(false) }
+    val chosen = remember { mutableStateMapOf<String, Boolean>() }
+
+    fun persist(list: List<ProxyConfig>) {
+        busy = true
+        scope.launch {
+            val ok = withContext(Dispatchers.IO) { runCatching { Safebox.save(context, list, password.toCharArray()) }.isSuccess }
+            if (ok) { vault = list; exists = true } else message = t("safebox_io_error")
+            busy = false
+        }
+    }
+
+    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        if (uri != null) scope.launch {
+            val ok = withContext(Dispatchers.IO) {
+                runCatching {
+                    val bytes = Safebox.raw(context) ?: error("no vault")
+                    context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("no stream")
+                }.isSuccess
+            }
+            message = if (ok) t("safebox_exported") else t("safebox_io_error")
+        }
+    }
+    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        busy = true
+        scope.launch {
+            // Key derivation takes about a second: never on the UI thread.
+            val result = withContext(Dispatchers.IO) {
+                val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
+                if (bytes == null || !Safebox.isVault(bytes)) null to false
+                else {
+                    val opened = Safebox.open(bytes, password.toCharArray())
+                    // Merge into the existing vault, never over it: open it first
+                    // with the same password when the page is still locked.
+                    val base = vault ?: Safebox.load(context, password.toCharArray())
+                    (if (opened == null || base == null) null else (base + opened).distinctBy { it.id }) to true
+                }
+            }
+            busy = false
+            val merged = result.first
+            when {
+                !result.second -> message = t("safebox_not_vault")
+                merged == null -> message = t("safebox_wrong_password")
+                else -> { persist(merged); message = t("safebox_imported") }
+            }
+        }
+    }
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ScreenHeader(title = t("safebox_title"), context = t("safebox_header"))
+        val open = vault
+        if (open == null) {
+            SkinField(value = password, onValueChange = { password = it; message = "" }, label = t("safebox_password"),
+                visualTransformation = PasswordVisualTransformation(),
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+            if (!exists) {
+                SkinField(value = confirm, onValueChange = { confirm = it; message = "" }, label = t("safebox_password_again"),
+                    visualTransformation = PasswordVisualTransformation(),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
+            }
+            PillButton(
+                text = if (exists) t("safebox_unlock") else t("safebox_create"),
+                icon = Icons.Filled.Lock,
+                enabled = !busy && password.length >= 6 && (exists || confirm == password),
+                onClick = {
+                    busy = true
+                    scope.launch {
+                        val list = withContext(Dispatchers.IO) { Safebox.load(context, password.toCharArray()) }
+                        busy = false
+                        if (list == null) message = t("safebox_wrong_password")
+                        else { vault = list; if (!exists) persist(list) }
+                    }
+                }
+            )
+            if (!exists) Text(t("safebox_min_len"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            if (exists) GhostPill(text = t("safebox_import"), icon = Icons.Filled.Download, enabled = password.length >= 6,
+                onClick = { importer.launch(arrayOf("*/*")) })
+        } else {
+            StatStrip(listOf(StatCell(t("safebox_count"), localizeDigits("${open.size}", LocalLang.current), c.primary)))
+            if (open.isEmpty()) Text(t("safebox_empty"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            Slab(spacing = 0.dp) {
+                open.forEachIndexed { i, cfg ->
+                    if (i > 0) SlabDivider()
+                    SlabRow(
+                        title = cfg.name,
+                        subtitle = cfg.protocol.uppercase(),
+                        icon = Icons.Filled.Lock,
+                        trailing = {
+                            TextButton(onClick = {
+                                store.add(cfg)
+                                persist(open.filterNot { it.id == cfg.id })
+                            }) { Text(t("safebox_take_out")) }
+                        }
+                    )
+                }
+            }
+            if (picking) {
+                Rail(t("safebox_choose"))
+                Slab(spacing = 0.dp) {
+                    configs.forEachIndexed { i, cfg ->
+                        if (i > 0) SlabDivider()
+                        SlabRow(
+                            title = cfg.name,
+                            subtitle = cfg.protocol.uppercase(),
+                            trailing = { SkinSwitch(checked = chosen[cfg.id] == true, onCheckedChange = { chosen[cfg.id] = it }) }
+                        )
+                    }
+                }
+                PillButton(
+                    text = t("safebox_move_in"),
+                    icon = Icons.Filled.Lock,
+                    enabled = chosen.values.any { it },
+                    onClick = {
+                        val moving = configs.filter { chosen[it.id] == true }
+                        val next = (open + moving).distinctBy { it.id }
+                        busy = true
+                        scope.launch {
+                            // Removed from the list only once the vault holding
+                            // them is on disk.
+                            val ok = withContext(Dispatchers.IO) {
+                                runCatching { Safebox.save(context, next, password.toCharArray()) }.isSuccess
+                            }
+                            if (ok) { store.deleteConfigsByIds(moving.map { it.id }.toSet()); vault = next; exists = true }
+                            else message = t("safebox_io_error")
+                            busy = false; chosen.clear(); picking = false
+                        }
+                    }
+                )
+            } else {
+                PillButton(text = t("safebox_add"), icon = Icons.Filled.Add, onClick = { picking = true })
+            }
+            GhostPill(text = t("safebox_export"), icon = Icons.Filled.Share, onClick = { exporter.launch("ghajar-safebox.gsb") })
+            GhostPill(text = t("safebox_import"), icon = Icons.Filled.Download, onClick = { importer.launch(arrayOf("*/*")) })
+            GhostPill(text = t("safebox_lock"), accent = c.textSecondary, onClick = { vault = null; password = ""; confirm = "" })
+        }
+        if (busy) SkinLoading(t("safebox_working"))
+        if (message.isNotBlank()) InfoBox(message)
+        InfoBox(t("safebox_note"), accent = c.info)
+    }
+}
+
+
+/**
+ * One server, everything known about it: profile (country, protocol, engine,
+ * transport, security, source), the last real test (latency, jitter, loss,
+ * handshake, exit, when, each step), and the actions TEST, DPI check,
+ * CONNECT and EDIT.
+ */
+@Composable
+private fun ServerDetailsDialog(
+    config: ProxyConfig,
+    conn: Connection,
+    onDismiss: () -> Unit,
+    onConnect: (() -> Unit)?,
+    onEdit: () -> Unit
+) {
+    val t = stringsFn()
+    val lang = LocalLang.current
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val c = ghajarColors
+    val version by net.gozar.app.engine.EngineTestStore.version.collectAsState()
+    val result = remember(version, config.id) { net.gozar.app.engine.EngineTestStore.get(config.id) }
+    var testing by remember { mutableStateOf(false) }
+    var dpi by remember { mutableStateOf<net.gozar.app.engine.DpiCheck.Result?>(null) }
+    var dpiRunning by remember { mutableStateOf(false) }
+    val engine = remember(config) { net.gozar.app.engine.EngineRouting.engineFor(config) }
+    val country = remember(config.name, result) {
+        splitFlags(config.name).firstOrNull { it.first }?.second?.uppercase() ?: result?.exitCountry.orEmpty()
+    }
+    fun ms(v: Int?) = v?.let { localizeDigits("$it", lang) + " " + t("unit_ms") } ?: "—"
+
+    GlassDialog(
+        onDismiss = onDismiss,
+        title = t("srv_details"),
+        confirmLabel = if (testing) t("srv_testing") else t("srv_test"),
+        onConfirm = {
+            if (!testing) {
+                testing = true
+                scope.launch {
+                    withContext(Dispatchers.IO) { runCatching { net.gozar.app.engine.EngineTester.test(config) } }
+                    testing = false
+                }
+            }
+        },
+        dismissLabel = t("close")
+    ) {
+        Column(
+            Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (country.length == 2) CountryFlag(country, height = 16.dp)
+                Text(flagRuns(GhajarUiRules.brandedConfigName(config.name), FontFamily.Default),
+                    inlineContent = flagInlineContent(config.name, MaterialTheme.typography.titleSmall.fontSize),
+                    style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold, color = c.textPrimary)
+            }
+            val security = when {
+                config.security.equals("reality", true) -> "REALITY"
+                config.security.equals("tls", true) -> "TLS"
+                else -> config.security.uppercase().ifBlank { "—" }
+            }
+            listOf(
+                t("srv_country") to country.ifBlank { "—" },
+                t("srv_protocol") to config.protocol.uppercase(),
+                t("srv_engine") to engine.name,
+                t("srv_transport") to config.network.ifBlank { "—" },
+                t("srv_security") to security,
+                t("srv_source") to config.source.name.lowercase(),
+                t("srv_address") to if (config.locked || config.address.isBlank()) "—" else config.address + if (config.port > 0) ":" + config.port else ""
+            ).forEach { (k, v) -> DebugInfoRow(k, v) }
+
+            Rail(t("srv_last_test"))
+            if (result == null) {
+                Text(t("srv_never_tested"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            } else {
+                DebugInfoRow(t("srv_status"), if (result.internetOk) t("srv_ok") else (result.error ?: t("srv_failed")),
+                    if (result.internetOk) c.good else c.error)
+                DebugInfoRow(t("srv_latency"), ms(result.latencyMs))
+                DebugInfoRow(t("stab_jitter"), ms(result.jitterMs))
+                DebugInfoRow(t("srv_loss"), result.lossPct?.let { localizeDigits("$it", lang) + "%" } ?: "—")
+                DebugInfoRow(t("srv_handshake"), ms(result.handshakeMs))
+                DebugInfoRow(t("srv_exit"), listOfNotNull(result.exitIp, result.exitCountry).joinToString(" · ").ifBlank { "—" })
+                DebugInfoRow(t("srv_when"), formatTestTime(result.testedAt, lang))
+                result.steps.forEach { st ->
+                    DebugInfoRow(st.name, (st.detail.ifBlank { if (st.ok == true) "OK" else "—" }) + (st.ms?.let { " · ${it}ms" } ?: ""),
+                        when (st.ok) { true -> c.good; false -> c.error; null -> null })
+                }
+            }
+            if (testing) SkinLoading(t("srv_testing"))
+
+            Rail(t("srv_dpi"))
+            val d = dpi
+            when {
+                dpiRunning -> SkinLoading(t("srv_dpi_running"))
+                d == null -> Text(t("srv_dpi_hint"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                d.error != null -> Text(d.error, style = MaterialTheme.typography.bodySmall, color = c.error)
+                else -> {
+                    DebugInfoRow(t("srv_dpi_seen_as"), d.protocol ?: "Unknown")
+                    DebugInfoRow(t("srv_dpi_confidence"), d.confidence ?: "—")
+                    if (d.risks.isNotEmpty()) DebugInfoRow(t("srv_dpi_risks"), d.risks.joinToString(", "), c.warning)
+                    d.note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
+                }
+            }
+            GhostPill(
+                text = t("srv_dpi_run"),
+                enabled = !dpiRunning && !testing,
+                onClick = {
+                    dpiRunning = true
+                    scope.launch {
+                        dpi = withContext(Dispatchers.IO) { net.gozar.app.engine.DpiCheck.run(context, config) }
+                        dpiRunning = false
+                    }
+                }
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                if (onConnect != null) {
+                    GhostPill(
+                        text = if (conn == Connection.CONNECTED || conn == Connection.CONNECTING) t("disconnect") else t("connect"),
+                        onClick = onConnect,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                GhostPill(text = t("edit"), onClick = onEdit, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/**
+ * The add-server form of one protocol (ProtocolForms): its own fields, the
+ * rest under Advanced, selects as menus, switches, and PEM fields that can be
+ * loaded from a file. Saving builds the profile through the protocol's link.
+ */
+@Composable
+private fun ProtocolFormScreen(formId: String, onSave: (ProxyConfig) -> Unit, onCancel: () -> Unit) {
+    val t = stringsFn()
+    val context = LocalContext.current
+    val c = ghajarColors
+    val form = remember(formId) { ProtocolForms.formOrNull(formId) }
+    if (form == null) {
+        // Never let a stale/invalid navigation id take down the whole process.
+        // This is a safety net; valid navigation captures the id in connKey above.
+        LaunchedEffect(formId) { onCancel() }
+        return
+    }
+    val values = remember(formId) { mutableStateMapOf<String, String>().apply { form.fields.forEach { put(it.key, it.default) } } }
+    var advanced by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    var pemTarget by remember { mutableStateOf("") }
+    val pemPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && pemTarget.isNotEmpty()) {
+            runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } }
+                .getOrNull()?.takeIf { it.length < 64 * 1024 }?.let { values[pemTarget] = it.trim() }
+        }
+    }
+
+    @Composable
+    fun FieldView(f: ProtocolForms.Field) {
+        val label = t(f.label)
+        when (f.kind) {
+            ProtocolForms.Kind.SWITCH -> Slab(spacing = 0.dp) {
+                SlabRow(title = label, trailing = {
+                    SkinSwitch(checked = values[f.key] == "true", onCheckedChange = { values[f.key] = it.toString() })
+                })
+            }
+            ProtocolForms.Kind.SELECT -> {
+                var open by remember { mutableStateOf(false) }
+                Box {
+                    Slab(spacing = 0.dp) {
+                        SlabRow(title = label, value = values[f.key].orEmpty().ifBlank { "—" }, chevron = true, onClick = { open = true })
+                    }
+                    DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+                        f.options.forEach { opt ->
+                            DropdownMenuItem(text = { Text(opt.ifBlank { "—" }) }, onClick = { values[f.key] = opt; open = false })
+                        }
+                    }
+                }
+            }
+            ProtocolForms.Kind.PEM -> Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                SkinField(value = values[f.key].orEmpty(), onValueChange = { values[f.key] = it }, label = label,
+                    placeholder = "-----BEGIN …-----", singleLine = false, minLines = 3)
+                GhostPill(text = t("form_load_file"), icon = Icons.Filled.UploadFile,
+                    onClick = { pemTarget = f.key; pemPicker.launch(arrayOf("*/*")) })
+            }
+            else -> SkinField(
+                value = values[f.key].orEmpty(),
+                onValueChange = { values[f.key] = it },
+                label = label + if (f.required) " *" else "",
+                placeholder = f.hint.ifBlank { null },
+                singleLine = f.kind != ProtocolForms.Kind.MULTILINE,
+                minLines = if (f.kind == ProtocolForms.Kind.MULTILINE) 3 else 1,
+                keyboardOptions = KeyboardOptions(keyboardType = when (f.kind) {
+                    ProtocolForms.Kind.NUMBER -> KeyboardType.Number
+                    ProtocolForms.Kind.PASSWORD -> KeyboardType.Password
+                    else -> KeyboardType.Text
+                }),
+                visualTransformation = if (f.kind == ProtocolForms.Kind.PASSWORD) PasswordVisualTransformation() else VisualTransformation.None
+            )
+        }
+    }
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ScreenHeader(title = form.title, context = t("form_sub_" + form.id))
+        form.fields.filter { !it.advanced }.forEach { FieldView(it) }
+        val adv = form.fields.filter { it.advanced }
+        if (adv.isNotEmpty()) {
+            Slab(spacing = 0.dp) {
+                SlabRow(title = t("form_advanced"), icon = Icons.Filled.Tune, value = if (advanced) "−" else "+",
+                    onClick = { advanced = !advanced })
+            }
+            AnimatedVisibility(visible = advanced) {
+                Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) { adv.forEach { FieldView(it) } }
+            }
+        }
+        if (error.isNotBlank()) InfoBox(error, accent = c.error)
+        PillButton(
+            text = t("save"),
+            icon = Icons.Filled.CheckCircle,
+            onClick = {
+                ProtocolForms.build(form.id, values.toMap())
+                    .onSuccess(onSave)
+                    .onFailure { e -> error = t("form_missing") + " " + t(e.message.orEmpty()) }
+            }
+        )
+        GhostPill(text = t("cancel"), accent = c.textSecondary, onClick = onCancel)
+    }
+}

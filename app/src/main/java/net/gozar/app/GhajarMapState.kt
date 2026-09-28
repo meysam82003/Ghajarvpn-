@@ -131,21 +131,27 @@ object GhajarMapState {
         _busy.value = true
         _error.value = ""
         try {
-            val intel = withContext(Dispatchers.IO) {
-                // Empty query means "tell me about the address I am calling
-                // from", which is exactly the question being asked.
-                IpIntelligence.lookup("")
+            // IpIntelligence.lookup("") returns nothing for an empty query, so
+            // the map never had an address to ask about. The address comes
+            // from the same providers the home screen uses (through the
+            // tunnel's SOCKS inbound when there is one, direct otherwise), and
+            // ipapi.is only refines the coordinates for that address.
+            val loc = withContext(Dispatchers.IO) {
+                (if (connected) runCatching { LocationFetcher.fetch(throughProxy = true) }.getOrNull() else null)
+                    ?: runCatching { LocationFetcher.fetch(throughProxy = false) }.getOrNull()
             }
-            if (intel == null) {
+            val ip = loc?.ip?.takeIf { it.isNotBlank() && it != "\u2014" }
+            val intel = ip?.let { runCatching { IpIntelligence.lookup(it) }.getOrNull() }
+            if (loc == null && intel == null) {
                 _error.value = "lookup_failed"
                 return
             }
             val place = Place(
-                ip = intel.ip,
-                city = intel.city,
-                countryCode = intel.countryCode,
-                lat = intel.latitude,
-                lon = intel.longitude,
+                ip = intel?.ip ?: ip.orEmpty(),
+                city = intel?.city?.takeIf { it.isNotBlank() } ?: loc?.city.orEmpty(),
+                countryCode = intel?.countryCode?.takeIf { it.isNotBlank() } ?: loc?.countryCode.orEmpty(),
+                lat = intel?.latitude ?: loc?.lat,
+                lon = intel?.longitude ?: loc?.lon,
                 atMs = System.currentTimeMillis()
             )
             if (connected) {

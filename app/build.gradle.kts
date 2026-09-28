@@ -28,8 +28,8 @@ android {
         // lower app minSdk fails the manifest merge regardless of the demo flag.
         minSdk = 26
         targetSdk = 36
-        versionCode = 30021
-        versionName = "1.0.6"
+        versionCode = 30024
+        versionName = "1.0.9"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -73,6 +73,12 @@ android {
         buildConfig = true
     }
 
+    // The app speaks English and Persian; the translations the libraries
+    // bring for sixty other languages were dead weight in every APK.
+    androidResources {
+        localeFilters += listOf("en", "fa")
+    }
+
     packaging {
         jniLibs {
             useLegacyPackaging = true
@@ -100,6 +106,16 @@ android {
                 "proguard-rules.pro"
             )
         }
+        // A test build that runs like the release: R8-optimised, not
+        // debuggable (so Compose and ART run at full speed and the bundled
+        // baseline profiles are installed), but signed like debug so CI can
+        // hand it out without the release keys. Not a release.
+        create("preview") {
+            initWith(getByName("release"))
+            signingConfig = if (ghajarSignedDemo) signingConfigs.getByName("demo") else signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("release")
+            isDebuggable = false
+        }
     }
 
     splits {
@@ -107,6 +123,9 @@ android {
             isEnable = true
             reset()
             include("arm64-v8a", "armeabi-v7a")
+            // CI's emulator crash test needs an x86_64 APK: the in-process Go
+            // core does not run under the emulator's ARM translation.
+            if (providers.gradleProperty("ghajar.emulator").orNull == "true") include("x86_64")
             isUniversalApk = false
         }
     }
@@ -128,6 +147,8 @@ dependencies {
     implementation(libs.androidx.compose.ui.graphics)
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
+    // Installs the libraries' baseline profiles (Compose ships one) at install time.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.lifecycle:lifecycle-viewmodel-ktx:2.8.7")

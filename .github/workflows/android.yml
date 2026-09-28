@@ -12,7 +12,7 @@ permissions:
   contents: write
 
 env:
-  NDK_VERSION: 27.3.13750724
+  NDK_VERSION: 28.2.13676358
 
 jobs:
   build:
@@ -28,7 +28,7 @@ jobs:
           cache: gradle
 
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build autoconf automake libtool pkg-config
 
       - uses: android-actions/setup-android@v3
         with:
@@ -93,8 +93,10 @@ jobs:
           cd /tmp/zeptun
           # Only the two ABIs this app ships; building x86 as well would double
           # the step for emulators the release never targets.
-          ABIS="armeabi-v7a arm64-v8a" sh scripts/build_android.sh
-          for abi in armeabi-v7a arm64-v8a; do
+          # x86_64 too, only for the emulator crash test's split; phones get
+          # the two ARM ABIs (splits in app/build.gradle.kts).
+          ABIS="armeabi-v7a arm64-v8a x86_64" sh scripts/build_android.sh
+          for abi in armeabi-v7a arm64-v8a x86_64; do
             dest="$GITHUB_WORKSPACE/app/src/main/jniLibs/$abi"
             mkdir -p "$dest"
             cp "zig-out/android/jniLibs/$abi/libzeptun.so" "$dest/"
@@ -127,11 +129,37 @@ jobs:
       - name: Build the sing-box core
         run: sh scripts/build-singbox.sh
 
+      # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
+      # module version and checksum - see scripts/build-dnstt.sh.
+      - name: Build the dnstt DNS tunnel client
+        run: sh scripts/build-dnstt.sh
+
+      - name: Build the DNS tunnel family (VayDNS, NoizDNS, MasterDNS, StormDNS, CottenDNS)
+        run: sh scripts/build-dns-tunnels.sh
+
+      - name: Build Slipstream (QUIC over DNS)
+        run: sh scripts/build-slipstream.sh
+
+      - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
+        run: sh scripts/build-ghajar-helper.sh
+
+      - name: Build Tor pluggable transports (lyrebird)
+        run: sh scripts/build-tor-pt.sh
+
+      - name: Build Juicity client
+        run: sh scripts/build-juicity.sh
+
+      - name: Build nDPI fingerprint check
+        run: sh scripts/build-ndpi.sh
+
+      - name: Report 16 KB page alignment of native files
+        run: sh scripts/check-16kb.sh
+
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug
+        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug -Pghajar.emulator=true
 
       - name: Run unit tests
         run: ./gradlew --no-daemon --stacktrace test
@@ -140,8 +168,69 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Ghajarvpn-Android-debug
-          path: app/build/outputs/apk/**/*.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # The APK to try the app with: release-optimised (R8, not debuggable,
+      # baseline profiles), debug-signed. The debug APK runs Compose several
+      # times slower and is only for the tests.
+      - name: Build preview APK
+        run: ./gradlew --no-daemon --stacktrace :app:assemblePreview
+
+      - name: Upload preview APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-Android-preview
+          path: app/build/outputs/apk/preview/*.apk
+          if-no-files-found: error
+
+  # Runs the real app (x86_64 debug split) on an emulator and crawls it:
+  # proves MainActivity resumed, taps every clickable element on every screen
+  # it can reach (with back navigation), stresses rapid open/back, then runs
+  # monkey. Any crash, native fatal signal or ANR in the app process fails
+  # this job and names the tap path that caused it. The crawl reads screens
+  # with animations off (uiautomator needs an idle screen); the rapid
+  # open/back stress and monkey run with animations on, so exit-animation
+  # races reproduce as they do on a phone.
+  crash-hunt:
+    needs: build
+    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 80
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: Ghajarvpn-Android-debug
+          path: apk
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Crawl the app on an emulator and fail on any crash
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: 34
+          target: google_apis
+          arch: x86_64
+          ram-size: 4096M
+          # A phone-sized screen; the default AVD is 320x640.
+          profile: pixel_6
+          disable-animations: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          script: python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"
+
+      - name: Upload crash-hunt logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-crash-hunt-logs
+          path: crash-hunt/
+          if-no-files-found: warn
 
   release:
     needs: build
@@ -230,7 +319,7 @@ jobs:
           cache: gradle
 
       - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build
+        run: sudo apt-get update && sudo apt-get install -y swig ninja-build autoconf automake libtool pkg-config
 
       - uses: android-actions/setup-android@v3
         with:
@@ -285,6 +374,32 @@ jobs:
 
       - name: Build the sing-box core
         run: sh scripts/build-singbox.sh
+
+      # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
+      # module version and checksum - see scripts/build-dnstt.sh.
+      - name: Build the dnstt DNS tunnel client
+        run: sh scripts/build-dnstt.sh
+
+      - name: Build the DNS tunnel family (VayDNS, NoizDNS, MasterDNS, StormDNS, CottenDNS)
+        run: sh scripts/build-dns-tunnels.sh
+
+      - name: Build Slipstream (QUIC over DNS)
+        run: sh scripts/build-slipstream.sh
+
+      - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
+        run: sh scripts/build-ghajar-helper.sh
+
+      - name: Build Tor pluggable transports (lyrebird)
+        run: sh scripts/build-tor-pt.sh
+
+      - name: Build Juicity client
+        run: sh scripts/build-juicity.sh
+
+      - name: Build nDPI fingerprint check
+        run: sh scripts/build-ndpi.sh
+
+      - name: Report 16 KB page alignment of native files
+        run: sh scripts/check-16kb.sh
 
       - name: Remove any committed local signing config
         run: rm -f keystore.properties

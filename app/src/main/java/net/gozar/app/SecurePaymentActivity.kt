@@ -62,7 +62,12 @@ class SecurePaymentActivity : Activity() {
         window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE)
 
         val checkoutUrl = intent.getStringExtra(EXTRA_URL)?.toUri()
-        if (checkoutUrl == null || !BrandConfig.isTrustedPaymentUri(checkoutUrl, null)) {
+        // A marketplace seller's gateway: the link comes from the authenticated
+        // marketplace API, on the seller's own host, so it is held to the
+        // in-flow rule (plain HTTPS, no credentials, standard port).
+        val marketGateway = intent.getBooleanExtra(EXTRA_MARKET, false)
+        if (checkoutUrl == null || !(if (marketGateway) GhajarPaymentPolicy.allowsInFlow(checkoutUrl.toString())
+                else BrandConfig.isTrustedPaymentUri(checkoutUrl, null))) {
             finishWithError("آدرس پرداخت امن یا معتبر نیست")
             return
         }
@@ -217,9 +222,12 @@ class SecurePaymentActivity : Activity() {
         val botReturn = (uri.scheme.equals("https", true) && uri.host.equals("t.me", true) &&
             uri.path.orEmpty().trim('/').equals("Ghajar_vpnbot", true)) ||
             (uri.scheme.equals("tg", true) && uri.getQueryParameter("domain").equals("Ghajar_vpnbot", true))
-        if (botReturn) { setResult(RESULT_OK); finish(); return true }
+        if (botReturn || uri.scheme.equals("ghajarvpn", true) ||
+            (uri.scheme.equals("intent", true) && uri.toString().contains("scheme=ghajarvpn"))) {
+            setResult(RESULT_OK); finish(); return true
+        }
         if (uri.scheme.equals("https", true)) {
-            if (BrandConfig.isTrustedPaymentUri(uri, initialHost) && uri.userInfo == null) return false
+            if (GhajarPaymentPolicy.allowsInFlow(uri.toString())) return false
             Toast.makeText(this, "این نشانی در فهرست دامنه‌های پرداخت نیست.", Toast.LENGTH_LONG).show()
             return true
         }
@@ -376,6 +384,7 @@ class SecurePaymentActivity : Activity() {
 
     companion object {
         const val EXTRA_URL = "checkout_url"
+        const val EXTRA_MARKET = "checkout_market"
         const val EXTRA_RESULT_URL = "checkout_result_url"
 
         private val BRAND_STORE_SCRIPT = """
