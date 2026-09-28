@@ -202,8 +202,23 @@ data class GhajarMarketShop(
     val panelMinPrice: Long = 0,
     val panelMaxPrice: Long = 0,
     val panelCount: Int = 0,
-    val testAvailable: Boolean = false
+    val testAvailable: Boolean = false,
+    /** Performance tick earned from sales, age, reviews and reports; no personal data. */
+    val tick: GhajarMarketTick? = null,
+    /** How many services the signed-in buyer holds at this shop. */
+    val myServices: Int = 0
 )
+
+data class GhajarMarketTickCriterion(val label: String, val value: Int, val target: Int, val ok: Boolean)
+
+data class GhajarMarketTick(val earned: Boolean, val label: String, val met: Int, val total: Int,
+    val criteria: List<GhajarMarketTickCriterion>)
+
+/** A live discount code a shop registered, offered to buyers to apply. */
+data class GhajarMarketPublicCode(val code: String, val percent: Double, val expiresAt: Long, val left: Int)
+
+/** A shop this buyer has bought from. */
+data class GhajarMarketMyShop(val shopId: Int, val name: String, val services: Int, val lastAt: Long)
 
 data class GhajarMarketReview(val stars: Int, val body: String, val createdAt: Long)
 
@@ -343,7 +358,8 @@ data class GhajarMarketHome(
     val appliedCode: String = "",
     val appliedOk: Boolean = false,
     val appliedMsg: String = "",
-    val announcements: List<GhajarMarketAnnouncement> = emptyList()
+    val announcements: List<GhajarMarketAnnouncement> = emptyList(),
+    val discountCodes: List<GhajarMarketPublicCode> = emptyList()
 )
 
 /** One discount or gift code, made in Ghajar's bot ("ghajar") or in the seller's own bot ("seller"). */
@@ -1493,9 +1509,28 @@ class GhajarStoreApi(context: Context) {
             appliedCode = applied?.optString("code").orEmpty(),
             appliedOk = applied?.optBoolean("ok") ?: false,
             appliedMsg = visible(applied?.optString("msg").orEmpty()),
-            announcements = marketAnnouncementsFrom(payload.optJSONArray("announcements"))
+            announcements = marketAnnouncementsFrom(payload.optJSONArray("announcements")),
+            discountCodes = payload.optJSONArray("discount_codes").orEmpty().objects().map { r ->
+                GhajarMarketPublicCode(r.optString("code"), r.optNullableDouble("percent") ?: 0.0,
+                    r.optNullableLong("expires_at") ?: 0L, r.optInt("left", -1))
+            }
         )
     }
+
+    /** Reports a shop to the marketplace owner; returns the server's message. */
+    suspend fun marketReport(shopId: Int, reason: String, body: String): String {
+        val res = marketAction("shop_report", method = "POST",
+            params = mapOf("shop_id" to shopId.toString()),
+            body = JSONObject().put("shop_id", shopId).put("reason", reason).put("body", body))
+        return visible(res.optString("msg")).ifBlank { "گزارش ثبت شد." }
+    }
+
+    /** Shops this buyer has bought from, with the number of services at each. */
+    suspend fun marketMyShops(): List<GhajarMarketMyShop> =
+        marketAction("my_shops").payloadObject().optJSONArray("shops").orEmpty().objects().map { r ->
+            GhajarMarketMyShop(r.optInt("shop_id"), visible(r.optString("name")), r.optInt("services"),
+                r.optNullableLong("last_at") ?: 0L)
+        }
 
     suspend fun marketOrderStart(
         shopId: Int,
@@ -1918,7 +1953,16 @@ class GhajarStoreApi(context: Context) {
         panelMinPrice = (row.optNullableDouble("panel_min_price") ?: 0.0).toLong(),
         panelMaxPrice = (row.optNullableDouble("panel_max_price") ?: 0.0).toLong(),
         panelCount = row.optInt("panel_count"),
-        testAvailable = row.optBoolean("test_available")
+        testAvailable = row.optBoolean("test_available"),
+        tick = row.optJSONObject("tick")?.let { t ->
+            GhajarMarketTick(
+                earned = t.optBoolean("earned"), label = visible(t.optString("label")),
+                met = t.optInt("met"), total = t.optInt("total"),
+                criteria = t.optJSONArray("criteria").orEmpty().objects().map { c ->
+                    GhajarMarketTickCriterion(visible(c.optString("label")), c.optInt("value"), c.optInt("target"), c.optBoolean("ok"))
+                })
+        },
+        myServices = row.optInt("my_services")
     )
 
     private fun marketMethodFrom(row: JSONObject) = GhajarMarketMethod(

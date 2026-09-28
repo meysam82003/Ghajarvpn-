@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingBag
@@ -279,6 +280,25 @@ private fun MarketList(
         // First, above everything: the way in for a seller.
         AddShopCard(onRegister)
 
+        // The shops this buyer already holds services at, first: that is where
+        // renewals, configs and support live.
+        val mine = feed.shops.filter { it.myServices > 0 }.sortedByDescending { it.myServices }
+        if (mine.isNotEmpty()) {
+            Rail("فروشگاه‌هایی که از آن‌ها سرویس داری")
+            Slab(spacing = 0.dp) {
+                mine.forEachIndexed { i, shop ->
+                    if (i > 0) SlabDivider()
+                    SlabRow(
+                        title = shop.name,
+                        subtitle = localizeDigits(shop.myServices.toString(), LocalLang.current) + " سرویس",
+                        icon = Icons.Filled.ShoppingBag,
+                        chevron = true,
+                        onClick = { onOpen(shop.id) }
+                    )
+                }
+            }
+        }
+
         Rail("فروشگاه‌ها")
         Text(
             "همهٔ فروشگاه‌ها، داخل همین برنامه. خرید، پرداخت و تحویل کانفیگ بدون رفتن به تلگرام.",
@@ -350,10 +370,17 @@ private fun MarketShopCard(api: GhajarStoreApi, shop: GhajarMarketShop, onOpen: 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(shop.name, fontWeight = FontWeight.Bold, color = c.textPrimary,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (shop.verified) {
+                    if (shop.tick?.earned == true) {
+                        Spacer(Modifier.width(GhajarSpacing.xs))
+                        Icon(Icons.Filled.Verified, "تیک اعتماد", tint = c.primary, modifier = Modifier.size(15.dp))
+                    } else if (shop.verified) {
                         Spacer(Modifier.width(GhajarSpacing.xs))
                         Icon(Icons.Filled.Shield, "تأییدشده", tint = c.primary, modifier = Modifier.size(14.dp))
                     }
+                }
+                if (shop.tick?.earned == true) {
+                    Text(shop.tick.label.ifBlank { "قابل اعتماد از نظر خریداران" },
+                        style = MaterialTheme.typography.labelSmall, color = c.primary, maxLines = 1)
                 }
                 if (shop.tagline.isNotBlank()) {
                     Text(shop.tagline, style = MaterialTheme.typography.labelSmall, color = c.textSecondary,
@@ -407,6 +434,11 @@ private fun MarketShopCard(api: GhajarStoreApi, shop: GhajarMarketShop, onOpen: 
                         style = MaterialTheme.typography.labelSmall, color = c.primary)
                 }
             }
+        }
+
+        if (shop.myServices > 0) {
+            Text(mixedText("📦 " + localizeDigits(shop.myServices.toString(), lang) + " سرویس فعال شما در این فروشگاه"),
+                style = MaterialTheme.typography.labelSmall, color = c.primary)
         }
 
         if (!shop.canSell && shop.closedReason.isNotBlank()) {

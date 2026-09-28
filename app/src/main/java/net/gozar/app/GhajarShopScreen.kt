@@ -175,6 +175,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     // Ghajar's own price of one gigabyte, for its card in the list of shops:
     // the custom-plan quote for 1 GB and 0 days is exactly that figure.
     var ghajarGbPrice by remember { mutableStateOf<Long?>(null) }
+    var ghajarGbMax by remember { mutableStateOf<Long?>(null) }
     var loadedPanelId by remember { mutableStateOf<String?>(null) }
 
     var customMode by remember { mutableStateOf(false) }
@@ -366,10 +367,17 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         busy = false
     }
 
+    // The price of one gigabyte on every panel with a custom plan, so the
+    // card can show the range from the cheapest panel to the dearest.
     LaunchedEffect(panels) {
-        val customPanel = panels.firstOrNull { it.custom } ?: return@LaunchedEffect
-        storeResult { api.customQuote(customPanel.id, 1, 0) }
-            .onSuccess { quote -> ghajarGbPrice = quote.price?.takeIf { it > 0 } }
+        val custom = panels.filter { it.custom }
+        if (custom.isEmpty()) return@LaunchedEffect
+        val prices = coroutineScope {
+            custom.map { p -> async { storeResult { api.customQuote(p.id, 1, 0) }.getOrNull()?.price?.takeIf { it > 0 } } }
+                .mapNotNull { it.await() }
+        }
+        ghajarGbPrice = prices.minOrNull()
+        ghajarGbMax = prices.maxOrNull()
     }
 
     // Loading the store used to take three sequential server round-trips
@@ -661,6 +669,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                         ghajarEntry = {
                             GhajarEntryCard(
                                 gbPrice = ghajarGbPrice,
+                                gbMax = ghajarGbMax,
                                 cheapest = unfilteredProducts.mapNotNull { it.price }.filter { it > 0 }.minOrNull(),
                                 dearest = unfilteredProducts.mapNotNull { it.price }.filter { it > 0 }.maxOrNull(),
                                 planCount = unfilteredProducts.size,
@@ -1276,7 +1285,7 @@ private fun GhajarShopIntro() {
 
 /** Ghajar as one entry in the list of shops, first and never sorted away. */
 @Composable
-private fun GhajarEntryCard(gbPrice: Long?, cheapest: Long?, dearest: Long?, planCount: Int, serviceCount: Int, onOpen: () -> Unit) {
+private fun GhajarEntryCard(gbPrice: Long?, gbMax: Long? = null, cheapest: Long?, dearest: Long?, planCount: Int, serviceCount: Int, onOpen: () -> Unit) {
     val c = ghajarColors
     val lang = LocalLang.current
     Slab(onClick = onOpen, spacing = GhajarSpacing.sm, accent = c.premium) {
@@ -1295,7 +1304,8 @@ private fun GhajarEntryCard(gbPrice: Long?, cheapest: Long?, dearest: Long?, pla
             Icon(Icons.Filled.ChevronLeft, null, tint = c.textMuted)
         }
         if (gbPrice != null) {
-            Text(mixedText("💾 هر گیگ " + localizeDigits(formatPrice(gbPrice), lang) + " تومان"),
+            Text(mixedText("💾 هر گیگ " + localizeDigits(formatPrice(gbPrice), lang) +
+                (if (gbMax != null && gbMax > gbPrice) " تا " + localizeDigits(formatPrice(gbMax), lang) else "") + " تومان"),
                 style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
         }
         if (cheapest != null) {

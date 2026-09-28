@@ -36,6 +36,11 @@ import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.SupportAgent
 import androidx.compose.material.icons.filled.Tune
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.TextButton
+import androidx.compose.material.icons.filled.Verified
+import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -210,6 +215,8 @@ internal fun MarketShopHome(
     var busy by remember(shopId) { mutableStateOf(true) }
     var reload by remember(shopId) { mutableIntStateOf(0) }
     var tab by rememberSaveable(shopId, initialRenew) { mutableIntStateOf(if (initialRenew.isNotBlank()) 1 else 0) }
+    var showReport by remember(shopId) { mutableStateOf(false) }
+    var showTick by remember(shopId) { mutableStateOf(false) }
 
     LaunchedEffect(shopId, reload, appliedCode) {
         busy = true
@@ -241,10 +248,18 @@ internal fun MarketShopHome(
                         Text(shop.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold,
                             color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false))
-                        if (shop.verified) {
+                        if (shop.tick?.earned == true) {
+                            Spacer(Modifier.width(GhajarSpacing.xs))
+                            Icon(Icons.Filled.Verified, "تیک اعتماد", tint = c.primary, modifier = Modifier.size(17.dp))
+                        } else if (shop.verified) {
                             Spacer(Modifier.width(GhajarSpacing.xs))
                             Icon(Icons.Filled.Shield, "تأییدشده", tint = c.primary, modifier = Modifier.size(16.dp))
                         }
+                    }
+                    if (shop.tick?.earned == true) {
+                        Text(shop.tick.label.ifBlank { "قابل اعتماد از نظر خریداران" },
+                            style = MaterialTheme.typography.labelSmall, color = c.primary,
+                            modifier = Modifier.clickable { showTick = true })
                     }
                     if (shop.tagline.isNotBlank()) {
                         Text(shop.tagline, style = MaterialTheme.typography.labelMedium, color = c.textSecondary,
@@ -289,6 +304,18 @@ internal fun MarketShopHome(
             }
         }
 
+        GhostPill("گزارش این فروشگاه", { if (signedIn) showReport = true else onSignIn() },
+            icon = Icons.Filled.Flag, minHeight = 36.dp)
+        if (showReport) {
+            MarketReportDialog(shop.name, onDismiss = { showReport = false }) { reason, body ->
+                runCatching { api.marketReport(shop.id, reason, body) }
+                    .fold({ it }, { it.message ?: "گزارش ثبت نشد" })
+            }
+        }
+        if (showTick) {
+            shop.tick?.let { MarketTickDialog(it) { showTick = false } }
+        }
+
         if (loaded.appliedCode.isNotBlank()) {
             Slab(accent = if (loaded.appliedOk) c.primary else c.error, spacing = GhajarSpacing.xs) {
                 Text(if (loaded.appliedOk) "🎟 کد ${loaded.appliedCode} روی همهٔ پلن‌ها و سرورها اعمال شد"
@@ -297,13 +324,20 @@ internal fun MarketShopHome(
                 GhostPill("برداشتن کد", { appliedCode = "" }, minHeight = 36.dp)
             }
         }
-        if (loaded.announcements.isNotEmpty()) {
-            MarketAnnouncements(loaded.announcements, onUseCode = { appliedCode = it; tab = 0 })
+        // The shop's live discount codes: tap one to apply it to every price.
+        if (loaded.discountCodes.isNotEmpty() && tab == 0) {
+            MarketDiscountCodes(loaded.discountCodes, applied = loaded.appliedCode.takeIf { loaded.appliedOk }.orEmpty(),
+                onApply = { appliedCode = it })
         }
 
         TabRail(
             tabs = MARKET_TABS.mapIndexed { index, label ->
-                RailTab(label, badge = if (index == 2 && loaded.unread > 0) loaded.unread else null)
+                val text = if (index == 1 && shop.myServices > 0) label + " (" + localizeDigits(shop.myServices.toString(), lang) + ")" else label
+                val badge = when {
+                    index == 2 -> (loaded.unread + loaded.announcements.size).takeIf { it > 0 }
+                    else -> null
+                }
+                RailTab(text, badge = badge)
             },
             selected = tab,
             onSelect = { tab = it }
@@ -316,7 +350,13 @@ internal fun MarketShopHome(
         when (tab) {
             0 -> MarketBuyTab(api, loaded, signedIn, onSignIn, onOrdered)
             1 -> MarketServicesTab(api, store, loaded, onOrdered, initialRenew)
-            2 -> MarketMessagesTab(api, shopId) { reload++ }
+            2 -> Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+                // The shop's announcements live with its messages.
+                if (loaded.announcements.isNotEmpty()) {
+                    MarketAnnouncements(loaded.announcements, onUseCode = { appliedCode = it; tab = 0 })
+                }
+                MarketMessagesTab(api, shopId) { reload++ }
+            }
             3 -> MarketWalletTab(api, loaded, onOrdered)
             4 -> MarketSupportTab(api, shopId)
             else -> MarketTransactionsTab(api, shopId)
@@ -1475,4 +1515,99 @@ private fun MarketTransactionsTab(api: GhajarStoreApi, shopId: Int) {
             }
         }
     }
+}
+
+
+/** The shop's live discount codes; one tap applies a code to every price. */
+@Composable
+private fun MarketDiscountCodes(codes: List<GhajarMarketPublicCode>, applied: String, onApply: (String) -> Unit) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    Slab(spacing = GhajarSpacing.sm, accent = c.premium) {
+        Text("🎟 کدهای تخفیف این فروشگاه", fontWeight = FontWeight.Bold, color = c.textPrimary)
+        codes.forEach { code ->
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(mixedText(code.code), fontWeight = FontWeight.Bold, color = c.primary)
+                    val parts = listOfNotNull(
+                        localizeDigits(if (code.percent % 1.0 == 0.0) code.percent.toLong().toString() else code.percent.toString(), lang) + "٪ تخفیف",
+                        code.left.takeIf { it >= 0 }?.let { localizeDigits(it.toString(), lang) + " بار باقی‌مانده" },
+                        code.expiresAt.takeIf { it > 0 }?.let {
+                            val days = ((it - System.currentTimeMillis() / 1000) / 86400).coerceAtLeast(0)
+                            if (days > 0) localizeDigits(days.toString(), lang) + " روز مانده" else "امروز تمام می‌شود"
+                        }
+                    )
+                    Text(parts.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                }
+                if (applied.equals(code.code, ignoreCase = true)) {
+                    Text("اعمال شد", style = MaterialTheme.typography.labelMedium, color = c.primary)
+                } else {
+                    GhostPill("اعمال", { onApply(code.code) }, minHeight = 34.dp)
+                }
+            }
+        }
+    }
+}
+
+/** What the performance tick asks for, and how far this shop is. */
+@Composable
+private fun MarketTickDialog(tick: GhajarMarketTick, onDismiss: () -> Unit) {
+    val c = ghajarColors
+    val lang = LocalLang.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = { TextButton(onClick = onDismiss) { Text("بستن") } },
+        title = { Text(tick.label.ifBlank { "قابل اعتماد از نظر خریداران" }) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("این تیک خودکار و فقط از روی عملکرد فروشگاه داده می‌شود؛ هیچ اطلاعات شخصی لازم نیست.",
+                    style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                tick.criteria.forEach { cr ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(if (cr.ok) "✅" else "⬜️")
+                        Spacer(Modifier.width(6.dp))
+                        Text(cr.label + " — " + localizeDigits("${cr.value} / ${cr.target}", lang),
+                            style = MaterialTheme.typography.labelMedium, color = if (cr.ok) c.textPrimary else c.textSecondary)
+                    }
+                }
+            }
+        }
+    )
+}
+
+/** Report a shop to the marketplace owner. [send] returns the server's message. */
+@Composable
+private fun MarketReportDialog(shopName: String, onDismiss: () -> Unit, send: suspend (String, String) -> String) {
+    val c = ghajarColors
+    val scope = rememberCoroutineScope()
+    val reasons = listOf("no_delivery" to "سرویس تحویل نشد", "not_working" to "سرویس کار نمی‌کند",
+        "scam" to "کلاهبرداری / پول گرفت و جواب نداد", "fake" to "نظر یا تبلیغ جعلی",
+        "content" to "محتوای نامناسب", "other" to "دیگر")
+    var reason by remember { mutableStateOf(reasons.first().first) }
+    var body by remember { mutableStateOf("") }
+    var result by remember { mutableStateOf<String?>(null) }
+    var sending by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("گزارش «$shopName»") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                reasons.forEach { (key, label) ->
+                    Row(Modifier.fillMaxWidth().clickable { reason = key }, verticalAlignment = Alignment.CenterVertically) {
+                        RadioButton(selected = reason == key, onClick = { reason = key })
+                        Text(label, style = MaterialTheme.typography.bodySmall, color = c.textPrimary)
+                    }
+                }
+                SkinField(value = body, onValueChange = { body = it.take(800) }, label = "توضیح (اختیاری)")
+                result?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.primary) }
+            }
+        },
+        confirmButton = {
+            TextButton(enabled = !sending && result == null, onClick = {
+                sending = true
+                scope.launch { result = send(reason, body.trim()); sending = false }
+            }) { Text(if (sending) "در حال ارسال…" else "ارسال گزارش") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("بستن") } }
+    )
 }
