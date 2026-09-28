@@ -574,7 +574,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val uiTheme by store.uiTheme.collectAsState()
             val systemDark = isSystemInDarkTheme()
-            val palette = ghajarPaletteFor(uiTheme, systemDark)
+            val look by GhajarLookStore.load(this).collectAsState()
+            val palette = look.apply(ghajarPaletteFor(uiTheme, systemDark), null)
             val dark = palette.dark
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             androidx.compose.runtime.SideEffect {
@@ -1871,9 +1872,13 @@ private fun GozarApp(
                     showPicker -> "picker"
                     else -> "connection"
                 }
+                val lookNow = LocalGhajarLook.current
+                val reduceNow = LocalReduceMotion.current
+                val rtlNow = layoutDir == LayoutDirection.Rtl
                 AnimatedContent(
                     targetState = connKey,
                     transitionSpec = {
+                        lookNow.pageTransition(targetState != "connection", rtlNow, reduceNow) ?:
                         (scaleIn(tween(340, easing = SmoothDecel), initialScale = 0.965f) +
                             fadeIn(tween(260, delayMillis = 40, easing = SmoothDecel))) togetherWith
                             (scaleOut(tween(200, easing = SmoothAccel), targetScale = 1.015f) +
@@ -2028,9 +2033,17 @@ private fun GozarApp(
                     prefsDetail -> "preferences"
                     else -> "settings"
                 }
+                val lookNow = LocalGhajarLook.current
+                val reduceNow = LocalReduceMotion.current
                 AnimatedContent(
                     targetState = setKey,
                     transitionSpec = {
+                        val chosen = lookNow.pageTransition(
+                            settingsDepth(targetState) > settingsDepth(initialState),
+                            layoutDir == LayoutDirection.Rtl,
+                            reduceNow
+                        )
+                        if (chosen != null) return@AnimatedContent chosen
                         // Parallax push: the new page travels a fifth of the
                         // width while fading in, the old one drifts a little
                         // and fades out. Two full-width slides move twice the
@@ -2069,7 +2082,7 @@ private fun GozarApp(
                         "logs" -> LogsScreen(store = store)
                         "stability" -> StabilityTestScreen(store = store)
                         "about" -> AboutScreen()
-                        "theme" -> ThemeSettingsScreen(store = store)
+                        "theme" -> PersonalizeScreen(store = store)
                         "cleanip" -> CleanIpScreen()
                         "netmon" -> NetMonitorScreen(onOpenCategories = { netCatDetail = true })
                         "netcat" -> NetCategoriesScreen(onOpen = { netCatIndex = it })
@@ -2236,7 +2249,14 @@ private fun ConnectionScreen(
                 .verticalScroll(rememberScrollState())
                 .heightIn(min = floor)
                 .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
-            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically),
+            verticalArrangement = Arrangement.spacedBy(
+                when (LocalGhajarLook.current.density) {
+                    "compact" -> GhajarSpacing.sm
+                    "spacious" -> GhajarSpacing.xl
+                    else -> GhajarSpacing.md
+                },
+                Alignment.CenterVertically
+            ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             ConnectOrb(
@@ -2282,7 +2302,7 @@ private fun ConnectionScreen(
             // A tight inset: this slab holds exactly one row, so the default
             // card padding was drawing a frame around a frame and making the
             // single most-looked-at line on the screen the tallest thing on it.
-            Slab(spacing = 0.dp, padding = GhajarSpacing.sm) {
+            Slab(spacing = 0.dp, padding = GhajarSpacing.sm, color = lookColor(LookElement.CONFIG_CARD)) {
                 // While OpenVPN owns the tunnel, the route is that profile -
                 // not whichever Xray config happens to still be selected. The
                 // active id is "ovpn:<uuid>", which is never in `configs`, so
@@ -2316,6 +2336,7 @@ private fun ConnectionScreen(
                             ?: t("hub_no_server")
                     },
                     subtitle = routeSubtitle,
+                    titleColor = lookColor(LookElement.CONFIG_TEXT),
                     icon = if (onOpenVpn) Icons.Filled.Security else Icons.Filled.Shield,
                     accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
                     chevron = true,
@@ -2347,21 +2368,11 @@ private fun ConnectionScreen(
             // Throughput: one object, two readings, totals underneath.
             val downParts = formatBytesParts(downSpeed, lang)
             val upParts = formatBytesParts(upSpeed, lang)
-            StatStrip(
-                listOf(
-                    StatCell(
-                        label = t("download"),
-                        value = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
-                        accent = c.info,
-                        sub = t("home_total").format(formatBytes(totalDown, lang))
-                    ),
-                    StatCell(
-                        label = t("upload"),
-                        value = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
-                        accent = c.premium,
-                        sub = t("home_total").format(formatBytes(totalUp, lang))
-                    )
-                )
+            TrafficTiles(
+                downValue = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
+                downTotal = t("home_total").format(formatBytes(totalDown, lang)),
+                upValue = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
+                upTotal = t("home_total").format(formatBytes(totalUp, lang))
             )
 
             // Measured facts. The latency row doubles as the real-delay test:
@@ -3349,6 +3360,40 @@ private fun ConfigPickerScreen(
         }
 
         val wsRowColor = windscribeRowColor()
+        // Two columns (Personalization > Cards). Paint-selection maps a drag's
+        // y position to one row, which a grid cannot do, so in this mode a
+        // long press toggles the one row instead.
+        val twoCols = LocalGhajarLook.current.columns == 2
+        @Composable
+        fun PickerRow(cfg: ProxyConfig, container: Color?, rowModifier: Modifier) {
+            ConfigRow(
+                config = cfg,
+                isSelected = cfg.id == selectedId,
+                isActive = cfg.id == activeId,
+                ping = pings[cfg.id],
+                selectionMode = selectionMode,
+                isChecked = { selected.containsKey(cfg.id) },
+                onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
+                onLongPress = { if (twoCols) toggle(cfg.id) else beginPaint(cfg.id) },
+                onEdit = { onEdit(cfg) },
+                onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
+                onShareFile = { onShareFile(listOf(cfg)) },
+                onChain = { chainFor = cfg },
+                actionsOpen = openActionsId == cfg.id,
+                onToggleActions = {
+                    openActionsId = if (openActionsId == cfg.id) null else cfg.id
+                },
+                modifier = rowModifier,
+                containerColor = container,
+                conn = conn,
+                onToggleConnection = { toggleConnection(cfg) },
+                onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) },
+                onRename = { store.renameConfig(cfg.id, it) },
+                onMoveToGroup = { groupFor = setOf(cfg.id) to false },
+                onTcpPing = { tcpPingOne(cfg) },
+                onRealDelay = { realDelayOne(cfg) }
+            )
+        }
 
         LazyColumn(
             state = listState,
@@ -3484,34 +3529,23 @@ private fun ConfigPickerScreen(
                     )
                 }
                 if (sub.id in expandedSubs || q.isNotEmpty()) {
-                    items(subConfigs, key = { it.id }) { cfg ->
-                        ConfigRow(
-                            config = cfg,
-                            isSelected = cfg.id == selectedId,
-                            isActive = cfg.id == activeId,
-                            ping = pings[cfg.id],
-                            selectionMode = selectionMode,
-                            isChecked = { selected.containsKey(cfg.id) },
-                            onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
-                            onLongPress = { beginPaint(cfg.id) },
-                            onEdit = { onEdit(cfg) },
-                            onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
-                            onShareFile = { onShareFile(listOf(cfg)) },
-                            onChain = { chainFor = cfg },
-                            actionsOpen = openActionsId == cfg.id,
-                            onToggleActions = {
-                                openActionsId = if (openActionsId == cfg.id) null else cfg.id
-                            },
-                            modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
-                            containerColor = wsRow,
-                            conn = conn,
-                            onToggleConnection = { toggleConnection(cfg) },
-                            onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) },
-                            onRename = { store.renameConfig(cfg.id, it) },
-                            onMoveToGroup = { groupFor = setOf(cfg.id) to false },
-                            onTcpPing = { tcpPingOne(cfg) },
-                            onRealDelay = { realDelayOne(cfg) }
-                        )
+                    if (twoCols) {
+                        items(subConfigs.chunked(2), key = { p -> p.joinToString("|") { it.id } }) { pair ->
+                            Row(
+                                Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                pair.forEach { cfg -> PickerRow(cfg, wsRow, Modifier.weight(1f)) }
+                                if (pair.size == 1) Spacer(Modifier.weight(1f))
+                            }
+                        }
+                    } else {
+                        items(subConfigs, key = { it.id }) { cfg ->
+                            PickerRow(
+                                cfg, wsRow,
+                                Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200))
+                            )
+                        }
                     }
                 }
             }
@@ -3548,33 +3582,23 @@ private fun ConfigPickerScreen(
                         }
                     }
                 }
-                items(loose, key = { it.id }) { cfg ->
-                    ConfigRow(
-                        config = cfg,
-                        isSelected = cfg.id == selectedId,
-                        isActive = cfg.id == activeId,
-                        ping = pings[cfg.id],
-                        selectionMode = selectionMode,
-                        isChecked = { selected.containsKey(cfg.id) },
-                        onClick = { if (selectionMode) toggle(cfg.id) else onSelect(cfg.id) },
-                        onLongPress = { beginPaint(cfg.id) },
-                        onEdit = { onEdit(cfg) },
-                        onDelete = { store.delete(cfg.id); pings.remove(cfg.id) },
-                        onShareFile = { onShareFile(listOf(cfg)) },
-                        onChain = { chainFor = cfg },
-                        actionsOpen = openActionsId == cfg.id,
-                        onToggleActions = {
-                            openActionsId = if (openActionsId == cfg.id) null else cfg.id
-                        },
-                        modifier = Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
-                        conn = conn,
-                        onToggleConnection = { toggleConnection(cfg) },
-                        onToggleFavorite = { store.setFavorite(cfg.id, !cfg.favorite) },
-                        onRename = { store.renameConfig(cfg.id, it) },
-                        onMoveToGroup = { groupFor = setOf(cfg.id) to false },
-                        onTcpPing = { tcpPingOne(cfg) },
-                        onRealDelay = { realDelayOne(cfg) }
-                    )
+                if (twoCols) {
+                    items(loose.chunked(2), key = { p -> p.joinToString("|") { it.id } }) { pair ->
+                        Row(
+                            Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200)),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            pair.forEach { cfg -> PickerRow(cfg, null, Modifier.weight(1f)) }
+                            if (pair.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                } else {
+                    items(loose, key = { it.id }) { cfg ->
+                        PickerRow(
+                            cfg, null,
+                            Modifier.animateItem(fadeInSpec = tween(300), placementSpec = tween(300), fadeOutSpec = tween(200))
+                        )
+                    }
                 }
             }
         }
@@ -13266,19 +13290,22 @@ private fun ConfigRow(
     // and were rejected: this list maps a drag's y position to a row id for
     // paint-selection, and a second column makes that mapping select the
     // wrong servers - silently, which is the worst way for it to be wrong.
-    val compact = LocalListDensity.current == ListDensity.TWO
+    val compact = LocalListDensity.current == ListDensity.TWO ||
+        LocalGhajarLook.current.density == "compact"
+    val activeTone = lookColor(LookElement.SERVER_ACTIVE)
+    val cardTone = lookColor(LookElement.SERVER_CARD)
     // Selection is a low-alpha brand wash rather than a filled container, so a
     // long list of selected rows stays readable instead of turning into a block
     // of solid colour.
     val highlight by animateColorAsState(
         targetValue = when {
-            checked || isSelected -> c.primary.copy(alpha = 0.16f)
+            checked || isSelected -> activeTone.copy(alpha = 0.16f)
             // The row actually carrying traffic. A 3dp accent bar is easy to
             // miss in a long list; the wash is the same signal at a glance,
             // and lighter than the selected one so the two stay distinct.
-            isActive -> c.primary.copy(alpha = 0.09f)
+            isActive -> activeTone.copy(alpha = 0.09f)
             containerColor != null -> containerColor
-            else -> Color.Transparent
+            else -> cardTone
         },
         animationSpec = tween(220),
         label = "rowHighlight"
@@ -13364,7 +13391,7 @@ private fun ConfigRow(
         // not exist. drawBehind runs after measurement, so it knows the real
         // height of whatever the two or three tiers came to, and it mirrors
         // itself under RTL because "leading" is the right-hand edge there.
-        val barColor = if (isActive) c.primary else Color.Transparent
+        val barColor = if (isActive) activeTone else Color.Transparent
         Column(
             Modifier
                 .fillMaxWidth()

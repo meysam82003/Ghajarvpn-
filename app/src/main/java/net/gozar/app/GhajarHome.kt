@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowDownward
+import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.NetworkCheck
@@ -51,6 +53,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -94,7 +98,10 @@ fun ConnectOrb(
      * cannot fix from this screen - disconnect, then find the server again,
      * then connect. This is that, in one gesture, without leaving home.
      */
-    onReconnect: (() -> Unit)? = null
+    onReconnect: (() -> Unit)? = null,
+    /** Personalization's preview draws a style before it is saved. */
+    styleOverride: String? = null,
+    diameter: androidx.compose.ui.unit.Dp = 236.dp
 ) {
     val c = ghajarColors
     val lang = LocalLang.current
@@ -104,12 +111,16 @@ fun ConnectOrb(
     val working = picking || state == Connection.CONNECTING || state == Connection.DISCONNECTING
     val faulted = netOffline || tunnelDead || state == Connection.ERROR
 
+    val look = LocalGhajarLook.current
+    val style = styleOverride ?: look.orbStyle
+    val idleTint = lookColor(LookElement.CONNECT)
+    val onTint = lookColor(LookElement.DISCONNECT)
     val tint by animateColorAsState(
         when {
             faulted -> c.error
-            state == Connection.CONNECTED -> c.successGlow
+            state == Connection.CONNECTED -> onTint
             working -> c.highlight
-            else -> c.primary
+            else -> idleTint
         },
         tween(420),
         label = "orbTint"
@@ -127,16 +138,9 @@ fun ConnectOrb(
         label = "orbFill"
     )
 
-    // Both of these used to be an infinite transition, created on every
-    // composition of this screen and therefore running from launch: idle,
-    // disconnected, with nothing on screen moving, the app still woke the main
-    // thread every frame to interpolate two numbers the draw pass was not
-    // reading. Home is the screen the app opens on, so that was the frame
-    // budget of everything else.
-    //
-    // ghajarPulse schedules nothing while its condition is false. The travelling
-    // arc exists while a connection is being made; the breath exists while the
-    // tunnel is up. Off and idle now costs zero frames.
+    // ghajarPulse schedules nothing while its condition is false: the
+    // travelling arc exists while a connection is being made, the breath while
+    // the tunnel is up. Off and idle costs zero frames.
     val sweepState = ghajarPulse(
         active = working,
         durationMillis = 1500,
@@ -157,121 +161,284 @@ fun ConnectOrb(
         label = "orbPress"
     )
 
+    val k = diameter.value / 236f
+    val wide = style == "pill" || style == "capsule_glow"
+    val shape = when (style) {
+        "pill", "capsule_glow" -> RoundedCornerShape(50)
+        "soft_square" -> RoundedCornerShape((52 * k).dp)
+        else -> CircleShape
+    }
+    val (w, h) = when (style) {
+        "pill", "capsule_glow" -> diameter * 1.08f to diameter * 0.44f
+        "soft_square" -> diameter * 0.82f to diameter * 0.82f
+        else -> diameter to diameter
+    }
+    val filled = style == "pill"
+    val ink = if (filled) (if (tint.luminance() > 0.45f) Color(0xFF07100C) else Color.White) else tint
+    val textInk = when {
+        filled -> ink
+        enabled || picking -> c.textPrimary
+        else -> c.onDisabled
+    }
+
+    // The outer box keeps the control's footprint the same in every style, so
+    // the rest of home never moves when the style changes.
     Box(
         modifier
-            .size(236.dp)
-            .graphicsLayer { scaleX = press; scaleY = press }
-            .pointerInput(enabled, picking) {
-                awaitEachGesture {
-                    awaitFirstDown(requireUnconsumed = false)
-                    pressed = true
-                    waitForUpOrCancellation()
-                    pressed = false
+            .size(width = maxOf(diameter, w), height = diameter)
+            .drawBehind {
+                // Halo outside the shape: breath when connected, and the
+                // capsule/neon styles glow at rest too.
+                val glowBase = when (style) {
+                    "capsule_glow", "neon" -> 0.10f
+                    else -> 0f
                 }
-            }
-            .clip(CircleShape)
-            .combinedClickable(
-                enabled = enabled || picking,
-                onClick = onClick,
-                onLongClick = onReconnect?.takeIf { state == Connection.CONNECTED }
-            ),
+                val breath = if (state == Connection.CONNECTED) breathState.value else 0f
+                val a = glowBase + if (state == Connection.CONNECTED) 0.14f + 0.10f * breath else 0f
+                if (a > 0f) {
+                    if (wide || style == "soft_square") {
+                        val grow = 10.dp.toPx() * k * (1f + breath)
+                        val ww = w.toPx() + grow * 2
+                        val hh = h.toPx() + grow * 2
+                        drawRoundRect(
+                            color = tint.copy(alpha = a * 0.7f),
+                            topLeft = Offset((size.width - ww) / 2f, (size.height - hh) / 2f),
+                            size = Size(ww, hh),
+                            cornerRadius = androidx.compose.ui.geometry.CornerRadius(
+                                if (wide) hh / 2f else 60.dp.toPx() * k
+                            )
+                        )
+                    } else {
+                        drawCircle(
+                            brush = Brush.radialGradient(listOf(tint.copy(alpha = a + 0.04f), Color.Transparent)),
+                            radius = size.minDimension * (0.47f + 0.04f * breath)
+                        )
+                    }
+                }
+            },
         contentAlignment = Alignment.Center
     ) {
-        // State ring, disc and halo. Animation values are read inside the draw
-        // lambda only, so an animating ring never recomposes this subtree.
-        Canvas(Modifier.fillMaxSize()) {
-            val stroke = size.minDimension * 0.028f
-            val inset = stroke * 2.6f
-            val arcSize = Size(size.width - inset * 2, size.height - inset * 2)
-            val topLeft = Offset(inset, inset)
-
-            if (state == Connection.CONNECTED) {
-                val breath = breathState.value
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        listOf(tint.copy(alpha = 0.16f + 0.09f * breath), Color.Transparent)
-                    ),
-                    radius = size.minDimension * (0.45f + 0.04f * breath)
-                )
-            }
-
-            // The disc: the skin's slab tone, lifted towards the state colour.
-            drawCircle(
-                color = c.secondaryCard,
-                radius = size.minDimension / 2f - inset
-            )
-            drawCircle(
-                brush = Brush.radialGradient(
-                    listOf(
-                        tint.copy(alpha = if (state == Connection.CONNECTED) 0.20f else 0.10f),
-                        Color.Transparent
-                    )
+        Box(
+            Modifier
+                .size(width = w, height = h)
+                .graphicsLayer { scaleX = press; scaleY = press }
+                .pointerInput(enabled, picking) {
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false)
+                        pressed = true
+                        waitForUpOrCancellation()
+                        pressed = false
+                    }
+                }
+                .clip(shape)
+                .combinedClickable(
+                    enabled = enabled || picking,
+                    onClick = onClick,
+                    onLongClick = onReconnect?.takeIf { state == Connection.CONNECTED }
                 ),
-                radius = size.minDimension / 2f - inset
-            )
-
-            drawArc(
-                color = c.border,
-                startAngle = 0f,
-                sweepAngle = 360f,
-                useCenter = false,
-                topLeft = topLeft,
-                size = arcSize,
-                style = Stroke(width = stroke, cap = StrokeCap.Round)
-            )
-            if (fill > 0f) {
-                drawArc(
-                    color = tint,
-                    startAngle = if (working) sweepState.value else -90f,
-                    sweepAngle = 360f * fill,
-                    useCenter = false,
-                    topLeft = topLeft,
-                    size = arcSize,
-                    style = Stroke(width = stroke * 1.6f, cap = StrokeCap.Round)
+            contentAlignment = Alignment.Center
+        ) {
+            // Animation values are read inside the draw lambda only, so an
+            // animating ring never recomposes this subtree.
+            Canvas(Modifier.fillMaxSize()) {
+                val stroke = size.minDimension * 0.028f
+                val inset = stroke * 2.6f
+                val arcSize = Size(size.width - inset * 2, size.height - inset * 2)
+                val topLeft = Offset(inset, inset)
+                val connectedNow = state == Connection.CONNECTED
+                val start = if (working) sweepState.value else -90f
+                when (style) {
+                    "pill", "capsule_glow", "soft_square" -> {
+                        val fillA = when (style) {
+                            "pill" -> if (enabled || picking) 1f else 0.35f
+                            else -> 1f
+                        }
+                        drawRect(if (style == "pill") tint.copy(alpha = fillA) else c.secondaryCard)
+                        if (style != "pill") {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    listOf(tint.copy(alpha = if (connectedNow) 0.26f else 0.12f), Color.Transparent)
+                                )
+                            )
+                        } else {
+                            drawRect(
+                                brush = Brush.verticalGradient(
+                                    listOf(Color.White.copy(alpha = 0.16f), Color.Transparent)
+                                )
+                            )
+                        }
+                        // Working: a bar travels along the bottom edge.
+                        if (working) {
+                            val t = (sweepState.value + 90f) / 360f
+                            val bw = size.width * 0.3f
+                            drawRect(
+                                color = if (style == "pill") ink.copy(alpha = 0.55f) else tint,
+                                topLeft = Offset((size.width + bw) * t - bw, size.height - 4.dp.toPx()),
+                                size = Size(bw, 4.dp.toPx())
+                            )
+                        }
+                    }
+                    "neon" -> {
+                        drawCircle(c.background, radius = size.minDimension / 2f - inset)
+                        for (i in 3 downTo 1) {
+                            drawArc(
+                                color = tint.copy(alpha = (if (connectedNow) 0.16f else 0.08f) * i),
+                                startAngle = 0f, sweepAngle = 360f, useCenter = false,
+                                topLeft = topLeft, size = arcSize,
+                                style = Stroke(width = stroke * (1f + i * 1.3f))
+                            )
+                        }
+                        drawArc(
+                            color = tint.copy(alpha = if (enabled || picking) 1f else 0.4f),
+                            startAngle = start, sweepAngle = if (working) 110f else 360f, useCenter = false,
+                            topLeft = topLeft, size = arcSize,
+                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                        )
+                    }
+                    "minimal" -> {
+                        drawCircle(
+                            tint.copy(alpha = if (connectedNow) 0.22f else 0.12f),
+                            radius = size.minDimension / 2f - inset
+                        )
+                        if (working) drawArc(
+                            color = tint, startAngle = start, sweepAngle = 70f, useCenter = false,
+                            topLeft = topLeft, size = arcSize,
+                            style = Stroke(width = stroke * 0.6f, cap = StrokeCap.Round)
+                        )
+                    }
+                    "segmented" -> {
+                        drawCircle(c.secondaryCard, radius = size.minDimension / 2f - inset)
+                        val n = 36
+                        val step = 360f / n
+                        val head = ((sweepState.value + 90f) / step).toInt()
+                        for (i in 0 until n) {
+                            val lit = when {
+                                connectedNow -> true
+                                working -> ((head - i + n) % n) < 8
+                                else -> false
+                            }
+                            drawArc(
+                                color = if (lit) tint else c.border,
+                                startAngle = -90f + i * step + 1.5f,
+                                sweepAngle = step - 3f,
+                                useCenter = false,
+                                topLeft = topLeft, size = arcSize,
+                                style = Stroke(width = stroke * 1.6f)
+                            )
+                        }
+                    }
+                    "double_ring" -> {
+                        drawCircle(c.secondaryCard, radius = size.minDimension / 2f - inset)
+                        val inner = inset + stroke * 3.2f
+                        val innerSize = Size(size.width - inner * 2, size.height - inner * 2)
+                        drawArc(c.border, 0f, 360f, false, topLeft, arcSize, style = Stroke(stroke))
+                        drawArc(c.border, 0f, 360f, false, Offset(inner, inner), innerSize, style = Stroke(stroke * 0.7f))
+                        if (fill > 0f) {
+                            drawArc(
+                                tint, start, 360f * fill, false, topLeft, arcSize,
+                                style = Stroke(stroke * 1.4f, cap = StrokeCap.Round)
+                            )
+                            drawArc(
+                                tint.copy(alpha = 0.7f), if (working) -start else -90f, 360f * fill, false,
+                                Offset(inner, inner), innerSize,
+                                style = Stroke(stroke * 0.9f, cap = StrokeCap.Round)
+                            )
+                        }
+                    }
+                    else -> {
+                        // Circle: the disc, lifted towards the state colour, and the ring.
+                        drawCircle(color = c.secondaryCard, radius = size.minDimension / 2f - inset)
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                listOf(tint.copy(alpha = if (connectedNow) 0.20f else 0.10f), Color.Transparent)
+                            ),
+                            radius = size.minDimension / 2f - inset
+                        )
+                        drawArc(
+                            color = c.border, startAngle = 0f, sweepAngle = 360f, useCenter = false,
+                            topLeft = topLeft, size = arcSize,
+                            style = Stroke(width = stroke, cap = StrokeCap.Round)
+                        )
+                        if (fill > 0f) {
+                            drawArc(
+                                color = tint, startAngle = start, sweepAngle = 360f * fill, useCenter = false,
+                                topLeft = topLeft, size = arcSize,
+                                style = Stroke(width = stroke * 1.6f, cap = StrokeCap.Round)
+                            )
+                        }
+                    }
+                }
+            }
+            if (style == "capsule_glow" || style == "soft_square") {
+                Box(
+                    Modifier.fillMaxSize().border(
+                        1.5.dp, tint.copy(alpha = if (enabled || picking) 0.8f else 0.3f), shape
+                    )
                 )
             }
-        }
 
-        Column(
-            // The label lives inside the disc, so it is bounded by the square
-            // that fits in the circle - no string can spill past the ring.
-            Modifier.widthIn(max = 156.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
-        ) {
-            androidx.compose.material3.Icon(
-                when {
-                    picking -> Icons.Filled.Close
-                    state == Connection.CONNECTED -> Icons.Filled.PowerSettingsNew
-                    state == Connection.CONNECTING -> Icons.Filled.Close
-                    else -> Icons.Filled.Bolt
-                },
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(44.dp)
-            )
-            Text(
-                when {
-                    picking -> t("finding_fastest")
-                    state == Connection.CONNECTED -> t("disconnect")
-                    state == Connection.CONNECTING -> t("connecting_cancel")
-                    state == Connection.DISCONNECTING -> t("hub_disconnecting")
-                    else -> t("connect")
-                },
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Bold,
-                color = if (enabled || picking) c.textPrimary else c.onDisabled,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                textAlign = TextAlign.Center
-            )
-            if (!enabled && !picking && !connectedish) {
-                Text(
-                    t("hub_no_server"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = c.textMuted,
-                    maxLines = 1
-                )
+            val icon = when {
+                picking -> Icons.Filled.Close
+                state == Connection.CONNECTED -> Icons.Filled.PowerSettingsNew
+                state == Connection.CONNECTING -> Icons.Filled.Close
+                else -> Icons.Filled.Bolt
+            }
+            val label = when {
+                picking -> t("finding_fastest")
+                state == Connection.CONNECTED -> t("disconnect")
+                state == Connection.CONNECTING -> t("connecting_cancel")
+                state == Connection.DISCONNECTING -> t("hub_disconnecting")
+                else -> t("connect")
+            }
+            if (wide) {
+                Row(
+                    Modifier.padding(horizontal = (18 * k).dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy((10 * k).dp)
+                ) {
+                    androidx.compose.material3.Icon(
+                        icon, contentDescription = null, tint = ink, modifier = Modifier.size((30 * k).dp)
+                    )
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = textInk,
+                        fontSize = (17 * k).sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+            } else {
+                Column(
+                    // The label lives inside the shape, bounded by the square
+                    // that fits in the circle - no string can spill past the ring.
+                    Modifier.widthIn(max = (156 * k).dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy((GhajarSpacing.sm.value * k).dp)
+                ) {
+                    androidx.compose.material3.Icon(
+                        icon, contentDescription = null, tint = tint, modifier = Modifier.size((44 * k).dp)
+                    )
+                    Text(
+                        label,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = textInk,
+                        fontSize = (16 * k).sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center
+                    )
+                    if (!enabled && !picking && !connectedish && k > 0.8f) {
+                        Text(
+                            t("hub_no_server"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = c.textMuted,
+                            maxLines = 1
+                        )
+                    }
+                }
             }
         }
     }
@@ -403,4 +570,81 @@ private fun rememberSecondTick(): Long {
         }
     }
     return now
+}
+
+/**
+ * Download and upload as two tiles. Each tile's icon/number colour and
+ * background come from Personalization (Traffic Tiles), defaulting to the
+ * theme's info and premium tones on the slab colour.
+ */
+@Composable
+fun TrafficTiles(
+    downValue: String,
+    downTotal: String,
+    upValue: String,
+    upTotal: String,
+    modifier: Modifier = Modifier
+) {
+    val lang = LocalLang.current
+    val t: (String) -> String = { Strings.get(lang, it) }
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+        TrafficTile(
+            Icons.Filled.ArrowDownward, t("download"), downValue, downTotal,
+            lookColor(LookElement.TILE_DOWN_ICON), lookColor(LookElement.TILE_DOWN_BG),
+            Modifier.weight(1f)
+        )
+        TrafficTile(
+            Icons.Filled.ArrowUpward, t("upload"), upValue, upTotal,
+            lookColor(LookElement.TILE_UP_ICON), lookColor(LookElement.TILE_UP_BG),
+            Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
+private fun TrafficTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    label: String,
+    value: String,
+    total: String,
+    ink: Color,
+    bg: Color,
+    modifier: Modifier
+) {
+    val c = ghajarColors
+    val radius = LocalGhajarLook.current.cardRadius.dp
+    Row(
+        modifier
+            .clip(RoundedCornerShape(radius))
+            .background(bg)
+            .padding(horizontal = GhajarSpacing.md, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
+    ) {
+        Box(
+            Modifier.size(34.dp).clip(RoundedCornerShape(11.dp)).background(ink.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            androidx.compose.material3.Icon(icon, contentDescription = null, tint = ink, modifier = Modifier.size(18.dp))
+        }
+        Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
+            Text(label, style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 1)
+            Text(
+                value,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = ink,
+                fontSize = 15.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                total,
+                style = MaterialTheme.typography.labelSmall,
+                color = c.textSecondary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
 }

@@ -54,6 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -91,7 +92,6 @@ import androidx.compose.ui.unit.sp
  */
 
 /** Slab radius - larger than the old cards on purpose, so the shape reads as new. */
-private val SlabRadius = 24.dp
 
 /**
  * The container. Filled, edgeless, with light along the top.
@@ -106,16 +106,23 @@ fun Slab(
     padding: Dp = GhajarSpacing.lg,
     spacing: Dp = GhajarSpacing.md,
     onClick: (() -> Unit)? = null,
+    /** Fill override (Personalization's card colours); null is the theme's. */
+    color: Color? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val c = ghajarColors
+    val look = LocalGhajarLook.current
     val edge = accent ?: c.primary
-    val shape = RoundedCornerShape(SlabRadius)
+    val shape = RoundedCornerShape(look.cardRadius.dp)
     Box(
         modifier
             .fillMaxWidth()
+            .then(
+                if (look.elevation > 0) Modifier.shadow(look.elevation.dp, shape, clip = false)
+                else Modifier
+            )
             .clip(shape)
-            .background(c.secondaryCard)
+            .background(color ?: c.secondaryCard)
             .then(if (onClick != null) Modifier.clickable { onClick() } else Modifier)
     ) {
         Column(
@@ -154,10 +161,12 @@ fun SlabRow(
     chevron: Boolean = false,
     enabled: Boolean = true,
     onClick: (() -> Unit)? = null,
+    titleColor: Color? = null,
     trailing: (@Composable RowScope.() -> Unit)? = null
 ) {
     val c = ghajarColors
     val tint = accent ?: c.primary
+    val titleWeight = if (LocalGhajarLook.current.boldTitles) FontWeight.SemiBold else FontWeight.Normal
     Row(
         modifier
             .fillMaxWidth()
@@ -199,8 +208,8 @@ fun SlabRow(
             Text(
                 mixedText(title),
                 style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                color = if (enabled) c.textPrimary else c.onDisabled,
+                fontWeight = titleWeight,
+                color = if (enabled) (titleColor ?: c.textPrimary) else c.onDisabled,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
@@ -463,7 +472,7 @@ fun GhostPill(
     minHeight: Dp = 48.dp
 ) {
     val c = ghajarColors
-    val tint = if (enabled) (accent ?: c.primary) else c.onDisabled
+    val tint = if (enabled) (accent ?: lookColor(LookElement.SECONDARY_BUTTON)) else c.onDisabled
     Row(
         modifier
             .fillMaxWidth()
@@ -556,7 +565,7 @@ fun SkinSwitch(
     val c = ghajarColors
     val track = when {
         !enabled -> c.disabled
-        checked -> c.primary
+        checked -> lookColor(LookElement.SWITCH)
         else -> c.border
     }
     val offset by animateDpAsState(
@@ -967,8 +976,15 @@ data class SkinNavItem(val iconRes: Int, val label: String, val onSelect: () -> 
  * labels permanently visible so the bar never becomes a row of guesses.
  */
 @Composable
-fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Modifier) {
+fun SkinNavBar(
+    items: List<SkinNavItem>,
+    selected: Int,
+    modifier: Modifier = Modifier,
+    /** False in Personalization's preview, which is not at the screen's bottom edge. */
+    systemInsets: Boolean = true
+) {
     val c = ghajarColors
+    val look = LocalGhajarLook.current
     if (items.isEmpty()) return
     var trackWidth by remember { mutableStateOf(0) }
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -980,37 +996,101 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
         tween(GhajarMotion.Base, easing = FastOutSlowInEasing),
         label = "navSlide"
     )
+    val style = look.navStyle
+    val barBg = look.color(LookElement.NAV_BG.key) ?: when (style) {
+        "filled" -> c.primary
+        "minimal" -> Color.Transparent
+        "outline" -> c.background
+        else -> c.card
+    }
+    val indicator = look.color(LookElement.NAV_INDICATOR.key) ?: when (style) {
+        "filled" -> c.onPrimary.copy(alpha = 0.18f)
+        else -> c.primary
+    }
+    val iconActive = look.color(LookElement.NAV_ICON_ACTIVE.key) ?: when (style) {
+        "minimal", "outline" -> c.primary
+        "filled" -> c.onPrimary
+        else -> c.onPrimary
+    }
+    val iconIdle = look.color(LookElement.NAV_ICON_INACTIVE.key) ?: when (style) {
+        "filled" -> c.onPrimary.copy(alpha = 0.6f)
+        else -> c.textMuted
+    }
+    val labelIdle = look.color(LookElement.NAV_LABEL.key) ?: iconIdle
+    val radius = look.navRadius.dp
+    val cellH = if (look.navLabels) 54.dp else 46.dp
+    val barShape = when (style) {
+        "standard" -> RoundedCornerShape(topStart = radius, topEnd = radius)
+        else -> RoundedCornerShape(radius)
+    }
+    val cellShape = RoundedCornerShape((look.navRadius - 6).coerceAtLeast(0).dp)
     Box(
         modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
-            .padding(horizontal = GhajarSpacing.md, vertical = GhajarSpacing.sm)
+            .then(
+                if (style == "standard") Modifier.clip(barShape).background(barBg)
+                else Modifier
+            )
+            .then(if (systemInsets) Modifier.navigationBarsPadding() else Modifier)
+            .padding(
+                horizontal = if (style == "standard") 0.dp else GhajarSpacing.md,
+                vertical = if (style == "standard") 0.dp else GhajarSpacing.sm
+            )
     ) {
         Box(
             Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(GhajarRadius.xl))
-                .background(c.card)
+                .then(
+                    if (style == "standard") Modifier
+                    else Modifier.clip(barShape).background(barBg)
+                )
+                .then(
+                    if (style == "outline") Modifier.border(1.dp, c.borderStrong, barShape)
+                    else Modifier
+                )
                 .padding(5.dp)
         ) {
             if (trackWidth > 0) {
-                Box(
-                    Modifier
-                        .padding(start = offset)
-                        .width(cellWidth)
-                        .height(54.dp)
-                        .clip(RoundedCornerShape(GhajarRadius.lg))
-                        .background(c.primary)
-                )
+                when (style) {
+                    // Minimal: no block, a short bar under the active icon.
+                    "minimal" -> Box(
+                        Modifier
+                            .padding(start = offset + cellWidth / 2 - 10.dp, top = cellH - 5.dp)
+                            .width(20.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(GhajarRadius.pill))
+                            .background(indicator)
+                    )
+                    "outline" -> Box(
+                        Modifier
+                            .padding(start = offset)
+                            .width(cellWidth)
+                            .height(cellH)
+                            .border(1.5.dp, indicator, cellShape)
+                    )
+                    else -> Box(
+                        Modifier
+                            .padding(start = offset)
+                            .width(cellWidth)
+                            .height(cellH)
+                            .clip(cellShape)
+                            .background(indicator)
+                    )
+                }
             }
             Row(Modifier.fillMaxWidth().onSizeChanged { trackWidth = it.width }) {
                 items.forEachIndexed { index, item ->
                     val active = index == selected
+                    val tint by androidx.compose.animation.animateColorAsState(
+                        if (active) iconActive else iconIdle,
+                        tween(GhajarMotion.Base),
+                        label = "navTint"
+                    )
                     Column(
                         Modifier
                             .weight(1f)
-                            .height(54.dp)
-                            .clip(RoundedCornerShape(GhajarRadius.lg))
+                            .height(cellH)
+                            .clip(cellShape)
                             .clickable { item.onSelect() },
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
@@ -1018,22 +1098,23 @@ fun SkinNavBar(items: List<SkinNavItem>, selected: Int, modifier: Modifier = Mod
                         Icon(
                             androidx.compose.ui.res.painterResource(item.iconRes),
                             contentDescription = item.label,
-                            tint = if (active) c.onPrimary else c.textMuted,
-                            modifier = Modifier.size(23.dp)
+                            tint = tint,
+                            modifier = Modifier.size(look.navIconSize.dp)
                         )
-                        Spacer(Modifier.height(2.dp))
-                        Text(
-                            item.label,
-                            style = MaterialTheme.typography.labelSmall,
-                            fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
-                            color = if (active) c.onPrimary else c.textMuted,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
+                        if (look.navLabels) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                item.label,
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = if (active) FontWeight.Bold else FontWeight.Normal,
+                                color = if (active) tint else labelIdle,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
-
