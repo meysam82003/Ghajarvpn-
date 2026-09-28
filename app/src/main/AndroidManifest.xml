@@ -176,6 +176,7 @@
                 <action android:name="net.gozar.app.WIDGET_PING" />
                 <action android:name="net.gozar.app.WIDGET_SUBS" />
                 <action android:name="net.gozar.app.WIDGET_NEXT" />
+                <action android:name="net.gozar.app.WIDGET_SELECT" />
             </intent-filter>
             <meta-data
                 android:name="android.appwidget.provider"
@@ -187,6 +188,12 @@
             goes through the same handler as the full widget's, so there is one
             implementation of turning the tunnel on and off, not two.
         -->
+        <!-- The widget's scrollable config list. -->
+        <service
+            android:name=".GhajarWidgetListService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
         <receiver
             android:name=".GhajarWidgetSmall"
             android:label="@string/widget_small_label"

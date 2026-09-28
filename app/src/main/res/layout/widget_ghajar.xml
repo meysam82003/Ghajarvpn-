@@ -187,4 +187,28 @@
             android:textColor="@color/ghajar_widget_muted"
             android:textSize="11sp" />
     </LinearLayout>
+
+    <!--
+        The configs of the current subscription (or all of them), scrollable.
+        The ping rail action measures these rows in place; tapping one selects
+        it and connects. Empty text shows until the list has anything.
+    -->
+    <ListView
+        android:id="@+id/widget_list"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:layout_marginTop="6dp"
+        android:divider="@null"
+        android:dividerHeight="0dp"
+        android:scrollbars="none" />
+
+    <TextView
+        android:id="@+id/widget_list_empty"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:padding="8dp"
+        android:textColor="@color/ghajar_widget_muted"
+        android:textSize="11sp" />
 </LinearLayout>
