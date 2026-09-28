@@ -42,3 +42,8 @@
 -dontwarn org.slf4j.**
 -dontwarn org.bouncycastle.**
 -dontwarn org.apache.**
+# zeptun's JNI_OnLoad looks up dev/zeptun/Zeptun by name and registers all
+# four natives with RegisterNatives. R8 dropped the ones Kotlin never calls,
+# the registration failed, and the release build reported zeptun (and so
+# sing-box, which rides on it) as missing while debug builds worked.
+-keep class dev.zeptun.Zeptun { *; }

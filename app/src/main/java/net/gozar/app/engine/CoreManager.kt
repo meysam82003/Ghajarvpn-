@@ -126,8 +126,10 @@ object CoreManager {
             availability = { ctx ->
                 when {
                     !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("libsingbox.so not in this build")
-                    !ZeptunEngine.available -> Availability.Missing("zeptun (needed to carry sing-box) not in this build")
-                    else -> Availability.Experimental("wired; not device verified")
+                    !ZeptunEngine.available -> Availability.Missing(
+                        "zeptun (needed to carry sing-box) did not load" + (ZeptunEngine.loadError?.let { ": $it" } ?: "")
+                    )
+                    else -> Availability.Available
                 }
             },
             running = { SingBoxController.isRunning() })
