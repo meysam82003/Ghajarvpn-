@@ -710,8 +710,19 @@ class MainActivity : ComponentActivity() {
         GhajarRenewRequest.request(username)
     }
 
+    /** ghajarvpn://payment-return from the payment page: back to the shop, re-check. */
+    private fun handlePaymentReturn(intent: Intent?): Boolean {
+        val data = intent?.data ?: return false
+        if (!data.scheme.equals("ghajarvpn", true)) return false
+        intent.data = null
+        GhajarLog.i("Payment", "returned to app from the payment page")
+        GhajarPaymentReturn.signal()
+        return true
+    }
+
     private fun handleImportIntent(intent: Intent?) {
         intent ?: return
+        if (handlePaymentReturn(intent)) return
         val uri = when (intent.action) {
             Intent.ACTION_VIEW -> intent.data
             Intent.ACTION_SEND ->
@@ -1303,6 +1314,13 @@ private fun GozarApp(
     val pendingRenew by GhajarRenewRequest.requested.collectAsState()
     LaunchedEffect(pendingRenew) {
         if (pendingRenew != null) {
+            showPicker = false
+            pagerState.animateScrollToPage(PAGE_SHOP)
+        }
+    }
+    val paymentReturn by GhajarPaymentReturn.ticks.collectAsState()
+    LaunchedEffect(paymentReturn) {
+        if (paymentReturn > 0L) {
             showPicker = false
             pagerState.animateScrollToPage(PAGE_SHOP)
         }

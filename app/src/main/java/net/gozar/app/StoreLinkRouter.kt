@@ -45,6 +45,15 @@ object StoreLinkRouter {
             .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
     }
 
+    /** A marketplace seller's gateway, opened in the same locked-down payment page. */
+    fun marketPaymentIntent(context: Context, raw: String): Intent? {
+        if (!GhajarPaymentPolicy.allowsInFlow(raw)) return null
+        return Intent(context, SecurePaymentActivity::class.java)
+            .putExtra(SecurePaymentActivity.EXTRA_URL, raw)
+            .putExtra(SecurePaymentActivity.EXTRA_MARKET, true)
+            .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+    }
+
     fun browserIntent(context: Context, raw: String): Intent? {
         val route = classify(raw)
         if (route.kind !in setOf(StoreLinkKind.TERMS, StoreLinkKind.HELP, StoreLinkKind.USER_PANEL, StoreLinkKind.WEB_SUPPORT)) return null

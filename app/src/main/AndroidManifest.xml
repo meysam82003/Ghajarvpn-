@@ -91,6 +91,18 @@
                 <data android:scheme="happ" />
                 <data android:scheme="happ-proxy" />
             </intent-filter>
+            <!--
+                The payment page's "back to app" button
+                (intent://payment-return#Intent;scheme=ghajarvpn;...). It only
+                reopens the app on the shop; the server decides whether the
+                order is paid.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="ghajarvpn" android:host="payment-return" />
+            </intent-filter>
         </activity>
         <activity
             android:name=".SecurePaymentActivity"

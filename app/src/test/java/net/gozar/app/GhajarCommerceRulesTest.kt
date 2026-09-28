@@ -147,6 +147,12 @@ class GhajarCommerceRulesTest {
     private val trusted = setOf("blupal.net", "shaparak.ir")
     @Test fun realBluPalLiveAndSandboxLinksAreAllowed() {
         assertTrue(GhajarPaymentPolicy.allows("https://blupal.net/payment/opaque-token", "httpuser87890.ir", trusted))
+        // Inside the flow: any plain https page, never credentials, ports or other schemes.
+        assertTrue(GhajarPaymentPolicy.allowsInFlow("https://new-psp.example.ir/pay/123"))
+        assertFalse(GhajarPaymentPolicy.allowsInFlow("https://user:pw@psp.example.ir/pay"))
+        assertFalse(GhajarPaymentPolicy.allowsInFlow("https://psp.example.ir:8443/pay"))
+        assertFalse(GhajarPaymentPolicy.allowsInFlow("http://psp.example.ir/pay"))
+        assertFalse(GhajarPaymentPolicy.allowsInFlow("javascript:alert(1)"))
         assertTrue(GhajarPaymentPolicy.allows("https://blupal.net/sandbox/payment/token", null, trusted))
     }
     @Test fun lookalikeAndCredentialHostsAreRejected() {

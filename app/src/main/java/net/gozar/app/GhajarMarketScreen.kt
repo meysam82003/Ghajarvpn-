@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.Inventory
 import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Shield
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.Star
@@ -451,6 +453,12 @@ private fun MarketOrderPage(
     var note by remember(order.id) { mutableStateOf("") }
     var pollKey by remember(order.id) { mutableStateOf(0) }
 
+    // Back from the in-app payment page, or from the browser via the
+    // payment-return link: ask the server again.
+    val gatewayLauncher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { pollKey++ }
+    val paymentReturn by GhajarPaymentReturn.ticks.collectAsState()
+    LaunchedEffect(paymentReturn) { if (paymentReturn > 0L) pollKey++ }
+
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri: Uri? ->
         if (uri == null) return@rememberLauncherForActivityResult
         sending = true
@@ -523,22 +531,30 @@ private fun MarketOrderPage(
                 // return is verified server-side. The button is all this
                 // screen does, because a gateway result that this app decided
                 // would be a payment this app could be told to fake.
-                "secret" -> Slab(spacing = GhajarSpacing.sm) {
-                    Text("پرداخت با درگاه فروشگاه", fontWeight = FontWeight.Bold, color = c.textPrimary)
+                "secret" -> Slab(accent = c.warning, spacing = GhajarSpacing.sm) {
+                    // The same card as the official shop: tracking code, amount,
+                    // continue / check / cancel - and never the gateway's host.
+                    Text("پرداخت در انتظار تأیید", fontWeight = FontWeight.Bold, color = c.textPrimary)
+                    InfoLine("کد پیگیری", localizeDigits(order.id.toString(), lang))
+                    InfoLine("مبلغ", localizeDigits(formatToman(order.amount), lang) + " تومان")
                     Text(
-                        "با زدن دکمه به درگاه خودِ فروشنده می‌روید. پس از پرداخت، برگردید؛ "
-                            + "نتیجه روی سرور بررسی و سرویس ساخته می‌شود.",
+                        "پرداخت داخل صفحهٔ امن برنامه انجام می‌شود. بعد از پرداخت برگرد؛ "
+                            + "نتیجه روی سرور فروشگاه بررسی و سرویس همین‌جا تحویل می‌شود.",
                         style = MaterialTheme.typography.labelMedium, color = c.textSecondary
                     )
                     if (order.gatewayUrl.isBlank()) {
-                        Text("آدرس درگاه از سرور نیامد.", color = c.error,
+                        Text("درگاه این فروشگاه در دسترس نیست؛ از روش پرداخت دیگری استفاده کن.", color = c.error,
                             style = MaterialTheme.typography.labelMedium)
                     } else {
-                        PillButton("رفتن به درگاه", {
-                            openLink(context, order.gatewayUrl)
-                        }, icon = Icons.Filled.OpenInNew)
+                        PillButton("ادامهٔ همین پرداخت", {
+                            val intent = StoreLinkRouter.marketPaymentIntent(context, order.gatewayUrl)
+                            if (intent == null) message = "صفحهٔ پرداخت امن باز نشد."
+                            else runCatching { gatewayLauncher.launch(intent) }
+                                .onFailure { message = "صفحهٔ پرداخت امن باز نشد." }
+                        }, icon = Icons.Filled.Lock)
                     }
-                    GhostPill("پرداخت کردم، بررسی کن", { pollKey++ }, icon = Icons.Filled.Refresh)
+                    GhostPill("پرداخت کردم؛ بررسی و دریافت سرویس", { pollKey++ }, icon = Icons.Filled.Refresh)
+                    GhostPill("انصراف", onBack, icon = Icons.Filled.Close)
                 }
 
                 // Card to support: the seller handles it in their own chat.

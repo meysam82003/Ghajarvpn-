@@ -41,6 +41,17 @@ object GhajarRenewRequest {
  * "Go to this shop" from an announcement: which shop (0 = the official Ghajar
  * shop) and, for a discount announcement, the code to apply there.
  */
+/**
+ * The payment page's "back to app" (ghajarvpn://payment-return): opens the shop
+ * tab and asks every open checkout to re-check its payment with the server.
+ * The link itself proves nothing; only the server's answer marks an order paid.
+ */
+object GhajarPaymentReturn {
+    private val _ticks = MutableStateFlow(0L)
+    val ticks = _ticks.asStateFlow()
+    fun signal() { _ticks.value = System.currentTimeMillis() }
+}
+
 object GhajarShopOpenRequest {
     /** [renew]: a service username at that shop whose renewal should open. */
     data class Request(val shopId: Int, val code: String, val renew: String = "")
