@@ -27,6 +27,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.material.icons.filled.Build
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -52,14 +56,21 @@ fun ConnectDoctorDialog(
     ovpnProfile: GhajarOvpnProfile?,
     engineError: String?,
     tunnelUp: Boolean,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** Dials a config; given, the dialog offers "fix it for me". */
+    onConnect: ((ProxyConfig) -> Unit)? = null
 ) {
     val c = ghajarColors
     val lang = LocalLang.current
     val t: (String) -> String = { Strings.get(lang, it) }
+    val fa = lang == Lang.FA
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
 
     var report by remember { mutableStateOf<DoctorReport?>(null) }
     var run by remember { mutableStateOf(0) }
+    var fixing by remember { mutableStateOf(false) }
+    var fixNote by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(run) {
         report = null
@@ -74,7 +85,33 @@ fun ConnectDoctorDialog(
             Column(
                 Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-            ) { DoctorBody(current, allOkKey = "doc_all_ok") }
+            ) {
+                DoctorBody(current, allOkKey = "doc_all_ok")
+                if (current != null && current.causeKey != null && onConnect != null) {
+                    PillButton(
+                        if (fixing) (if (fa) "در حال رفع مشکل…" else "Fixing…")
+                        else (if (fa) "رفع خودکار مشکل" else "Fix it for me"),
+                        onClick = {
+                            if (fixing) return@PillButton
+                            fixing = true
+                            fixNote = null
+                            scope.launch {
+                                fixNote = ConnectAutoFix.apply(context, current, config, fa, onConnect)
+                                fixing = false
+                                // Let the redial settle, then measure again.
+                                kotlinx.coroutines.delay(4_000)
+                                run++
+                            }
+                        },
+                        enabled = !fixing,
+                        icon = androidx.compose.material.icons.Icons.Filled.Build,
+                        minHeight = 46.dp
+                    )
+                }
+                fixNote?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = c.primary)
+                }
+            }
         },
         confirmButton = { PillButton(t("doc_close"), onDismiss) },
         dismissButton = {
@@ -209,4 +246,89 @@ private fun verdictIcon(verdict: DoctorVerdict): ImageVector = when (verdict) {
     DoctorVerdict.WARN -> Icons.Filled.PriorityHigh
     DoctorVerdict.FAIL -> Icons.Filled.Close
     DoctorVerdict.SKIPPED -> Icons.Filled.Remove
+}
+
+/**
+ * Acts on a diagnosis instead of only describing it. Each cause gets the one
+ * remedy the app can apply by itself; the rest get the system screen that
+ * fixes them. Returns what was done, in the user's language.
+ */
+object ConnectAutoFix {
+    suspend fun apply(
+        context: android.content.Context,
+        report: DoctorReport,
+        config: ProxyConfig?,
+        fa: Boolean,
+        onConnect: (ProxyConfig) -> Unit
+    ): String {
+        val store = ConfigStore.get(context)
+        val cause = report.causeKey
+        val engine = report.findings.firstOrNull { it.titleKey == "doc_engine" }
+        fun tr(a: String, b: String) = if (fa) a else b
+        return when (cause) {
+            "doc_internet" -> {
+                runCatching {
+                    context.startActivity(
+                        android.content.Intent(android.provider.Settings.ACTION_WIRELESS_SETTINGS)
+                            .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    )
+                }
+                tr("اینترنت گوشی وصل نیست؛ تنظیمات شبکه باز شد. وای‌فای یا دیتا را روشن کن.",
+                    "The phone has no internet; network settings opened. Turn on Wi-Fi or mobile data.")
+            }
+            "doc_dns" -> {
+                store.setCustomDns("1.1.1.1")
+                store.setEncryptedDns(true)
+                config?.let(onConnect)
+                tr("DNS روی 1.1.1.1 رمزنگاری‌شده تنظیم شد و اتصال دوباره برقرار می‌شود.",
+                    "DNS switched to encrypted 1.1.1.1 and the tunnel is redialling.")
+            }
+            "doc_server_dns", "doc_server_port" -> switchToFastest(store, config, fa, onConnect)
+            "doc_engine" -> when (engine?.remedyKey) {
+                "doc_engine_fix_auth" -> tr(
+                    "نام کاربری یا رمز این سرور رد شد؛ این مورد خودکار قابل رفع نیست. اشتراک را به‌روزرسانی کن.",
+                    "This server rejected the credentials; that cannot be fixed automatically. Update the subscription."
+                )
+                "doc_engine_fix_timeout" -> switchToFastest(store, config, fa, onConnect)
+                else -> {
+                    config?.let(onConnect)
+                    tr("هسته از نو راه‌اندازی شد و اتصال دوباره برقرار می‌شود.", "The engine restarted and is redialling.")
+                }
+            }
+            else -> {
+                config?.let(onConnect)
+                tr("اتصال از نو برقرار می‌شود.", "Redialling.")
+            }
+        }
+    }
+
+    /** Pings the other servers of the same subscription and dials the fastest. */
+    private suspend fun switchToFastest(
+        store: ConfigStore,
+        current: ProxyConfig?,
+        fa: Boolean,
+        onConnect: (ProxyConfig) -> Unit
+    ): String = kotlinx.coroutines.coroutineScope {
+        val pool = store.configs.value
+            .filter { it.id != current?.id }
+            .filter { current?.subId.isNullOrBlank() || it.subId == current?.subId }
+            .ifEmpty { store.configs.value.filter { it.id != current?.id } }
+            .take(40)
+        val results = pool.map { cfg ->
+            async(kotlinx.coroutines.Dispatchers.IO) {
+                cfg to (runCatching { Pinger.ping(cfg.address, cfg.port) }.getOrNull() as? PingResult.Ok)?.ms
+            }
+        }.awaitAll()
+        val best = results.filter { it.second != null }.minByOrNull { it.second!! }
+        if (best == null) {
+            current?.let(onConnect)
+            if (fa) "سرور دیگری در دسترس نبود؛ همین سرور دوباره امتحان می‌شود."
+            else "No other server answered; retrying this one."
+        } else {
+            store.setSelectedId(best.first.id)
+            onConnect(best.first)
+            if (fa) "به سرور سریع‌تر «${BrandConfig.sanitizePublicText(best.first.name)}» (${best.second} ms) وصل می‌شود."
+            else "Switching to the faster server \"${BrandConfig.sanitizePublicText(best.first.name)}\" (${best.second} ms)."
+        }
+    }
 }

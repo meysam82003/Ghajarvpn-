@@ -73,6 +73,12 @@ android {
         buildConfig = true
     }
 
+    // The app speaks English and Persian; the translations the libraries
+    // bring for sixty other languages were dead weight in every APK.
+    androidResources {
+        localeFilters += listOf("en", "fa")
+    }
+
     packaging {
         jniLibs {
             useLegacyPackaging = true

@@ -2433,7 +2433,8 @@ private fun ConnectionScreen(
             ovpnProfile = if (onOpenVpn) ovpnProfile else null,
             engineError = error,
             tunnelUp = conn == Connection.CONNECTED,
-            onDismiss = { showDoctor = false }
+            onDismiss = { showDoctor = false },
+            onConnect = if (onOpenVpn) null else ({ cfg -> onConnect(cfg) })
         )
     }
 }
