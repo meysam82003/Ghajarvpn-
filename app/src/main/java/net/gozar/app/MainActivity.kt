@@ -138,6 +138,7 @@ import androidx.compose.material.icons.filled.MonitorHeart
 import androidx.compose.material.icons.filled.Backup
 import androidx.compose.material.icons.automirrored.filled.Article
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.VpnKey
 import androidx.compose.material.icons.filled.BugReport
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Build
@@ -4365,129 +4366,77 @@ private fun AddServerPanel(
                     }
                 }
 
-                // Engines that carry traffic without a config of their own.
-                // Psiphon first because nobody finds it by looking for
-                // somewhere to paste something.
-                Rail(t("add_group_tunnels"))
-                SlabRow(
-                    title = "Psiphon",
-                    subtitle = t("add_psiphon_sub"),
-                    icon = Icons.Filled.Public,
-                    accent = c.good,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onPsiphon
-                )
+                // The main entries on top, in the order people reach for them:
+                // engines that need no config, the full VPN protocols, a
+                // subscription link, then the providers that hand out configs.
+                // Everything else (SSH, the DNS lab, one form per core) sits in
+                // one fold below so the sheet opens short.
+                Rail(t("add_group_main"))
+                SlabRow(title = "Psiphon", subtitle = t("add_psiphon_sub"), icon = Icons.Filled.Public,
+                    accent = c.good, chevron = true, enabled = !busy, onClick = onPsiphon)
                 SlabDivider()
-                SlabRow(
-                    title = "Tor",
-                    subtitle = t("add_tor_sub"),
-                    iconRes = R.drawable.tor,
-                    accent = c.premium,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onTor
-                )
+                SlabRow(title = "Tor", subtitle = t("add_tor_sub"), iconRes = R.drawable.tor,
+                    accent = c.premium, chevron = true, enabled = !busy, onClick = onTor)
                 SlabDivider()
-                SlabRow(
-                    title = "SSH",
-                    subtitle = t("add_ssh_sub"),
-                    icon = Icons.Filled.Terminal,
-                    accent = c.highlight,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onSsh
-                )
-
-                // DNS is its own kind of thing: the laboratory measures
-                // resolvers and the tunnel rides on one, and neither is a
-                // server you paste in.
-                Rail(t("add_group_dns"))
-                SlabRow(
-                    title = t("dnslab_title"),
-                    subtitle = t("add_dnslab_sub"),
-                    icon = Icons.Filled.Dns,
-                    accent = c.info,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onDnsLab
-                )
-
-                // The two full VPN protocols. OpenVPN reads a profile file;
-                // IKEv2 is typed in, and the manual form already has it in its
-                // protocol list - this is the entry point that says so.
-                Rail(t("add_group_vpn"))
-                SlabRow(
-                    title = "OpenVPN",
-                    subtitle = t("add_ovpn_sub"),
-                    icon = Icons.Filled.Security,
-                    accent = c.accentAlt,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onOpenVpn
-                )
+                SlabRow(title = "OpenVPN", subtitle = t("add_ovpn_sub"), icon = Icons.Filled.Security,
+                    accent = c.accentAlt, chevron = true, enabled = !busy, onClick = onOpenVpn)
                 SlabDivider()
-                SlabRow(
-                    title = "IKEv2 / IPsec",
-                    subtitle = t("add_ikev2_sub"),
-                    icon = Icons.Filled.Lock,
-                    accent = c.warning,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onManual
-                )
+                SlabRow(title = "IKEv2 / IPsec", subtitle = t("add_ikev2_sub"), icon = Icons.Filled.Lock,
+                    accent = c.warning, chevron = true, enabled = !busy, onClick = onManual)
+                ProtocolForms.forms.firstOrNull { it.id == "openconnect" }?.let { f ->
+                    SlabDivider()
+                    SlabRow(title = f.title, subtitle = t("form_sub_" + f.id), icon = Icons.Filled.VpnKey,
+                        accent = c.info, chevron = true, enabled = !busy, onClick = { onProtocolForm(f.id) })
+                }
+                SlabDivider()
+                SlabRow(title = t("add_sub_row"), subtitle = t("add_sub_row_sub"), icon = Icons.Filled.Hub,
+                    accent = c.primary, chevron = true, enabled = !busy, onClick = onSubscription)
+                SlabDivider()
+                SlabRow(title = t("free_projects"), subtitle = t("add_free_sub"), icon = Icons.Filled.CardGiftcard,
+                    accent = c.premium, chevron = true, enabled = !busy, onClick = onProjects)
+                SlabDivider()
+                SlabRow(title = t("ws_title"), subtitle = t("add_ws_sub"), icon = Icons.Filled.Shield,
+                    accent = c.info, chevron = true, enabled = !busy, onClick = onWindscribe)
 
-                // A link that maintains its own list. It was only reachable by
-                // pasting one into the clipboard path and hoping the app
-                // recognised it as a subscription rather than a config.
-                // One entry per core: each opens its own form with the fields
-                // that protocol needs and an Advanced section.
-                listOf("vpn" to t("add_group_vpn_forms"), "tunnel" to t("add_group_tunnel_forms"),
-                    "dns" to t("add_group_dns_forms"), "proxy" to t("add_group_proxy_forms")).forEach { (group, label) ->
-                    Rail(label)
-                    ProtocolForms.forms.filter { it.group == group }.forEachIndexed { i, f ->
-                        if (i > 0) SlabDivider()
-                        SlabRow(
-                            title = f.title,
-                            subtitle = t("form_sub_" + f.id),
-                            icon = Icons.Filled.Add,
-                            chevron = true,
-                            onClick = { onProtocolForm(f.id) }
-                        )
+                var moreOpen by rememberSaveable { mutableStateOf(false) }
+                Spacer(Modifier.height(GhajarSpacing.xs))
+                SlabRow(
+                    title = t("add_more"),
+                    subtitle = t("add_more_sub"),
+                    icon = Icons.Filled.Apps,
+                    accent = c.textSecondary,
+                    enabled = !busy,
+                    onClick = { moreOpen = !moreOpen },
+                    trailing = { Icon(if (moreOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = c.textSecondary) }
+                )
+                AnimatedVisibility(
+                    visible = moreOpen,
+                    enter = fadeIn(tween(220)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
+                    exit = fadeOut(tween(160)) + shrinkVertically(tween(200, easing = FastOutSlowInEasing))
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                        Rail(t("add_group_tunnels"))
+                        SlabRow(title = "SSH", subtitle = t("add_ssh_sub"), icon = Icons.Filled.Terminal,
+                            accent = c.highlight, chevron = true, enabled = !busy, onClick = onSsh)
+                        SlabDivider()
+                        SlabRow(title = t("dnslab_title"), subtitle = t("add_dnslab_sub"), icon = Icons.Filled.Dns,
+                            accent = c.info, chevron = true, enabled = !busy, onClick = onDnsLab)
+                        // One entry per core: each opens its own form with the
+                        // fields that protocol needs and an Advanced section.
+                        listOf("vpn" to t("add_group_vpn_forms"), "tunnel" to t("add_group_tunnel_forms"),
+                            "dns" to t("add_group_dns_forms"), "proxy" to t("add_group_proxy_forms")).forEach { (group, label) ->
+                            val forms = ProtocolForms.forms.filter { it.group == group && it.id != "openconnect" }
+                            if (forms.isNotEmpty()) {
+                                Rail(label)
+                                forms.forEachIndexed { i, f ->
+                                    if (i > 0) SlabDivider()
+                                    SlabRow(title = f.title, subtitle = t("form_sub_" + f.id), icon = Icons.Filled.Add,
+                                        chevron = true, enabled = !busy, onClick = { onProtocolForm(f.id) })
+                                }
+                            }
+                        }
                     }
                 }
-
-                Rail(t("add_group_sub"))
-                SlabRow(
-                    title = t("add_sub_row"),
-                    subtitle = t("add_sub_row_sub"),
-                    icon = Icons.Filled.Hub,
-                    accent = c.primary,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onSubscription
-                )
-
-                Rail(t("add_group_providers"))
-                SlabRow(
-                    title = t("free_projects"),
-                    subtitle = t("add_free_sub"),
-                    icon = Icons.Filled.CardGiftcard,
-                    accent = c.premium,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onProjects
-                )
-                SlabDivider()
-                SlabRow(
-                    title = t("ws_title"),
-                    subtitle = t("add_ws_sub"),
-                    icon = Icons.Filled.Shield,
-                    accent = c.info,
-                    chevron = true,
-                    enabled = !busy,
-                    onClick = onWindscribe
-                )
             }
         }
     }
