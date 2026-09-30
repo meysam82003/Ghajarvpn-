@@ -140,6 +140,49 @@ def launch():
     log("launch: " + (out.strip().replace("\n", " | ") or "no am start output"))
 
 
+def dismiss_vpn_consent(fg=None):
+    """Cancel Android's VPN prompt so test traffic stays on the emulator network.
+
+    Force-stopping the app does not reliably remove this system-owned window.
+    Only handle ConfirmDialog's negative button; never dismiss app errors or
+    grant a tunnel permission merely to make the readiness check pass.
+    """
+    if fg is None:
+        fg = foreground()
+    if fg not in ("com.android.vpndialogs/.ConfirmDialog",
+                  "com.android.vpndialogs/com.android.vpndialogs.ConfirmDialog"):
+        return False
+    raw = hierarchy()
+    start = raw.find("<?xml")
+    if start < 0:
+        return False
+    try:
+        root = ET.fromstring(raw[start:])
+    except ET.ParseError:
+        return False
+    for node in root.iter("node"):
+        if (node.get("package") != "com.android.vpndialogs"
+                or node.get("resource-id") != "android:id/button2"
+                or node.get("clickable") != "true"
+                or node.get("enabled") == "false"):
+            continue
+        bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",
+                              node.get("bounds") or "")
+        if not bounds:
+            continue
+        x1, y1, x2, y2 = map(int, bounds.groups())
+        if x2 <= x1 or y2 <= y1:
+            continue
+        # Re-check after the UI dump: its coordinates must still belong to
+        # the same system dialog, not a new app screen.
+        if foreground() != fg:
+            return False
+        log("cancelling system VPN consent dialog")
+        adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+        return True
+    return False
+
+
 def wait_resumed(seconds=40):
     end = time.time() + seconds
     previous = None
@@ -158,14 +201,19 @@ def wait_resumed(seconds=40):
                 return True
         # A healthy, focused activity needs no UI dump. uiautomator waits for
         # an idle screen and can otherwise consume the whole launch deadline.
-        dismiss_external_launcher_anr()
+        if not dismiss_vpn_consent(fg):
+            dismiss_external_launcher_anr()
         time.sleep(1)
     return False
 
 
 def dump():
     """Clickable nodes of the current screen as (label, (x, y))."""
+    raw = "VPN consent kept reappearing"
     for _ in range(3):
+        if dismiss_vpn_consent():
+            time.sleep(1)
+            continue
         raw = hierarchy()
         start = raw.find("<?xml")
         if start < 0:
