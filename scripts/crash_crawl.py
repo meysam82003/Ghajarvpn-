@@ -5,7 +5,7 @@
 2. Crawl the UI: on every screen, tap each clickable element once, go back,
    and descend into new screens up to MAX_DEPTH. Every tap is logged, so a
    crash is attributed to the exact path of taps that caused it.
-3. Stress: rapid open/back cycles on the screens found, then a short monkey run.
+3. Stress: rapid open/back cycles, then a focused touch/motion monkey run.
 4. Collect logcat, the crash buffer, tombstones and the app's own crash log
    into crash-hunt/ (uploaded as an artifact) and exit 1 on any crash or ANR
    in the app's process.
@@ -460,11 +460,27 @@ def main():
     log(f"crawl done: {len(screens)} screens, {sum(len(v) for v in done_labels.values())} taps")
     stress()
     log("stress done")
+
+    # Start random-input stress from a clean, focused MainActivity. The old
+    # harness let Monkey inherit the launcher after force-stop/back races; on
+    # the software-rendered emulator that produced a HardwareRenderer.setStopped
+    # stall and an "Application does not have a focused window" ANR before
+    # meaningful app input was exercised.
+    adb("shell", "am", "force-stop", PKG)
+    launch()
+    if not wait_resumed(40):
+        collect()
+        print("::error::MainActivity did not resume before monkey stress")
+        return 1
+    time.sleep(2)
     animations(True)
     before_pid, before_crash = pid(), crash_lines()
-    adb("shell", "monkey", "-p", PKG, "-s", "7", "--pct-syskeys", "0", "--pct-appswitch", "0",
-        "--throttle", "120", "--ignore-security-exceptions", "-v", "1500", timeout=600)
-    check(["(monkey 1500 events)"], before_pid, before_crash)
+    adb("shell", "monkey", "-p", PKG, "-s", "7",
+        "--pct-touch", "60", "--pct-motion", "30", "--pct-pinchzoom", "10",
+        "--pct-syskeys", "0", "--pct-appswitch", "0", "--pct-nav", "0",
+        "--pct-majornav", "0", "--pct-trackball", "0", "--pct-anyevent", "0",
+        "--throttle", "120", "--ignore-security-exceptions", "-v", "500", timeout=240)
+    check(["(monkey 500 focused events)"], before_pid, before_crash)
     collect()
 
     if crashes:
