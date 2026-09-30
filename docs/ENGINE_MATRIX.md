@@ -14,7 +14,7 @@ APK; nothing claims to connect without it.
 |---|---|---|---|---|---|
 | Xray | XTLS/Xray-core v1.260327.0 in `app/libs/ca.psiphon.aar` (gomobile `gozarcore`) | MPL-2.0 | in-process | yes | Shipped |
 | Psiphon | psiphon-tunnel-core, same AAR | GPL-3.0 | in-process, local SOCKS5 | no (zeptun) | Shipped |
-| sing-box | SagerNet/sing-box 8330820 (v1.15.0-alpha.6), `scripts/build-singbox.sh` | GPL-3.0-or-later | subprocess `libsingbox.so`, local SOCKS5 | no (zeptun) | Experimental · Not device verified |
+| sing-box | SagerNet/sing-box 132b38e (v1.15.0-alpha.9), `scripts/build-singbox.sh` | GPL-3.0-or-later | subprocess `libsingbox.so`, local SOCKS5 | no (zeptun) | Experimental · Not device verified |
 | dnstt (DNS tunnel) | dnstt v1.20260501.0 / 0c5c52a, `scripts/build-dnstt.sh` | CC0-1.0 | subprocess `libdnstt.so` → sing-box | no (zeptun) | Experimental · Not device verified |
 | zeptun tun2socks | Noisemux/zeptun 2798fc0 (CI) | MIT | JNI | yes | Shipped (proxy-only engines) |
 | OpenVPN | ics-openvpn module `:openvpn` | GPL-2.0-only (see licence note) | own VpnService | yes | Shipped |

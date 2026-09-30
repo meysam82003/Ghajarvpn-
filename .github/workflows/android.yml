@@ -86,7 +86,7 @@ jobs:
 
       - name: Build the zeptun tun engine
         env:
-          ZEPTUN_COMMIT: 2798fc0ced2e39b2f55f3c1c1bcec45f91021400
+          ZEPTUN_COMMIT: 5620e57cdbf1a4464567a404adbff7cffd9b4bb9
         run: |
           git clone https://github.com/Noisemux/zeptun /tmp/zeptun
           git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
@@ -145,6 +145,22 @@ jobs:
 
       - name: Build Tor pluggable transports (lyrebird)
         run: sh scripts/build-tor-pt.sh
+
+      # Aether (Rust + quiche/BoringSSL) is the slowest native build; its
+      # output only changes with the pinned commit, so it is cached on it.
+      - name: Cache the Aether build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/aether-build/aether/target
+          key: aether-21e7150-${{ runner.os }}-ci
+
+      - name: Build Aether (WARP MASQUE / WireGuard core)
+        env:
+          ABIS: arm64-v8a armeabi-v7a x86_64
+        run: sh scripts/build-aether.sh
 
       - name: Build Juicity client
         run: sh scripts/build-juicity.sh
@@ -349,7 +365,7 @@ jobs:
 
       - name: Build the zeptun tun engine
         env:
-          ZEPTUN_COMMIT: 2798fc0ced2e39b2f55f3c1c1bcec45f91021400
+          ZEPTUN_COMMIT: 5620e57cdbf1a4464567a404adbff7cffd9b4bb9
         run: |
           git clone https://github.com/Noisemux/zeptun /tmp/zeptun
           git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
@@ -391,6 +407,22 @@ jobs:
 
       - name: Build Tor pluggable transports (lyrebird)
         run: sh scripts/build-tor-pt.sh
+
+      # Aether (Rust + quiche/BoringSSL) is the slowest native build; its
+      # output only changes with the pinned commit, so it is cached on it.
+      - name: Cache the Aether build
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/aether-build/aether/target
+          key: aether-21e7150-${{ runner.os }}-release
+
+      - name: Build Aether (WARP MASQUE / WireGuard core)
+        env:
+          ABIS: arm64-v8a armeabi-v7a
+        run: sh scripts/build-aether.sh
 
       - name: Build Juicity client
         run: sh scripts/build-juicity.sh

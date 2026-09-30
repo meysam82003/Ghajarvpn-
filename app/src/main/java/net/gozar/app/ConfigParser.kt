@@ -221,6 +221,7 @@ object ConfigParser {
             lower.startsWith("tuic://") -> parseTuic(trimmed.substring(7), source)
             lower.startsWith("hysteria://") -> parseHysteria1(trimmed.substring(11), source)
             lower.startsWith("anytls://") -> parseAnyTls(trimmed.substring(9), source)
+            lower.startsWith("masque://") -> parseMasque(trimmed.substring(9), source)
             lower.startsWith("ssh://") -> parseSsh(trimmed.substring(6), source)
             lower.startsWith("openconnect://") -> parseOpenConnect(trimmed.substring(14), source)
             lower.startsWith("anyconnect://") -> parseOpenConnect(trimmed.substring(13), source)
@@ -373,6 +374,32 @@ object ConfigParser {
             alpn = p["alpn"].orEmpty(), security = "tls",
             fingerprint = p["fp"].orEmpty(), allowInsecure = insecure(p), source = source
         ).takeIf { it.password.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+    } catch (e: Exception) { null }
+
+    /**
+     * masque://[user:password@]host:port?version=3&path=&sni=&insecure=1&alpn=&fp=&pin=&mtu=#name
+     *
+     * MASQUE CONNECT-IP (RFC 9484) as sing-box's masque-client endpoint. No
+     * standard share link exists for it; this is Ghajar's own shape, written
+     * by [ConfigShare] and the add-server form, and read back here.
+     */
+    private fun parseMasque(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "MASQUE")
+        val hasUser = uhp.contains('@')
+        val hp = splitHostPortOrDefault(uhp.substringAfterLast('@'), 443)
+        val user = if (hasUser) uhp.substringBeforeLast('@') else ""
+        val colon = user.indexOf(':')
+        val version = p["version"]?.toIntOrNull()?.takeIf { it in 1..3 } ?: 3
+        ProxyConfig(
+            name = name, protocol = "masque", address = hp.first, port = hp.second,
+            uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user),
+            password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
+            mode = version.toString(), path = pctDecode(p["path"].orEmpty()),
+            sni = p["sni"].orEmpty(), alpn = p["alpn"].orEmpty(), fingerprint = p["fp"].orEmpty(),
+            pinnedCertSha256 = p["pin"].orEmpty(), security = "tls",
+            allowInsecure = insecure(p), mtu = p["mtu"]?.toIntOrNull()?.takeIf { it in 1280..9000 } ?: 0,
+            source = source
+        ).takeIf { it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
 
     /** ssh://user:password@host:port?hostkey=&pk=#name (pk = base64 of a PEM private key). */

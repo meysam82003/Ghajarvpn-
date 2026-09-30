@@ -26,6 +26,11 @@ object ConfigShare {
             "upmbps" to c.hyUpMbps.takeIf { it > 0 }?.toString().orEmpty(),
             "downmbps" to c.hyDownMbps.takeIf { it > 0 }?.toString().orEmpty(),
             "obfs" to c.hyObfs, "obfsParam" to c.hyObfsPassword, "insecure" to if (c.allowInsecure) "1" else ""))
+        "masque" -> simpleLink("masque",
+            if (c.uuid.isEmpty() && c.password.isEmpty()) "" else enc(c.uuid) + (if (c.password.isNotEmpty()) ":" + enc(c.password) else ""), c, listOf(
+            "version" to c.mode.takeIf { it == "1" || it == "2" }.orEmpty(), "path" to c.path, "sni" to c.sni,
+            "alpn" to c.alpn, "fp" to c.fingerprint, "pin" to c.pinnedCertSha256,
+            "insecure" to if (c.allowInsecure) "1" else "", "mtu" to c.mtu.takeIf { it > 0 }?.toString().orEmpty()))
         "anytls" -> simpleLink("anytls", enc(c.password), c, listOf(
             "sni" to c.sni, "fp" to c.fingerprint, "insecure" to if (c.allowInsecure) "1" else ""))
         // The private key is never put in a share link.

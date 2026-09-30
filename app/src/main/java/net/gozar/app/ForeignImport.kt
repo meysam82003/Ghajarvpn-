@@ -260,6 +260,11 @@ object ForeignImport {
                 "udp_relay_mode" to o.optString("udp_relay_mode"), "allow_insecure" to tls["allowInsecure"]), src)
             "anytls" -> parseLink(link("anytls", enc(o.optString("password")), server, port, name,
                 "sni" to tls["sni"], "fp" to tls["fp"], "alpn" to tls["alpn"], "insecure" to tls["allowInsecure"]), src)
+            "masque-client" -> parseLink(link("masque", sbUser(o), server, port.takeIf { it > 0 } ?: 443, name,
+                "version" to o.optInt("version", 0).takeIf { it in 1..2 }?.toString(), "path" to o.optString("path").takeIf { it.isNotBlank() },
+                "sni" to tls["sni"], "fp" to tls["fp"], "alpn" to tls["alpn"], "insecure" to tls["allowInsecure"],
+                "pin" to o.optJSONObject("tls")?.optJSONArray("certificate_sha256")?.optString(0),
+                "mtu" to o.optInt("mtu", 0).takeIf { it > 0 }?.toString()), src)
             "socks" -> parseLink(link("socks5", sbUser(o), server, port, name), src)
             "http" -> if (tls.isNotEmpty()) null else parseLink(link("http", sbUser(o), server, port, name), src)
             "ssh" -> parseLink(link("ssh", sbUser(o, "user"), server, port.takeIf { it > 0 } ?: 22, name,

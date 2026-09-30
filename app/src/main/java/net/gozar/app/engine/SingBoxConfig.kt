@@ -10,7 +10,7 @@ import org.json.JSONObject
  * Only the protocols Xray cannot carry are routed here; everything Xray
  * already connects keeps connecting through Xray. Every field name below was
  * checked against the option structs of the pinned sing-box source
- * (scripts/build-singbox.sh, commit 8330820, v1.15.0-alpha.6):
+ * (scripts/build-singbox.sh, commit 132b38e, v1.15.0-alpha.9):
  * option/tuic.go, hysteria.go, anytls.go, ssh.go, snell.go, openconnect.go.
  *
  * The result is a local SOCKS5 proxy on 127.0.0.1:[socksPort]; zeptun owns
@@ -19,7 +19,7 @@ import org.json.JSONObject
 object SingBoxConfig {
 
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
-    val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect",
+    val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect", "masque",
         "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream",
         "amneziawg", "mieru", "brook", "juicity", "naive", "shadowtls", "sstp", "softether")
 
@@ -30,7 +30,7 @@ object SingBoxConfig {
     val MASTERDNS_FAMILY = setOf("masterdns", "stormdns", "cottendns")
 
     /** Protocols carried as sing-box endpoints rather than outbounds. */
-    private val ENDPOINTS = setOf("openconnect")
+    private val ENDPOINTS = setOf("openconnect", "masque")
 
     fun handles(config: ProxyConfig): Boolean = config.protocol in PROTOCOLS
 
@@ -180,6 +180,24 @@ object SingBoxConfig {
                 x.optString("clientKey").takeIf { it.contains("PRIVATE KEY") }?.let { t.put("client_key", JSONArray().put(it)) }
                 if (t.length() > 0) o.put("tls", t)
             }
+            "masque" -> {
+                // sing-box 1.15.0-alpha.7+: masque-client endpoint (CONNECT-IP,
+                // RFC 9484) on its internal network stack; HTTP/3 by default,
+                // falling back to 2 and 1 unless the profile fixes a version.
+                o.put("type", "masque-client").server(c)
+                    .putIf("username", c.uuid)
+                    .putIf("password", c.password)
+                    .putIf("path", c.path)
+                c.mode.toIntOrNull()?.takeIf { it in 1..3 }?.let { o.put("version", it) }
+                if (c.mtu in 1280..9000) o.put("mtu", c.mtu)
+                val t = JSONObject().put("enabled", true).put("server_name", c.sni.ifBlank { c.address })
+                if (c.allowInsecure) t.put("insecure", true)
+                c.alpn.split(',').map { it.trim() }.filter { it.isNotEmpty() }.takeIf { it.isNotEmpty() }
+                    ?.let { t.put("alpn", JSONArray(it)) }
+                c.fingerprint.takeIf { it.isNotBlank() }?.let { t.put("utls", JSONObject().put("enabled", true).put("fingerprint", it)) }
+                pinBase64(c.pinnedCertSha256)?.let { t.put("certificate_sha256", JSONArray().put(it)) }
+                o.put("tls", t)
+            }
             "masterdns", "stormdns", "cottendns" -> {
                 o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
             }
@@ -200,6 +218,17 @@ object SingBoxConfig {
             else -> throw IllegalArgumentException("not a sing-box protocol: ${c.protocol}")
         }
         return o
+    }
+
+    /** sing-box wants certificate hashes in base64; profiles may carry hex. */
+    internal fun pinBase64(pin: String): String? {
+        val p = pin.trim().replace(":", "")
+        if (p.isEmpty()) return null
+        if (Regex("^[0-9a-fA-F]{64}$").matches(p)) {
+            val bytes = ByteArray(32) { i -> p.substring(i * 2, i * 2 + 2).toInt(16).toByte() }
+            return java.util.Base64.getEncoder().encodeToString(bytes)
+        }
+        return pin.trim()
     }
 
     /** The helper process a profile needs in front of sing-box, or null. */

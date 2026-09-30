@@ -425,13 +425,15 @@ fun PillButton(
     // The default is the full-size primary action. A screen with several
     // stacked pills - the server picker's toolbar - passes a shorter one
     // rather than getting its own copy of this button.
-    minHeight: Dp = 52.dp
+    minHeight: Dp = 52.dp,
+    /** False inside a Row: the pill then takes only the width it needs. */
+    fillWidth: Boolean = true
 ) {
     val c = ghajarColors
     val tint = if (enabled) (accent ?: c.primary) else c.disabled
     Row(
         modifier
-            .fillMaxWidth()
+            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
             .heightIn(min = minHeight)
             .clip(RoundedCornerShape(GhajarRadius.pill))
             .background(tint)
@@ -469,13 +471,15 @@ fun GhostPill(
     icon: ImageVector? = null,
     enabled: Boolean = true,
     accent: Color? = null,
-    minHeight: Dp = 48.dp
+    minHeight: Dp = 48.dp,
+    /** False inside a Row: the pill then takes only the width it needs. */
+    fillWidth: Boolean = true
 ) {
     val c = ghajarColors
     val tint = if (enabled) (accent ?: lookColor(LookElement.SECONDARY_BUTTON)) else c.onDisabled
     Row(
         modifier
-            .fillMaxWidth()
+            .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
             .heightIn(min = minHeight)
             .clip(RoundedCornerShape(GhajarRadius.pill))
             .border(1.5.dp, tint.copy(alpha = 0.7f), RoundedCornerShape(GhajarRadius.pill))
@@ -717,7 +721,9 @@ fun TabRail(
     tabs: List<RailTab>,
     selected: Int,
     onSelect: (Int) -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** pill (filled), underline or boxed - the Store's tab style is user-chosen. */
+    style: String = "pill"
 ) {
     val c = ghajarColors
     val state = rememberLazyListState()
@@ -731,10 +737,22 @@ fun TabRail(
     ) {
         itemsIndexed(tabs, key = { index, tab -> "${index}:${tab.label}" }) { index, tab ->
             val active = index == selected
+            val filled = style == "pill"
+            val ink = if (active && filled) c.onPrimary else if (active) c.primary else c.textSecondary
             Row(
                 Modifier
-                    .clip(RoundedCornerShape(GhajarRadius.pill))
-                    .background(if (active) c.primary else c.secondaryCard)
+                    .clip(RoundedCornerShape(if (style == "boxed") GhajarRadius.sm else GhajarRadius.pill))
+                    .then(
+                        when (style) {
+                            "underline" -> Modifier.drawBehind {
+                                if (active) drawRect(c.primary, topLeft = Offset(0f, size.height - 3.dp.toPx()),
+                                    size = Size(size.width, 3.dp.toPx()))
+                            }
+                            "boxed" -> Modifier.border(1.dp, if (active) c.primary else c.border, RoundedCornerShape(GhajarRadius.sm))
+                                .background(if (active) c.primary.copy(alpha = 0.12f) else Color.Transparent)
+                            else -> Modifier.background(if (active) c.primary else c.secondaryCard)
+                        }
+                    )
                     .clickable { onSelect(index) }
                     .padding(horizontal = GhajarSpacing.md, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -744,7 +762,7 @@ fun TabRail(
                     Icon(
                         tab.icon,
                         contentDescription = null,
-                        tint = if (active) c.onPrimary else c.textSecondary,
+                        tint = ink,
                         modifier = Modifier.size(16.dp)
                     )
                 }
@@ -752,7 +770,7 @@ fun TabRail(
                     tab.label,
                     style = MaterialTheme.typography.labelLarge,
                     fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
-                    color = if (active) c.onPrimary else c.textSecondary,
+                    color = ink,
                     maxLines = 1
                 )
                 if (tab.badge != null && tab.badge > 0) {
@@ -1023,7 +1041,13 @@ fun SkinNavBar(
         "standard" -> RoundedCornerShape(topStart = radius, topEnd = radius)
         else -> RoundedCornerShape(radius)
     }
-    val cellShape = RoundedCornerShape((look.navRadius - 6).coerceAtLeast(0).dp)
+    val cellShape = when (look.navIndicator) {
+        "filled" -> RoundedCornerShape(6.dp)
+        else -> RoundedCornerShape((look.navRadius - 6).coerceAtLeast(0).dp)
+    }
+    // Space between items: applied inside each cell (and to the indicator the
+    // same way) so the sliding indicator still lines up with its cell.
+    val inset = (look.navSpacing / 2).dp
     Box(
         modifier
             .fillMaxWidth()
@@ -1051,7 +1075,8 @@ fun SkinNavBar(
                 .padding(5.dp)
         ) {
             if (trackWidth > 0) {
-                when (style) {
+                when (if (style == "minimal" || look.navIndicator == "dot") "minimal"
+                      else if (style == "outline" || look.navIndicator == "outline") "outline" else style) {
                     // Minimal: no block, a short bar under the active icon.
                     "minimal" -> Box(
                         Modifier
@@ -1063,15 +1088,15 @@ fun SkinNavBar(
                     )
                     "outline" -> Box(
                         Modifier
-                            .padding(start = offset)
-                            .width(cellWidth)
+                            .padding(start = offset + inset)
+                            .width(cellWidth - inset * 2)
                             .height(cellH)
                             .border(1.5.dp, indicator, cellShape)
                     )
                     else -> Box(
                         Modifier
-                            .padding(start = offset)
-                            .width(cellWidth)
+                            .padding(start = offset + inset)
+                            .width(cellWidth - inset * 2)
                             .height(cellH)
                             .clip(cellShape)
                             .background(indicator)
@@ -1089,6 +1114,7 @@ fun SkinNavBar(
                     Column(
                         Modifier
                             .weight(1f)
+                            .padding(horizontal = inset)
                             .height(cellH)
                             .clip(cellShape)
                             .clickable { item.onSelect() },

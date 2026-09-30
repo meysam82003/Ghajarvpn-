@@ -90,6 +90,12 @@ object ProtocolForms {
             Field("alpn", "ALPN", advanced = true, default = "h3"), SNI, INSECURE)),
         Form("hysteria2", "Hysteria 2", "proxy", listOf(NAME, server(), port("443"), PASS.copy(required = true),
             Field("obfs", "f_obfs_password", Kind.PASSWORD, advanced = true), SNI, INSECURE)),
+        Form("masque", "MASQUE (CONNECT-IP)", "proxy", listOf(NAME, server(), port("443"), USER, PASS,
+            Field("version", "f_http_version", Kind.SELECT, default = "3", options = listOf("3", "2", "1")),
+            Field("path", "f_masque_path", advanced = true, hint = "/.well-known/masque/ip/{target}/{ipproto}/"),
+            SNI, Field("alpn", "ALPN", advanced = true), Field("fp", "f_utls_fp", Kind.SELECT, advanced = true,
+                options = listOf("", "chrome", "firefox", "safari", "ios", "android", "edge", "random")),
+            PIN, INSECURE, MTU)),
         Form("anytls", "AnyTLS", "proxy", listOf(NAME, server(), port("443"), PASS.copy(required = true), SNI, INSECURE)),
         Form("juicity", "Juicity", "proxy", listOf(NAME, server(), port("443"), Field("uuid", "UUID", required = true), PASS,
             Field("cc", "f_cc", Kind.SELECT, advanced = true, default = "bbr", options = listOf("bbr", "cubic", "new_reno")), SNI, PIN, INSECURE)),
@@ -100,6 +106,25 @@ object ProtocolForms {
         Form("tor", "Tor bridges", "tunnel", listOf(NAME,
             Field("bridges", "f_tor_bridges", Kind.MULTILINE, required = true, hint = "obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0")))
     )
+
+    /** Add-server sections, in display order. A form shows only those it has fields in. */
+    val SECTIONS = listOf("basic", "auth", "transport", "tls", "network", "dns", "routing", "advanced")
+
+    /** Which section a field belongs to, by what it configures (not by protocol). */
+    fun sectionOf(f: Field): String = when (f.key) {
+        "name", "server", "port", "variant", "flavor", "domain", "hub", "bridges", "version" -> "basic"
+        "user", "pass", "uuid", "key", "privkey", "psk", "pubkey", "authgroup", "auth", "pk", "hostkey", "plain" -> "auth"
+        "mode", "transport", "wspath", "wshost", "payload", "proxy", "cc", "quic", "path", "upstream", "enc" -> "transport"
+        "sni", "pin", "insecure", "alpn", "fp", "cert", "nodtls", "os", "ua" -> "tls"
+        "mtu", "ip", "gw", "address", "endpoint", "reconnect", "noipv6", "peerkey" -> "network"
+        "dns", "resolver", "resolvers" -> "dns"
+        "allowed" -> "routing"
+        else -> "advanced"
+    }
+
+    /** The form's fields grouped by section, empty sections dropped. */
+    fun sections(form: Form): List<Pair<String, List<Field>>> =
+        SECTIONS.map { sec -> sec to form.fields.filter { sectionOf(it) == sec } }.filter { it.second.isNotEmpty() }
 
     fun formOrNull(id: String): Form? = forms.firstOrNull { it.id == id }
     fun form(id: String): Form = requireNotNull(formOrNull(id)) { "Unknown protocol form: $id" }
@@ -170,6 +195,9 @@ object ProtocolForms {
             "juicity" -> "juicity://" + enc(v["uuid"].orEmpty()) + ":" + enc(v["pass"].orEmpty()) + "@" + hostPort(v["server"]!!, v["port"].orEmpty()) +
                 query("congestion_control" to v["cc"], "sni" to v["sni"], "pinned_certchain_sha256" to v["pin"],
                     "allow_insecure" to if (on("insecure")) "1" else null) + tail
+            "masque" -> "masque://" + userInfo(v["user"], v["pass"]) + hostPort(v["server"]!!, v["port"].orEmpty()) +
+                query("version" to v["version"]?.takeIf { it != "3" }, "path" to v["path"], "sni" to v["sni"], "alpn" to v["alpn"],
+                    "fp" to v["fp"], "pin" to v["pin"], "mtu" to v["mtu"], "insecure" to if (on("insecure")) "1" else null) + tail
             "naive" -> (if (on("quic")) "naive+quic://" else "naive+https://") + userInfo(v["user"], v["pass"]) + hostPort(v["server"]!!, v["port"].orEmpty()) + tail
             "mieru" -> "mierus://" + userInfo(v["user"], v["pass"]) + v["server"]!!.trim() + query("port" to v["port"], "protocol" to v["transport"]) + tail
             "wireguard" -> return buildWireGuard(v, name)

@@ -18,7 +18,7 @@
 # Usage:  sh scripts/build-singbox-aar.sh
 set -eu
 
-SINGBOX_COMMIT=8330820fa62505f9574e4c35cd969d9af6eb7769
+SINGBOX_COMMIT=132b38e9caaba1a1959354d518e54d2d08419afe
 SINGBOX_REPO=https://github.com/SagerNet/sing-box
 
 # From sing-box's own CI rather than its go.mod: go.mod's "go 1.25.5" is the
