@@ -83,10 +83,24 @@ def focused_window():
     return m.group(1) if m else ""
 
 
+def hierarchy():
+    # Killing the host adb process does not kill the device's uiautomator
+    # process. Bound its lifetime on the device too, so a non-idle screen
+    # cannot leave automation Binder connections alive across hundreds of
+    # dumps. Read the XML only after this dump succeeds; an old file must
+    # never drive taps on a different screen.
+    return adb(
+        "shell",
+        "rm -f /sdcard/ui.xml && "
+        "timeout -s KILL 15 uiautomator dump --compressed /sdcard/ui.xml && "
+        "cat /sdcard/ui.xml",
+        timeout=25,
+    )
+
+
 def dismiss_external_launcher_anr():
     """Dismiss an emulator launcher ANR without hiding a Ghajar app ANR."""
-    adb("shell", "uiautomator", "dump", "--compressed", "/sdcard/ui.xml")
-    raw = adb("shell", "cat", "/sdcard/ui.xml")
+    raw = hierarchy()
     start = raw.find("<?xml")
     if start < 0:
         return False
@@ -120,21 +134,29 @@ def dismiss_external_launcher_anr():
 
 
 def launch():
-    adb("shell", "am", "start", "-W", "-n", ACTIVITY, timeout=60)
+    out = adb("shell", "am", "start", "-W", "-n", ACTIVITY, timeout=60)
+    log("launch: " + (out.strip().replace("\n", " | ") or "no am start output"))
 
 
 def wait_resumed(seconds=40):
     end = time.time() + seconds
+    previous = None
     while time.time() < end:
-        dismiss_external_launcher_anr()
         fg = foreground()
         focus = focused_window()
+        state = (fg, focus)
+        if state != previous:
+            log(f"waiting for MainActivity: resumed={fg or '?'} focus={focus or '?'}")
+            previous = state
         if fg.startswith(PKG + "/") and "MainActivity" in fg:
-            # A system dialog can sit above MainActivity while ActivityManager
-            # still reports MainActivity as resumed. Require the app window to
-            # own focus when WindowManager can report one.
-            if not focus or PKG in focus:
+            # An ANR dialog can be titled "Application Error: <package>".
+            # Only an activity component identifies the app's own window;
+            # the package appearing anywhere in the title is not enough.
+            if focus.startswith(PKG + "/") and "MainActivity" in focus:
                 return True
+        # A healthy, focused activity needs no UI dump. uiautomator waits for
+        # an idle screen and can otherwise consume the whole launch deadline.
+        dismiss_external_launcher_anr()
         time.sleep(1)
     return False
 
@@ -142,8 +164,7 @@ def wait_resumed(seconds=40):
 def dump():
     """Clickable nodes of the current screen as (label, (x, y))."""
     for _ in range(3):
-        adb("shell", "uiautomator", "dump", "--compressed", "/sdcard/ui.xml")
-        raw = adb("shell", "cat", "/sdcard/ui.xml")
+        raw = hierarchy()
         start = raw.find("<?xml")
         if start < 0:
             time.sleep(1)
@@ -221,8 +242,7 @@ def describe_screen(tag):
     """What is on screen when a crawl step finds nothing to tap: the foreground
     activity and the first texts of every package in the hierarchy."""
     log(f"{tag}: foreground {foreground() or '?'}")
-    adb("shell", "uiautomator", "dump", "--compressed", "/sdcard/ui.xml")
-    raw = adb("shell", "cat", "/sdcard/ui.xml")
+    raw = hierarchy()
     start = raw.find("<?xml")
     if start < 0:
         log(f"{tag}: no hierarchy: " + raw[:200].replace("\n", " "))
@@ -433,6 +453,15 @@ def stress():
 
 
 def collect():
+    for name, args in (
+        ("activities.txt", ("shell", "dumpsys", "activity", "activities")),
+        ("windows.txt", ("shell", "dumpsys", "window", "windows")),
+    ):
+        with open(os.path.join(OUT, name), "w") as f:
+            f.write(adb(*args, timeout=60))
+    adb("shell", "screencap", "-p", "/sdcard/crash-hunt.png")
+    adb("pull", "/sdcard/crash-hunt.png", os.path.join(OUT, "screen.png"))
+    adb("pull", "/data/anr", os.path.join(OUT, "anr"), timeout=120)
     with open(os.path.join(OUT, "logcat.txt"), "w") as f:
         f.write(adb("logcat", "-d", "-v", "threadtime", timeout=120))
     with open(os.path.join(OUT, "crash-buffer.txt"), "w") as f:
@@ -474,6 +503,8 @@ def main():
 
     launch()
     if not wait_resumed(60):
+        describe_screen("initial launch failed")
+        print_anr()
         collect()
         print("::error::MainActivity never resumed - the app did not reach its UI")
         print(crash_lines()[:6000])
@@ -517,6 +548,8 @@ def main():
     adb("shell", "am", "force-stop", PKG)
     launch()
     if not wait_resumed(40):
+        describe_screen("launch before monkey failed")
+        print_anr()
         collect()
         print("::error::MainActivity did not resume before monkey stress")
         return 1

@@ -21,6 +21,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Test crash-hunt readiness checks
+        run: python3 -m unittest discover -s scripts -p 'test_crash_crawl.py' -v
+
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -260,7 +263,6 @@ jobs:
   # races reproduce as they do on a phone.
   crash-hunt:
     needs: build
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
@@ -286,7 +288,9 @@ jobs:
           ram-size: 4096M
           # A phone-sized screen; the default AVD is 320x640.
           disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          # Avoid the deprecated indirect renderer: SystemUI stopped draining
+          # Binder calls in run 36735983281 until its async buffer was full.
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -noaudio -no-boot-anim -no-snapshot
           script: python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"
 
       - name: Upload crash-hunt logs
@@ -298,7 +302,7 @@ jobs:
           if-no-files-found: warn
 
   release:
-    needs: build
+    needs: [build, crash-hunt]
     # A manual run can publish too. Pushing a tag requires write access to
     # tag refs, which is a separate permission from pushing a branch, and an
     # operator who does not have it would otherwise be unable to release at
