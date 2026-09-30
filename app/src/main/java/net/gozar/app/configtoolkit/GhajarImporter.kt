@@ -12,7 +12,8 @@ class GhajarImporter(private val store: ConfigStore) {
         val valid = selected.filter { ProfileValidator.validate(it).valid }
         val verified = valid.filter { profile ->
             // Round-trip is mandatory only for protocols with a share-link representation.
-            RoundTripVerifier.verify(profile).isSuccess
+            profile.protocol.lowercase() !in setOf("vless", "vmess", "trojan", "shadowsocks", "ss", "socks", "socks5") ||
+                RoundTripVerifier.verify(profile).isSuccess
         }
         val imported = store.addImported(verified.map(NormalizedProfile::toProxyConfig))
         return ImportResult(selected.size, imported, selected.size - imported)

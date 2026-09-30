@@ -21,7 +21,7 @@ object ProfileValidator {
      */
     private val engineProtocols = setOf("hysteria2", "hysteria", "tuic", "anytls", "ssh", "snell", "openconnect", "naive",
         "shadowtls", "juicity", "sstp", "softether", "amneziawg", "wireguard", "mieru", "brook", "http", "tor", "ikev2",
-        "dnstt", "vaydns", "noizdns", "slipstream", "masterdns", "stormdns", "cottendns")
+        "dnstt", "vaydns", "noizdns", "slipstream", "masterdns", "stormdns", "cottendns", "masque", "tailscale", "tailcat")
     private val linkCarried = setOf("tor", "mieru", "brook", "masterdns", "stormdns", "cottendns")
 
     fun validate(profile: NormalizedProfile): ValidationResult {

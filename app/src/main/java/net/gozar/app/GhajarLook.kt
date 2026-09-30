@@ -55,7 +55,36 @@ data class GhajarLook(
     val cardRadius: Int = 24,
     val elevation: Int = 0,
     val fontScale: Float = 1f,
-    val boldTitles: Boolean = true
+    val boldTitles: Boolean = true,
+    // --- Settings (tile grid) ---
+    /** Tile ids in the order the user arranged them; ids not listed keep their default place. */
+    val settingsOrder: List<String> = emptyList(),
+    /** Hidden tiles. Critical tiles (see SettingsTiles.CRITICAL) are never hidden. */
+    val settingsHidden: Set<String> = emptySet(),
+    val tileSize: String = "normal",
+    val settingsLayout: String = "comfortable",
+    val iconStyle: String = "tinted",
+    val gridGap: Int = 10,
+    // --- Home ---
+    val homeOrder: List<String> = emptyList(),
+    val homeHidden: Set<String> = emptySet(),
+    /** Per-section size: compact / normal / large. */
+    val homeSizes: Map<String, String> = emptyMap(),
+    // --- Store ---
+    val storeCardStyle: String = "card",
+    val storeButtonStyle: String = "filled",
+    val storeTabStyle: String = "pill",
+    val storeShow: Set<String> = StoreParts.toSet(),
+    // --- Server selector ---
+    val serverView: String = "list",
+    val serverFields: Set<String> = ServerFieldsDefault,
+    // --- Add server ---
+    val addServerStyle: String = "sections",
+    // --- Nav indicator shape ---
+    val navIndicator: String = "rounded",
+    val navSpacing: Int = 0,
+    /** User-saved presets: name -> exported JSON. */
+    val customPresets: Map<String, String> = emptyMap()
 ) {
     fun color(key: String): Color? = colors[key]?.let { Color(it.toInt()) }
 
@@ -79,10 +108,105 @@ data class GhajarLook(
         put("elevation", elevation)
         put("fontScale", fontScale.toDouble())
         put("boldTitles", boldTitles)
+        put("settingsOrder", org.json.JSONArray(settingsOrder))
+        put("settingsHidden", org.json.JSONArray(settingsHidden.toList()))
+        put("tileSize", tileSize)
+        put("settingsLayout", settingsLayout)
+        put("iconStyle", iconStyle)
+        put("gridGap", gridGap)
+        put("homeOrder", org.json.JSONArray(homeOrder))
+        put("homeHidden", org.json.JSONArray(homeHidden.toList()))
+        put("homeSizes", JSONObject().apply { homeSizes.forEach { (k, v) -> put(k, v) } })
+        put("storeCardStyle", storeCardStyle)
+        put("storeButtonStyle", storeButtonStyle)
+        put("storeTabStyle", storeTabStyle)
+        put("storeShow", org.json.JSONArray(storeShow.toList()))
+        put("serverView", serverView)
+        put("serverFields", org.json.JSONArray(serverFields.toList()))
+        put("addServerStyle", addServerStyle)
+        put("navIndicator", navIndicator)
+        put("navSpacing", navSpacing)
+        put("customPresets", JSONObject().apply { customPresets.forEach { (k, v) -> put(k, v) } })
+    }
+
+    /**
+     * The versioned export: the look plus the schema and app version it came
+     * from, grouped the way the Personalization page groups it. [fromJson]
+     * reads both this and the flat v1 shape.
+     */
+    fun toExport(appVersion: String): JSONObject {
+        val flat = toJson()
+        return JSONObject()
+            .put("schemaVersion", SCHEMA_VERSION)
+            .put("appVersion", appVersion)
+            .put("kind", "ghajar-appearance")
+            .put("theme", JSONObject().put("preset", preset).put("accent", accent ?: JSONObject.NULL)
+                .put("amoled", amoled).put("dynamic", dynamic))
+            .put("colors", flat.getJSONObject("colors"))
+            .put("typography", JSONObject().put("fontScale", fontScale.toDouble()).put("boldTitles", boldTitles))
+            .put("animations", JSONObject().put("transition", transition).put("speed", speed))
+            .put("homeLayout", JSONObject().put("order", flat.get("homeOrder")).put("hidden", flat.get("homeHidden"))
+                .put("sizes", flat.get("homeSizes")).put("columns", columns).put("density", density))
+            .put("storeLayout", JSONObject().put("cardStyle", storeCardStyle).put("buttonStyle", storeButtonStyle)
+                .put("tabStyle", storeTabStyle).put("show", flat.get("storeShow")))
+            .put("settingsLayout", JSONObject().put("order", flat.get("settingsOrder")).put("hidden", flat.get("settingsHidden"))
+                .put("tileSize", tileSize).put("layout", settingsLayout).put("iconStyle", iconStyle).put("gridGap", gridGap))
+            .put("serverSelectorLayout", JSONObject().put("view", serverView).put("fields", flat.get("serverFields")))
+            .put("addServerLayout", JSONObject().put("style", addServerStyle))
+            .put("navigationStyle", JSONObject().put("style", navStyle).put("iconSize", navIconSize).put("labels", navLabels)
+                .put("radius", navRadius).put("indicator", navIndicator).put("spacing", navSpacing))
+            .put("connectionButtonStyle", orbStyle)
+            .put("componentPreferences", JSONObject().put("cardRadius", cardRadius).put("elevation", elevation))
+            .put("presets", flat.get("customPresets"))
     }
 
     companion object {
+        const val SCHEMA_VERSION = 2
         val Default = GhajarLook()
+
+        /** Reads a versioned export (schemaVersion 2) or the flat v1 object; never throws. */
+        fun fromAny(o: JSONObject): GhajarLook = if (o.has("schemaVersion")) fromExport(o) else fromJson(o)
+
+        private fun fromExport(e: JSONObject): GhajarLook {
+            // Flatten the grouped shape into the v1 keys and read it through
+            // the same validating path.
+            val f = JSONObject()
+            e.optJSONObject("theme")?.let { t ->
+                f.put("preset", t.optString("preset"))
+                if (t.has("accent") && !t.isNull("accent")) f.put("accent", t.optLong("accent"))
+                f.put("amoled", t.optBoolean("amoled")); f.put("dynamic", t.optBoolean("dynamic"))
+            }
+            e.optJSONObject("colors")?.let { f.put("colors", it) }
+            e.optJSONObject("typography")?.let { f.put("fontScale", it.optDouble("fontScale", 1.0)); f.put("boldTitles", it.optBoolean("boldTitles", true)) }
+            e.optJSONObject("animations")?.let { f.put("transition", it.optString("transition")); f.put("speed", it.optString("speed")) }
+            e.optJSONObject("homeLayout")?.let { h ->
+                h.optJSONArray("order")?.let { f.put("homeOrder", it) }; h.optJSONArray("hidden")?.let { f.put("homeHidden", it) }
+                h.optJSONObject("sizes")?.let { f.put("homeSizes", it) }
+                if (h.has("columns")) f.put("columns", h.optInt("columns")); if (h.has("density")) f.put("density", h.optString("density"))
+            }
+            e.optJSONObject("storeLayout")?.let { s ->
+                f.put("storeCardStyle", s.optString("cardStyle")); f.put("storeButtonStyle", s.optString("buttonStyle"))
+                f.put("storeTabStyle", s.optString("tabStyle")); s.optJSONArray("show")?.let { f.put("storeShow", it) }
+            }
+            e.optJSONObject("settingsLayout")?.let { s ->
+                s.optJSONArray("order")?.let { f.put("settingsOrder", it) }; s.optJSONArray("hidden")?.let { f.put("settingsHidden", it) }
+                f.put("tileSize", s.optString("tileSize")); f.put("settingsLayout", s.optString("layout"))
+                f.put("iconStyle", s.optString("iconStyle")); if (s.has("gridGap")) f.put("gridGap", s.optInt("gridGap"))
+            }
+            e.optJSONObject("serverSelectorLayout")?.let { s -> f.put("serverView", s.optString("view")); s.optJSONArray("fields")?.let { f.put("serverFields", it) } }
+            e.optJSONObject("addServerLayout")?.let { f.put("addServerStyle", it.optString("style")) }
+            e.optJSONObject("navigationStyle")?.let { n ->
+                f.put("navStyle", n.optString("style")); if (n.has("iconSize")) f.put("navIconSize", n.optInt("iconSize"))
+                if (n.has("labels")) f.put("navLabels", n.optBoolean("labels")); if (n.has("radius")) f.put("navRadius", n.optInt("radius"))
+                f.put("navIndicator", n.optString("indicator")); if (n.has("spacing")) f.put("navSpacing", n.optInt("spacing"))
+            }
+            f.put("orbStyle", e.optString("connectionButtonStyle"))
+            e.optJSONObject("componentPreferences")?.let { c ->
+                if (c.has("cardRadius")) f.put("cardRadius", c.optInt("cardRadius")); if (c.has("elevation")) f.put("elevation", c.optInt("elevation"))
+            }
+            e.optJSONObject("presets")?.let { f.put("customPresets", it) }
+            return fromJson(f)
+        }
 
         /** Unknown or out-of-range values fall back to the default, never throw. */
         fun fromJson(o: JSONObject): GhajarLook {
@@ -109,19 +233,54 @@ data class GhajarLook(
                 density = pick(o.optString("density"), listOf("compact", "comfortable", "spacious"), d.density),
                 cardRadius = o.optInt("cardRadius", d.cardRadius).coerceIn(4, 36),
                 elevation = o.optInt("elevation", d.elevation).coerceIn(0, 12),
-                fontScale = o.optDouble("fontScale", d.fontScale.toDouble()).toFloat().coerceIn(0.85f, 1.25f),
-                boldTitles = o.optBoolean("boldTitles", d.boldTitles)
+                fontScale = o.optDouble("fontScale", d.fontScale.toDouble()).toFloat().let { if (it.isNaN()) 1f else it }.coerceIn(0.85f, 1.25f),
+                boldTitles = o.optBoolean("boldTitles", d.boldTitles),
+                settingsOrder = strings(o, "settingsOrder").take(64),
+                settingsHidden = strings(o, "settingsHidden").toSet(),
+                tileSize = pick(o.optString("tileSize"), listOf("compact", "normal", "large"), d.tileSize),
+                settingsLayout = pick(o.optString("settingsLayout"), listOf("compact", "comfortable"), d.settingsLayout),
+                iconStyle = pick(o.optString("iconStyle"), listOf("tinted", "filled", "outline", "plain"), d.iconStyle),
+                gridGap = o.optInt("gridGap", d.gridGap).coerceIn(4, 20),
+                homeOrder = strings(o, "homeOrder").filter { it in HomeParts }.distinct(),
+                homeHidden = strings(o, "homeHidden").filter { it in HomeParts && it !in HomeCritical }.toSet(),
+                homeSizes = o.optJSONObject("homeSizes")?.let { m ->
+                    m.keys().asSequence().filter { it in HomeParts }
+                        .associateWith { pick(m.optString(it), listOf("compact", "normal", "large"), "normal") }
+                } ?: emptyMap(),
+                storeCardStyle = pick(o.optString("storeCardStyle"), listOf("card", "compact", "large"), d.storeCardStyle),
+                storeButtonStyle = pick(o.optString("storeButtonStyle"), listOf("filled", "outline", "tonal"), d.storeButtonStyle),
+                storeTabStyle = pick(o.optString("storeTabStyle"), listOf("pill", "underline", "boxed"), d.storeTabStyle),
+                storeShow = if (o.has("storeShow")) strings(o, "storeShow").filter { it in StoreParts }.toSet() else d.storeShow,
+                serverView = pick(o.optString("serverView"), listOf("list", "compact", "grid", "large"), d.serverView),
+                serverFields = if (o.has("serverFields")) strings(o, "serverFields").filter { it in ServerFieldsAll }.toSet() + "name" else d.serverFields,
+                addServerStyle = pick(o.optString("addServerStyle"), listOf("sections", "tabs", "compact"), d.addServerStyle),
+                navIndicator = pick(o.optString("navIndicator"), listOf("rounded", "filled", "outline", "dot"), d.navIndicator),
+                navSpacing = o.optInt("navSpacing", d.navSpacing).coerceIn(0, 16),
+                customPresets = o.optJSONObject("customPresets")?.let { m ->
+                    m.keys().asSequence().take(20).associateWith { m.optString(it) }.filterValues { it.isNotBlank() && it.length < 64_000 }
+                } ?: emptyMap()
             )
         }
     }
 }
+
+private fun strings(o: JSONObject, key: String): List<String> =
+    o.optJSONArray(key)?.let { a -> (0 until a.length()).mapNotNull { a.optString(it).takeIf { s -> s.isNotBlank() } } } ?: emptyList()
+
+/** Home sections that can be arranged, in their default order. */
+val HomeParts = listOf("orb", "session", "route", "quota", "traffic", "facts")
+/** The connect control and the chosen server can never be hidden. */
+val HomeCritical = setOf("orb", "route")
+val StoreParts = listOf("logo", "title", "desc", "rating", "links", "report", "discounts", "services_count", "prices", "tick")
+val ServerFieldsAll = listOf("flag", "name", "country", "protocol", "core", "ping", "quality", "favorite", "last", "traffic", "test")
+val ServerFieldsDefault = setOf("flag", "name", "protocol", "ping", "favorite", "test")
 
 val LookTransitions = listOf(
     "default", "none", "fade", "slide_h", "slide_v", "scale", "axis_x", "axis_y", "axis_z", "fade_through"
 )
 val LookNavStyles = listOf("floating", "standard", "minimal", "filled", "outline")
 val LookOrbStyles = listOf(
-    "circle", "pill", "capsule_glow", "soft_square", "double_ring", "neon", "minimal", "segmented"
+    "circle", "pill", "capsule_glow", "soft_square", "double_ring", "neon", "minimal", "segmented", "shield", "power"
 )
 
 /** Colourable elements. [group] is the Personalization category they are listed in. */
@@ -146,7 +305,20 @@ enum class LookElement(val key: String, val group: String) {
     TITLE("title", "typography"),
     SUBTITLE("subtitle", "typography"),
     BORDER("border", "appearance"),
-    DIALOG("dialog", "appearance");
+    DIALOG("dialog", "appearance"),
+    // The palette itself: surfaces and state colours.
+    BACKGROUND("background", "palette"),
+    SURFACE("surface", "palette"),
+    CARD("card", "palette"),
+    SECONDARY_SURFACE("secondary_surface", "palette"),
+    SELECTED("selected", "palette"),
+    UNSELECTED("unselected", "palette"),
+    ICON("icon", "palette"),
+    SUCCESS("success", "palette"),
+    WARNING("warning", "palette"),
+    ERROR("error", "palette"),
+    PREMIUM("premium", "palette"),
+    BADGE("badge", "palette");
 
     /** What the element is when nothing overrides it, in [p]. */
     fun default(p: GhajarPalette): Color = when (this) {
@@ -166,6 +338,18 @@ enum class LookElement(val key: String, val group: String) {
         SUBTITLE -> p.textSecondary
         BORDER -> p.border
         DIALOG -> p.surface
+        BACKGROUND -> p.background
+        SURFACE -> p.surface
+        CARD -> p.card
+        SECONDARY_SURFACE -> p.secondaryCard
+        SELECTED -> p.highlight
+        UNSELECTED -> p.textMuted
+        ICON -> p.primary
+        SUCCESS -> p.good
+        WARNING -> p.warning
+        ERROR -> p.error
+        PREMIUM -> p.premium
+        BADGE -> p.error
     }
 
     companion object {
@@ -201,7 +385,9 @@ enum class LookPreset(
     CRIMSON("crimson", "قرمز یاقوتی", "Crimson", 0xFFEF4444, 0xFF0D0505, 0xFF180909, 0xFF200D0D, 0xFF2A1212, 0xFF381919),
     CYBER("cyber", "سایبر نئون", "Cyber Neon", 0xFF22D3EE, 0xFF03060A, 0xFF070E15, 0xFF0B141D, 0xFF101C28, 0xFF172636),
     MONO("mono", "خاکستری مینیمال", "Monochrome", 0xFFE5E7EB, 0xFF070707, 0xFF101010, 0xFF161616, 0xFF1E1E1E, 0xFF2A2A2A),
-    LAVENDER("lavender", "یاسی", "Lavender", 0xFFA5B4FC, 0xFF06060E, 0xFF0D0D1A, 0xFF131324, 0xFF1A1A30, 0xFF24243E);
+    LAVENDER("lavender", "یاسی", "Lavender", 0xFFA5B4FC, 0xFF06060E, 0xFF0D0D1A, 0xFF131324, 0xFF1A1A30, 0xFF24243E),
+    MINIMAL("minimal", "مینیمال", "Minimal", 0xFFB8C4CC, 0xFF0B0C0D, 0xFF121315, 0xFF17181A, 0xFF1C1E20, 0xFF26282B),
+    HIGH_CONTRAST("high_contrast", "کنتراست بالا", "High contrast", 0xFFFFE600, 0xFF000000, 0xFF000000, 0xFF0A0A0A, 0xFF141414, 0xFFFFFFFF);
 
     companion object {
         fun byKey(k: String) = entries.firstOrNull { it.key == k } ?: DEFAULT
@@ -253,9 +439,21 @@ fun GhajarLook.apply(base: GhajarPalette, dynamicColor: Color?): GhajarPalette {
             textMuted = Color(0xFF7A807E)
         ).withAccent(Color(p.accent.toInt()))
     }
+    if (p == LookPreset.HIGH_CONTRAST) out = out.copy(textPrimary = Color.White, textSecondary = Color(0xFFE6E6E6),
+        textMuted = Color(0xFFBDBDBD), borderStrong = Color.White)
     if (amoled || p == LookPreset.AMOLED) out = out.amoled()
     if ((dynamic || p == LookPreset.DYNAMIC) && dynamicColor != null) out = out.withAccent(dynamicColor)
     accent?.let { out = out.withAccent(Color(it.toInt())) }
+    color(LookElement.BACKGROUND.key)?.let { out = out.copy(background = it) }
+    color(LookElement.SURFACE.key)?.let { out = out.copy(surface = it) }
+    color(LookElement.CARD.key)?.let { out = out.copy(card = it) }
+    color(LookElement.SECONDARY_SURFACE.key)?.let { out = out.copy(secondaryCard = it) }
+    color(LookElement.SELECTED.key)?.let { out = out.copy(highlight = it) }
+    color(LookElement.UNSELECTED.key)?.let { out = out.copy(textMuted = it) }
+    color(LookElement.SUCCESS.key)?.let { out = out.copy(good = it, successGlow = it) }
+    color(LookElement.WARNING.key)?.let { out = out.copy(warning = it) }
+    color(LookElement.ERROR.key)?.let { out = out.copy(error = it) }
+    color(LookElement.PREMIUM.key)?.let { out = out.copy(premium = it) }
     color(LookElement.TITLE.key)?.let { out = out.copy(textPrimary = it) }
     color(LookElement.SUBTITLE.key)?.let { out = out.copy(textSecondary = it) }
     color(LookElement.BORDER.key)?.let { out = out.copy(border = it) }
@@ -301,15 +499,29 @@ object GhajarLookStore {
 
     fun update(ctx: Context, f: (GhajarLook) -> GhajarLook) = set(ctx, f(_look.value))
 
-    fun export(): String = _look.value.toJson().toString(2)
+    fun export(appVersion: String): String = _look.value.toExport(appVersion).toString(2)
 
     /** Returns false (and changes nothing) when [text] is not a look export. */
     fun import(ctx: Context, text: String): Boolean {
         val o = runCatching { JSONObject(text.trim()) }.getOrNull() ?: return false
-        if (!o.has("preset") && !o.has("colors")) return false
-        set(ctx, GhajarLook.fromJson(o))
+        if (!looksLikeExport(o)) return false
+        set(ctx, GhajarLook.fromAny(o))
         return true
     }
+}
+
+/** A look export: the versioned shape or the flat v1 one. */
+fun looksLikeExport(o: JSONObject): Boolean =
+    o.optString("kind") == "ghajar-appearance" || o.has("schemaVersion") || o.has("preset") || o.has("colors")
+
+/**
+ * WCAG contrast ratio of two opaque colours (1..21). Personalization warns
+ * under 3:1 for large text and icons and 4.5:1 for body text.
+ */
+fun contrastRatio(a: Color, b: Color): Float {
+    val la = a.luminance() + 0.05f
+    val lb = b.luminance() + 0.05f
+    return if (la > lb) la / lb else lb / la
 }
 
 fun colorToLong(c: Color): Long = c.toArgb().toLong() and 0xFFFFFFFFL

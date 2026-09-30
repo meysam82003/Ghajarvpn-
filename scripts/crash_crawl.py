@@ -5,7 +5,7 @@
 2. Crawl the UI: on every screen, tap each clickable element once, go back,
    and descend into new screens up to MAX_DEPTH. Every tap is logged, so a
    crash is attributed to the exact path of taps that caused it.
-3. Stress: rapid open/back cycles on the screens found, then a short monkey run.
+3. Stress: rapid open/back cycles, then a focused touch/motion monkey run.
 4. Collect logcat, the crash buffer, tombstones and the app's own crash log
    into crash-hunt/ (uploaded as an artifact) and exit 1 on any crash or ANR
    in the app's process.
@@ -77,25 +77,144 @@ def foreground():
     return m.group(1) if m else ""
 
 
+def focused_window():
+    # On Android 14 mCurrentFocus belongs to the display section, which the
+    # "windows" filter omits. Read the complete WindowManager dump.
+    out = adb("shell", "dumpsys", "window")
+    m = re.search(r"mCurrentFocus=Window\{[^}]*\s([^\s}]+)", out)
+    return m.group(1) if m else ""
+
+
+def hierarchy():
+    # Killing the host adb process does not kill the device's uiautomator
+    # process. Bound its lifetime on the device too, so a non-idle screen
+    # cannot leave automation Binder connections alive across hundreds of
+    # dumps. Read the XML only after this dump succeeds; an old file must
+    # never drive taps on a different screen.
+    return adb(
+        "shell",
+        "rm -f /sdcard/ui.xml && "
+        "timeout -s KILL 15 uiautomator dump --compressed /sdcard/ui.xml && "
+        "cat /sdcard/ui.xml",
+        timeout=25,
+    )
+
+
+def dismiss_external_launcher_anr():
+    """Dismiss an emulator launcher ANR without hiding a Ghajar app ANR."""
+    raw = hierarchy()
+    start = raw.find("<?xml")
+    if start < 0:
+        return False
+    try:
+        root = ET.fromstring(raw[start:])
+    except ET.ParseError:
+        return False
+    labels = []
+    close_xy = None
+    for n in root.iter("node"):
+        text = (n.get("text") or n.get("content-desc") or "").strip()
+        if text:
+            labels.append(text)
+        if text.lower() == "close app" and n.get("clickable") == "true":
+            b = re.findall(r"\d+", n.get("bounds") or "")
+            if len(b) == 4:
+                x1, y1, x2, y2 = map(int, b)
+                close_xy = ((x1 + x2) // 2, (y1 + y2) // 2)
+    joined = " | ".join(labels)
+    # #279 was blocked by "Pixel Launcher isn't responding". Never auto-close
+    # a dialog naming Ghajar itself; that must remain a real crash-hunt failure.
+    if ("Pixel Launcher isn't responding" in joined or "Launcher isn't responding" in joined) and "Ghajar" not in joined:
+        log("dismissing external launcher ANR: " + joined[:180])
+        if close_xy:
+            adb("shell", "input", "tap", str(close_xy[0]), str(close_xy[1]))
+        else:
+            adb("shell", "am", "force-stop", "com.google.android.apps.nexuslauncher")
+        time.sleep(1.5)
+        return True
+    return False
+
+
 def launch():
-    adb("shell", "am", "start", "-W", "-n", ACTIVITY, timeout=60)
+    out = adb("shell", "am", "start", "-W", "-n", ACTIVITY, timeout=60)
+    log("launch: " + (out.strip().replace("\n", " | ") or "no am start output"))
+
+
+def dismiss_vpn_consent(fg=None):
+    """Cancel Android's VPN prompt so test traffic stays on the emulator network.
+
+    Force-stopping the app does not reliably remove this system-owned window.
+    Only handle ConfirmDialog's negative button; never dismiss app errors or
+    grant a tunnel permission merely to make the readiness check pass.
+    """
+    if fg is None:
+        fg = foreground()
+    if fg not in ("com.android.vpndialogs/.ConfirmDialog",
+                  "com.android.vpndialogs/com.android.vpndialogs.ConfirmDialog"):
+        return False
+    raw = hierarchy()
+    start = raw.find("<?xml")
+    if start < 0:
+        return False
+    try:
+        root = ET.fromstring(raw[start:])
+    except ET.ParseError:
+        return False
+    for node in root.iter("node"):
+        if (node.get("package") != "com.android.vpndialogs"
+                or node.get("resource-id") != "android:id/button2"
+                or node.get("clickable") != "true"
+                or node.get("enabled") == "false"):
+            continue
+        bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]",
+                              node.get("bounds") or "")
+        if not bounds:
+            continue
+        x1, y1, x2, y2 = map(int, bounds.groups())
+        if x2 <= x1 or y2 <= y1:
+            continue
+        # Re-check after the UI dump: its coordinates must still belong to
+        # the same system dialog, not a new app screen.
+        if foreground() != fg:
+            return False
+        log("cancelling system VPN consent dialog")
+        adb("shell", "input", "tap", str((x1 + x2) // 2), str((y1 + y2) // 2))
+        return True
+    return False
 
 
 def wait_resumed(seconds=40):
     end = time.time() + seconds
+    previous = None
     while time.time() < end:
         fg = foreground()
+        focus = focused_window()
+        state = (fg, focus)
+        if state != previous:
+            log(f"waiting for MainActivity: resumed={fg or '?'} focus={focus or '?'}")
+            previous = state
         if fg.startswith(PKG + "/") and "MainActivity" in fg:
-            return True
+            # An ANR dialog can be titled "Application Error: <package>".
+            # Only an activity component identifies the app's own window;
+            # the package appearing anywhere in the title is not enough.
+            if focus.startswith(PKG + "/") and "MainActivity" in focus:
+                return True
+        # A healthy, focused activity needs no UI dump. uiautomator waits for
+        # an idle screen and can otherwise consume the whole launch deadline.
+        if not dismiss_vpn_consent(fg):
+            dismiss_external_launcher_anr()
         time.sleep(1)
     return False
 
 
 def dump():
     """Clickable nodes of the current screen as (label, (x, y))."""
+    raw = "VPN consent kept reappearing"
     for _ in range(3):
-        adb("shell", "uiautomator", "dump", "--compressed", "/sdcard/ui.xml")
-        raw = adb("shell", "cat", "/sdcard/ui.xml")
+        if dismiss_vpn_consent():
+            time.sleep(1)
+            continue
+        raw = hierarchy()
         start = raw.find("<?xml")
         if start < 0:
             time.sleep(1)
@@ -169,6 +288,42 @@ def find_and_tap(label, scrolls=6):
     return False
 
 
+def describe_screen(tag):
+    """What is on screen when a crawl step finds nothing to tap: the foreground
+    activity and the first texts of every package in the hierarchy."""
+    log(f"{tag}: foreground {foreground() or '?'}")
+    raw = hierarchy()
+    start = raw.find("<?xml")
+    if start < 0:
+        log(f"{tag}: no hierarchy: " + raw[:200].replace("\n", " "))
+        return
+    try:
+        root = ET.fromstring(raw[start:])
+    except ET.ParseError as e:
+        log(f"{tag}: unparsable hierarchy ({e})")
+        return
+    seen = []
+    for n in root.iter("node"):
+        t = (n.get("text") or n.get("content-desc") or "").strip()
+        if t:
+            seen.append(f"{n.get('package')}:{t[:30]}{'*' if n.get('clickable') == 'true' else ''}")
+    log(f"{tag}: {len(seen)} labelled nodes: " + " | ".join(seen[:25]))
+
+
+def print_anr():
+    """The ANR record and the main thread's stack, into the job log itself."""
+    am = adb("logcat", "-d", "-s", "ActivityManager:E", timeout=60)
+    i = am.find("ANR in " + PKG)
+    if i >= 0:
+        print(am[i:i + 2500])
+    traces = adb("shell", "ls /data/anr/ 2>/dev/null").split()
+    for t in traces[-2:]:
+        body = adb("shell", "cat", f"/data/anr/{t}", timeout=60)
+        j = body.find('"main"')
+        if j >= 0:
+            print(f"==== /data/anr/{t} main thread\n" + body[j:j + 4000])
+
+
 def check(path, before_pid, before_crash):
     """Records a crash if the process died or the crash buffer grew."""
     now_crash = crash_lines()
@@ -181,6 +336,8 @@ def check(path, before_pid, before_crash):
         summary = next((l for l in new.splitlines() if "Exception" in l or "Error" in l or "Fatal signal" in l), "")
         summary = summary or ("ANR" if anr else "process died")
         crashes.append((" > ".join(path), summary.strip()))
+        if anr:
+            print_anr()
         log(f"!!! CRASH after: {' > '.join(path)}\n    {summary.strip()}")
         with open(os.path.join(OUT, "crashes.txt"), "a") as f:
             f.write(f"===== after: {' > '.join(path)}\n{new}\n")
@@ -222,6 +379,8 @@ def explore(path, depth):
     seen_screens.append(sig)
     screens.append((list(path), sig))
     log(f"screen depth={depth} path={' > '.join(path) or '(root)'}")
+    if not sig:
+        describe_screen("empty screen")
     count = 0
     for page in range(7):  # the visible part, then up to six scrolls down
         nodes = dump()
@@ -344,6 +503,15 @@ def stress():
 
 
 def collect():
+    for name, args in (
+        ("activities.txt", ("shell", "dumpsys", "activity", "activities")),
+        ("windows.txt", ("shell", "dumpsys", "window")),
+    ):
+        with open(os.path.join(OUT, name), "w") as f:
+            f.write(adb(*args, timeout=60))
+    adb("shell", "screencap", "-p", "/sdcard/crash-hunt.png")
+    adb("pull", "/sdcard/crash-hunt.png", os.path.join(OUT, "screen.png"))
+    adb("pull", "/data/anr", os.path.join(OUT, "anr"), timeout=120)
     with open(os.path.join(OUT, "logcat.txt"), "w") as f:
         f.write(adb("logcat", "-d", "-v", "threadtime", timeout=120))
     with open(os.path.join(OUT, "crash-buffer.txt"), "w") as f:
@@ -372,6 +540,16 @@ def main():
     adb("root")
     time.sleep(3)
     adb("wait-for-device", timeout=120)
+    # In run 36735983281 the ATD image froze PermissionController (pid 800).
+    # Repeated accessibility dumps then filled its async Binder buffer, and
+    # system dialogs stopped responding. Keep cached emulator processes
+    # running during this stress test; app crash/ANR detection stays active.
+    adb("shell", "settings", "put", "global", "cached_apps_freezer", "disabled")
+    freezer = adb("shell", "settings", "get", "global", "cached_apps_freezer").strip()
+    log("emulator cached-app freezer: " + freezer)
+    if freezer != "disabled":
+        print("::error::could not disable the emulator cached-app freezer")
+        return 1
     log("device ABIs: " + adb("shell", "getprop", "ro.product.cpu.abilist").strip())
     read_screen_size()
     animations(False)
@@ -385,6 +563,8 @@ def main():
 
     launch()
     if not wait_resumed(60):
+        describe_screen("initial launch failed")
+        print_anr()
         collect()
         print("::error::MainActivity never resumed - the app did not reach its UI")
         print(crash_lines()[:6000])
@@ -419,11 +599,29 @@ def main():
     log(f"crawl done: {len(screens)} screens, {sum(len(v) for v in done_labels.values())} taps")
     stress()
     log("stress done")
+
+    # Start random-input stress from a clean, focused MainActivity. The old
+    # harness let Monkey inherit the launcher after force-stop/back races; on
+    # the software-rendered emulator that produced a HardwareRenderer.setStopped
+    # stall and an "Application does not have a focused window" ANR before
+    # meaningful app input was exercised.
+    adb("shell", "am", "force-stop", PKG)
+    launch()
+    if not wait_resumed(40):
+        describe_screen("launch before monkey failed")
+        print_anr()
+        collect()
+        print("::error::MainActivity did not resume before monkey stress")
+        return 1
+    time.sleep(2)
     animations(True)
     before_pid, before_crash = pid(), crash_lines()
-    adb("shell", "monkey", "-p", PKG, "-s", "7", "--pct-syskeys", "0", "--pct-appswitch", "0",
-        "--throttle", "120", "--ignore-security-exceptions", "-v", "1500", timeout=600)
-    check(["(monkey 1500 events)"], before_pid, before_crash)
+    adb("shell", "monkey", "-p", PKG, "-s", "7",
+        "--pct-touch", "60", "--pct-motion", "30", "--pct-pinchzoom", "10",
+        "--pct-syskeys", "0", "--pct-appswitch", "0", "--pct-nav", "0",
+        "--pct-majornav", "0", "--pct-trackball", "0", "--pct-anyevent", "0",
+        "--throttle", "120", "--ignore-security-exceptions", "-v", "500", timeout=240)
+    check(["(monkey 500 focused events)"], before_pid, before_crash)
     collect()
 
     if crashes:

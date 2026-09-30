@@ -2,7 +2,7 @@
 
 Upstream: <https://github.com/SagerNet/sing-box>
 Licence: GPL-3.0-or-later (see `LICENSE`), which this app is also under.
-Pinned commit: `8330820fa62505f9574e4c35cd969d9af6eb7769`
+Pinned commit: `132b38e9caaba1a1959354d518e54d2d08419afe (v1.15.0-alpha.9)`
 Built with: Go 1.26.8 (see below — not the version in its go.mod)
 
 ## Why a second core

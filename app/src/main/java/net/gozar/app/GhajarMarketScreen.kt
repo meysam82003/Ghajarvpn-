@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -310,7 +311,8 @@ private fun MarketList(
             TabRail(
                 tabs = MarketSort.entries.map { RailTab(it.label) },
                 selected = MarketSort.entries.indexOf(sort),
-                onSelect = { index -> sort = MarketSort.entries[index] }
+                onSelect = { index -> sort = MarketSort.entries[index] },
+                style = LocalGhajarLook.current.storeTabStyle
             )
         }
 
@@ -362,15 +364,22 @@ private fun MarketList(
 private fun MarketShopCard(api: GhajarStoreApi, shop: GhajarMarketShop, onOpen: () -> Unit) {
     val c = ghajarColors
     val lang = LocalLang.current
-    Slab(onClick = onOpen, spacing = GhajarSpacing.sm) {
+    // Personalization > Store: which parts of the card show, and how dense it is.
+    val look = LocalGhajarLook.current
+    val show = look.storeShow
+    val compactCard = look.storeCardStyle == "compact"
+    Slab(onClick = onOpen, spacing = if (look.storeCardStyle == "large") GhajarSpacing.md else GhajarSpacing.sm,
+        padding = if (compactCard) GhajarSpacing.md else if (look.storeCardStyle == "large") GhajarSpacing.xl else GhajarSpacing.lg) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            MarketLogo(api, shop.id, shop.logoVersion, shop.verified)
-            Spacer(Modifier.width(GhajarSpacing.sm))
+            if ("logo" in show) {
+                MarketLogo(api, shop.id, shop.logoVersion, shop.verified)
+                Spacer(Modifier.width(GhajarSpacing.sm))
+            }
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(shop.name, fontWeight = FontWeight.Bold, color = c.textPrimary,
                         maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false))
-                    if (shop.tick?.earned == true) {
+                    if (shop.tick?.earned == true && "tick" in show) {
                         Spacer(Modifier.width(GhajarSpacing.xs))
                         Icon(Icons.Filled.Verified, "تیک اعتماد", tint = c.primary, modifier = Modifier.size(15.dp))
                     } else if (shop.verified) {
@@ -378,11 +387,11 @@ private fun MarketShopCard(api: GhajarStoreApi, shop: GhajarMarketShop, onOpen: 
                         Icon(Icons.Filled.Shield, "تأییدشده", tint = c.primary, modifier = Modifier.size(14.dp))
                     }
                 }
-                if (shop.tick?.earned == true) {
+                if (shop.tick?.earned == true && "tick" in show) {
                     Text(shop.tick.label.ifBlank { "قابل اعتماد از نظر خریداران" },
                         style = MaterialTheme.typography.labelSmall, color = c.primary, maxLines = 1)
                 }
-                if (shop.tagline.isNotBlank()) {
+                if (shop.tagline.isNotBlank() && "desc" in show && !compactCard) {
                     Text(shop.tagline, style = MaterialTheme.typography.labelSmall, color = c.textSecondary,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
@@ -390,7 +399,7 @@ private fun MarketShopCard(api: GhajarStoreApi, shop: GhajarMarketShop, onOpen: 
             Icon(Icons.Filled.ChevronLeft, null, tint = c.textMuted)
         }
 
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        if ("rating" in show) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             StarRow(shop.stars)
             Spacer(Modifier.width(GhajarSpacing.sm))
             Text(
@@ -421,10 +430,10 @@ private fun MarketShopCard(api: GhajarStoreApi, shop: GhajarMarketShop, onOpen: 
                     (if (shop.panelMaxPrice > it) " تا " + toman(shop.panelMaxPrice) else "") + " تومان"
             }
         )
-        lines.forEach {
+        if ("prices" in show) (if (compactCard) lines.take(1) else lines).forEach {
             Text(mixedText(it), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
         }
-        if (shop.testAvailable || shop.discountCount > 0) {
+        if ((shop.testAvailable || shop.discountCount > 0) && "discounts" in show) {
             Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
                 if (shop.testAvailable) {
                     Text("🎁 تست رایگان", style = MaterialTheme.typography.labelSmall, color = c.premium)
@@ -436,7 +445,7 @@ private fun MarketShopCard(api: GhajarStoreApi, shop: GhajarMarketShop, onOpen: 
             }
         }
 
-        if (shop.myServices > 0) {
+        if (shop.myServices > 0 && "services_count" in show) {
             Text(mixedText("📦 " + localizeDigits(shop.myServices.toString(), lang) + " سرویس فعال شما در این فروشگاه"),
                 style = MaterialTheme.typography.labelSmall, color = c.primary)
         }
@@ -578,7 +587,7 @@ private fun MarketOrderPage(
                         Text("درگاه این فروشگاه در دسترس نیست؛ از روش پرداخت دیگری استفاده کن.", color = c.error,
                             style = MaterialTheme.typography.labelMedium)
                     } else {
-                        PillButton("ادامهٔ همین پرداخت", {
+                        StorePill("ادامهٔ همین پرداخت", {
                             val intent = StoreLinkRouter.marketPaymentIntent(context, order.gatewayUrl)
                             if (intent == null) message = "صفحهٔ پرداخت امن باز نشد."
                             else runCatching { gatewayLauncher.launch(intent) }
@@ -597,7 +606,7 @@ private fun MarketOrderPage(
                         style = MaterialTheme.typography.labelMedium, color = c.textSecondary
                     )
                     if (order.contact.isNotBlank()) {
-                        PillButton("@" + order.contact.trimStart('@'), {
+                        StorePill("@" + order.contact.trimStart('@'), {
                             openTelegram(context, order.contact)
                         }, icon = Icons.Filled.SupportAgent)
                     }
@@ -638,7 +647,7 @@ private fun MarketOrderPage(
                         )
                         SkinField(value = note, onValueChange = { note = it },
                             label = "توضیح برای فروشنده (اختیاری)")
-                        PillButton(
+                        StorePill(
                             if (sending) "در حال ارسال رسید…" else "انتخاب و ارسال تصویر رسید",
                             { picker.launch(arrayOf("image/*")) },
                             enabled = !sending,
@@ -733,7 +742,7 @@ internal fun MarketDelivery(
                 "لینک و کانفیگ‌ها آماده‌اند. با «افزودن به برنامه» وارد لیست سرورها می‌شوند.",
                 style = MaterialTheme.typography.labelMedium, color = c.textSecondary
             )
-            PillButton(
+            StorePill(
                 if (importing) "در حال افزودن…" else "افزودن به برنامه",
                 {
                     // importServiceOnce is the path the shop's own checkout
@@ -852,7 +861,7 @@ private fun MarketRegisterPage(api: GhajarStoreApi, onBack: () -> Unit) {
                                 + "و توکن نباید در جایی بماند.",
                             style = MaterialTheme.typography.labelMedium, color = c.textSecondary
                         )
-                        PillButton("رفتن به ربات", {
+                        StorePill("رفتن به ربات", {
                             openLink(context, BrandConfig.TELEGRAM_BOT_URL)
                         }, icon = Icons.Filled.OpenInNew)
                     }
@@ -967,5 +976,50 @@ internal fun copyToClipboard(context: android.content.Context, value: String) {
     runCatching {
         val manager = context.getSystemService(android.content.ClipboardManager::class.java)
         manager?.setPrimaryClip(android.content.ClipData.newPlainText("ghajar", value))
+    }
+}
+
+
+/**
+ * The Store's call-to-action button in the user's chosen style (Personalization
+ * > Store): filled, outline or tonal. Same parameters as PillButton so the
+ * store screens call it the same way.
+ */
+@Composable
+internal fun StorePill(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    enabled: Boolean = true,
+    accent: androidx.compose.ui.graphics.Color? = null,
+    minHeight: androidx.compose.ui.unit.Dp = 52.dp,
+    fillWidth: Boolean = true
+) {
+    when (LocalGhajarLook.current.storeButtonStyle) {
+        "outline" -> GhostPill(text, onClick, modifier, icon, enabled, accent, minHeight, fillWidth)
+        "tonal" -> {
+            val c = ghajarColors
+            val tone = accent ?: c.primary
+            Row(
+                modifier
+                    .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
+                    .heightIn(min = minHeight)
+                    .clip(RoundedCornerShape(GhajarRadius.pill))
+                    .background(if (enabled) tone.copy(alpha = 0.18f) else c.disabled)
+                    .clickable(enabled = enabled) { onClick() }
+                    .padding(horizontal = GhajarSpacing.lg),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (icon != null) {
+                    Icon(icon, null, tint = if (enabled) tone else c.onDisabled, modifier = Modifier.size(19.dp))
+                    Spacer(Modifier.width(GhajarSpacing.sm))
+                }
+                Text(text, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold,
+                    color = if (enabled) tone else c.onDisabled, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        else -> PillButton(text, onClick, modifier, icon, enabled, accent, minHeight, fillWidth)
     }
 }

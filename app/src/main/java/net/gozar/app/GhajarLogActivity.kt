@@ -98,7 +98,10 @@ private fun LogScreen(onBack: () -> Unit) {
     }
 
     Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxSize()) {
-        Column(Modifier.fillMaxSize()) {
+        // This activity draws edge to edge (target SDK 35+), so the status
+        // bar, the navigation bar, the cutout and the keyboard are all inside
+        // its window. safeDrawing keeps every control out from under them.
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
@@ -114,7 +117,9 @@ private fun LogScreen(onBack: () -> Unit) {
                     Text(
                         t("log_title"),
                         fontSize = 18.sp, fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onBackground
+                        color = MaterialTheme.colorScheme.onBackground,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                     )
                     // Both numbers, because "142 of 1281" answers "is my filter
                     // hiding things?" and a single number does not.
@@ -126,7 +131,8 @@ private fun LogScreen(onBack: () -> Unit) {
                             localizeDigits("${entries.size}", lang)
                         ),
                         fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1
                     )
                 }
                 IconButton(onClick = {
@@ -244,14 +250,23 @@ private fun LogScreen(onBack: () -> Unit) {
                         )
                     }
                 } else {
-                    SelectionContainer {
-                        LazyColumn(
-                            state = listState,
-                            modifier = Modifier.fillMaxSize(),
-                            contentPadding = PaddingValues(8.dp)
-                        ) {
-                            items(shown, key = { it.timeMs.toString() + it.message.hashCode() }) {
-                                LogRow(it)
+                    // Log lines are English: laid out left to right even in the
+                    // Persian UI, wrapped inside the viewer so the page itself
+                    // never scrolls sideways. The bottom padding keeps the last
+                    // line clear of the "latest" button.
+                    CompositionLocalProvider(
+                        androidx.compose.ui.platform.LocalLayoutDirection provides
+                            androidx.compose.ui.unit.LayoutDirection.Ltr
+                    ) {
+                        SelectionContainer {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.fillMaxSize(),
+                                contentPadding = PaddingValues(start = 10.dp, end = 10.dp, top = 6.dp, bottom = 72.dp)
+                            ) {
+                                items(shown, key = { it.timeMs.toString() + it.message.hashCode() }) {
+                                    LogRow(it)
+                                }
                             }
                         }
                     }
@@ -264,8 +279,8 @@ private fun LogScreen(onBack: () -> Unit) {
                 if (!atBottom && shown.isNotEmpty()) {
                     Row(
                         Modifier
-                            .align(Alignment.BottomStart)
-                            .padding(16.dp)
+                            .align(Alignment.BottomCenter)
+                            .padding(12.dp)
                             .clip(RoundedCornerShape(50))
                             .background(MaterialTheme.colorScheme.primary)
                             .clickable { scope.launch { listState.scrollToItem(shown.size - 1) } }
@@ -309,18 +324,47 @@ private fun LogScreen(onBack: () -> Unit) {
 
 @Composable
 private fun LogRow(entry: GhajarLogEntry) {
+    val c = ghajarColors
     val color = when (entry.level) {
         GhajarLogLevel.DEBUG -> MaterialTheme.colorScheme.onSurfaceVariant
         GhajarLogLevel.INFO -> MaterialTheme.colorScheme.onBackground
-        GhajarLogLevel.WARN -> ghajarColors.warning
+        GhajarLogLevel.WARN -> c.warning
         GhajarLogLevel.ERROR -> MaterialTheme.colorScheme.error
-        GhajarLogLevel.CRASH -> ghajarColors.error
+        GhajarLogLevel.CRASH -> c.error
     }
-    Text(
-        text = entry.formatted(),
-        color = color,
-        fontSize = 11.sp,
-        fontFamily = FontFamily.Monospace,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp)
-    )
+    val time = remember(entry.timeMs) {
+        java.text.SimpleDateFormat("MM-dd HH:mm:ss.SSS", java.util.Locale.US).format(java.util.Date(entry.timeMs))
+    }
+    // Two lines per entry: the metadata (time, level, tag) on one, the
+    // message on the next, wrapped to the viewer's width. One long run of
+    // text used to wrap mid-timestamp and made both halves unreadable.
+    Column(
+        Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        verticalArrangement = Arrangement.spacedBy(1.dp)
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text(
+                entry.level.short,
+                color = color,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold,
+                fontFamily = FontFamily.Monospace,
+                modifier = Modifier.clip(RoundedCornerShape(4.dp)).background(color.copy(alpha = 0.14f))
+                    .padding(horizontal = 4.dp)
+            )
+            Text(time, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 10.sp,
+                fontFamily = FontFamily.Monospace, maxLines = 1)
+            Text(entry.tag, color = c.info, fontSize = 10.sp, fontFamily = FontFamily.Monospace,
+                maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false))
+        }
+        Text(
+            text = entry.message,
+            color = color,
+            fontSize = 11.sp,
+            lineHeight = 15.sp,
+            fontFamily = FontFamily.Monospace,
+            modifier = Modifier.fillMaxWidth()
+        )
+    }
 }

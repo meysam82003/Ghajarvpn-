@@ -88,4 +88,88 @@ class ProtocolFormsTest {
         val err = ProtocolForms.build("sstp", mapOf("server" to "s.example.com")).exceptionOrNull()
         assertEquals("f_user", err?.message)
     }
+
+    @Test
+    fun masqueFormBuildsAConnectIpEndpoint() {
+        val hex = "a".repeat(64)
+        val c = ok("masque", mapOf("name" to "M", "server" to "mq.example.com", "port" to "8443", "user" to "u", "pass" to "p",
+            "version" to "2", "path" to "/ip/{target}/{ipproto}/", "sni" to "cdn.example.com", "fp" to "chrome", "pin" to hex, "mtu" to "1350"))
+        assertEquals("masque", c.protocol); assertEquals("2", c.mode); assertEquals(8443, c.port); assertEquals(1350, c.mtu)
+        val ep = JSONObject(SingBoxConfig.full(SingBoxConfig.spec(c)!!, 1080)).getJSONArray("endpoints").getJSONObject(0)
+        assertEquals("masque-client", ep.getString("type")); assertEquals("mq.example.com", ep.getString("server"))
+        assertEquals(8443, ep.getInt("server_port")); assertEquals(2, ep.getInt("version")); assertEquals("u", ep.getString("username"))
+        assertEquals("/ip/{target}/{ipproto}/", ep.getString("path")); assertEquals(1350, ep.getInt("mtu"))
+        val tls = ep.getJSONObject("tls")
+        assertEquals("cdn.example.com", tls.getString("server_name")); assertEquals("chrome", tls.getJSONObject("utls").getString("fingerprint"))
+        // Hex pins become the base64 sing-box reads.
+        assertEquals(java.util.Base64.getEncoder().encodeToString(ByteArray(32) { 0xaa.toByte() }), tls.getJSONArray("certificate_sha256").getString(0))
+        // Share link round trip keeps every option.
+        val back = ConfigParser.parse(ConfigShare.toLink(c))!!
+        assertEquals(c.copy(source = back.source), back.copy(id = c.id, favorite = c.favorite))
+    }
+
+    @Test
+    fun masqueDefaultsToHttp3AndImportsFromSingBoxJson() {
+        val c = ConfigParser.parse("masque://mq.example.com#Plain")!!
+        assertEquals(443, c.port); assertEquals("3", c.mode)
+        val ep = JSONObject(SingBoxConfig.full(SingBoxConfig.spec(c)!!, 1080)).getJSONArray("endpoints").getJSONObject(0)
+        assertEquals(3, ep.getInt("version")); assertTrue(!ep.has("username"))
+        val json = JSONObject("""{"endpoints":[{"type":"masque-client","tag":"mq","server":"h.example.com","server_port":443,
+            "username":"a","password":"b","version":2,"tls":{"enabled":true,"server_name":"s.example.com"}}]}""")
+        val r = ForeignImport.singBox(json)
+        assertEquals(1, r.configs.size)
+        val m = r.configs[0]
+        assertEquals("masque", m.protocol); assertEquals("2", m.mode); assertEquals("a", m.uuid); assertEquals("s.example.com", m.sni)
+    }
+
+    @Test
+    fun everyFormSplitsIntoOrderedNonEmptySections() {
+        ProtocolForms.forms.forEach { form ->
+            val secs = ProtocolForms.sections(form)
+            // Every field lands in exactly one section, none is lost.
+            assertEquals(form.id, form.fields.size, secs.sumOf { it.second.size })
+            assertTrue(form.id, secs.all { it.second.isNotEmpty() })
+            val order = secs.map { ProtocolForms.SECTIONS.indexOf(it.first) }
+            assertEquals(form.id, order.sorted(), order)
+            assertEquals(form.id, "basic", secs.first().first)
+        }
+    }
+
+    @Test
+    fun masqueFormSectionsCoverAuthTlsAndNetwork() {
+        val names = ProtocolForms.sections(ProtocolForms.form("masque")).map { it.first }
+        assertTrue(names.containsAll(listOf("basic", "auth", "tls", "network")))
+    }
+
+    @Test
+    fun tailscaleFormBuildsAUserspaceEndpoint() {
+        val c = ProtocolForms.build("tailscale", mapOf("name" to "TS", "pass" to "tskey-auth-abc", "exit" to "100.64.0.9",
+            "control" to "https://hs.example.com", "routes" to "true", "lan" to "true")).getOrThrow()
+        assertEquals("tailscale", c.protocol); assertEquals("hs.example.com", c.address)
+        assertEquals("tskey-auth-abc", c.password); assertEquals("100.64.0.9", c.path)
+        val spec = JSONObject(SingBoxConfig.spec(c)!!)
+        val e = spec.getJSONObject("endpoint")
+        assertEquals("tailscale", e.getString("type")); assertEquals("proxy", e.getString("tag"))
+        assertEquals("tskey-auth-abc", e.getString("auth_key")); assertEquals("https://hs.example.com", e.getString("control_url"))
+        assertEquals("100.64.0.9", e.getString("exit_node")); assertTrue(e.getBoolean("ephemeral"))
+        assertTrue(e.getBoolean("accept_routes")); assertTrue(e.getBoolean("exit_node_allow_lan_access"))
+        assertTrue(e.getString("state_directory").startsWith("tailscale-"))
+        // The auth key never leaves in a share link.
+        val link = ConfigShare.toLink(c)
+        assertTrue(link, !link.contains("tskey"))
+    }
+
+    @Test
+    fun tailcatFormAndSingBoxJsonImport() {
+        val c = ProtocolForms.build("tailcat", mapOf("pubkey" to "nodekey:aa", "disco" to "discokey:bb", "region" to "7")).getOrThrow()
+        val o = JSONObject(SingBoxConfig.spec(c)!!).getJSONObject("outbound")
+        assertEquals("tailcat", o.getString("type")); assertEquals("nodekey:aa", o.getString("server_public_key"))
+        assertEquals("discokey:bb", o.getString("server_disco_key")); assertEquals(7, o.getInt("derp_region"))
+        val r = ForeignImport.singBox(JSONObject("""{"endpoints":[{"type":"tailscale","tag":"home","auth_key":"tskey-x",
+            "exit_node":"exit1","ephemeral":true}],"outbounds":[{"type":"tailcat","tag":"cat","server_public_key":"p","server_disco_key":"d"}]}"""))
+        assertEquals(2, r.configs.size)
+        val ts = r.configs.single { it.protocol == "tailscale" }
+        assertEquals("tskey-x", ts.password); assertEquals("exit1", ts.path); assertEquals("ephemeral", ts.headerType)
+        assertEquals("d", r.configs.single { it.protocol == "tailcat" }.uuid)
+    }
 }

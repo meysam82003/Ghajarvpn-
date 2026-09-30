@@ -401,7 +401,7 @@ private val SmoothDecel = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1f)
 private val SmoothAccel = CubicBezierEasing(0.3f, 0f, 0.8f, 0.15f)
 
 @Composable
-private fun stringsFn(): (String) -> String {
+internal fun stringsFn(): (String) -> String {
     val lang = LocalLang.current
     return { Strings.get(lang, it) }
 }
@@ -1380,7 +1380,6 @@ private fun GozarApp(
     var themeDetail by remember { mutableStateOf(false) }
     var cleanIpDetail by remember { mutableStateOf(false) }
     var dnsLabDetail by remember { mutableStateOf(false) }
-    var mapDetail by remember { mutableStateOf(false) }
     var netMonDetail by remember { mutableStateOf(false) }
     var netCatDetail by remember { mutableStateOf(false) }
     var netCatIndex by remember { mutableStateOf(-1) }
@@ -1573,7 +1572,7 @@ private fun GozarApp(
     var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_HOME && (protoForm.isNotEmpty() || showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || mapDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail || backupDetail || extraPage.isNotEmpty()))
+    val subScreenOpen = (page == PAGE_HOME && (protoForm.isNotEmpty() || showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail || backupDetail || extraPage.isNotEmpty()))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
@@ -1600,7 +1599,6 @@ private fun GozarApp(
         onSettingsTab && themeDetail -> "theme"
         onSettingsTab && cleanIpDetail -> "cleanip"
         onSettingsTab && dnsLabDetail -> "dnslab"
-        onSettingsTab && mapDetail -> "map"
         onSettingsTab && checkHostDetail -> "checkhost"
         onSettingsTab && netCatIndex >= 0 -> "netcatone"
         onSettingsTab && netCatDetail -> "netcat"
@@ -1624,6 +1622,7 @@ private fun GozarApp(
             showOpenVpnHub -> showOpenVpnHub = false
             showPsiphonHub -> showPsiphonHub = false
             showPicker -> showPicker = false
+            extraPage.startsWith("core:") -> extraPage = "cores"
             extraPage.isNotEmpty() -> extraPage = ""
             backupDetail -> backupDetail = false
             usageDetail -> usageDetail = false
@@ -1634,7 +1633,6 @@ private fun GozarApp(
             themeDetail -> themeDetail = false
             cleanIpDetail -> cleanIpDetail = false
             dnsLabDetail -> dnsLabDetail = false
-            mapDetail -> mapDetail = false
             checkHostDetail -> checkHostDetail = false
             netCatIndex >= 0 -> netCatIndex = -1
             netCatDetail -> netCatDetail = false
@@ -1702,7 +1700,12 @@ private fun GozarApp(
                         GhajarWordmark(Modifier.height(48.dp).width(164.dp))
                     } else {
                         Text(
-                            mixedText(when (screenKey) {
+                            mixedText(when (if (screenKey.startsWith("conn:") || screenKey.startsWith("core:")) screenKey.substringBefore(':') else screenKey) {
+                                "conn" -> when (screenKey.substringAfter(':')) {
+                                    "dns" -> t("sec_dns"); "routing" -> t("routing"); "xray" -> "Xray"; "zeptun" -> "zeptun"
+                                    "openvpn" -> "OpenVPN"; else -> t("set_tile_general")
+                                }
+                                "core" -> net.gozar.app.engine.CoreManager.engines.firstOrNull { it.id.name == screenKey.substringAfter(':') }?.displayName ?: t("set_tile_cores")
                                 "manual" -> if (editingConfig != null) t("edit_config_title") else t("add_config_title")
                                 "export" -> t("export_title")
                                 "protoform" -> ProtocolForms.forms.firstOrNull { it.id == protoForm }?.title ?: t("add_server")
@@ -1719,6 +1722,7 @@ private fun GozarApp(
                                 "dnsproto" -> t("dnsproto_title")
                                 "livemon" -> t("livemon_title")
                                 "safebox" -> t("safebox_title")
+                                "cores" -> t("set_tile_cores")
                                 "perapp" -> t("per_app")
                                 "logs" -> t("xray_logs")
                                 "stability" -> t("stab_title")
@@ -1763,7 +1767,6 @@ private fun GozarApp(
                         "theme" -> BounceIconButton(onClick = { themeDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "cleanip" -> BounceIconButton(onClick = { cleanIpDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "dnslab" -> BounceIconButton(onClick = { dnsLabDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "map" -> BounceIconButton(onClick = { mapDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netmon" -> BounceIconButton(onClick = { netMonDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netcat" -> BounceIconButton(onClick = { netCatDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "checkhost" -> BounceIconButton(onClick = { checkHostDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1771,6 +1774,9 @@ private fun GozarApp(
                         "tools" -> BounceIconButton(onClick = { toolsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "connection_settings" -> BounceIconButton(onClick = { connDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "preferences" -> BounceIconButton(onClick = { prefsDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        // Pages opened from the core hub go back to it.
+                        else -> if (extraPage.startsWith("core:")) BounceIconButton(onClick = { extraPage = "cores" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                            else if (extraPage.isNotEmpty()) BounceIconButton(onClick = { extraPage = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                     }
                 },
                 actions = {
@@ -1818,7 +1824,6 @@ private fun GozarApp(
                         themeDetail = false
                         cleanIpDetail = false
                         dnsLabDetail = false
-                        mapDetail = false
                         netMonDetail = false
                         netCatDetail = false
                         netCatIndex = -1
@@ -2020,7 +2025,6 @@ private fun GozarApp(
                     themeDetail -> "theme"
                     cleanIpDetail -> "cleanip"
                     dnsLabDetail -> "dnslab"
-                    mapDetail -> "map"
                     checkHostDetail -> "checkhost"
                     // The index rides in the key, so the page keeps its own
                     // category while it animates out after Back clears it.
@@ -2072,6 +2076,15 @@ private fun GozarApp(
                         "geodata" -> GeoDataScreen()
                         "dnsproto" -> DnsProtocolsScreen()
                         "livemon" -> LiveMonitorScreen(store = store)
+                        "conn" -> ConnectionSettingsScreen(
+                            store = store,
+                            onOpenPerApp = { perAppDetail = true },
+                            onOpenLogs = { logsDetail = true },
+                            onOpenExtra = { extraPage = it },
+                            section = key.substringAfter(':')
+                        )
+                        "cores" -> CoreHubScreen(onOpen = { extraPage = it })
+                        "core" -> CoreDetailScreen(idName = key.substringAfter(':'), onOpen = { extraPage = it })
                         "safebox" -> SafeboxScreen(store = store)
                         "backup" -> Column(
                             Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -2089,14 +2102,12 @@ private fun GozarApp(
                         "checkhost" -> CheckHostScreen()
                         "netcatone" -> NetCategoryScreen(index = key.substringAfter(':').toIntOrNull() ?: -1)
                         "dnslab" -> DnsLabScreen(store = store)
-                        "map" -> GhajarMapScreen()
                         "tools" -> ToolsScreen(
                             store = store,
                             onOpenCheckHost = { checkHostDetail = true },
                             onOpenStability = { stabilityDetail = true },
                             onOpenCleanIp = { cleanIpDetail = true },
                             onOpenDnsLab = { dnsLabDetail = true },
-                            onOpenMap = { mapDetail = true },
                             onSwitch = onSwitch,
                             onOpenExtra = { extraPage = it }
                         )
@@ -2124,7 +2135,10 @@ private fun GozarApp(
                             onOpenAbout = { aboutDetail = true },
                             onOpenNetMon = { netMonDetail = true },
                             onOpenBackup = { backupDetail = true },
-                            onOpenExtra = { extraPage = it }
+                            onOpenExtra = { extraPage = it },
+                            onOpenTheme = { themeDetail = true },
+                            onOpenNotifications = { notifDetail = true },
+                            onOpenStability = { stabilityDetail = true }
                         )
                     }
                 }
@@ -2259,155 +2273,175 @@ private fun ConnectionScreen(
             ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            ConnectOrb(
-                state = conn,
-                picking = picking,
-                enabled = canAct,
-                tunnelDead = deadTunnel,
-                netOffline = netOffline,
-                onClick = {
-                    when {
-                        picking -> onCancelPick()
-                        connected -> onDisconnect()
-                        else -> selectedConfig?.let { onConnect(it) }
+            // Home sections, in the order and sizes chosen in Personalization.
+            // The connect control and the route can be moved and resized but
+            // never hidden, so the way to connect is always on this screen.
+            val homeLook = LocalGhajarLook.current
+            fun homeSize(id: String) = homeLook.homeSizes[id] ?: "normal"
+            val homeSections: Map<String, @Composable () -> Unit> = mapOf(
+                "orb" to {
+                    ConnectOrb(
+                        diameter = when (homeSize("orb")) { "compact" -> 196.dp; "large" -> 272.dp; else -> 236.dp },
+                        state = conn,
+                        picking = picking,
+                        enabled = canAct,
+                        tunnelDead = deadTunnel,
+                        netOffline = netOffline,
+                        onClick = {
+                            when {
+                                picking -> onCancelPick()
+                                connected -> onDisconnect()
+                                else -> selectedConfig?.let { onConnect(it) }
+                            }
+                        },
+                        // Long press on a live tunnel redials the same server. The
+                        // OpenVPN path has no ProxyConfig to hand back, so it drops the
+                        // tunnel and the engine's own reconnect takes it from there.
+                        onReconnect = {
+                            when {
+                                onOpenVpn -> onDisconnect()
+                                else -> activeConfig?.let { onConnect(it) } ?: onDisconnect()
+                            }
+                        }
+                    )
+                },
+                "session" to {
+                    SessionLine(connectedAt.takeIf { it > 0L }, conn)
+
+                    // A gesture nobody is told about does not exist.
+                    if (conn == Connection.CONNECTED) {
+                        Text(
+                            t("orb_hold_reconnect"),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = c.textMuted,
+                            textAlign = TextAlign.Center
+                        )
                     }
                 },
-                // Long press on a live tunnel redials the same server. The
-                // OpenVPN path has no ProxyConfig to hand back, so it drops the
-                // tunnel and the engine's own reconnect takes it from there.
-                onReconnect = {
-                    when {
-                        onOpenVpn -> onDisconnect()
-                        else -> activeConfig?.let { onConnect(it) } ?: onDisconnect()
-                    }
-                }
-            )
-
-            SessionLine(connectedAt.takeIf { it > 0L }, conn)
-
-            // A gesture nobody is told about does not exist.
-            if (conn == Connection.CONNECTED) {
-                Text(
-                    t("orb_hold_reconnect"),
-                    style = MaterialTheme.typography.labelSmall,
-                    color = c.textMuted,
-                    textAlign = TextAlign.Center
-                )
-            }
-
-            // The route: one slab, one row, one tap to the picker. Locked
-            // configs never reveal their endpoint and the built-in engines have
-            // none, exactly as before.
-            //
-            // A tight inset: this slab holds exactly one row, so the default
-            // card padding was drawing a frame around a frame and making the
-            // single most-looked-at line on the screen the tallest thing on it.
-            Slab(spacing = 0.dp, padding = GhajarSpacing.sm, color = lookColor(LookElement.CONFIG_CARD)) {
-                // While OpenVPN owns the tunnel, the route is that profile -
-                // not whichever Xray config happens to still be selected. The
-                // active id is "ovpn:<uuid>", which is never in `configs`, so
-                // this row used to fall back to the selection and name a server
-                // that was not carrying a single byte.
-                val routeSubtitle = when {
-                    onOpenVpn -> ovpnProfile?.let { p ->
-                        "OPENVPN · ⁦${p.host}:${p.port}⁩"
-                    } ?: "OPENVPN"
-                    else -> selectedConfig?.let { cfg ->
-                        val engine = cfg.protocol.uppercase(java.util.Locale.ROOT) +
-                            if (net.gozar.app.engine.SingBoxConfig.handles(cfg)) " · sing-box" else ""
-                        val endpoint = when {
-                            cfg.locked -> t("locked_endpoint")
-                            cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
-                            else -> "⁦${cfg.address}:${cfg.port}⁩"
-                        }
-                        "$engine · $endpoint"
-                    }
-                    // Nothing selected means nothing to say. The row's title
-                    // already reads "no server chosen"; a paragraph explaining
-                    // where OpenVPN lives was a manual printed on the dashboard.
-                    // SlabRow skips a blank subtitle, so the row collapses to
-                    // one line instead of holding space for it.
-                }
-                SlabRow(
-                    title = when {
-                        onOpenVpn -> ovpnProfile?.name?.let(BrandConfig::sanitizePublicText)
-                            ?: "OpenVPN"
-                        else -> selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
-                            ?: t("hub_no_server")
-                    },
-                    subtitle = routeSubtitle,
-                    titleColor = lookColor(LookElement.CONFIG_TEXT),
-                    icon = if (onOpenVpn) Icons.Filled.Security else Icons.Filled.Shield,
-                    accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
-                    chevron = true,
-                    onClick = onOpenPicker
-                )
-            }
-
-            // What is left of the service this server came from.
-            //
-            // Every config that arrived from a subscription carries its subId,
-            // and the subscription carries the quota and the expiry the panel
-            // reported. Until now that pair was only readable by opening the
-            // picker and finding the right header - so the number people check
-            // most often was two screens from the connect button.
-            //
-            // Keyed on the server actually carrying traffic, falling back to
-            // the selected one, because "how much is left" is a question about
-            // the service in use. It draws nothing at all when the config is a
-            // hand-pasted one (no subId) or when the panel reported neither a
-            // quota nor an expiry: a card with two dashes on it is a decoration.
-            val routeSub = remember(activeConfig, subscriptions) {
-                activeConfig?.subId?.takeIf { it.isNotBlank() }
-                    ?.let { id -> subscriptions.firstOrNull { it.id == id } }
-            }
-            if (routeSub != null && (routeSub.total > 0 || routeSub.expire > 0)) {
-                SubscriptionQuotaCard(routeSub)
-            }
-
-            // Throughput: one object, two readings, totals underneath.
-            val downParts = formatBytesParts(downSpeed, lang)
-            val upParts = formatBytesParts(upSpeed, lang)
-            TrafficTiles(
-                downValue = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
-                downTotal = t("home_total").format(formatBytes(totalDown, lang)),
-                upValue = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
-                upTotal = t("home_total").format(formatBytes(totalUp, lang))
-            )
-
-            // Measured facts. The latency row doubles as the real-delay test:
-            // tapping it replaces the passive handshake reading with a measured
-            // one, so there is a single row about latency, not two.
-            ConnectionFacts(
-                state = conn,
-                serverAddress = if (onOpenVpn) ovpnProfile?.host else activeConfig?.address,
-                serverPort = if (onOpenVpn) ovpnProfile?.port else activeConfig?.port,
-                // ics-openvpn routes the whole device, so a plain request is
-                // already inside the tunnel. Asking through 127.0.0.1:MixedPort
-                // would reach an inbound only the Xray engine publishes, which
-                // is why the IP and location rows sat on a dash for an OpenVPN
-                // session that was carrying traffic perfectly well.
-                throughLocalProxy = !onOpenVpn,
-                measuredDelay = delayResult,
-                delayRunning = delayRunning,
-                onMeasureDelay = {
-                    delayRunning = true
-                    delayResult = null
-                    scope.launch {
-                        // SpeedTest.delay() measures through gozarcore, which
-                        // has no part in an OpenVPN session; that path gets a
-                        // real TCP handshake against the profile's endpoint.
-                        val ms: Int? = if (onOpenVpn) {
-                            ovpnProfile?.let { p ->
-                                (Pinger.ping(p.host, p.port) as? PingResult.Ok)?.ms
+                "route" to {
+                    // The route: one slab, one row, one tap to the picker. Locked
+                    // configs never reveal their endpoint and the built-in engines have
+                    // none, exactly as before.
+                    //
+                    // A tight inset: this slab holds exactly one row, so the default
+                    // card padding was drawing a frame around a frame and making the
+                    // single most-looked-at line on the screen the tallest thing on it.
+                    Slab(spacing = 0.dp, padding = GhajarSpacing.sm, color = lookColor(LookElement.CONFIG_CARD)) {
+                        // While OpenVPN owns the tunnel, the route is that profile -
+                        // not whichever Xray config happens to still be selected. The
+                        // active id is "ovpn:<uuid>", which is never in `configs`, so
+                        // this row used to fall back to the selection and name a server
+                        // that was not carrying a single byte.
+                        val routeSubtitle = when {
+                            onOpenVpn -> ovpnProfile?.let { p ->
+                                "OPENVPN · ⁦${p.host}:${p.port}⁩"
+                            } ?: "OPENVPN"
+                            else -> selectedConfig?.let { cfg ->
+                                val engine = cfg.protocol.uppercase(java.util.Locale.ROOT) +
+                                    if (net.gozar.app.engine.SingBoxConfig.handles(cfg)) " · sing-box" else ""
+                                val endpoint = when {
+                                    cfg.locked -> t("locked_endpoint")
+                                    cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
+                                    else -> "⁦${cfg.address}:${cfg.port}⁩"
+                                }
+                                "$engine · $endpoint"
                             }
-                        } else SpeedTest.delay()
-                        delayResult =
-                            if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
-                        delayRunning = false
+                            // Nothing selected means nothing to say. The row's title
+                            // already reads "no server chosen"; a paragraph explaining
+                            // where OpenVPN lives was a manual printed on the dashboard.
+                            // SlabRow skips a blank subtitle, so the row collapses to
+                            // one line instead of holding space for it.
+                        }
+                        SlabRow(
+                            title = when {
+                                onOpenVpn -> ovpnProfile?.name?.let(BrandConfig::sanitizePublicText)
+                                    ?: "OpenVPN"
+                                else -> selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
+                                    ?: t("hub_no_server")
+                            },
+                            subtitle = routeSubtitle,
+                            titleColor = lookColor(LookElement.CONFIG_TEXT),
+                            icon = if (onOpenVpn) Icons.Filled.Security else Icons.Filled.Shield,
+                            accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
+                            chevron = true,
+                            onClick = onOpenPicker
+                        )
                     }
-                }
+                },
+                "quota" to {
+                    // What is left of the service this server came from.
+                    //
+                    // Every config that arrived from a subscription carries its subId,
+                    // and the subscription carries the quota and the expiry the panel
+                    // reported. Until now that pair was only readable by opening the
+                    // picker and finding the right header - so the number people check
+                    // most often was two screens from the connect button.
+                    //
+                    // Keyed on the server actually carrying traffic, falling back to
+                    // the selected one, because "how much is left" is a question about
+                    // the service in use. It draws nothing at all when the config is a
+                    // hand-pasted one (no subId) or when the panel reported neither a
+                    // quota nor an expiry: a card with two dashes on it is a decoration.
+                    val routeSub = remember(activeConfig, subscriptions) {
+                        activeConfig?.subId?.takeIf { it.isNotBlank() }
+                            ?.let { id -> subscriptions.firstOrNull { it.id == id } }
+                    }
+                    if (routeSub != null && (routeSub.total > 0 || routeSub.expire > 0)) {
+                        SubscriptionQuotaCard(routeSub)
+                    }
+                },
+                "traffic" to {
+                    // Throughput: one object, two readings, totals underneath.
+                    val downParts = formatBytesParts(downSpeed, lang)
+                    val upParts = formatBytesParts(upSpeed, lang)
+                    TrafficTiles(
+                        downValue = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
+                        downTotal = t("home_total").format(formatBytes(totalDown, lang)),
+                        upValue = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
+                        upTotal = t("home_total").format(formatBytes(totalUp, lang)),
+                        size = homeSize("traffic")
+                    )
+                },
+                "facts" to {
+                    // Measured facts. The latency row doubles as the real-delay test:
+                    // tapping it replaces the passive handshake reading with a measured
+                    // one, so there is a single row about latency, not two.
+                    ConnectionFacts(
+                        state = conn,
+                        serverAddress = if (onOpenVpn) ovpnProfile?.host else activeConfig?.address,
+                        serverPort = if (onOpenVpn) ovpnProfile?.port else activeConfig?.port,
+                        // ics-openvpn routes the whole device, so a plain request is
+                        // already inside the tunnel. Asking through 127.0.0.1:MixedPort
+                        // would reach an inbound only the Xray engine publishes, which
+                        // is why the IP and location rows sat on a dash for an OpenVPN
+                        // session that was carrying traffic perfectly well.
+                        throughLocalProxy = !onOpenVpn,
+                        measuredDelay = delayResult,
+                        delayRunning = delayRunning,
+                        onMeasureDelay = {
+                            delayRunning = true
+                            delayResult = null
+                            scope.launch {
+                                // SpeedTest.delay() measures through gozarcore, which
+                                // has no part in an OpenVPN session; that path gets a
+                                // real TCP handshake against the profile's endpoint.
+                                val ms: Int? = if (onOpenVpn) {
+                                    ovpnProfile?.let { p ->
+                                        (Pinger.ping(p.host, p.port) as? PingResult.Ok)?.ms
+                                    }
+                                } else SpeedTest.delay()
+                                delayResult =
+                                    if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
+                                delayRunning = false
+                            }
+                        }
+                    )
+                },
             )
+            val homeOrder = (homeLook.homeOrder.filter { it in HomeParts } + HomeParts).distinct()
+            homeOrder.forEach { id ->
+                if (id in HomeCritical || id !in homeLook.homeHidden) androidx.compose.runtime.key(id) { homeSections[id]?.invoke() }
+            }
 
             // A failure the user can act on. The engine's message is whatever it
             // happened to produce; the diagnose button is how that becomes a
@@ -3364,7 +3398,19 @@ private fun ConfigPickerScreen(
         // Two columns (Personalization > Cards). Paint-selection maps a drag's
         // y position to one row, which a grid cannot do, so in this mode a
         // long press toggles the one row instead.
-        val twoCols = LocalGhajarLook.current.columns == 2
+        val listLook = LocalGhajarLook.current
+        val twoCols = listLook.columns == 2 || listLook.serverView == "grid"
+        // Per-row extras, computed once for the list and only when shown.
+        val wantTraffic = "traffic" in listLook.serverFields
+        val wantLast = "last" in listLook.serverFields
+        val byConfig by UsageStore.byConfig.collectAsState()
+        val logEntries by GhajarLog.entries.collectAsState()
+        val serverMeta = remember(wantTraffic, wantLast, if (wantTraffic) byConfig else null, if (wantLast) logEntries.size else 0) {
+            ServerMeta(
+                traffic = if (wantTraffic) byConfig.mapValues { it.value.getOrElse(0) { 0L } + it.value.getOrElse(1) { 0L } } else emptyMap(),
+                lastConnected = if (wantLast) lastConnectedById(logEntries) else emptyMap()
+            )
+        }
         @Composable
         fun PickerRow(cfg: ProxyConfig, container: Color?, rowModifier: Modifier) {
             ConfigRow(
@@ -3396,6 +3442,7 @@ private fun ConfigPickerScreen(
             )
         }
 
+        CompositionLocalProvider(LocalServerMeta provides serverMeta) {
         LazyColumn(
             state = listState,
             // Zero height, not merely hidden: a weighted child claims its
@@ -3602,6 +3649,7 @@ private fun ConfigPickerScreen(
                     }
                 }
             }
+        }
         }
 
         AnimatedVisibility(
@@ -4502,6 +4550,11 @@ private fun FreeProjectsScreen(
     var statusOwner by remember { mutableStateOf("") }
     var aetherMode by remember { mutableStateOf("masque") }
     var aetherH2 by remember { mutableStateOf(true) }
+    // Aether 2.1 options.
+    var aetherScan by remember { mutableStateOf("balanced") }
+    var aetherNoise by remember { mutableStateOf("") }
+    var aetherExit by remember { mutableStateOf("") }
+    var aetherFragment by remember { mutableStateOf(false) }
     val c = ghajarColors
 
     LaunchedEffect(status) {
@@ -4638,14 +4691,14 @@ private fun FreeProjectsScreen(
                 accent = c.info
             )
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-                listOf("masque" to "MASQUE", "wg" to "WireGuard", "gool" to "gool").forEach { (key, label) ->
+                listOf("masque" to "MASQUE", "mim" to "MASQUE²", "wg" to "WireGuard", "gool" to "gool").forEach { (key, label) ->
                     val on = aetherMode == key
                     GhostPill(
                         text = label,
                         accent = if (on) c.highlight else c.textSecondary,
                         onClick = {
                             aetherMode = key
-                            aetherH2 = key == "masque"
+                            aetherH2 = key == "masque" || key == "mim"
                         },
                         modifier = Modifier.weight(1f)
                     )
@@ -4656,13 +4709,47 @@ private fun FreeProjectsScreen(
                 subtitle = t("proj_aether_h2_sub"),
                 icon = Icons.Filled.Bolt,
                 accent = c.highlight,
-                enabled = aetherMode == "masque",
+                enabled = aetherMode == "masque" || aetherMode == "mim",
                 trailing = {
                     SkinSwitch(
-                        checked = aetherH2 && aetherMode == "masque",
+                        checked = aetherH2 && (aetherMode == "masque" || aetherMode == "mim"),
                         onCheckedChange = { aetherH2 = it },
-                        enabled = aetherMode == "masque"
+                        enabled = aetherMode == "masque" || aetherMode == "mim"
                     )
+                }
+            )
+            // Aether 2.1: how edges are chosen, the noize profile, an exit
+            // country lock and SNI fragmentation on HTTP/2.
+            Text(t("aether_scan"), style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                listOf("balanced" to t("aether_scan_balanced"), "turbo" to t("aether_scan_turbo"),
+                    "thorough" to t("aether_scan_thorough"), "verified" to t("aether_scan_verified")).forEach { (key, label) ->
+                    GhostPill(label, onClick = { aetherScan = key }, accent = if (aetherScan == key) c.highlight else c.textSecondary,
+                        fillWidth = false, minHeight = 36.dp)
+                }
+            }
+            Text(t("aether_noize"), style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                listOf("" to t("aether_noize_default"), "off" to "off", "light" to "light", "firewall" to "firewall",
+                    "gfw" to "gfw", "aggressive" to "aggressive").forEach { (key, label) ->
+                    GhostPill(label, onClick = { aetherNoise = key }, accent = if (aetherNoise == key) c.highlight else c.textSecondary,
+                        fillWidth = false, minHeight = 36.dp)
+                }
+            }
+            SkinField(
+                value = aetherExit,
+                onValueChange = { v -> aetherExit = v.filter { it.isLetter() || it == ',' || it == '!' }.take(40) },
+                label = t("aether_exit_loc"),
+                placeholder = "DE,NL  ·  !IR"
+            )
+            SlabRow(
+                title = t("aether_fragment"),
+                subtitle = t("aether_fragment_sub"),
+                icon = Icons.Filled.Bolt,
+                accent = c.highlight,
+                enabled = aetherH2,
+                trailing = {
+                    SkinSwitch(checked = aetherFragment && aetherH2, onCheckedChange = { aetherFragment = it }, enabled = aetherH2)
                 }
             )
             PillButton(
@@ -4678,8 +4765,11 @@ private fun FreeProjectsScreen(
                         address = "127.0.0.1",
                         port = AetherController.SOCKS_PORT,
                         aetherMode = aetherMode,
-                        aetherScan = "balanced",
+                        aetherScan = aetherScan,
+                        aetherNoise = aetherNoise,
                         aetherHttp2 = aetherH2,
+                        aetherExitLoc = aetherExit.trim().uppercase(),
+                        aetherFragment = aetherFragment && aetherH2,
                         source = ConfigSource.COMMUNITY
                     )
                     store.add(cfg)
@@ -4892,8 +4982,9 @@ private fun LabeledDropdown(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun settingsDepth(key: String): Int = when (key.substringBefore(':')) {
     "settings" -> 0
-    "stability", "cleanip", "dnslab", "map", "perapp", "theme", "netcat" -> 2
+    "stability", "cleanip", "dnslab", "perapp", "theme", "netcat" -> 2
     "checkhost" -> 3
+    "core" -> 2
     "netcatone" -> 3
     // Reached directly from the Settings list, like usage or tools.
     "ssh", "debugger" -> 1
@@ -6593,32 +6684,50 @@ private fun SettingsScreen(
     onOpenDebugger: () -> Unit,
     onOpenBackup: () -> Unit = {},
     onOpenExtra: (String) -> Unit = {},
+    onOpenTheme: () -> Unit = {},
+    onOpenNotifications: () -> Unit = {},
+    onOpenStability: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
     val lang = LocalLang.current
+    val context = LocalContext.current
     val usage by UsageStore.usage.collectAsState()
     val allTime = remember(usage) { UsageStore.totalAll(usage) }
     val configs by store.configs.collectAsState()
     val subscriptions by store.subscriptions.collectAsState()
+    val killSwitch by store.killSwitch.collectAsState()
     val c = ghajarColors
+    val look = LocalGhajarLook.current
 
-    // Rails name the categories; each category is ONE slab holding its rows.
-    // The old page was eight separate outlined cards in a column, which read as
-    // eight equally important things.
+    // Settings is a set of places to go, so it is drawn as tiles: one tile
+    // per destination, grouped under three rails. Every destination the old
+    // list had is still here; the forms behind them are unchanged.
+    val groups = remember(lang, killSwitch, allTime, look) {
+        SettingsTiles.groups(
+            t = t,
+            usage = formatBytes(allTime[0] + allTime[1], lang),
+            killSwitch = killSwitch,
+            nav = SettingsTiles.Nav(
+                extra = onOpenExtra, connection = onOpenConnection, tools = onOpenTools, usage = onOpenUsage,
+                preferences = onOpenPreferences, about = onOpenAbout, netmon = onOpenNetMon, ssh = onOpenSsh,
+                debugger = onOpenDebugger, backup = onOpenBackup, theme = onOpenTheme, notifications = onOpenNotifications,
+                stability = onOpenStability,
+                logs = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
+            )
+        )
+    }
+
     Column(
         modifier.fillMaxSize().verticalScroll(scrollState)
             .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+        verticalArrangement = Arrangement.spacedBy(if (look.settingsLayout == "compact") GhajarSpacing.sm else GhajarSpacing.md)
     ) {
         ScreenHeader(
             title = t("settings"),
             context = t("settings_header_sub")
         )
 
-        // The page used to open as nothing but a list of doors. These are the
-        // three numbers that say what this install actually holds, read from
-        // the same stores the pages behind those doors read.
         StatStrip(
             listOf(
                 StatCell(t("count_configs"), localizeDigits("${configs.size}", lang), c.primary),
@@ -6627,131 +6736,71 @@ private fun SettingsScreen(
             )
         )
 
-        Rail(t("sec_connection"))
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = t("connection_settings"),
-                subtitle = t("connection_settings_sub"),
-                icon = Icons.Filled.Router,
-                chevron = true,
-                onClick = onOpenConnection
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("tools"),
-                subtitle = t("tools_sub"),
-                icon = Icons.Filled.Build,
-                chevron = true,
-                onClick = onOpenTools
-            )
+        groups.forEach { (title, tiles) ->
+            val shown = arrangeTiles(tiles, look)
+            if (shown.isNotEmpty()) {
+                Rail(title)
+                TileGrid(shown)
+            }
         }
+    }
+}
 
-        Rail(t("sec_diagnostics"))
-        // The debugger and SSH used to be top-level tabs. Same screens, same
-        // capabilities, reached from here so the bar can stay at three.
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = t("debugger"),
-                subtitle = t("debugger_settings_sub"),
-                iconRes = R.drawable.ic_royal_tools,
-                chevron = true,
-                onClick = onOpenDebugger
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("netmon_title"),
-                subtitle = t("netmon_sub"),
-                icon = Icons.Filled.TravelExplore,
-                chevron = true,
-                onClick = onOpenNetMon
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("ssh"),
-                subtitle = t("ssh_settings_sub"),
-                iconRes = R.drawable.ic_royal_tunnel,
-                chevron = true,
-                onClick = onOpenSsh
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("livemon_title"),
-                subtitle = t("livemon_sub"),
-                icon = Icons.Filled.MonitorHeart,
-                chevron = true,
-                onClick = { onOpenExtra("livemon") }
-            )
-        }
+/**
+ * The Settings destinations, as data. Personalization reorders and hides
+ * them by id; [CRITICAL] ones cannot be hidden, so the way back to every
+ * setting always exists.
+ */
+object SettingsTiles {
+    val CRITICAL = setOf("personalize", "backup", "about", "conn_general", "cores")
 
-        Rail(t("sec_routing_data"))
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = t("dnsproto_title"),
-                subtitle = t("dnsproto_sub"),
-                icon = Icons.Filled.Dns,
-                chevron = true,
-                onClick = { onOpenExtra("dnsproto") }
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("geodata_title"),
-                subtitle = t("geodata_sub"),
-                icon = Icons.Filled.Public,
-                chevron = true,
-                onClick = { onOpenExtra("geodata") }
-            )
-        }
+    class Nav(
+        val extra: (String) -> Unit, val connection: () -> Unit, val tools: () -> Unit, val usage: () -> Unit,
+        val preferences: () -> Unit, val about: () -> Unit, val netmon: () -> Unit, val ssh: () -> Unit,
+        val debugger: () -> Unit, val backup: () -> Unit, val theme: () -> Unit, val notifications: () -> Unit,
+        val stability: () -> Unit, val logs: () -> Unit
+    )
 
-        Rail(t("sec_usage"))
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = t("data_usage"),
-                subtitle = formatBytes(allTime[0] + allTime[1], lang),
-                icon = Icons.Filled.DataUsage,
-                chevron = true,
-                onClick = onOpenUsage
-            )
-        }
+    /** (id, title key) of every tile, for the Personalization order editor. */
+    val ALL: List<Pair<String, String>> = listOf(
+        "conn_general" to "set_tile_general", "cores" to "set_tile_cores", "dns" to "sec_dns", "routing" to "routing",
+        "geodata" to "geodata_title", "tools" to "tools", "speed" to "stab_title", "netmon" to "netmon_title",
+        "livemon" to "livemon_title", "debugger" to "debugger", "ssh" to "ssh", "logs" to "log_title",
+        "personalize" to "theme_settings", "notifications" to "notif_settings", "preferences" to "preferences",
+        "usage" to "data_usage", "backup" to "backup_title", "safebox" to "safebox_title", "about" to "about"
+    )
 
-        Rail(t("sec_app"))
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = t("preferences"),
-                subtitle = t("preferences_sub"),
-                icon = Icons.Filled.Tune,
-                chevron = true,
-                onClick = onOpenPreferences
+    fun groups(t: (String) -> String, usage: String, killSwitch: Boolean, nav: Nav): List<Pair<String, List<SettingsTileSpec>>> {
+        fun tile(id: String, titleKey: String, subKey: String?, icon: ImageVector? = null, iconRes: Int? = null,
+                 badge: String? = null, active: Boolean? = null, onClick: () -> Unit) =
+            SettingsTileSpec(id, t(titleKey), subKey?.let(t), icon, iconRes, null, badge, active, id in CRITICAL, onClick)
+        return listOf(
+            t("sec_connection") to listOf(
+                tile("conn_general", "set_tile_general", "set_tile_general_sub", Icons.Filled.Router, active = killSwitch) { nav.extra("conn:general") },
+                tile("cores", "set_tile_cores", "set_tile_cores_sub", Icons.Filled.Layers) { nav.extra("cores") },
+                tile("dns", "sec_dns", "set_tile_dns_sub", Icons.Filled.Dns) { nav.extra("conn:dns") },
+                tile("routing", "routing", "set_tile_routing_sub", Icons.Filled.CallSplit) { nav.extra("conn:routing") },
+                tile("geodata", "geodata_title", "geodata_sub", Icons.Filled.Public) { nav.extra("geodata") }
+            ),
+            t("sec_diagnostics") to listOf(
+                tile("tools", "tools", "tools_sub", Icons.Filled.Build, onClick = nav.tools),
+                tile("speed", "stab_title", "stab_sub", Icons.Filled.Speed, onClick = nav.stability),
+                tile("netmon", "netmon_title", "netmon_sub", Icons.Filled.TravelExplore, onClick = nav.netmon),
+                tile("livemon", "livemon_title", "livemon_sub", Icons.Filled.MonitorHeart) { nav.extra("livemon") },
+                tile("debugger", "debugger", "debugger_settings_sub", iconRes = R.drawable.ic_royal_tools, onClick = nav.debugger),
+                tile("ssh", "ssh", "ssh_settings_sub", iconRes = R.drawable.ic_royal_tunnel, onClick = nav.ssh),
+                tile("logs", "log_title", "set_tile_logs_sub", Icons.Filled.BugReport, onClick = nav.logs)
+            ),
+            t("sec_app") to listOf(
+                tile("personalize", "theme_settings", "theme_settings_sub", Icons.Filled.Palette, onClick = nav.theme),
+                tile("notifications", "notif_settings", "notif_settings_sub", Icons.Filled.Notifications, onClick = nav.notifications),
+                tile("preferences", "preferences", "preferences_sub", Icons.Filled.Tune, onClick = nav.preferences),
+                tile("usage", "data_usage", null, Icons.Filled.DataUsage, badge = usage, onClick = nav.usage),
+                tile("backup", "backup_title", "backup_sub", Icons.Filled.Backup, onClick = nav.backup),
+                tile("safebox", "safebox_title", "safebox_sub", Icons.Filled.Lock) { nav.extra("safebox") },
+                tile("about", "about", "about_sub", Icons.Filled.Info, onClick = nav.about)
             )
-            SlabDivider()
-            SlabRow(
-                title = t("about"),
-                subtitle = t("about_sub"),
-                icon = Icons.Filled.Info,
-                chevron = true,
-                onClick = onOpenAbout
-            )
-        }
-
-        Rail(t("sec_data"))
-        // One row that opens the backup page, rather than the whole backup
-        // form expanded at the bottom of Settings.
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = t("backup_title"),
-                subtitle = t("backup_sub"),
-                icon = Icons.Filled.Backup,
-                chevron = true,
-                onClick = onOpenBackup
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("safebox_title"),
-                subtitle = t("safebox_sub"),
-                icon = Icons.Filled.Lock,
-                chevron = true,
-                onClick = { onOpenExtra("safebox") }
-            )
-        }
+        )
     }
 }
 
@@ -7095,7 +7144,6 @@ private fun ToolsScreen(
     onOpenCleanIp: () -> Unit,
     onOpenCheckHost: () -> Unit,
     onOpenDnsLab: () -> Unit,
-    onOpenMap: () -> Unit,
     onSwitch: (ProxyConfig) -> Unit,
     onOpenExtra: (String) -> Unit = {},
     modifier: Modifier = Modifier
@@ -7118,85 +7166,27 @@ private fun ToolsScreen(
     ) {
         ScreenHeader(title = t("tools"), context = t("tools_header_sub"))
 
-        // The tools used most, one tap away.
-        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-            GlyphTile(Icons.Filled.Speed, t("stab_title"), onOpenStability, Modifier.weight(1f))
-            GlyphTile(Icons.Filled.MonitorHeart, t("livemon_title"), { onOpenExtra("livemon") }, Modifier.weight(1f))
-        }
-        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-            GlyphTile(Icons.Filled.Dns, t("dnsproto_title"), { onOpenExtra("dnsproto") }, Modifier.weight(1f))
-            GlyphTile(Icons.Filled.Public, t("geodata_title"), { onOpenExtra("geodata") }, Modifier.weight(1f))
-        }
+        // Places to go are tiles; the privacy switches below stay a form.
+        Rail(t("sec_measure"))
+        TileGrid(listOf(
+            SettingsTileSpec("t_speed", t("stab_title"), t("stab_sub"), Icons.Filled.Speed, onClick = onOpenStability),
+            SettingsTileSpec("t_livemon", t("livemon_title"), t("livemon_sub"), Icons.Filled.MonitorHeart, onClick = { onOpenExtra("livemon") }),
+            SettingsTileSpec("t_check", t("chk_title"), t("chk_sub"), Icons.Filled.NetworkCheck, onClick = onOpenCheckHost),
+            SettingsTileSpec("t_scan", t("scan_warp"), t("scan_sub"), iconRes = R.drawable.cloudflare, onClick = onOpenCleanIp),
+            SettingsTileSpec("t_dnslab", t("dnslab_title"), t("dnslab_sub"), Icons.Filled.Dns, onClick = onOpenDnsLab),
+            SettingsTileSpec("t_dnsproto", t("dnsproto_title"), t("dnsproto_sub"), Icons.Filled.Dns, onClick = { onOpenExtra("dnsproto") }),
+            SettingsTileSpec("t_geodata", t("geodata_title"), t("geodata_sub"), Icons.Filled.Public, onClick = { onOpenExtra("geodata") })
+        ))
 
         Rail(t("sec_sharing"))
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = "اشتراک‌گذاری VPN",
-                subtitle = "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی",
-                icon = Icons.Filled.Wifi,
-                chevron = true,
-                onClick = { vpnShareOpen = true }
-            )
-            SlabDivider()
-            SlabRow(
-                title = "تاریخچهٔ اتصال",
-                subtitle = "زمان و وضعیت آخرین اتصال‌ها، قطعی‌ها و خطاها",
-                icon = Icons.Filled.History,
-                chevron = true,
-                onClick = { connectionHistoryOpen = true }
-            )
-            SlabDivider()
-            SlabRow(
-                title = "لاگ و اشکال‌زدایی",
-                subtitle = "مشاهده و دانلود گزارش کامل رویدادها و خطاها",
-                icon = Icons.Filled.BugReport,
-                chevron = true,
-                onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
-            )
-        }
-
-        Rail(t("sec_measure"))
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = t("stab_title"),
-                subtitle = t("stab_sub"),
-                icon = Icons.Filled.NetworkCheck,
-                chevron = true,
-                onClick = onOpenStability
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("chk_title"),
-                subtitle = t("chk_sub"),
-                icon = Icons.Filled.Dns,
-                chevron = true,
-                onClick = onOpenCheckHost
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("scan_warp"),
-                subtitle = t("scan_sub"),
-                iconRes = R.drawable.cloudflare,
-                chevron = true,
-                onClick = onOpenCleanIp
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("dnslab_title"),
-                subtitle = t("dnslab_sub"),
-                icon = Icons.Filled.Dns,
-                chevron = true,
-                onClick = onOpenDnsLab
-            )
-            SlabDivider()
-            SlabRow(
-                title = t("map_title"),
-                subtitle = t("map_subtitle"),
-                icon = Icons.Filled.Public,
-                chevron = true,
-                onClick = onOpenMap
-            )
-        }
+        TileGrid(listOf(
+            SettingsTileSpec("t_share", "اشتراک‌گذاری VPN", "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی", Icons.Filled.Wifi,
+                onClick = { vpnShareOpen = true }),
+            SettingsTileSpec("t_history", "تاریخچهٔ اتصال", "زمان و وضعیت آخرین اتصال‌ها، قطعی‌ها و خطاها", Icons.Filled.History,
+                onClick = { connectionHistoryOpen = true }),
+            SettingsTileSpec("t_logs", "لاگ و اشکال‌زدایی", "مشاهده و دانلود گزارش کامل رویدادها و خطاها", Icons.Filled.BugReport,
+                onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) })
+        ))
 
         Rail(t("sec_privacy"))
         SettingsGroup {
@@ -8270,9 +8260,12 @@ private fun ConnectionSettingsScreen(
     onOpenPerApp: () -> Unit,
     onOpenLogs: () -> Unit,
     onOpenExtra: (String) -> Unit = {},
+    /** One section (dns, routing, xray, zeptun, general, openvpn) or all of them. */
+    section: String = "all",
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
+    fun show(s: String) = section == "all" || section == s
     val lang = LocalLang.current
     val fragment by store.fragment.collectAsState()
     val fragmentPackets by store.fragmentPackets.collectAsState()
@@ -8318,16 +8311,27 @@ private fun ConnectionSettingsScreen(
         modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
-        ScreenHeader(title = t("connection_settings"), context = t("connection_settings_sub"))
-        // The engine-level settings that live on their own pages.
-        Slab(spacing = 0.dp) {
+        ScreenHeader(
+            title = when (section) {
+                "dns" -> t("sec_dns")
+                "routing" -> t("routing")
+                "xray" -> "Xray"
+                "zeptun" -> "zeptun"
+                "openvpn" -> "OpenVPN"
+                else -> t("connection_settings")
+            },
+            context = when (section) {
+                "dns" -> t("set_tile_dns_sub")
+                "routing" -> t("set_tile_routing_sub")
+                "xray" -> t("set_core_xray_sub")
+                "zeptun" -> t("set_core_zeptun_sub")
+                "openvpn" -> t("set_core_openvpn_sub")
+                else -> t("connection_settings_sub")
+            }
+        )
+        if (show("dns")) SettingsGroup(t("sec_dns")) {
             SlabRow(title = t("dnsproto_title"), subtitle = t("dnsproto_sub"), icon = Icons.Filled.Dns, chevron = true,
                 onClick = { onOpenExtra("dnsproto") })
-            SlabDivider()
-            SlabRow(title = t("geodata_title"), subtitle = t("geodata_sub"), icon = Icons.Filled.Public, chevron = true,
-                onClick = { onOpenExtra("geodata") })
-        }
-        SettingsGroup(t("routing")) {
             SettingRow(
                 title = t("fakedns_title"),
                 subtitle = t("fakedns_sub"),
@@ -8342,6 +8346,10 @@ private fun ConnectionSettingsScreen(
                 onCheckedChange = { store.setEncryptedDns(it) },
                 icon = Icons.Filled.Lock
             )
+        }
+        if (show("routing")) SettingsGroup(t("routing")) {
+            SlabRow(title = t("geodata_title"), subtitle = t("geodata_sub"), icon = Icons.Filled.Public, chevron = true,
+                onClick = { onOpenExtra("geodata") })
             SettingRow(
                 title = t("split_title"),
                 subtitle = t("split_sub"),
@@ -8349,6 +8357,17 @@ private fun ConnectionSettingsScreen(
                 onCheckedChange = { store.setSplitRouting(it) },
                 icon = Icons.Filled.CallSplit
             )
+            // Youtube Direct, from MahsaNG. A bandwidth decision, not a
+            // censorship one - which is why the note says what it costs.
+            SettingRow(
+                title = t("youtube_direct_title"),
+                subtitle = if (youtubeDirect) t("youtube_direct_on") else t("youtube_direct_off"),
+                checked = youtubeDirect,
+                onCheckedChange = { store.setYoutubeDirect(it) },
+                icon = Icons.Filled.PlayArrow
+            )
+        }
+        if (show("xray")) SettingsGroup("Xray") {
             SettingRow(
                 title = t("fragment_title"),
                 subtitle = t("fragment_sub"),
@@ -8407,6 +8426,130 @@ private fun ConnectionSettingsScreen(
                     )
                 }
             }
+            // Noise packets on the direct outbound, from MahsaNG. Off by
+            // default: a server that will not tolerate an unexpected leading
+            // packet fails rather than degrades.
+            SlabRow(
+                title = t("noise_title"),
+                subtitle = when (noiseSpec) {
+                    "", "off" -> t("noise_off")
+                    "light" -> t("noise_light")
+                    "standard" -> t("noise_standard")
+                    "aggressive" -> t("noise_aggressive")
+                    "quic" -> t("noise_quic")
+                    else -> t("noise_custom")
+                },
+                icon = Icons.Filled.GraphicEq,
+                accent = if (noiseSpec.isBlank() || noiseSpec == "off")
+                    ghajarColors.textMuted else ghajarColors.primary,
+                chevron = true,
+                onClick = {
+                    // Cycles the presets only. A hand-written spec is kept as
+                    // it is until the user taps, which then moves to "off"
+                    // rather than silently rewriting what they typed.
+                    val steps = listOf("off", "light", "standard", "aggressive", "quic")
+                    val here = steps.indexOf(noiseSpec.ifBlank { "off" })
+                    store.setNoiseSpec(steps[(here.coerceAtLeast(0) + 1) % steps.size])
+                }
+            )
+            SettingRow(
+                title = t("sniffing_title"),
+                subtitle = t("sniffing_sub"),
+                checked = sniffing,
+                onCheckedChange = { store.setSniffing(it) },
+                icon = Icons.Filled.TravelExplore
+            )
+            AnimatedVisibility(visible = sniffing) {
+                Column {
+                    Text(
+                        t("sniffing_type"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    SniffTypeSelector(
+                        selected = sniffTypes,
+                        onToggle = { store.toggleSniffType(it) }
+                    )
+                }
+            }
+
+            SettingRow(
+                title = t("mux_title"),
+                subtitle = t("mux_sub"),
+                checked = mux,
+                onCheckedChange = { store.setMux(it) },
+                icon = Icons.Filled.Layers
+            )
+            AnimatedVisibility(visible = mux) {
+                Row(
+                    Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(t("mux_concurrency"), style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f))
+                    IconButton(onClick = { store.setMuxConcurrency(muxConcurrency - 1) }) {
+                        Icon(Icons.Filled.Remove, contentDescription = "-")
+                    }
+                    Text("$muxConcurrency", style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
+                    IconButton(onClick = { store.setMuxConcurrency(muxConcurrency + 1) }) {
+                        Icon(Icons.Filled.Add, contentDescription = "+")
+                    }
+                }
+            }
+
+        }
+        if (show("xray")) SettingsGroup(t("advanced")) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(t("mixed_port"), style = MaterialTheme.typography.bodyMedium)
+                    Text(
+                        t("mixed_port_sub"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Spacer(Modifier.width(12.dp))
+                val focus = LocalFocusManager.current
+                var portText by remember(mixedPort) { mutableStateOf(mixedPort.toString()) }
+                BasicTextField(
+                    value = portText,
+                    onValueChange = { raw ->
+                        val digits = raw.filter { it.isDigit() }.take(5)
+                        portText = digits
+                        digits.toIntOrNull()?.let { if (it in 1024..65535) store.setMixedPort(it) }
+                    },
+                    singleLine = true,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(
+                        fontFamily = monoFont(),
+                        textAlign = TextAlign.Center,
+                        color = MaterialTheme.colorScheme.onSurface
+                    ),
+                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Number,
+                        imeAction = ImeAction.Done
+                    ),
+                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                    modifier = Modifier.width(78.dp).height(36.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
+                            RoundedCornerShape(10.dp)
+                        )
+                        .padding(horizontal = 8.dp),
+                    decorationBox = { inner ->
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { inner() }
+                    }
+                )
+            }
+        }
+
+
+        if (show("zeptun")) SettingsGroup("zeptun") {
             // The zeptun tun engine. The row reports what the library on
             // this device actually says about itself rather than whether the
             // build was supposed to include it - a version string here is
@@ -8486,41 +8629,8 @@ private fun ConnectionSettingsScreen(
                     )
                 }
             }
-            // Noise packets on the direct outbound, from MahsaNG. Off by
-            // default: a server that will not tolerate an unexpected leading
-            // packet fails rather than degrades.
-            SlabRow(
-                title = t("noise_title"),
-                subtitle = when (noiseSpec) {
-                    "", "off" -> t("noise_off")
-                    "light" -> t("noise_light")
-                    "standard" -> t("noise_standard")
-                    "aggressive" -> t("noise_aggressive")
-                    "quic" -> t("noise_quic")
-                    else -> t("noise_custom")
-                },
-                icon = Icons.Filled.GraphicEq,
-                accent = if (noiseSpec.isBlank() || noiseSpec == "off")
-                    ghajarColors.textMuted else ghajarColors.primary,
-                chevron = true,
-                onClick = {
-                    // Cycles the presets only. A hand-written spec is kept as
-                    // it is until the user taps, which then moves to "off"
-                    // rather than silently rewriting what they typed.
-                    val steps = listOf("off", "light", "standard", "aggressive", "quic")
-                    val here = steps.indexOf(noiseSpec.ifBlank { "off" })
-                    store.setNoiseSpec(steps[(here.coerceAtLeast(0) + 1) % steps.size])
-                }
-            )
-            // Youtube Direct, from MahsaNG. A bandwidth decision, not a
-            // censorship one - which is why the note says what it costs.
-            SettingRow(
-                title = t("youtube_direct_title"),
-                subtitle = if (youtubeDirect) t("youtube_direct_on") else t("youtube_direct_off"),
-                checked = youtubeDirect,
-                onCheckedChange = { store.setYoutubeDirect(it) },
-                icon = Icons.Filled.PlayArrow
-            )
+        }
+        if (show("general")) SettingsGroup(t("sec_connection")) {
             // Rotating configs: off unless an interval is set, and it only
             // moves between servers that are already in the list.
             SlabRow(
@@ -8537,53 +8647,6 @@ private fun ConnectionSettingsScreen(
                     store.setRotateMinutes(next)
                 }
             )
-            SettingRow(
-                title = t("sniffing_title"),
-                subtitle = t("sniffing_sub"),
-                checked = sniffing,
-                onCheckedChange = { store.setSniffing(it) },
-                icon = Icons.Filled.TravelExplore
-            )
-            AnimatedVisibility(visible = sniffing) {
-                Column {
-                    Text(
-                        t("sniffing_type"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(bottom = 6.dp)
-                    )
-                    SniffTypeSelector(
-                        selected = sniffTypes,
-                        onToggle = { store.toggleSniffType(it) }
-                    )
-                }
-            }
-
-            SettingRow(
-                title = t("mux_title"),
-                subtitle = t("mux_sub"),
-                checked = mux,
-                onCheckedChange = { store.setMux(it) },
-                icon = Icons.Filled.Layers
-            )
-            AnimatedVisibility(visible = mux) {
-                Row(
-                    Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(t("mux_concurrency"), style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.weight(1f))
-                    IconButton(onClick = { store.setMuxConcurrency(muxConcurrency - 1) }) {
-                        Icon(Icons.Filled.Remove, contentDescription = "-")
-                    }
-                    Text("$muxConcurrency", style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.width(36.dp), textAlign = TextAlign.Center)
-                    IconButton(onClick = { store.setMuxConcurrency(muxConcurrency + 1) }) {
-                        Icon(Icons.Filled.Add, contentDescription = "+")
-                    }
-                }
-            }
-
             SettingRow(
                 title = t("kill_switch_title"),
                 subtitle = t("kill_switch_sub"),
@@ -8642,55 +8705,7 @@ private fun ConnectionSettingsScreen(
 
         }
 
-        SettingsGroup(t("advanced")) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(t("mixed_port"), style = MaterialTheme.typography.bodyMedium)
-                    Text(
-                        t("mixed_port_sub"),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(Modifier.width(12.dp))
-                val focus = LocalFocusManager.current
-                var portText by remember(mixedPort) { mutableStateOf(mixedPort.toString()) }
-                BasicTextField(
-                    value = portText,
-                    onValueChange = { raw ->
-                        val digits = raw.filter { it.isDigit() }.take(5)
-                        portText = digits
-                        digits.toIntOrNull()?.let { if (it in 1024..65535) store.setMixedPort(it) }
-                    },
-                    singleLine = true,
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(
-                        fontFamily = monoFont(),
-                        textAlign = TextAlign.Center,
-                        color = MaterialTheme.colorScheme.onSurface
-                    ),
-                    cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-                    keyboardOptions = KeyboardOptions(
-                        keyboardType = KeyboardType.Number,
-                        imeAction = ImeAction.Done
-                    ),
-                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
-                    modifier = Modifier.width(78.dp).height(36.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .border(
-                            1.dp,
-                            MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-                            RoundedCornerShape(10.dp)
-                        )
-                        .padding(horizontal = 8.dp),
-                    decorationBox = { inner ->
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { inner() }
-                    }
-                )
-            }
-        }
-
-        SettingsGroup(t("netrule_title")) {
+        if (show("general")) SettingsGroup(t("netrule_title")) {
             Text(
                 t("netrule_sub"),
                 style = MaterialTheme.typography.bodySmall,
@@ -8736,7 +8751,8 @@ private fun ConnectionSettingsScreen(
             )
         }
 
-        SettingsGroup("OpenVPN") {
+
+        if (show("openvpn")) SettingsGroup("OpenVPN") {
             Text(
                 if (lang == Lang.FA)
                     "این گزینه‌ها مستقیماً به موتور رسمی OpenVPN for Android وصل هستند."
@@ -8826,19 +8842,22 @@ private fun ConnectionSettingsScreen(
             }
         }
 
-        SettingsHubCard(
-            icon = Icons.Filled.Apps,
-            title = t("per_app"),
-            subtitle = perAppSummary(perAppMode, perAppList.size, lang),
-            onClick = onOpenPerApp
-        )
 
-        SettingsHubCard(
-            icon = Icons.AutoMirrored.Filled.Article,
-            title = t("xray_logs"),
-            subtitle = t("xray_logs_sub"),
-            onClick = onOpenLogs
-        )
+        if (show("general")) {
+            SettingsHubCard(
+                icon = Icons.Filled.Apps,
+                title = t("per_app"),
+                subtitle = perAppSummary(perAppMode, perAppList.size, lang),
+                onClick = onOpenPerApp
+            )
+
+            SettingsHubCard(
+                icon = Icons.AutoMirrored.Filled.Article,
+                title = t("xray_logs"),
+                subtitle = t("xray_logs_sub"),
+                onClick = onOpenLogs
+            )
+        }
 
         Text(
             t("takes_effect"),
@@ -13291,8 +13310,12 @@ private fun ConfigRow(
     // and were rejected: this list maps a drag's y position to a row id for
     // paint-selection, and a second column makes that mapping select the
     // wrong servers - silently, which is the worst way for it to be wrong.
-    val compact = LocalListDensity.current == ListDensity.TWO ||
-        LocalGhajarLook.current.density == "compact"
+    val rowLook = LocalGhajarLook.current
+    val fields = rowLook.serverFields
+    val large = rowLook.serverView == "large"
+    val compact = !large && (LocalListDensity.current == ListDensity.TWO ||
+        rowLook.density == "compact" || rowLook.serverView == "compact")
+    val meta = LocalServerMeta.current
     val activeTone = lookColor(LookElement.SERVER_ACTIVE)
     val cardTone = lookColor(LookElement.SERVER_CARD)
     // Selection is a low-alpha brand wash rather than a filled container, so a
@@ -13418,8 +13441,8 @@ private fun ConfigRow(
                 .padding(
                     start = GhajarSpacing.md,
                     end = GhajarSpacing.sm,
-                    top = if (compact) 4.dp else 6.dp,
-                    bottom = if (compact) 4.dp else 6.dp
+                    top = if (compact) 4.dp else if (large) 12.dp else 6.dp,
+                    bottom = if (compact) 4.dp else if (large) 12.dp else 6.dp
                 ),
             verticalArrangement = Arrangement.spacedBy(if (compact) 0.dp else 2.dp)
         ) {
@@ -13448,7 +13471,7 @@ private fun ConfigRow(
                             tint = c.primary,
                             modifier = Modifier.size(if (compact) 15.dp else 16.dp)
                         )
-                    } else {
+                    } else if ("ping" in fields) {
                         LivePingDot(ping)
                     }
                 }
@@ -13476,13 +13499,17 @@ private fun ConfigRow(
                     // whole name at once and cost nothing per frame. Flags still
                     // render inline, which is the one thing MarqueeName was
                     // carrying that a plain Text would have dropped.
-                    val shown = remember(config.name) {
-                        GhajarUiRules.brandedConfigName(config.name)
+                    if ("favorite" in fields && config.favorite) {
+                        Icon(Icons.Filled.Star, contentDescription = null, tint = c.premium, modifier = Modifier.size(14.dp))
+                    }
+                    val showFlag = "flag" in fields
+                    val shown = remember(config.name, showFlag) {
+                        GhajarUiRules.brandedConfigName(config.name).let { if (showFlag) it else stripFlags(it) }
                     }
                     Text(
                         flagRuns(shown, LexendFont),
                         inlineContent = flagInlineContent(shown, 15.sp),
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = if (large) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
                         fontWeight = FontWeight.SemiBold,
                         color = if (isActive) c.primary else c.textPrimary,
                         maxLines = if (compact) 1 else 2,
@@ -13549,7 +13576,18 @@ private fun ConfigRow(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
             ) {
-                ProtocolTag(config.protocol, isActive)
+                if ("protocol" in fields) ProtocolTag(config.protocol, isActive)
+                if ("core" in fields) {
+                    Text(
+                        coreLabel(config),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.info,
+                        maxLines = 1
+                    )
+                }
+                if ("country" in fields) countryOf(config.name)?.let { cc ->
+                    Text(cc, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = c.textSecondary)
+                }
                 if (!compact) {
                     Text(
                         if (config.locked) AnnotatedString(t("locked_config"))
@@ -13562,7 +13600,17 @@ private fun ConfigRow(
                     )
                 }
                 Spacer(Modifier.weight(1f))
-                PingChip(ping)
+                if ("traffic" in fields) meta.traffic[config.name]?.takeIf { it > 0 }?.let { bytes ->
+                    Text(formatBytes(bytes, LocalLang.current), style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 1)
+                }
+                if ("last" in fields) meta.lastConnected[config.id]?.let { at ->
+                    Text(relativeTime(at, LocalLang.current), style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 1)
+                }
+                if ("quality" in fields) qualityLabel(ping, LocalLang.current)?.let { (label, tone) ->
+                    Text(label, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = tone(c), maxLines = 1)
+                }
+                // The last measured result (TCP ping or real delay).
+                if ("test" in fields || "ping" in fields) PingChip(ping)
             }
 
             // Tier three, on demand. Five actions at a real touch size, evenly
@@ -15220,15 +15268,49 @@ private fun ProtocolFormScreen(formId: String, onSave: (ProxyConfig) -> Unit, on
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
         ScreenHeader(title = form.title, context = t("form_sub_" + form.id))
-        form.fields.filter { !it.advanced }.forEach { FieldView(it) }
-        val adv = form.fields.filter { it.advanced }
-        if (adv.isNotEmpty()) {
-            Slab(spacing = 0.dp) {
-                SlabRow(title = t("form_advanced"), icon = Icons.Filled.Tune, value = if (advanced) "−" else "+",
-                    onClick = { advanced = !advanced })
+        val formStyle = LocalGhajarLook.current.addServerStyle
+        if (formStyle == "compact") {
+            form.fields.filter { !it.advanced }.forEach { FieldView(it) }
+            val adv = form.fields.filter { it.advanced }
+            if (adv.isNotEmpty()) {
+                Slab(spacing = 0.dp) {
+                    SlabRow(title = t("form_advanced"), icon = Icons.Filled.Tune, value = if (advanced) "−" else "+",
+                        onClick = { advanced = !advanced })
+                }
+                AnimatedVisibility(visible = advanced) {
+                    Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) { adv.forEach { FieldView(it) } }
+                }
             }
-            AnimatedVisibility(visible = advanced) {
-                Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) { adv.forEach { FieldView(it) } }
+        } else {
+            // Sections by what a field configures (Basic, Authentication,
+            // Transport, TLS, Network, DNS, Routing, Advanced), built from
+            // the protocol's own field list: a section with nothing for this
+            // protocol never appears.
+            val sections = remember(form.id) { ProtocolForms.sections(form) }
+            val hasAdvanced = form.fields.any { it.advanced }
+            if (formStyle == "tabs") {
+                var tab by rememberSaveable(form.id) { mutableIntStateOf(0) }
+                TabRail(
+                    tabs = sections.map { RailTab(t("form_sec_" + it.first)) },
+                    selected = tab.coerceIn(0, sections.lastIndex),
+                    onSelect = { tab = it }
+                )
+                val (_, fields) = sections[tab.coerceIn(0, sections.lastIndex)]
+                fields.filter { advanced || !it.advanced }.forEach { FieldView(it) }
+            } else {
+                sections.forEach { (sec, fields) ->
+                    val shown = fields.filter { advanced || !it.advanced }
+                    if (shown.isNotEmpty()) {
+                        Rail(t("form_sec_$sec"))
+                        shown.forEach { FieldView(it) }
+                    }
+                }
+            }
+            if (hasAdvanced) {
+                Slab(spacing = 0.dp) {
+                    SlabRow(title = t("form_advanced"), icon = Icons.Filled.Tune, value = if (advanced) "−" else "+",
+                        onClick = { advanced = !advanced })
+                }
             }
         }
         if (error.isNotBlank()) InfoBox(error, accent = c.error)
@@ -15242,5 +15324,71 @@ private fun ProtocolFormScreen(formId: String, onSave: (ProxyConfig) -> Unit, on
             }
         )
         GhostPill(text = t("cancel"), accent = c.textSecondary, onClick = onCancel)
+    }
+}
+
+
+/** Data the server list shows per row that is not part of the profile. */
+@androidx.compose.runtime.Immutable
+data class ServerMeta(val traffic: Map<String, Long> = emptyMap(), val lastConnected: Map<String, Long> = emptyMap())
+
+val LocalServerMeta = androidx.compose.runtime.staticCompositionLocalOf { ServerMeta() }
+
+/** Removes regional-indicator flag pairs from a name. */
+internal fun stripFlags(name: String): String {
+    val out = StringBuilder()
+    var i = 0
+    while (i < name.length) {
+        val cp = name.codePointAt(i)
+        val n = Character.charCount(cp)
+        if (cp !in 0x1F1E6..0x1F1FF) out.appendCodePoint(cp)
+        i += n
+    }
+    return out.toString().trim()
+}
+
+/** The ISO country code spelled by the first flag in a name, if any. */
+internal fun countryOf(name: String): String? {
+    val cps = name.codePoints().toArray()
+    for (j in 0 until cps.size - 1) {
+        if (cps[j] in 0x1F1E6..0x1F1FF && cps[j + 1] in 0x1F1E6..0x1F1FF) {
+            return "" + ('A' + (cps[j] - 0x1F1E6)) + ('A' + (cps[j + 1] - 0x1F1E6))
+        }
+    }
+    return null
+}
+
+internal fun coreLabel(c: ProxyConfig): String = when (net.gozar.app.engine.EngineRouting.engineFor(c)) {
+    net.gozar.app.engine.EngineId.XRAY -> "Xray"
+    net.gozar.app.engine.EngineId.SINGBOX -> "sing-box"
+    net.gozar.app.engine.EngineId.PSIPHON -> "Psiphon"
+    net.gozar.app.engine.EngineId.OPENVPN -> "OpenVPN"
+    net.gozar.app.engine.EngineId.IKEV2 -> "strongSwan"
+    net.gozar.app.engine.EngineId.TOR -> "Tor"
+    net.gozar.app.engine.EngineId.AETHER -> "Aether"
+    net.gozar.app.engine.EngineId.ZEPTUN_TUN -> "zeptun"
+    net.gozar.app.engine.EngineId.DNS_TUNNEL -> "DNS"
+}
+
+/** A one-word verdict on a measured latency, with its tone. */
+internal fun qualityLabel(ping: PingResult?, lang: Lang): Pair<String, (GhajarPalette) -> Color>? {
+    val ms = (ping as? PingResult.Ok)?.ms ?: return null
+    val fa = lang == Lang.FA
+    return when {
+        ms < 150 -> (if (fa) "عالی" else "Great") to { p: GhajarPalette -> p.good }
+        ms < 400 -> (if (fa) "خوب" else "Good") to { p: GhajarPalette -> p.info }
+        ms < 900 -> (if (fa) "متوسط" else "Fair") to { p: GhajarPalette -> p.warning }
+        else -> (if (fa) "ضعیف" else "Poor") to { p: GhajarPalette -> p.error }
+    }
+}
+
+internal fun relativeTime(at: Long, lang: Lang): String {
+    val mins = ((System.currentTimeMillis() - at) / 60_000).coerceAtLeast(0)
+    val fa = lang == Lang.FA
+    return when {
+        mins < 1 -> if (fa) "همین حالا" else "now"
+        mins < 60 -> localizeDigits("$mins", lang) + (if (fa) " دقیقه پیش" else "m ago")
+        mins < 1440 -> localizeDigits("${mins / 60}", lang) + (if (fa) " ساعت پیش" else "h ago")
+        else -> localizeDigits("${mins / 1440}", lang) + (if (fa) " روز پیش" else "d ago")
     }
 }

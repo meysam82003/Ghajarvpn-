@@ -37,6 +37,10 @@ data class ProxyConfig(
     val aetherScan: String = "balanced",
     val aetherNoise: String = "",
     val aetherHttp2: Boolean = true,
+    /** Aether 2.1: exit-country lock, e.g. "DE,NL" or "!IR"; blank = any. */
+    val aetherExitLoc: String = "",
+    /** Aether 2.1: split the TLS ClientHello on the server name (HTTP/2 MASQUE). */
+    val aetherFragment: Boolean = false,
     val aetherIpv6: Boolean = false,
     val hyObfs: String = "",
     val hyObfsPassword: String = "",
@@ -145,6 +149,7 @@ data class ProxyConfig(
         .put("mtu", mtu).put("reserved", reserved).put("locked", locked).put("favorite", favorite)
         .put("aetherMode", aetherMode).put("aetherScan", aetherScan)
         .put("aetherNoise", aetherNoise).put("aetherHttp2", aetherHttp2)
+        .put("aetherExitLoc", aetherExitLoc).put("aetherFragment", aetherFragment)
         .put("aetherIpv6", aetherIpv6).put("oblivionJson", oblivionJson)
         .put("hyObfs", hyObfs).put("hyObfsPassword", hyObfsPassword)
         .put("hyUpMbps", hyUpMbps).put("hyDownMbps", hyDownMbps)
@@ -196,6 +201,8 @@ data class ProxyConfig(
             aetherScan = o.optString("aetherScan", "balanced"),
             aetherNoise = o.optString("aetherNoise", ""),
             aetherHttp2 = o.optBoolean("aetherHttp2", false),
+            aetherExitLoc = o.optString("aetherExitLoc", ""),
+            aetherFragment = o.optBoolean("aetherFragment", false),
             aetherIpv6 = o.optBoolean("aetherIpv6", false),
             oblivionJson = o.optString("oblivionJson", ""),
             hyObfs = o.optString("hyObfs", ""),

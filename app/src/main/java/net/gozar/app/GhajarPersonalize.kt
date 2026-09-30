@@ -40,7 +40,23 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Animation
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Dns
+import androidx.compose.material.icons.filled.DragHandle
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.PlaylistAdd
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Storefront
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.VisibilityOff
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Brightness2
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentPaste
@@ -121,12 +137,19 @@ private data class LookCategory(val key: String, val fa: String, val en: String,
 private val Categories = listOf(
     LookCategory("theme", "تم", "Theme", Icons.Filled.Palette),
     LookCategory("appearance", "ظاهر", "Appearance", Icons.Filled.Brightness2),
-    LookCategory("nav", "ناوبری", "Navigation", Icons.Filled.SpaceDashboard),
+    LookCategory("palette", "رنگ‌های پایه", "Base colours", Icons.Filled.Palette),
+    LookCategory("home", "خانه", "Home", Icons.Filled.Home),
     LookCategory("orb", "دکمه اتصال", "Connect button", Icons.Filled.PowerSettingsNew),
+    LookCategory("nav", "ناوبری", "Navigation", Icons.Filled.SpaceDashboard),
+    LookCategory("store", "فروشگاه", "Store", Icons.Filled.Storefront),
+    LookCategory("settings", "تنظیمات", "Settings", Icons.Filled.Settings),
+    LookCategory("servers", "انتخاب سرور", "Server list", Icons.Filled.Dns),
+    LookCategory("addserver", "افزودن سرور", "Add server", Icons.Filled.PlaylistAdd),
     LookCategory("cards", "کارت‌ها", "Cards", Icons.Filled.ViewAgenda),
     LookCategory("tiles", "کاشی ترافیک", "Traffic tiles", Icons.Filled.Speed),
     LookCategory("typography", "متن", "Typography", Icons.Filled.FormatSize),
     LookCategory("animation", "انیمیشن", "Animation", Icons.Filled.Animation),
+    LookCategory("presets", "پریست‌ها", "Presets", Icons.Filled.Bookmark),
     LookCategory("advanced", "پیشرفته", "Advanced", Icons.Filled.Tune),
     LookCategory("reset", "بازنشانی", "Reset", Icons.Filled.RestartAlt)
 )
@@ -153,6 +176,18 @@ private fun elementLabel(e: LookElement, fa: Boolean): String = when (e) {
     LookElement.SUBTITLE -> if (fa) "متن توضیحی" else "Subtitle text"
     LookElement.BORDER -> if (fa) "حاشیه‌ها" else "Borders"
     LookElement.DIALOG -> if (fa) "دیالوگ‌ها" else "Dialogs"
+    LookElement.BACKGROUND -> if (fa) "پس‌زمینه" else "Background"
+    LookElement.SURFACE -> if (fa) "سطح (Surface)" else "Surface"
+    LookElement.CARD -> if (fa) "کارت" else "Card"
+    LookElement.SECONDARY_SURFACE -> if (fa) "سطح ثانویه" else "Secondary surface"
+    LookElement.SELECTED -> if (fa) "انتخاب‌شده" else "Selected"
+    LookElement.UNSELECTED -> if (fa) "انتخاب‌نشده" else "Unselected"
+    LookElement.ICON -> if (fa) "آیکن‌ها" else "Icons"
+    LookElement.SUCCESS -> if (fa) "موفق" else "Success"
+    LookElement.WARNING -> if (fa) "هشدار" else "Warning"
+    LookElement.ERROR -> if (fa) "خطا" else "Error"
+    LookElement.PREMIUM -> if (fa) "ویژه (Premium)" else "Premium"
+    LookElement.BADGE -> if (fa) "نشان (Badge)" else "Badge"
 }
 
 private fun GhajarLook.withColor(key: String, c: Color?): GhajarLook =
@@ -165,13 +200,22 @@ private fun GhajarLook.resetCategory(key: String): GhajarLook {
         "theme" -> copy(preset = d.preset, accent = null)
         "appearance" -> copy(accent = null, amoled = d.amoled, dynamic = d.dynamic, colors = clean)
         "nav" -> copy(navStyle = d.navStyle, navIconSize = d.navIconSize, navLabels = d.navLabels,
-            navRadius = d.navRadius, colors = clean)
+            navRadius = d.navRadius, navIndicator = d.navIndicator, navSpacing = d.navSpacing, colors = clean)
         "orb" -> copy(orbStyle = d.orbStyle, colors = clean)
         "cards" -> copy(columns = d.columns, density = d.density, cardRadius = d.cardRadius,
             elevation = d.elevation, colors = clean)
         "tiles" -> copy(colors = clean)
         "typography" -> copy(fontScale = d.fontScale, boldTitles = d.boldTitles, colors = clean)
         "animation" -> copy(transition = d.transition, speed = d.speed)
+        "palette" -> copy(colors = clean)
+        "home" -> copy(homeOrder = d.homeOrder, homeHidden = d.homeHidden, homeSizes = d.homeSizes)
+        "store" -> copy(storeCardStyle = d.storeCardStyle, storeButtonStyle = d.storeButtonStyle,
+            storeTabStyle = d.storeTabStyle, storeShow = d.storeShow)
+        "settings" -> copy(settingsOrder = d.settingsOrder, settingsHidden = d.settingsHidden, tileSize = d.tileSize,
+            settingsLayout = d.settingsLayout, iconStyle = d.iconStyle, gridGap = d.gridGap)
+        "servers" -> copy(serverView = d.serverView, serverFields = d.serverFields)
+        "addserver" -> copy(addServerStyle = d.addServerStyle)
+        "presets" -> copy(customPresets = d.customPresets)
         else -> this
     }
 }
@@ -251,7 +295,7 @@ fun PersonalizeScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                     )
                 }
                 AnimatedVisibility(previewOpen, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
-                    LivePreview(previewState, onCycle = {
+                    CategoryPreview(Categories[cat].key, previewState, onCycle = {
                         previewState = when (previewState) {
                             Connection.DISCONNECTED -> Connection.CONNECTING
                             Connection.CONNECTING -> Connection.CONNECTED
@@ -285,6 +329,13 @@ fun PersonalizeScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                             "theme" -> ThemeCategory(store, draft, set, onEdit = { cat = 1 })
                             "appearance" -> AppearanceCategory(draft, set)
                             "nav" -> NavCategory(draft, set)
+                            "palette" -> PaletteCategory(draft, set)
+                            "home" -> HomeCategory(draft, set)
+                            "store" -> StoreCategory(draft, set)
+                            "settings" -> SettingsLayoutCategory(draft, set)
+                            "servers" -> ServersCategory(draft, set)
+                            "addserver" -> AddServerCategory(draft, set)
+                            "presets" -> PresetsCategory(draft, set)
                             "orb" -> OrbCategory(draft, set, previewState)
                             "cards" -> CardsCategory(draft, set)
                             "tiles" -> TilesCategory(draft, set)
@@ -491,7 +542,8 @@ private fun ColorRow(draft: GhajarLook, set: (GhajarLook) -> Unit, e: LookElemen
             preview = { candidate -> LookScope(draft.withColor(e.key, candidate)) { ElementPreview(e) } },
             onSave = { set(draft.withColor(e.key, it)); open = false },
             onThemeDefault = { set(draft.withColor(e.key, null)); open = false },
-            onDismiss = { open = false }
+            onDismiss = { open = false },
+            contrastWith = contrastPartner(e, c)
         )
     }
 }
@@ -833,6 +885,17 @@ private fun NavCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
             set(draft.copy(navRadius = it.toInt()))
         }
     }
+    SectionTitle(tr("نشانگر انتخاب", "Selection indicator"))
+    ChoiceChips(
+        listOf("rounded" to tr("گرد", "Rounded"), "filled" to tr("پُر", "Filled"), "outline" to tr("خطی", "Outline"),
+            "dot" to tr("نقطه", "Dot")),
+        draft.navIndicator
+    ) { set(draft.copy(navIndicator = it)) }
+    Slab {
+        LabeledSlider(tr("فاصله آیتم‌ها", "Item spacing"), draft.navSpacing.toFloat(), 0f..12f, 11, { "${it.toInt()}dp" }) {
+            set(draft.copy(navSpacing = it.toInt()))
+        }
+    }
     Slab(spacing = 0.dp) {
         SwitchRow(tr("نمایش برچسب‌ها", "Show labels"), null, Icons.Filled.FormatSize, draft.navLabels) {
             set(draft.copy(navLabels = it))
@@ -853,7 +916,9 @@ private fun OrbCategory(draft: GhajarLook, set: (GhajarLook) -> Unit, previewSta
         "double_ring" to tr("حلقه دوتایی", "Double ring"),
         "neon" to tr("حلقه نئونی", "Neon ring"),
         "minimal" to tr("مینیمال تخت", "Minimal flat"),
-        "segmented" to tr("بخش‌بخش", "Segmented")
+        "segmented" to tr("بخش‌بخش", "Segmented"),
+        "shield" to tr("سپر", "Shield"),
+        "power" to tr("پاور", "Power")
     )
     SectionTitle(tr("سبک دکمه اتصال", "Connect button style"))
     Text(
@@ -1044,7 +1109,7 @@ private fun AdvancedCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
             subtitle = tr("کپی و اشتراک به صورت JSON (پیش‌نویس فعلی)", "Copy and share as JSON (current draft)"),
             icon = Icons.Filled.Download,
             onClick = {
-                val text = draft.toJson().toString(2)
+                val text = draft.toExport(BuildConfig.VERSION_NAME).toString(2)
                 copyToClipboard(ctx, text)
                 note = okCopied
                 runCatching {
@@ -1090,8 +1155,11 @@ private fun AdvancedCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
                     icon = Icons.Filled.ContentPaste, modifier = Modifier.weight(1f), minHeight = 42.dp)
                 PillButton(tr("اعمال", "Apply"), onClick = {
                     val o = runCatching { org.json.JSONObject(text.trim()) }.getOrNull()
-                    if (o == null || (!o.has("preset") && !o.has("colors"))) err = true
-                    else { set(GhajarLook.fromJson(o)); importOpen = false }
+                    // Unknown fields are ignored and invalid values fall back
+                    // to defaults inside fromAny; a broken paste never crashes.
+                    val look = if (o == null || !looksLikeExport(o)) null else runCatching { GhajarLook.fromAny(o) }.getOrNull()
+                    if (look == null) err = true
+                    else { set(look); importOpen = false }
                 }, modifier = Modifier.weight(1f), minHeight = 42.dp)
             }
         }
@@ -1102,6 +1170,7 @@ private fun AdvancedCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
 private fun ResetCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
     val c = ghajarColors
     var confirmAll by remember { mutableStateOf(false) }
+    var confirmCat by remember { mutableStateOf<LookCategory?>(null) }
     SectionTitle(tr("بازنشانی هر بخش", "Reset a category"))
     Text(
         tr("بازنشانی‌ها هم در پیش‌نمایش اعمال می‌شوند و با «ذخیره» ثبت می‌شوند.", "Resets land in the preview first; Save commits them."),
@@ -1113,7 +1182,7 @@ private fun ResetCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
             SlabRow(
                 title = tr(cat.fa, cat.en),
                 icon = cat.icon,
-                onClick = { set(draft.resetCategory(cat.key)) },
+                onClick = { confirmCat = cat },
                 trailing = { Icon(Icons.Filled.RestartAlt, null, tint = c.textMuted, modifier = Modifier.size(20.dp)) }
             )
         }
@@ -1124,13 +1193,24 @@ private fun ResetCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
         icon = Icons.Filled.RestartAlt,
         accent = c.error
     )
+    confirmCat?.let { cat ->
+        SkinDialog(title = tr("بازنشانی «${cat.fa}»؟", "Reset ${cat.en}?"), onDismiss = { confirmCat = null }) {
+            Text(tr("فقط تنظیمات همین بخش به پیش‌فرض برمی‌گردد.", "Only this section goes back to default."),
+                color = c.textSecondary)
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                GhostPill(tr("انصراف", "Cancel"), onClick = { confirmCat = null }, modifier = Modifier.weight(1f), minHeight = 42.dp)
+                PillButton(tr("بازنشانی", "Reset"), onClick = { set(draft.resetCategory(cat.key)); confirmCat = null },
+                    accent = c.error, modifier = Modifier.weight(1f), minHeight = 42.dp)
+            }
+        }
+    }
     if (confirmAll) {
         SkinDialog(title = tr("بازنشانی همه؟", "Reset everything?"), onDismiss = { confirmAll = false }) {
             Text(tr("همه تنظیمات شخصی‌سازی به حالت اولیه برمی‌گردند.", "Every personalization setting goes back to default."),
                 color = c.textSecondary)
             Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
                 GhostPill(tr("انصراف", "Cancel"), onClick = { confirmAll = false }, modifier = Modifier.weight(1f), minHeight = 42.dp)
-                PillButton(tr("بازنشانی", "Reset"), onClick = { set(GhajarLook.Default); confirmAll = false },
+                PillButton(tr("بازنشانی", "Reset"), onClick = { set(GhajarLook.Default.copy(customPresets = draft.customPresets)); confirmAll = false },
                     accent = c.error, modifier = Modifier.weight(1f), minHeight = 42.dp)
             }
         }
@@ -1173,7 +1253,9 @@ fun ColorPickerDialog(
     preview: @Composable (Color) -> Unit,
     onSave: (Color) -> Unit,
     onThemeDefault: () -> Unit,
-    onDismiss: () -> Unit
+    onDismiss: () -> Unit,
+    /** The colour this one sits on or under; a low WCAG ratio shows a warning. */
+    contrastWith: Color? = null
 ) {
     val c = ghajarColors
     val start = remember(initial) {
@@ -1209,6 +1291,20 @@ fun ColorPickerDialog(
             }
             // Live preview of the element itself.
             preview(color)
+            contrastWith?.let { other ->
+                val ratio = contrastRatio(color.copy(alpha = 1f), other.copy(alpha = 1f))
+                if (ratio < 3f) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Filled.Warning, null, tint = c.warning, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            tr("کنتراست کم (%.1f:1): ممکن است متن یا آیکن خوانا نباشد.".format(ratio),
+                                "Low contrast (%.1f:1): text or icons may be hard to read.".format(ratio)),
+                            style = MaterialTheme.typography.labelMedium, color = c.warning
+                        )
+                    }
+                }
+            }
 
             // Pickers are drawn left-to-right in both languages: a hue bar does
             // not have a reading direction.
@@ -1332,4 +1428,502 @@ private fun AlphaBar(color: Color, alpha: Float, onChange: (Float) -> Unit) {
         drawRect(Brush.horizontalGradient(listOf(color.copy(alpha = 0f), color)))
         drawCircle(Color.White, radius = size.height / 2.4f, center = Offset(alpha * size.width, size.height / 2), style = Stroke(3.dp.toPx()))
     }
+}
+
+// ------------------------------------------------ layout categories (v1.0.10)
+
+/**
+ * A reorderable list with a drag handle (long list rows of a fixed height, so
+ * the drag distance maps to a row index) plus up/down buttons for TalkBack and
+ * for people who do not drag. Critical rows cannot be hidden.
+ */
+@Composable
+private fun ReorderList(
+    items: List<Pair<String, String>>,
+    hidden: Set<String>,
+    critical: Set<String>,
+    onOrder: (List<String>) -> Unit,
+    onHidden: (Set<String>) -> Unit
+) {
+    val c = ghajarColors
+    val rowH = 56.dp
+    val rowPx = with(LocalDensity.current) { rowH.toPx() }
+    var dragging by remember { mutableStateOf<String?>(null) }
+    var dragDy by remember { mutableFloatStateOf(0f) }
+    val ids = items.map { it.first }
+    fun move(from: Int, to: Int) {
+        if (from == to || to !in ids.indices) return
+        onOrder(ids.toMutableList().also { it.add(to, it.removeAt(from)) })
+    }
+    Slab(spacing = 0.dp) {
+        items.forEachIndexed { i, (id, label) ->
+            if (i > 0) SlabDivider()
+            val isHidden = id in hidden
+            val locked = id in critical
+            Row(
+                Modifier.fillMaxWidth().height(rowH)
+                    .offset { androidx.compose.ui.unit.IntOffset(0, if (dragging == id) dragDy.toInt() else 0) }
+                    .background(if (dragging == id) c.primary.copy(alpha = 0.10f) else Color.Transparent),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(
+                    Icons.Filled.DragHandle, tr("جابه‌جایی", "Drag"), tint = c.textMuted,
+                    modifier = Modifier.size(40.dp).padding(8.dp).pointerInput(ids) {
+                        detectDragGestures(
+                            onDragStart = { dragging = id; dragDy = 0f },
+                            onDragEnd = {
+                                val from = ids.indexOf(id)
+                                val to = (from + (dragDy / rowPx).let { kotlin.math.round(it).toInt() }).coerceIn(0, ids.lastIndex)
+                                dragging = null; dragDy = 0f
+                                move(from, to)
+                            },
+                            onDragCancel = { dragging = null; dragDy = 0f }
+                        ) { ch, d -> ch.consume(); dragDy += d.y }
+                    }
+                )
+                Text(
+                    label, color = if (isHidden) c.textMuted else c.textPrimary,
+                    style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+                Icon(Icons.Filled.KeyboardArrowUp, tr("بالا", "Up"), tint = if (i > 0) c.textSecondary else c.border,
+                    modifier = Modifier.size(36.dp).clip(CircleShape).clickable(enabled = i > 0) { move(i, i - 1) }.padding(6.dp))
+                Icon(Icons.Filled.KeyboardArrowDown, tr("پایین", "Down"), tint = if (i < ids.lastIndex) c.textSecondary else c.border,
+                    modifier = Modifier.size(36.dp).clip(CircleShape).clickable(enabled = i < ids.lastIndex) { move(i, i + 1) }.padding(6.dp))
+                if (locked) {
+                    Icon(Icons.Filled.Lock, tr("همیشه نمایش", "Always shown"), tint = c.textMuted,
+                        modifier = Modifier.size(36.dp).padding(8.dp))
+                } else {
+                    Icon(
+                        if (isHidden) Icons.Filled.VisibilityOff else Icons.Filled.Visibility,
+                        if (isHidden) tr("نمایش", "Show") else tr("پنهان", "Hide"),
+                        tint = if (isHidden) c.textMuted else c.primary,
+                        modifier = Modifier.size(36.dp).clip(CircleShape)
+                            .clickable { onHidden(if (isHidden) hidden - id else hidden + id) }.padding(7.dp)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToggleChips(options: List<Pair<String, String>>, on: Set<String>, locked: Set<String> = emptySet(), onChange: (Set<String>) -> Unit) {
+    val c = ghajarColors
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        val per = if (maxWidth < 360.dp) 2 else 3
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            options.chunked(per).forEach { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    row.forEach { (key, label) ->
+                        val sel = key in on
+                        val fixed = key in locked
+                        Row(
+                            Modifier.weight(1f).heightIn(min = 40.dp).clip(RoundedCornerShape(GhajarRadius.pill))
+                                .background(if (sel) c.primary.copy(alpha = 0.16f) else c.secondaryCard)
+                                .border(1.dp, if (sel) c.primary else Color.Transparent, RoundedCornerShape(GhajarRadius.pill))
+                                .clickable(enabled = !fixed) { onChange(if (sel) on - key else on + key) }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(if (sel) Icons.Filled.Check else Icons.Filled.Add, null,
+                                tint = if (sel) c.primary else c.textMuted, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(4.dp))
+                            Text(label, style = MaterialTheme.typography.labelMedium,
+                                color = if (fixed) c.textMuted else c.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    repeat(per - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun homePartLabel(id: String): String = when (id) {
+    "orb" -> tr("دکمه اتصال", "Connect button")
+    "session" -> tr("زمان و وضعیت اتصال", "Session status")
+    "route" -> tr("سرور انتخاب‌شده", "Selected server")
+    "quota" -> tr("حجم و اعتبار اشتراک", "Subscription quota")
+    "traffic" -> tr("کاشی دانلود/آپلود", "Traffic tiles")
+    "facts" -> tr("IP، موقعیت و پینگ", "IP, location and ping")
+    else -> id
+}
+
+@Composable
+private fun HomeCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
+    val c = ghajarColors
+    SectionTitle(tr("ترتیب و نمایش بخش‌های خانه", "Home sections: order and visibility"))
+    Text(
+        tr("با دستگیره بکش یا با فلش‌ها جابه‌جا کن. دکمه اتصال و سرور انتخاب‌شده همیشه نمایش داده می‌شوند.",
+            "Drag the handle or use the arrows. The connect button and the selected server always stay visible."),
+        style = MaterialTheme.typography.bodySmall, color = c.textSecondary
+    )
+    val order = (draft.homeOrder.filter { it in HomeParts } + HomeParts).distinct()
+    ReorderList(
+        items = order.map { it to homePartLabel(it) },
+        hidden = draft.homeHidden,
+        critical = HomeCritical,
+        onOrder = { set(draft.copy(homeOrder = it)) },
+        onHidden = { set(draft.copy(homeHidden = it - HomeCritical)) }
+    )
+    SectionTitle(tr("اندازهٔ دکمه اتصال", "Connect button size"))
+    ChoiceChips(
+        listOf("compact" to tr("کوچک", "Small"), "normal" to tr("معمولی", "Normal"), "large" to tr("بزرگ", "Large")),
+        draft.homeSizes["orb"] ?: "normal"
+    ) { set(draft.copy(homeSizes = draft.homeSizes + ("orb" to it))) }
+    SectionTitle(tr("اندازهٔ کاشی‌های ترافیک", "Traffic tile size"))
+    ChoiceChips(
+        listOf("compact" to tr("فشرده", "Compact"), "normal" to tr("معمولی", "Normal"), "large" to tr("بزرگ", "Large")),
+        draft.homeSizes["traffic"] ?: "normal"
+    ) { set(draft.copy(homeSizes = draft.homeSizes + ("traffic" to it))) }
+}
+
+@Composable
+private fun StoreCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
+    SectionTitle(tr("کارت فروشگاه", "Shop card"))
+    ChoiceChips(
+        listOf("compact" to tr("فشرده", "Compact"), "card" to tr("کارت", "Card"), "large" to tr("بزرگ", "Large")),
+        draft.storeCardStyle
+    ) { set(draft.copy(storeCardStyle = it)) }
+    SectionTitle(tr("دکمه‌های خرید (CTA)", "Buy buttons (CTA)"))
+    ChoiceChips(
+        listOf("filled" to tr("پُر", "Filled"), "tonal" to tr("ملایم", "Tonal"), "outline" to tr("خطی", "Outline")),
+        draft.storeButtonStyle
+    ) { set(draft.copy(storeButtonStyle = it)) }
+    SectionTitle(tr("تب‌ها", "Tabs"))
+    ChoiceChips(
+        listOf("pill" to tr("کپسولی", "Pill"), "underline" to tr("زیرخط", "Underline"), "boxed" to tr("قاب‌دار", "Boxed")),
+        draft.storeTabStyle
+    ) { set(draft.copy(storeTabStyle = it)) }
+    SectionTitle(tr("اجزای نمایش داده‌شده", "Shown parts"))
+    Text(
+        tr("نام فروشگاه و قیمت‌ها همیشه دیده می‌شوند؛ خرید بدون آن‌ها ممکن نیست.",
+            "The shop name and prices always show: buying needs them."),
+        style = MaterialTheme.typography.bodySmall, color = ghajarColors.textSecondary
+    )
+    val locked = setOf("title", "prices")
+    ToggleChips(
+        listOf(
+            "logo" to tr("لوگو", "Logo"), "title" to tr("نام", "Name"), "desc" to tr("توضیحات", "Description"),
+            "rating" to tr("امتیاز", "Rating"), "tick" to tr("تیک اعتماد", "Trust tick"), "links" to tr("لینک‌ها", "Links"),
+            "report" to tr("دکمه گزارش", "Report button"), "discounts" to tr("کارت کد تخفیف", "Discount cards"),
+            "services_count" to tr("تعداد سرویس‌ها", "Service count"), "prices" to tr("قیمت‌ها", "Prices")
+        ),
+        draft.storeShow + locked, locked
+    ) { set(draft.copy(storeShow = it + locked)) }
+}
+
+@Composable
+private fun SettingsLayoutCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
+    val t = stringsFn()
+    SectionTitle(tr("ترتیب و نمایش کاشی‌های تنظیمات", "Settings tiles: order and visibility"))
+    Text(
+        tr("کاشی‌های حیاتی (شخصی‌سازی، پشتیبان، درباره، اتصال، هسته‌ها) پنهان نمی‌شوند.",
+            "Critical tiles (personalization, backup, about, connection, cores) cannot be hidden."),
+        style = MaterialTheme.typography.bodySmall, color = ghajarColors.textSecondary
+    )
+    val all = SettingsTiles.ALL.map { it.first }
+    val order = (draft.settingsOrder.filter { it in all } + all).distinct()
+    val labels = SettingsTiles.ALL.toMap()
+    ReorderList(
+        items = order.map { it to t(labels[it] ?: it) },
+        hidden = draft.settingsHidden,
+        critical = SettingsTiles.CRITICAL,
+        onOrder = { set(draft.copy(settingsOrder = it)) },
+        onHidden = { set(draft.copy(settingsHidden = it - SettingsTiles.CRITICAL)) }
+    )
+    SectionTitle(tr("اندازه کاشی", "Tile size"))
+    ChoiceChips(listOf("compact" to tr("کوچک", "Small"), "normal" to tr("معمولی", "Normal"), "large" to tr("بزرگ", "Large")),
+        draft.tileSize) { set(draft.copy(tileSize = it)) }
+    SectionTitle(tr("چیدمان", "Layout"))
+    ChoiceChips(listOf("compact" to tr("فشرده", "Compact"), "comfortable" to tr("راحت", "Comfortable")),
+        draft.settingsLayout) { set(draft.copy(settingsLayout = it)) }
+    SectionTitle(tr("سبک آیکن", "Icon style"))
+    ChoiceChips(listOf("tinted" to tr("رنگی", "Tinted"), "filled" to tr("پُر", "Filled"), "outline" to tr("خطی", "Outline"),
+        "plain" to tr("ساده", "Plain")), draft.iconStyle) { set(draft.copy(iconStyle = it)) }
+    Slab {
+        LabeledSlider(tr("فاصله کاشی‌ها", "Grid gap"), draft.gridGap.toFloat(), 4f..20f, 7, { "${it.toInt()}dp" }) {
+            set(draft.copy(gridGap = it.toInt()))
+        }
+    }
+}
+
+@Composable
+private fun ServersCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
+    SectionTitle(tr("نمای لیست سرورها", "Server list view"))
+    ChoiceChips(
+        listOf("list" to tr("لیست", "List"), "compact" to tr("لیست فشرده", "Compact list"),
+            "grid" to tr("شبکه‌ای", "Grid"), "large" to tr("کارت بزرگ", "Large card")),
+        draft.serverView
+    ) { set(draft.copy(serverView = it)) }
+    SectionTitle(tr("اطلاعات هر سرور", "Fields on each server"))
+    Text(
+        tr("مرتب‌سازی و گروه‌بندی فعلی دست نمی‌خورد. نام همیشه دیده می‌شود.",
+            "Sorting and grouping stay as they are. The name always shows."),
+        style = MaterialTheme.typography.bodySmall, color = ghajarColors.textSecondary
+    )
+    ToggleChips(
+        listOf(
+            "flag" to tr("پرچم", "Flag"), "name" to tr("نام", "Name"), "country" to tr("کشور", "Country"),
+            "protocol" to tr("پروتکل", "Protocol"), "core" to tr("هسته", "Core"), "ping" to tr("پینگ", "Ping"),
+            "quality" to tr("کیفیت", "Quality"), "favorite" to tr("علاقه‌مندی", "Favorite"),
+            "last" to tr("آخرین اتصال", "Last connected"), "traffic" to tr("ترافیک", "Traffic"),
+            "test" to tr("نتیجه تست", "Test result")
+        ),
+        draft.serverFields + "name", setOf("name")
+    ) { set(draft.copy(serverFields = it + "name")) }
+    ColorRows(draft, set, "cards")
+}
+
+@Composable
+private fun AddServerCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
+    SectionTitle(tr("فرم افزودن سرور", "Add-server form"))
+    Text(
+        tr("بخش‌ها (پایه، احراز هویت، انتقال، TLS، شبکه، DNS، مسیریابی، پیشرفته) برای هر پروتکل فقط وقتی فیلد داشته باشند نمایش داده می‌شوند.",
+            "Sections (basic, auth, transport, TLS, network, DNS, routing, advanced) appear only when the protocol has fields for them."),
+        style = MaterialTheme.typography.bodySmall, color = ghajarColors.textSecondary
+    )
+    ChoiceChips(
+        listOf("sections" to tr("بخش‌بندی", "Sections"), "tabs" to tr("تب‌ها", "Tabs"), "compact" to tr("فشرده (قدیمی)", "Compact (classic)")),
+        draft.addServerStyle
+    ) { set(draft.copy(addServerStyle = it)) }
+}
+
+@Composable
+private fun PaletteCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
+    SectionTitle(tr("رنگ‌های پایه برنامه", "App base colours"))
+    Text(
+        tr("اگر کنتراست متن و پس‌زمینه کم باشد، در انتخابگر رنگ هشدار داده می‌شود.",
+            "The picker warns when text and background contrast is too low."),
+        style = MaterialTheme.typography.bodySmall, color = ghajarColors.textSecondary
+    )
+    ColorRows(draft, set, "palette")
+    ColorRows(draft, set, "typography")
+    ColorRows(draft, set, "tiles")
+}
+
+@Composable
+private fun PresetsCategory(draft: GhajarLook, set: (GhajarLook) -> Unit) {
+    val c = ghajarColors
+    var saveOpen by remember { mutableStateOf(false) }
+    var deleting by remember { mutableStateOf<String?>(null) }
+    SectionTitle(tr("پریست‌های آماده", "Built-in presets"))
+    Slab(spacing = 0.dp) {
+        listOf(LookPreset.DEFAULT, LookPreset.AMOLED, LookPreset.MINIMAL, LookPreset.HIGH_CONTRAST).forEachIndexed { i, p ->
+            if (i > 0) SlabDivider()
+            SlabRow(
+                title = tr(p.fa, p.en),
+                icon = Icons.Filled.Palette,
+                onClick = { set(draft.copy(preset = p.key, accent = null, amoled = p == LookPreset.AMOLED || draft.amoled && p != LookPreset.DEFAULT)) },
+                trailing = { if (draft.preset == p.key) Icon(Icons.Filled.Check, null, tint = c.primary, modifier = Modifier.size(20.dp)) }
+            )
+        }
+    }
+    SectionTitle(tr("پریست‌های من", "My presets"))
+    if (draft.customPresets.isEmpty()) {
+        Text(tr("هنوز پریستی ذخیره نکرده‌ای.", "No saved presets yet."),
+            style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+    } else {
+        Slab(spacing = 0.dp) {
+            draft.customPresets.keys.sorted().forEachIndexed { i, name ->
+                if (i > 0) SlabDivider()
+                SlabRow(
+                    title = name,
+                    subtitle = tr("لمس برای اعمال", "Tap to apply"),
+                    icon = Icons.Filled.Bookmark,
+                    onClick = {
+                        val o = runCatching { org.json.JSONObject(draft.customPresets.getValue(name)) }.getOrNull()
+                        if (o != null) set(GhajarLook.fromAny(o).copy(customPresets = draft.customPresets))
+                    },
+                    trailing = {
+                        Icon(Icons.Filled.Delete, tr("حذف", "Delete"), tint = c.textMuted,
+                            modifier = Modifier.size(36.dp).clip(CircleShape).clickable { deleting = name }.padding(7.dp))
+                    }
+                )
+            }
+        }
+    }
+    GhostPill(tr("ذخیره ظاهر فعلی به عنوان پریست", "Save the current look as a preset"), onClick = { saveOpen = true },
+        icon = Icons.Filled.Save, minHeight = 44.dp)
+    if (saveOpen) {
+        var name by remember { mutableStateOf("") }
+        SkinDialog(title = tr("نام پریست", "Preset name"), onDismiss = { saveOpen = false }) {
+            OutlinedTextField(value = name, onValueChange = { name = it.take(32) }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                GhostPill(tr("انصراف", "Cancel"), onClick = { saveOpen = false }, modifier = Modifier.weight(1f), minHeight = 42.dp)
+                PillButton(tr("ذخیره", "Save"), enabled = name.isNotBlank(), onClick = {
+                    // A preset holds the look only, never other presets.
+                    val body = draft.copy(customPresets = emptyMap()).toJson().toString()
+                    set(draft.copy(customPresets = (draft.customPresets + (name.trim() to body)).entries.take(20).associate { it.key to it.value }))
+                    saveOpen = false
+                }, modifier = Modifier.weight(1f), minHeight = 42.dp)
+            }
+        }
+    }
+    deleting?.let { name ->
+        SkinDialog(title = tr("حذف پریست؟", "Delete preset?"), onDismiss = { deleting = null }) {
+            Text(name, color = c.textSecondary)
+            Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+                GhostPill(tr("انصراف", "Cancel"), onClick = { deleting = null }, modifier = Modifier.weight(1f), minHeight = 42.dp)
+                PillButton(tr("حذف", "Delete"), accent = c.error, onClick = {
+                    set(draft.copy(customPresets = draft.customPresets - name)); deleting = null
+                }, modifier = Modifier.weight(1f), minHeight = 42.dp)
+            }
+        }
+    }
+}
+
+// ------------------------------------------------ context-aware previews
+
+@Composable
+private fun CategoryPreview(key: String, state: Connection, onCycle: () -> Unit) {
+    when (key) {
+        "store" -> StorePreview()
+        "settings" -> SettingsPreview()
+        "servers", "cards" -> ServersPreview()
+        "addserver" -> AddServerPreview()
+        else -> LivePreview(state, onCycle)
+    }
+}
+
+@Composable
+private fun PreviewFrame(content: @Composable ColumnScope.() -> Unit) {
+    val c = ghajarColors
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(GhajarRadius.lg)).background(c.background)
+            .border(1.dp, c.border, RoundedCornerShape(GhajarRadius.lg)).padding(GhajarSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm),
+        content = content
+    )
+}
+
+@Composable
+private fun StorePreview() {
+    val c = ghajarColors
+    val look = LocalGhajarLook.current
+    var tab by remember { mutableIntStateOf(0) }
+    PreviewFrame {
+        Slab(spacing = 4.dp, padding = if (look.storeCardStyle == "compact") 8.dp else 12.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if ("logo" in look.storeShow) {
+                    Box(Modifier.size(36.dp).clip(CircleShape).background(c.primary.copy(alpha = 0.2f)))
+                    Spacer(Modifier.width(8.dp))
+                }
+                Column(Modifier.weight(1f)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(tr("فروشگاه نمونه", "Sample shop"), fontWeight = FontWeight.Bold, color = c.textPrimary)
+                        if ("tick" in look.storeShow) Icon(Icons.Filled.Check, null, tint = c.primary, modifier = Modifier.size(15.dp))
+                    }
+                    if ("rating" in look.storeShow) Text("★★★★☆ 4.2", style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                }
+            }
+            if ("desc" in look.storeShow) Text(tr("توضیح کوتاه فروشگاه", "A short shop description"),
+                style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        }
+        if ("discounts" in look.storeShow) {
+            Slab(spacing = 2.dp, padding = 8.dp) {
+                Text("SAVE20", fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, color = c.primary,
+                    style = MaterialTheme.typography.bodyMedium.copy(textDirection = androidx.compose.ui.text.style.TextDirection.Ltr),
+                    maxLines = 1, softWrap = false)
+                Text(tr("۲۰٪ تخفیف • ۵ بار باقی‌مانده", "20% off • 5 uses left"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+            }
+        }
+        TabRail(tabs = listOf(RailTab(tr("پلن‌ها", "Plans")), RailTab(tr("سرویس‌ها", "Services"))),
+            selected = tab, onSelect = { tab = it }, style = look.storeTabStyle)
+        StorePill(tr("خرید", "Buy"), onClick = {}, minHeight = 40.dp)
+    }
+}
+
+@Composable
+private fun SettingsPreview() {
+    val t = stringsFn()
+    val look = LocalGhajarLook.current
+    val tiles = remember(look.settingsOrder, look.settingsHidden) {
+        val all = SettingsTiles.ALL.map { it.first }
+        (look.settingsOrder.filter { it in all } + all).distinct()
+            .filter { it !in look.settingsHidden || it in SettingsTiles.CRITICAL }.take(4)
+    }
+    val labels = SettingsTiles.ALL.toMap()
+    PreviewFrame {
+        TileGrid(
+            tiles.map { id ->
+                SettingsTileSpec(id, t(labels[id] ?: id), null, Icons.Filled.Widgets, null, null, null, null,
+                    id in SettingsTiles.CRITICAL) {}
+            }
+        )
+    }
+}
+
+@Composable
+private fun ServersPreview() {
+    val c = ghajarColors
+    val look = LocalGhajarLook.current
+    val f = look.serverFields
+    val big = look.serverView == "large"
+    val compact = look.serverView == "compact"
+    val rows = listOf(Triple("🇩🇪", "Ghajar • DE-1", 86), Triple("🇳🇱", "Ghajar • NL-2", 142))
+    @Composable
+    fun Cell(row: Triple<String, String, Int>, on: Boolean, modifier: Modifier) {
+        Column(
+            modifier.clip(RoundedCornerShape(GhajarRadius.lg))
+                .background(if (on) lookColor(LookElement.SERVER_ACTIVE).copy(alpha = 0.16f) else lookColor(LookElement.SERVER_CARD))
+                .padding(horizontal = GhajarSpacing.md, vertical = if (big) 14.dp else if (compact) 6.dp else 10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if ("flag" in f) { Text(row.first); Spacer(Modifier.width(6.dp)) }
+                Text(row.second, color = c.textPrimary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    style = if (big) MaterialTheme.typography.titleMedium else MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f))
+                if ("favorite" in f && on) Icon(Icons.Filled.Bookmark, null, tint = c.primary, modifier = Modifier.size(14.dp))
+                if ("ping" in f || "test" in f) Text("${row.third} ms", color = c.good, style = MaterialTheme.typography.labelMedium)
+            }
+            val meta = listOfNotNull(
+                "Germany".takeIf { "country" in f }, "VLESS".takeIf { "protocol" in f }, "Xray".takeIf { "core" in f },
+                tr("عالی", "Excellent").takeIf { "quality" in f }, "1.2 GB".takeIf { "traffic" in f },
+                tr("۲ ساعت پیش", "2h ago").takeIf { "last" in f }
+            )
+            if (meta.isNotEmpty() && !compact) Text(meta.joinToString(" · "), style = MaterialTheme.typography.labelSmall,
+                color = c.textMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
+    }
+    PreviewFrame {
+        if (look.serverView == "grid" || look.columns == 2) {
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                rows.forEachIndexed { i, r -> Cell(r, i == 0, Modifier.weight(1f)) }
+            }
+        } else rows.forEachIndexed { i, r -> Cell(r, i == 0, Modifier.fillMaxWidth()) }
+    }
+}
+
+@Composable
+private fun AddServerPreview() {
+    val c = ghajarColors
+    val look = LocalGhajarLook.current
+    val secs = listOf(tr("پایه", "Basic"), tr("احراز هویت", "Auth"), tr("انتقال", "Transport"), "TLS")
+    var sel by remember { mutableIntStateOf(0) }
+    PreviewFrame {
+        when (look.addServerStyle) {
+            "tabs" -> {
+                TabRail(tabs = secs.map { RailTab(it) }, selected = sel, onSelect = { sel = it })
+                Box(Modifier.fillMaxWidth().height(36.dp).clip(RoundedCornerShape(GhajarRadius.md)).border(1.dp, c.border, RoundedCornerShape(GhajarRadius.md)))
+            }
+            "compact" -> repeat(3) {
+                Box(Modifier.fillMaxWidth().height(30.dp).clip(RoundedCornerShape(GhajarRadius.md)).border(1.dp, c.border, RoundedCornerShape(GhajarRadius.md)))
+            }
+            else -> secs.take(2).forEach { s ->
+                Text(s, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = c.primary)
+                Box(Modifier.fillMaxWidth().height(30.dp).clip(RoundedCornerShape(GhajarRadius.md)).border(1.dp, c.border, RoundedCornerShape(GhajarRadius.md)))
+            }
+        }
+    }
+}
+
+/** What an element is read against: foreground colours against the card, surfaces against the text. */
+private fun contrastPartner(e: LookElement, c: GhajarPalette): Color = when (e) {
+    LookElement.TITLE, LookElement.SUBTITLE, LookElement.CONFIG_TEXT, LookElement.NAV_LABEL, LookElement.NAV_ICON_ACTIVE,
+    LookElement.NAV_ICON_INACTIVE, LookElement.ICON, LookElement.TILE_DOWN_ICON, LookElement.TILE_UP_ICON,
+    LookElement.SUCCESS, LookElement.WARNING, LookElement.ERROR, LookElement.SELECTED, LookElement.UNSELECTED -> c.card
+    else -> c.textPrimary
 }

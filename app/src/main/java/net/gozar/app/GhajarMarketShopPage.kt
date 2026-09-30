@@ -236,6 +236,8 @@ internal fun MarketShopHome(
             return@Column
         }
         val shop = loaded.shop
+        val storeLook = LocalGhajarLook.current
+        val showPart = { part: String -> part in storeLook.storeShow }
 
         // The shop's own header: picture, name, line, score and the full
         // description the seller wrote in the bot.
@@ -265,7 +267,7 @@ internal fun MarketShopHome(
                         Text(shop.tagline, style = MaterialTheme.typography.labelMedium, color = c.textSecondary,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (showPart("rating")) Row(verticalAlignment = Alignment.CenterVertically) {
                         StarRow(shop.stars)
                         Spacer(Modifier.width(GhajarSpacing.xs))
                         Text(
@@ -278,10 +280,10 @@ internal fun MarketShopHome(
                     }
                 }
             }
-            if (shop.description.isNotBlank()) {
+            if (showPart("desc") && shop.description.isNotBlank()) {
                 Text(shop.description, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
             }
-            val links = listOfNotNull(
+            val links = if (!showPart("links")) emptyList() else listOfNotNull(
                 shop.telegramBot.takeIf { it.isNotBlank() }?.let { "ربات" to it },
                 shop.telegramChannel.takeIf { it.isNotBlank() }?.let { "کانال" to it },
                 shop.supportContact.takeIf { it.isNotBlank() }?.let { "پشتیبانی" to it }
@@ -304,8 +306,10 @@ internal fun MarketShopHome(
             }
         }
 
-        GhostPill("گزارش این فروشگاه", { if (signedIn) showReport = true else onSignIn() },
-            icon = Icons.Filled.Flag, minHeight = 36.dp)
+        if (showPart("report")) {
+            GhostPill("گزارش این فروشگاه", { if (signedIn) showReport = true else onSignIn() },
+                icon = Icons.Filled.Flag, minHeight = 36.dp)
+        }
         if (showReport) {
             MarketReportDialog(shop.name, onDismiss = { showReport = false }) { reason, body ->
                 runCatching { api.marketReport(shop.id, reason, body) }
@@ -325,7 +329,7 @@ internal fun MarketShopHome(
             }
         }
         // The shop's live discount codes: tap one to apply it to every price.
-        if (loaded.discountCodes.isNotEmpty() && tab == 0) {
+        if (showPart("discounts") && loaded.discountCodes.isNotEmpty() && tab == 0) {
             MarketDiscountCodes(loaded.discountCodes, applied = loaded.appliedCode.takeIf { loaded.appliedOk }.orEmpty(),
                 onApply = { appliedCode = it })
         }
@@ -340,7 +344,8 @@ internal fun MarketShopHome(
                 RailTab(text, badge = badge)
             },
             selected = tab,
-            onSelect = { tab = it }
+            onSelect = { tab = it },
+            style = storeLook.storeTabStyle
         )
 
         if (tab != 0 && !signedIn) {
@@ -541,10 +546,10 @@ private fun MarketBuyTab(
                     (if (panel.dayPrice > 0) " · هر روز " + localizeDigits(formatToman(panel.dayPrice), lang) + " تومان" else "")),
                 style = MaterialTheme.typography.labelMedium, color = c.textSecondary
             )
-            PillButton(
+            StorePill(
                 "خرید سرویس سفارشی",
                 {
-                    val price = quote?.price ?: return@PillButton
+                    val price = quote?.price ?: return@StorePill
                     pending = MarketPending(
                         title = "سرویس سفارشی · " + localizeDigits(gb, lang) + " گیگ · " + localizeDigits(days, lang) + " روز",
                         price = price, productCode = "customvolume", custom = true,
@@ -1004,7 +1009,7 @@ private fun MarketRenewPanel(
             selected = method == m.id, onSelect = { method = m.id })
     }
     error?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
-    PillButton(
+    StorePill(
         if (busy) "در حال ثبت تمدید…" else "تمدید همین سرویس",
         {
             busy = true; error = null
@@ -1130,7 +1135,7 @@ private fun MarketWalletTab(api: GhajarStoreApi, home: GhajarMarketHome, onOrder
                     selected = method == m.id, onSelect = { method = m.id })
             }
             error?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
-            PillButton(
+            StorePill(
                 if (busy) "در حال ثبت…" else "شارژ کیف پول",
                 {
                     busy = true; error = null
@@ -1186,7 +1191,7 @@ private fun MarketGiftRedeem(api: GhajarStoreApi, shopId: Int, onRedeemed: () ->
         Rail("🎁 کد هدیه")
         SkinField(value = code, onValueChange = { code = it.filter { ch -> ch.isLetterOrDigit() || ch == '_' || ch == '-' }.take(40) },
             label = "کد هدیه این فروشگاه", placeholder = "مثلاً NOROOZ")
-        PillButton(if (busy) "در حال بررسی…" else "افزودن به کیف پول", {
+        StorePill(if (busy) "در حال بررسی…" else "افزودن به کیف پول", {
             busy = true; result = null
             scope.launch {
                 result = runCatching { api.marketGiftRedeem(shopId, code.trim()) }
@@ -1305,7 +1310,7 @@ private fun MarketOwnerCodes(api: GhajarStoreApi, shopId: Int) {
         Text("روز و ساعت خالی یعنی بدون انقضا؛ سقف خالی یعنی بی‌نهایت." + if (gift) " هر خریدار یک بار." else "",
             style = MaterialTheme.typography.labelSmall, color = c.textMuted)
         message?.let { (ok, msg) -> Text(msg, color = if (ok) c.primary else c.error, style = MaterialTheme.typography.labelMedium) }
-        PillButton(if (busy) "در حال ثبت…" else "ثبت کد", {
+        StorePill(if (busy) "در حال ثبت…" else "ثبت کد", {
             run("code_add", mapOf("kind" to if (gift) "gift" else "discount", "code" to code,
                 (if (gift) "amount" else "percent") to value, "days" to days.ifBlank { "0" }, "hours" to hours.ifBlank { "0" },
                 "max_uses" to maxUses.ifBlank { "0" }, "per_user" to perUser.ifBlank { "0" },
@@ -1332,7 +1337,7 @@ internal fun MarketAnnouncements(items: List<GhajarMarketAnnouncement>, onUseCod
                 Text(a.body, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
                 Text(mixedText(localizeDigits(marketJalali(a.publishedAt), lang)), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
                 if (a.discountCode.isNotBlank()) {
-                    PillButton("استفاده از کد " + a.discountCode, { onUseCode(a.discountCode) }, minHeight = 40.dp,
+                    StorePill("استفاده از کد " + a.discountCode, { onUseCode(a.discountCode) }, minHeight = 40.dp,
                         icon = Icons.Filled.CardGiftcard)
                 }
             }
@@ -1384,7 +1389,7 @@ private fun MarketSupportTab(api: GhajarStoreApi, shopId: Int) {
                 SkinField(value = reply, onValueChange = { reply = it.take(2000) }, label = "پاسخ شما",
                     singleLine = false, minLines = 3)
                 error?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
-                PillButton(if (busy) "در حال ارسال…" else "ارسال", {
+                StorePill(if (busy) "در حال ارسال…" else "ارسال", {
                     busy = true
                     scope.launch {
                         runCatching { api.marketTicketReply(thread.id, reply) }
@@ -1406,7 +1411,7 @@ private fun MarketSupportTab(api: GhajarStoreApi, shopId: Int) {
             SkinField(value = body, onValueChange = { body = it.take(2000) }, label = "متن پیام",
                 singleLine = false, minLines = 3)
             error?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
-            PillButton(if (busy) "در حال ارسال…" else "ارسال تیکت", {
+            StorePill(if (busy) "در حال ارسال…" else "ارسال تیکت", {
                 busy = true
                 scope.launch {
                     runCatching { api.marketTicketCreate(shopId, subject, body) }
@@ -1523,26 +1528,60 @@ private fun MarketTransactionsTab(api: GhajarStoreApi, shopId: Int) {
 private fun MarketDiscountCodes(codes: List<GhajarMarketPublicCode>, applied: String, onApply: (String) -> Unit) {
     val c = ghajarColors
     val lang = LocalLang.current
-    Slab(spacing = GhajarSpacing.sm, accent = c.premium) {
-        Text("🎟 کدهای تخفیف این فروشگاه", fontWeight = FontWeight.Bold, color = c.textPrimary)
+    // One card per code. The action sits under the text rather than beside
+    // it: a pill in the same Row used to take the full width first (it
+    // filled its parent), which left the text column zero wide and broke the
+    // code into one letter per line.
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
+        Text(
+            "🎟 کدهای تخفیف این فروشگاه",
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = c.textPrimary
+        )
         codes.forEach { code ->
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(mixedText(code.code), fontWeight = FontWeight.Bold, color = c.primary)
-                    val parts = listOfNotNull(
-                        localizeDigits(if (code.percent % 1.0 == 0.0) code.percent.toLong().toString() else code.percent.toString(), lang) + "٪ تخفیف",
-                        code.left.takeIf { it >= 0 }?.let { localizeDigits(it.toString(), lang) + " بار باقی‌مانده" },
-                        code.expiresAt.takeIf { it > 0 }?.let {
-                            val days = ((it - System.currentTimeMillis() / 1000) / 86400).coerceAtLeast(0)
-                            if (days > 0) localizeDigits(days.toString(), lang) + " روز مانده" else "امروز تمام می‌شود"
-                        }
-                    )
-                    Text(parts.joinToString(" · "), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+            val isApplied = applied.equals(code.code, ignoreCase = true)
+            Slab(spacing = 6.dp, padding = GhajarSpacing.md, accent = if (isApplied) c.primary else c.premium) {
+                // The code is Latin: always one line, always left-to-right,
+                // scrolled rather than broken if a shop picks a very long one.
+                Text(
+                    code.code,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        textDirection = androidx.compose.ui.text.style.TextDirection.Ltr,
+                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                    ),
+                    fontWeight = FontWeight.Bold,
+                    color = c.primary,
+                    maxLines = 1,
+                    softWrap = false,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                val percent = localizeDigits(
+                    if (code.percent % 1.0 == 0.0) code.percent.toLong().toString() else code.percent.toString(), lang
+                ) + "٪ تخفیف"
+                val left = code.left.takeIf { it >= 0 }?.let { localizeDigits(it.toString(), lang) + " بار باقی‌مانده" }
+                val expiry = code.expiresAt.takeIf { it > 0 }?.let {
+                    val days = ((it - System.currentTimeMillis() / 1000) / 86400).coerceAtLeast(0)
+                    if (days > 0) localizeDigits(days.toString(), lang) + " روز مانده" else "امروز تمام می‌شود"
                 }
-                if (applied.equals(code.code, ignoreCase = true)) {
-                    Text("اعمال شد", style = MaterialTheme.typography.labelMedium, color = c.primary)
+                Text(
+                    listOfNotNull(percent, left, expiry).joinToString(" • "),
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        textDirection = androidx.compose.ui.text.style.TextDirection.Rtl
+                    ),
+                    color = c.textSecondary,
+                    modifier = Modifier.fillMaxWidth()
+                )
+                if (isApplied) {
+                    Text(
+                        "✓ اعمال شد",
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = c.good
+                    )
                 } else {
-                    GhostPill("اعمال", { onApply(code.code) }, minHeight = 34.dp)
+                    GhostPill("اعمال این کد", { onApply(code.code) }, minHeight = 38.dp)
                 }
             }
         }

@@ -21,11 +21,17 @@ class DecoderRegistry(
         val detection = FormatDetector.detect(input)
         val decoder = decoderFor(detection) ?: throw ConfigToolkitException.UnsupportedFormat(detection.format)
         val parsed = decoder.decode(input)
-        val validation = decoder.validate(parsed)
-        if (!validation.valid) throw ConfigToolkitException.InvalidConfig(
-            validation.issues.take(4).joinToString("\n") { it.message }
-        )
-        return parsed
+        // One broken entry must not cost the file its other servers: invalid
+        // profiles are dropped with a warning, and the import fails only when
+        // nothing connectable is left.
+        val checked = parsed.profiles.map { it to ProfileValidator.validate(it) }
+        val good = checked.filter { it.second.valid }.map { it.first }
+        if (good.isEmpty()) {
+            val validation = decoder.validate(parsed)
+            throw ConfigToolkitException.InvalidConfig(validation.issues.take(4).joinToString("\n") { it.message })
+        }
+        val dropped = checked.filterNot { it.second.valid }.map { (p, v) -> p.name + ": " + v.issues.firstOrNull()?.message.orEmpty() }
+        return if (dropped.isEmpty()) parsed else parsed.copy(profiles = good, warnings = parsed.warnings + dropped)
     }
 
     companion object { const val MAX_FILE_BYTES = 16L * 1024L * 1024L }
@@ -190,16 +196,69 @@ class NpvtDecoder : GenericJsonDecoder(ConfigFormat.NPVT) {
         val text = ReadablePayload.extract(input, "NPVT1")
             ?: ReadablePayload.extract(input, "NPVTSUB1")
             ?: throw npvContainerFailure(input, format)
-        return parseJson(text, format)
+        return convertReadableNpv(text, input, format, this)
     }
 }
 
 class NpvsDecoder : GenericJsonDecoder(ConfigFormat.NPVS) {
     override fun decode(input: ConfigInput): ParsedConfig {
-        // A readable payload (an owned, unlocked copy) keeps the old path.
-        ReadablePayload.extract(input, "NPVS")?.let { return parseJson(it, format) }
+        // A readable payload (an owned, unlocked copy) is converted directly.
+        ReadablePayload.extract(input, "NPVS")?.let { return convertReadableNpv(it, input, format, this) }
         return openNpvContainer(input, format)
     }
+}
+
+/**
+ * A readable NPV export converted to Ghajar profiles: every config object
+ * (v2rayProfile, sshConfig, socks/http) through the same converter the sealed
+ * containers use, plus any raw core JSON the generic walk finds.
+ *
+ * A file whose author set a lock password is imported only with that
+ * password: the user is asked once (PasskeyRequired), a wrong one is
+ * WrongPasskey. Nothing is imported past a lock the user cannot open.
+ */
+internal fun convertReadableNpv(text: String, input: ConfigInput, format: ConfigFormat, json: GenericJsonDecoder): ParsedConfig {
+    val base = json.parseJson(text, format)
+    base.lockConfig?.takeIf { it.isLocked && !it.password.isNullOrEmpty() }?.let { lock ->
+        val given = input.passkey?.let { String(it) } ?: throw ConfigToolkitException.PasskeyRequired()
+        if (!npvLockMatches(lock.password!!, given)) throw ConfigToolkitException.WrongPasskey()
+    }
+    val root = runCatching { org.json.JSONObject(text.trim()) }.getOrNull()
+    val objects = mutableListOf<JSONObject>()
+    fun walk(v: Any?, depth: Int) {
+        if (depth > 8) return
+        when (v) {
+            is JSONObject -> {
+                if (NPV_KINDS.any { v.has(it) }) objects += v
+                else v.keys().forEach { walk(v.opt(it), depth + 1) }
+            }
+            is JSONArray -> for (i in 0 until v.length()) walk(v.opt(i), depth + 1)
+        }
+    }
+    walk(root ?: runCatching { JSONArray(text.trim()) }.getOrNull(), 0)
+    val converted = npvLinesToConfigs(objects.map { NpvContainer.link(it) }).map { NormalizedProfile.from(it, format) }
+    val all = (converted + base.profiles).distinctBy { listOf(it.protocol, it.server.lowercase(), it.port, it.uuid, it.password).joinToString("\u0000") }
+    return base.copy(profiles = all)
+}
+
+private val NPV_KINDS = listOf("v2rayProfile", "sshConfig", "socksConfig", "socksProfile", "httpConfig", "httpProfile", "proxyConfig")
+
+/** The author's lock password, stored plain or as a SHA-256 / MD5 hex digest; compared in constant time. */
+internal fun npvLockMatches(stored: String, given: String): Boolean {
+    fun hex(alg: String) = java.security.MessageDigest.getInstance(alg).digest(given.toByteArray()).joinToString("") { "%02x".format(it) }
+    val s = stored.trim()
+    fun eq(a: String, b: String) = java.security.MessageDigest.isEqual(a.toByteArray(), b.toByteArray())
+    return eq(given, s) || eq(hex("SHA-256"), s.lowercase()) || eq(hex("MD5"), s.lowercase())
+}
+
+/** Share links and raw-JSON lines from an NPV file, as Ghajar profiles. */
+internal fun npvLinesToConfigs(lines: List<String>): List<net.gozar.app.ProxyConfig> = lines.filter { it.isNotBlank() }.flatMap { line ->
+    val t = line.trim()
+    if (t.startsWith("{")) {
+        val o = runCatching { JSONObject(t) }.getOrNull() ?: return@flatMap emptyList()
+        val name = o.optString(NpvContainer.NAME_KEY); o.remove(NpvContainer.NAME_KEY)
+        ConfigParser.parseJsonOutbounds(o.toString()).map { if (name.isNotBlank()) it.copy(name = name) else it }
+    } else ConfigParser.parseBundle(t)
 }
 
 /**
@@ -211,7 +270,7 @@ internal fun openNpvContainer(input: ConfigInput, format: ConfigFormat): ParsedC
     val pass = input.passkey?.let { String(it) }
     return when (val r = NpvContainer.open(input.bytes, pass)) {
         is NpvContainer.Result.Opened -> {
-            val configs = ConfigParser.parseBundle(r.lines.joinToString("\n"))
+            val configs = npvLinesToConfigs(r.lines)
             if (configs.isEmpty()) throw ConfigToolkitException.InvalidConfig(
                 "فایل باز شد اما لینک قابل استفاده‌ای در آن نبود." +
                     (if (r.creatorMessage.isNotBlank()) "\n" + r.creatorMessage else ""))

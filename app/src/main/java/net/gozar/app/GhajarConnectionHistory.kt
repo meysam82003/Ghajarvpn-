@@ -97,3 +97,14 @@ fun ConnectionHistoryDialog(onDismiss: () -> Unit) {
         confirmButton = { TextButton(onClick = onDismiss) { Text("بستن", color = c.primary) } }
     )
 }
+
+/** When each profile last reached CONNECTED, from the same log the history table reads. */
+fun lastConnectedById(entries: List<GhajarLogEntry>): Map<String, Long> {
+    val out = HashMap<String, Long>()
+    entries.forEach { e ->
+        val ev = parseConnectionEvent(e) ?: return@forEach
+        val id = ev.targetId ?: return@forEach
+        if (ev.state == "CONNECTED" && (out[id] ?: 0L) < ev.timeMs) out[id] = ev.timeMs
+    }
+    return out
+}

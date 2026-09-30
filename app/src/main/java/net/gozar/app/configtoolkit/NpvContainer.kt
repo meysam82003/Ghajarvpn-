@@ -229,7 +229,9 @@ object NpvContainer {
         val obj = cfg as? JSONObject ?: return text(cfg)
         val remarks = text(obj.opt("name"))
         val address = text(obj.opt("address"))
-        obj.optJSONObject("v2rayProfile")?.let { return v2rayLink(remarks, address, flat(it)) }
+        obj.optJSONObject("v2rayProfile")?.let { prof ->
+            return v2rayLink(remarks, address, flat(prof)).ifEmpty { rawJsonLine(remarks, prof) }
+        }
         obj.optJSONObject("sshConfig")?.let { return sshLink(remarks, flat(it)) }
         for (kind in listOf("socksConfig", "socksProfile", "httpConfig", "httpProfile", "proxyConfig")) {
             obj.optJSONObject(kind)?.let { return proxyLink(remarks, address, kind, flat(it)) }
@@ -300,31 +302,65 @@ object NpvContainer {
         return q
     }
 
+    /**
+     * NPV's sshConfig as Ghajar's own ssh:// link, so the profile runs on the
+     * SSH transport (ghajar-helper) with the same disguise: direct, payload,
+     * HTTP(S) proxy, TLS/SNI, payload over TLS or WebSocket.
+     */
     private fun sshLink(remarks: String, s: Map<String, String>): String {
-        val target = s["sshHost"].orEmpty() + (s["sshPort"]?.takeIf { it.isNotEmpty() }?.let { ":$it" } ?: "")
-        val q = listOfNotNull(
-            remarks.takeIf { it.isNotEmpty() }?.let { "remarks" to it },
-            s["sshConfigType"]?.takeIf { it.isNotEmpty() }?.let { "sshConfigType" to it },
-            s["httpProxy"]?.takeIf { it.isNotEmpty() }?.let { "httpProxy" to it }
-        )
-        return "ssh://${esc(s["sshUsername"].orEmpty())}:${esc(s["sshPassword"].orEmpty())}@$target?${query(q)}#${s["payload"].orEmpty()}"
+        val host = or(s["sshHost"], s["host"], s["server"])
+        if (host.isEmpty()) return ""
+        val port = int(or(s["sshPort"], s["port"])).takeIf { it in 1..65535 } ?: 22
+        val type = or(s["sshConfigType"], s["connectionType"], s["type"]).uppercase()
+        val payload = or(s["payload"], s["customPayload"])
+        val proxy = or(s["httpProxy"], s["proxy"], s["proxyHost"]?.let { h ->
+            h.takeIf { it.isNotEmpty() }?.let { it + (s["proxyPort"]?.takeIf { p -> p.isNotEmpty() }?.let { p -> ":$p" } ?: "") } })
+        val sni = or(s["sni"], s["serverNameIndication"], s["sslSni"], s["tlsSni"])
+        val tls = sni.isNotEmpty() || "TLS" in type || "SSL" in type
+        val ws = "WS" in type || "WEBSOCKET" in type
+        val mode = when {
+            ws -> if (tls) "wss" else "ws"
+            proxy.isNotEmpty() -> if (tls) "https-proxy" else "http-proxy"
+            payload.isNotEmpty() -> if (tls) "payload-tls" else "payload"
+            tls -> "tls"
+            else -> "direct"
+        }
+        val q = mutableListOf<Pair<String, String>>()
+        if (mode != "direct") q += "mode" to mode
+        if (proxy.isNotEmpty()) q += "proxy" to proxy
+        if (sni.isNotEmpty()) q += "sni" to sni
+        if (payload.isNotEmpty()) q += "payload" to Base64.getUrlEncoder().withoutPadding().encodeToString(payload.toByteArray())
+        val user = esc(s["sshUsername"].orEmpty()) + (s["sshPassword"]?.takeIf { it.isNotEmpty() }?.let { ":" + esc(it) } ?: "")
+        return "ssh://" + (if (user.isEmpty()) "" else "$user@") + bracket(host) + ":" + port +
+            (if (q.isEmpty()) "" else "?" + query(q)) + "#" + esc(remarks.ifEmpty { "SSH $host" })
     }
 
+    /** NPV's SOCKS / HTTP proxy objects as socks5:// and http:// links. */
     private fun proxyLink(remarks: String, address: String, kind: String, p: Map<String, String>): String {
-        val scheme = kind.removeSuffix("Config").removeSuffix("Profile")
-        var target = or(p["server"], or(p["host"], address))
-        or(p["serverPort"], or(p["port"], p["localPort"])).takeIf { it.isNotEmpty() }?.let { target += ":$it" }
-        val skip = setOf("remarks", "server", "host", "port", "serverPort", "localPort", "username", "password")
-        val q = listOfNotNull(remarks.takeIf { it.isNotEmpty() }?.let { "remarks" to it }) +
-            p.keys.sorted().filter { it !in skip && p[it].orEmpty().isNotEmpty() }.map { it to p[it]!! }
+        val scheme = if (kind.startsWith("http")) "http" else "socks5"
+        val host = or(p["server"], p["host"], address)
+        val port = int(or(p["serverPort"], p["port"])).takeIf { it in 1..65535 } ?: return ""
+        if (host.isEmpty()) return ""
         val user = p["username"].orEmpty()
-        val auth = when {
-            user.isNotEmpty() -> "${esc(user)}:${esc(p["password"].orEmpty())}@"
-            p["password"].orEmpty().isNotEmpty() -> "${esc(p["password"]!!)}@"
-            else -> ""
-        }
-        return "$scheme://$auth$target" + (if (q.isNotEmpty()) "?" + query(q) else "")
+        val auth = if (user.isNotEmpty()) "${esc(user)}:${esc(p["password"].orEmpty())}@" else ""
+        return "$scheme://$auth${bracket(host)}:$port#" + esc(remarks.ifEmpty { "$host:$port" })
     }
+
+    private fun bracket(h: String) = if (h.contains(':') && !h.startsWith("[")) "[$h]" else h
+
+    /**
+     * A v2rayProfile whose configType has no share-link form here but that
+     * carries the full core config: returned as one JSON line, which the
+     * importer reads with the regular JSON outbound parser.
+     */
+    private fun rawJsonLine(remarks: String, profile: JSONObject): String {
+        val raw = profile.optJSONObject("v2rayJson") ?: profile.optString("v2rayJson").takeIf { it.trim().startsWith("{") }
+            ?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return ""
+        return raw.put(NAME_KEY, remarks).toString()
+    }
+
+    /** Where [rawJsonLine] keeps the profile's display name. */
+    const val NAME_KEY = "__ghajarName"
 
     // ------------------------------------------------------------- helpers
 

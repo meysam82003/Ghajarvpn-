@@ -17,7 +17,9 @@ data class AetherSpec(
     val noise: String = "",
     val http2: Boolean = false,
     val ipv6: Boolean = false,
-    val oblivionJson: String = ""
+    val oblivionJson: String = "",
+    val exitLoc: String = "",
+    val fragment: Boolean = false
 ) {
     fun toJson(): String = JSONObject()
         .put("oblivionJson", oblivionJson)
@@ -26,6 +28,8 @@ data class AetherSpec(
         .put("noise", noise)
         .put("http2", http2)
         .put("ipv6", ipv6)
+        .put("exitLoc", exitLoc)
+        .put("fragment", fragment)
         .toString()
 
     companion object {
@@ -37,7 +41,9 @@ data class AetherSpec(
                 noise = config.aetherNoise,
                 http2 = config.aetherHttp2,
                 ipv6 = config.aetherIpv6,
-                oblivionJson = config.oblivionJson
+                oblivionJson = config.oblivionJson,
+                exitLoc = config.aetherExitLoc,
+                fragment = config.aetherFragment
             )
 
         fun parse(raw: String?): AetherSpec? {
@@ -50,7 +56,9 @@ data class AetherSpec(
                     noise = o.optString("noise", ""),
                     http2 = o.optBoolean("http2", false),
                     ipv6 = o.optBoolean("ipv6", false),
-                    oblivionJson = o.optString("oblivionJson", "")
+                    oblivionJson = o.optString("oblivionJson", ""),
+                    exitLoc = o.optString("exitLoc", ""),
+                    fragment = o.optBoolean("fragment", false)
                 )
             }.getOrNull()
         }
@@ -90,9 +98,13 @@ object AetherController {
         out += when (spec.mode) {
             "wg" -> "--wg"
             "gool" -> "--gool"
+            // Aether 2.1: a MASQUE tunnel inside another for a second exit address.
+            "mim" -> "--mim"
             else -> "--masque"
         }
         if (spec.http2) out += "--h2"
+        if (spec.fragment && spec.http2) out += "--fragment"
+        if (spec.exitLoc.isNotBlank()) out += listOf("--exit-loc", spec.exitLoc.trim())
         out += listOf("--scan", spec.scan.ifBlank { "balanced" })
         if (spec.noise.isNotBlank()) out += listOf("--noize", spec.noise)
         out += "--quick-reconnect"
@@ -120,6 +132,8 @@ object AetherController {
             return out
         }
         if (spec.http2) out["AETHER_MASQUE_HTTP2"] = "1"
+        if (spec.fragment && spec.http2) out["AETHER_MASQUE_H2_FRAGMENT"] = "1"
+        if (spec.exitLoc.isNotBlank()) out["AETHER_EXIT_LOC"] = spec.exitLoc.trim()
         if (spec.noise.isNotBlank()) out["AETHER_NOIZE"] = spec.noise
         return out
     }

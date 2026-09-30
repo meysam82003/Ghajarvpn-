@@ -7,19 +7,49 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      reuse-build-run:
+        description: 'Reuse APKs from this successful build run (validated against current sources)'
+        required: false
+        type: string
 
 permissions:
   contents: write
+  actions: read
 
 env:
   NDK_VERSION: 28.2.13676358
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      reuse-run-id: ${{ steps.reuse.outputs.reuse-run-id }}
+      reuse-crash-run-id: ${{ steps.reuse.outputs.reuse-crash-run-id }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install workflow parser
+        run: python3 -m pip install --quiet PyYAML==6.0.3
+      - name: Test CI harness
+        run: python3 -m unittest discover -s scripts -p 'test_*.py' -v
+      - name: Find a completed APK build with unchanged inputs
+        id: reuse
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSE_BUILD_RUN: ${{ inputs.reuse-build-run }}
+        run: python3 scripts/reuse_ci_build.py
+
   build:
+    needs: prepare
+    if: needs.prepare.outputs.reuse-run-id == ''
     runs-on: ubuntu-latest
     timeout-minutes: 110
     steps:
       - uses: actions/checkout@v4
+
+      - name: Test crash-hunt readiness checks
+        run: python3 -m unittest discover -s scripts -p 'test_crash_crawl.py' -v
 
       - uses: actions/setup-java@v4
         with:
@@ -73,6 +103,36 @@ jobs:
           fi
           ls -lh app/libs/ca.psiphon.aar
 
+      # GitHub cannot resume in the middle of a failed job. This cache is the
+      # checkpoint: every expensive generated native core is restored on a
+      # retry or a later commit whose native inputs did not change, so Kotlin,
+      # tests and packaging can continue without rebuilding the cores.
+      - name: Restore native-core checkpoint
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: app/src/main/jniLibs
+          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          restore-keys: |
+            ghajar-native-v1-${{ runner.os }}-
+
+      - name: Validate restored native checkpoint
+        id: native-ready
+        shell: bash
+        run: |
+          set -e
+          ready=true
+          for abi in arm64-v8a armeabi-v7a; do
+            for lib in libzeptun.so libzeptun-jni.so libsingbox.so libdnstt.so libvaydns.so libnoizdns.so libmasterdns.so libstormdns.so libcottendns.so libslipstream.so libghajarhelper.so liblyrebird.so libaether.so libjuicity.so libndpiclassify.so; do
+              [ -s "app/src/main/jniLibs/$abi/$lib" ] || ready=false
+            done
+          done
+          for lib in libzeptun.so libzeptun-jni.so libaether.so; do
+            [ -s "app/src/main/jniLibs/x86_64/$lib" ] || ready=false
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "Native checkpoint ready: $ready"
+
       # The zeptun tun engine (MIT, Noisemux/zeptun), pinned to one commit and
       # built from source rather than vendored: it is Zig, and a committed
       # binary nobody can reproduce is worse than a build step. Its own CI
@@ -81,12 +141,14 @@ jobs:
       # break the app: the libraries simply will not be in the APK, and
       # ZeptunEngine reports itself unavailable at runtime.
       - uses: mlugg/setup-zig@v2
+        if: steps.native-ready.outputs.ready != 'true'
         with:
           version: 0.16.0
 
       - name: Build the zeptun tun engine
+        if: steps.native-ready.outputs.ready != 'true'
         env:
-          ZEPTUN_COMMIT: 2798fc0ced2e39b2f55f3c1c1bcec45f91021400
+          ZEPTUN_COMMIT: 5620e57cdbf1a4464567a404adbff7cffd9b4bb9
         run: |
           git clone https://github.com/Noisemux/zeptun /tmp/zeptun
           git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
@@ -122,35 +184,69 @@ jobs:
       # Built rather than vendored for the same reason as zeptun: a committed
       # 100 MB binary nobody can reproduce is worse than a build step.
       - uses: actions/setup-go@v5
+        if: steps.native-ready.outputs.ready != 'true'
         with:
           go-version: '1.26.8'
           cache: false
 
       - name: Build the sing-box core
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-singbox.sh
 
       # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
       # module version and checksum - see scripts/build-dnstt.sh.
       - name: Build the dnstt DNS tunnel client
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-dnstt.sh
 
       - name: Build the DNS tunnel family (VayDNS, NoizDNS, MasterDNS, StormDNS, CottenDNS)
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-dns-tunnels.sh
 
       - name: Build Slipstream (QUIC over DNS)
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-slipstream.sh
 
       - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-ghajar-helper.sh
 
       - name: Build Tor pluggable transports (lyrebird)
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-tor-pt.sh
 
+      # Aether (Rust + quiche/BoringSSL) is the slowest native build; its
+      # output only changes with the pinned commit, so it is cached on it.
+      - name: Cache the Aether build
+        if: steps.native-ready.outputs.ready != 'true'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            /tmp/aether-build/aether/target
+          key: aether-21e7150-${{ runner.os }}-ci
+
+      - name: Build Aether (WARP MASQUE / WireGuard core)
+        if: steps.native-ready.outputs.ready != 'true'
+        env:
+          ABIS: arm64-v8a armeabi-v7a x86_64
+        run: sh scripts/build-aether.sh
+
       - name: Build Juicity client
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-juicity.sh
 
       - name: Build nDPI fingerprint check
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-ndpi.sh
+
+      - name: Save native-core checkpoint
+        if: steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: app/src/main/jniLibs
+          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
 
       - name: Report 16 KB page alignment of native files
         run: sh scripts/check-16kb.sh
@@ -193,39 +289,53 @@ jobs:
   # open/back stress and monkey run with animations on, so exit-animation
   # races reproduce as they do on a phone.
   crash-hunt:
-    needs: build
-    if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+    needs: [prepare, build]
+    if: >-
+      always() && needs.prepare.result == 'success' &&
+      (needs.build.result == 'success' || needs.prepare.outputs.reuse-run-id != '')
     runs-on: ubuntu-latest
     timeout-minutes: 80
     steps:
       - uses: actions/checkout@v4
 
+      - name: Reuse the passed crash-hunt for the identical source tree
+        if: needs.prepare.outputs.reuse-crash-run-id != ''
+        env:
+          CERTIFIED_RUN: ${{ needs.prepare.outputs.reuse-crash-run-id }}
+        run: echo "Crash-hunt passed for this exact source tree in https://github.com/$GITHUB_REPOSITORY/actions/runs/$CERTIFIED_RUN"
+
       - uses: actions/download-artifact@v4
+        if: needs.prepare.outputs.reuse-crash-run-id == ''
         with:
           name: Ghajarvpn-Android-debug
           path: apk
+          run-id: ${{ needs.prepare.outputs.reuse-run-id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Enable KVM
+        if: needs.prepare.outputs.reuse-crash-run-id == ''
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
       - name: Crawl the app on an emulator and fail on any crash
+        if: needs.prepare.outputs.reuse-crash-run-id == ''
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
-          target: google_apis
+          target: aosp_atd
           arch: x86_64
           ram-size: 4096M
           # A phone-sized screen; the default AVD is 320x640.
-          profile: pixel_6
           disable-animations: false
-          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
+          # Use the current software renderer with Vulkan disabled for the
+          # headless emulator's repeated activity and window transitions.
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -noaudio -no-boot-anim -no-snapshot
           script: python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"
 
       - name: Upload crash-hunt logs
-        if: always()
+        if: always() && needs.prepare.outputs.reuse-crash-run-id == ''
         uses: actions/upload-artifact@v4
         with:
           name: Ghajarvpn-crash-hunt-logs
@@ -233,7 +343,7 @@ jobs:
           if-no-files-found: warn
 
   release:
-    needs: build
+    needs: [prepare, build, crash-hunt]
     # A manual run can publish too. Pushing a tag requires write access to
     # tag refs, which is a separate permission from pushing a branch, and an
     # operator who does not have it would otherwise be unable to release at
@@ -247,13 +357,14 @@ jobs:
     # unfinished work. Every CI run on a branch is a build; only main is a
     # release.
     if: >-
-      startsWith(github.ref, 'refs/tags/v') ||
+      always() && needs.prepare.result == 'success' &&
+      needs.crash-hunt.result == 'success' &&
+      (needs.build.result == 'success' || needs.prepare.outputs.reuse-run-id != '') &&
+      (startsWith(github.ref, 'refs/tags/v') ||
       github.ref == 'refs/tags/1.0.0' ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main')
+      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 110
-    env:
-      GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dhttp.proxyHost= -Dhttps.proxyHost="
     steps:
       - uses: actions/checkout@v4
 
@@ -316,90 +427,18 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-          cache: gradle
-
-      - name: Install native prerequisites
-        run: sudo apt-get update && sudo apt-get install -y swig ninja-build autoconf automake libtool pkg-config
 
       - uses: android-actions/setup-android@v3
         with:
-          packages: platform-tools
+          packages: 'build-tools;36.0.0'
 
-      - name: Install Android SDK and NDK
-        run: |
-          sdkmanager --install "ndk;${NDK_VERSION}" "platforms;android-36" "build-tools;36.0.0" "cmake;3.22.1"
-          echo "ANDROID_NDK_HOME=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
-          echo "ANDROID_NDK_ROOT=$ANDROID_SDK_ROOT/ndk/${NDK_VERSION}" >> "$GITHUB_ENV"
-
-      - name: Verify prebuilt native engine AAR
-        run: |
-          if [ ! -f app/libs/ca.psiphon.aar ]; then
-            echo "::error::app/libs/ca.psiphon.aar is missing. Build it with gomobile and commit it."
-            exit 1
-          fi
-
-      # Both built-from-source cores have to be built here too, not only in
-      # the build job. zeptun was missing from this job, which meant every
-      # signed release APK shipped without it while the debug artifact had it -
-      # the one build nobody would think to check. sing-box is a compile-time
-      # dependency on top of that, so without it this job cannot build at all.
-      - uses: mlugg/setup-zig@v2
+      - name: Download the existing optimized APKs
+        uses: actions/download-artifact@v4
         with:
-          version: 0.16.0
-
-      - name: Build the zeptun tun engine
-        env:
-          ZEPTUN_COMMIT: 2798fc0ced2e39b2f55f3c1c1bcec45f91021400
-        run: |
-          git clone https://github.com/Noisemux/zeptun /tmp/zeptun
-          git -C /tmp/zeptun checkout "$ZEPTUN_COMMIT"
-          cd /tmp/zeptun
-          ABIS="armeabi-v7a arm64-v8a" sh scripts/build_android.sh
-          for abi in armeabi-v7a arm64-v8a; do
-            dest="$GITHUB_WORKSPACE/app/src/main/jniLibs/$abi"
-            mkdir -p "$dest"
-            cp "zig-out/android/jniLibs/$abi/libzeptun.so" "$dest/"
-            cp "zig-out/android/jniLibs/$abi/libzeptun-jni.so" "$dest/"
-            for so in "$dest/libzeptun.so" "$dest/libzeptun-jni.so"; do
-              align=$(readelf -lW "$so" | awk '$1 == "LOAD" { print $NF; exit }')
-              echo "$so $align"
-              [ "$align" = "0x4000" ]
-            done
-          done
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: '1.26.8'
-          cache: false
-
-      - name: Build the sing-box core
-        run: sh scripts/build-singbox.sh
-
-      # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
-      # module version and checksum - see scripts/build-dnstt.sh.
-      - name: Build the dnstt DNS tunnel client
-        run: sh scripts/build-dnstt.sh
-
-      - name: Build the DNS tunnel family (VayDNS, NoizDNS, MasterDNS, StormDNS, CottenDNS)
-        run: sh scripts/build-dns-tunnels.sh
-
-      - name: Build Slipstream (QUIC over DNS)
-        run: sh scripts/build-slipstream.sh
-
-      - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
-        run: sh scripts/build-ghajar-helper.sh
-
-      - name: Build Tor pluggable transports (lyrebird)
-        run: sh scripts/build-tor-pt.sh
-
-      - name: Build Juicity client
-        run: sh scripts/build-juicity.sh
-
-      - name: Build nDPI fingerprint check
-        run: sh scripts/build-ndpi.sh
-
-      - name: Report 16 KB page alignment of native files
-        run: sh scripts/check-16kb.sh
+          name: Ghajarvpn-Android-preview
+          path: preview-apk
+          run-id: ${{ needs.prepare.outputs.reuse-run-id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Remove any committed local signing config
         run: rm -f keystore.properties
@@ -443,9 +482,8 @@ jobs:
       # the expected alias, is reported here rather than as an opaque ASN.1
       # error from the packaging task.
       #
-      # The material is written to keystore.properties rather than exported as
-      # environment variables, which app/build.gradle.kts already supports as
-      # its second path. That is deliberate: Actions prints a step's `env:`
+      # The promotion tool reads the signing material from keystore.properties
+      # rather than a step environment. Actions prints a step's `env:`
       # block into the log, and while a real secret renders as ***, a value
       # this job derived itself would not be masked unless every branch
       # remembers ::add-mask::. Not putting it there at all removes the
@@ -464,6 +502,7 @@ jobs:
             PW="${SIGNING_BUNDLE%%:*}"
             B64="${SIGNING_BUNDLE#*:}"
             ALIAS="${SIGNING_ALIAS:-ghajar}"
+            KP="$PW"
             if [ -z "$PW" ] || [ "$B64" = "$SIGNING_BUNDLE" ]; then
               echo "::error::SIGNING_BUNDLE must look like <password>:<base64-of-release.jks>"
               exit 1
@@ -472,9 +511,11 @@ jobs:
             PW="$KEYSTORE_PASSWORD"
             B64="$KEYSTORE_BASE64"
             ALIAS="$KEY_ALIAS"
+            KP="$KEY_PASSWORD"
           fi
           # Masked before it can reach any log line, whichever branch set it.
           echo "::add-mask::$PW"
+          echo "::add-mask::$KP"
 
           printf '%s' "$B64" | base64 -d > "$JKS" || {
             echo "::error::The keystore is not valid base64. Produce it with: base64 -w0 release.jks"
@@ -502,39 +543,20 @@ jobs:
             echo "storeFile=$JKS"
             echo "storePassword=$PW"
             echo "keyAlias=$ALIAS"
-            echo "keyPassword=$PW"
+            echo "keyPassword=$KP"
           } > keystore.properties
           echo "Signing material is ready."
 
-      - name: Grant execute permission for gradlew
-        run: chmod +x gradlew
-
-      # No signing variables in this step's environment. Gradle reads
-      # keystore.properties, written by the step above.
-      - name: Build signed release
-        run: ./gradlew assembleRelease --no-daemon --stacktrace
-
-      - name: Rename APKs and generate checksums
-        run: |
-          V="${{ steps.version.outputs.name }}"
-          OUT=dist
-          mkdir -p "$OUT"
-          for apk in app/build/outputs/apk/release/*.apk; do
-            [ -e "$apk" ] || continue
-            base=$(basename "$apk")
-            abi=$(echo "$base" | grep -oE 'arm64-v8a|armeabi-v7a|x86_64|x86' || echo universal)
-            cp "$apk" "$OUT/Ghajarvpn-${V}-${abi}.apk"
-          done
-          cd "$OUT"
-          sha256sum *.apk > SHA256SUMS.txt
-          cat SHA256SUMS.txt
-
-      - name: Verify APK signatures
-        run: |
-          BT=$(ls -d "$ANDROID_SDK_ROOT"/build-tools/* | sort -V | tail -1)
-          for apk in dist/*.apk; do
-            "$BT/apksigner" verify --print-certs "$apk" | head -4
-          done
+      # Preview inherits the release R8/resource settings and is not debuggable.
+      # Promote the validated existing APKs instead of compiling them again.
+      # The tool checks package, version, ABI, alignment and the stable signing
+      # certificate before any release is published.
+      - name: Promote optimized APKs with the release key without rebuilding
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.name }}
+          RELEASE_VERSION_CODE: ${{ steps.version.outputs.code }}
+          EXPECTED_SIGNER_SHA256: ff205071710ab20b416756b18852e60b3da2e5dde17f4b95b9d1b3ee5be92bde
+        run: python3 scripts/promote_preview_apks.py
 
       - name: Upload APK artifacts
         uses: actions/upload-artifact@v4

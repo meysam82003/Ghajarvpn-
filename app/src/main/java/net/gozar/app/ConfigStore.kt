@@ -19,6 +19,7 @@ import java.util.concurrent.Executors
 enum class PerAppMode { OFF, ALLOWLIST, BLOCKLIST }
 enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 class ConfigStore private constructor(context: Context) {
+    private val appCtx: Context = context.applicationContext
 
     private val prefs = context.getSharedPreferences("gozarnet", Context.MODE_PRIVATE)
 
@@ -907,6 +908,10 @@ class ConfigStore private constructor(context: Context) {
         put("perAppMode", _perAppMode.value.name)
         put("perAppList", JSONArray(_perAppList.value.toList()))
         put("selectedId", _selectedId.value ?: "")
+        // Personalization travels with a full backup (colours, layout, styles,
+        // saved presets). It holds no secrets, so the backup's own security
+        // model (optional password encryption) is unchanged by adding it.
+        runCatching { put("appearance", GhajarLookStore.load(appCtx).value.toExport(BuildConfig.VERSION_NAME)) }
     }
 
     fun restoreSettings(o: JSONObject) {
@@ -981,6 +986,10 @@ class ConfigStore private constructor(context: Context) {
         }
         o.optJSONArray("perAppList")?.let { arr ->
             setPerAppList((0 until arr.length()).map { arr.getString(it) }.toSet())
+        }
+        // Older backups carry no appearance and leave the current one alone.
+        o.optJSONObject("appearance")?.let { a ->
+            runCatching { if (looksLikeExport(a)) GhajarLookStore.set(appCtx, GhajarLook.fromAny(a)) }
         }
     }
 

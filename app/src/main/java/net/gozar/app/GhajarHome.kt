@@ -166,6 +166,7 @@ fun ConnectOrb(
     val shape = when (style) {
         "pill", "capsule_glow" -> RoundedCornerShape(50)
         "soft_square" -> RoundedCornerShape((52 * k).dp)
+        "shield" -> ShieldShape
         else -> CircleShape
     }
     val (w, h) = when (style) {
@@ -278,6 +279,37 @@ fun ConnectOrb(
                             )
                         }
                     }
+                    "shield" -> {
+                        // A shield: the slab tone, washed with the state colour,
+                        // with a travelling edge while working (see the border
+                        // drawn over the shape below).
+                        drawRect(c.secondaryCard)
+                        drawRect(brush = Brush.verticalGradient(
+                            listOf(tint.copy(alpha = if (connectedNow) 0.30f else 0.14f), Color.Transparent)))
+                        if (working) {
+                            val t = (sweepState.value + 90f) / 360f
+                            drawRect(tint.copy(alpha = 0.18f), topLeft = Offset(0f, size.height * (1f - t)),
+                                size = Size(size.width, size.height * t))
+                        }
+                    }
+                    "power" -> {
+                        // The power symbol itself: a ring open at the top and a
+                        // bar through the gap. The ring fills as the tunnel comes up.
+                        drawCircle(c.secondaryCard, radius = size.minDimension / 2f - inset)
+                        val gap = 40f
+                        drawArc(c.border, -90f + gap, 360f - gap * 2, false, topLeft, arcSize,
+                            style = Stroke(stroke * 1.4f, cap = StrokeCap.Round))
+                        val sweep = when {
+                            connectedNow -> 360f - gap * 2
+                            working -> (360f - gap * 2) * ((sweepState.value + 90f) / 360f)
+                            else -> 0f
+                        }
+                        if (sweep > 0f) drawArc(tint, -90f + gap, sweep, false, topLeft, arcSize,
+                            style = Stroke(stroke * 1.6f, cap = StrokeCap.Round))
+                        drawLine(if (enabled || picking) tint else c.onDisabled,
+                            Offset(size.width / 2f, inset - stroke), Offset(size.width / 2f, size.height * 0.30f),
+                            strokeWidth = stroke * 1.6f, cap = StrokeCap.Round)
+                    }
                     "neon" -> {
                         drawCircle(c.background, radius = size.minDimension / 2f - inset)
                         for (i in 3 downTo 1) {
@@ -369,7 +401,7 @@ fun ConnectOrb(
                     }
                 }
             }
-            if (style == "capsule_glow" || style == "soft_square") {
+            if (style == "capsule_glow" || style == "soft_square" || style == "shield") {
                 Box(
                     Modifier.fillMaxSize().border(
                         1.5.dp, tint.copy(alpha = if (enabled || picking) 0.8f else 0.3f), shape
@@ -583,7 +615,9 @@ fun TrafficTiles(
     downTotal: String,
     upValue: String,
     upTotal: String,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    /** compact / normal / large, from Personalization > Home. */
+    size: String = "normal"
 ) {
     val lang = LocalLang.current
     val t: (String) -> String = { Strings.get(lang, it) }
@@ -591,12 +625,12 @@ fun TrafficTiles(
         TrafficTile(
             Icons.Filled.ArrowDownward, t("download"), downValue, downTotal,
             lookColor(LookElement.TILE_DOWN_ICON), lookColor(LookElement.TILE_DOWN_BG),
-            Modifier.weight(1f)
+            Modifier.weight(1f), size
         )
         TrafficTile(
             Icons.Filled.ArrowUpward, t("upload"), upValue, upTotal,
             lookColor(LookElement.TILE_UP_ICON), lookColor(LookElement.TILE_UP_BG),
-            Modifier.weight(1f)
+            Modifier.weight(1f), size
         )
     }
 }
@@ -609,15 +643,18 @@ private fun TrafficTile(
     total: String,
     ink: Color,
     bg: Color,
-    modifier: Modifier
+    modifier: Modifier,
+    size: String = "normal"
 ) {
     val c = ghajarColors
     val radius = LocalGhajarLook.current.cardRadius.dp
+    val pad = when (size) { "compact" -> 6.dp; "large" -> 16.dp; else -> 10.dp }
+    val big = size == "large"
     Row(
         modifier
             .clip(RoundedCornerShape(radius))
             .background(bg)
-            .padding(horizontal = GhajarSpacing.md, vertical = 10.dp),
+            .padding(horizontal = GhajarSpacing.md, vertical = pad),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
     ) {
@@ -634,11 +671,11 @@ private fun TrafficTile(
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.Bold,
                 color = ink,
-                fontSize = 15.sp,
+                fontSize = if (big) 19.sp else if (size == "compact") 13.sp else 15.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
-            Text(
+            if (size != "compact") Text(
                 total,
                 style = MaterialTheme.typography.labelSmall,
                 color = c.textSecondary,
@@ -647,4 +684,15 @@ private fun TrafficTile(
             )
         }
     }
+}
+
+/** A heraldic shield: flat top with rounded corners, curving to a point. */
+private val ShieldShape = androidx.compose.foundation.shape.GenericShape { size, _ ->
+    val w = size.width; val h = size.height
+    moveTo(w * 0.10f, h * 0.08f)
+    quadraticTo(w * 0.50f, h * -0.02f, w * 0.90f, h * 0.08f)
+    lineTo(w * 0.90f, h * 0.48f)
+    cubicTo(w * 0.90f, h * 0.76f, w * 0.68f, h * 0.90f, w * 0.50f, h * 0.98f)
+    cubicTo(w * 0.32f, h * 0.90f, w * 0.10f, h * 0.76f, w * 0.10f, h * 0.48f)
+    close()
 }
