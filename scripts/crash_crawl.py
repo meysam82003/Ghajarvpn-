@@ -169,6 +169,43 @@ def find_and_tap(label, scrolls=6):
     return False
 
 
+def describe_screen(tag):
+    """What is on screen when a crawl step finds nothing to tap: the foreground
+    activity and the first texts of every package in the hierarchy."""
+    log(f"{tag}: foreground {foreground() or '?'}")
+    adb("shell", "uiautomator", "dump", "--compressed", "/sdcard/ui.xml")
+    raw = adb("shell", "cat", "/sdcard/ui.xml")
+    start = raw.find("<?xml")
+    if start < 0:
+        log(f"{tag}: no hierarchy: " + raw[:200].replace("\n", " "))
+        return
+    try:
+        root = ET.fromstring(raw[start:])
+    except ET.ParseError as e:
+        log(f"{tag}: unparsable hierarchy ({e})")
+        return
+    seen = []
+    for n in root.iter("node"):
+        t = (n.get("text") or n.get("content-desc") or "").strip()
+        if t:
+            seen.append(f"{n.get('package')}:{t[:30]}{'*' if n.get('clickable') == 'true' else ''}")
+    log(f"{tag}: {len(seen)} labelled nodes: " + " | ".join(seen[:25]))
+
+
+def print_anr():
+    """The ANR record and the main thread's stack, into the job log itself."""
+    am = adb("logcat", "-d", "-s", "ActivityManager:E", timeout=60)
+    i = am.find("ANR in " + PKG)
+    if i >= 0:
+        print(am[i:i + 2500])
+    traces = adb("shell", "ls /data/anr/ 2>/dev/null").split()
+    for t in traces[-2:]:
+        body = adb("shell", "cat", f"/data/anr/{t}", timeout=60)
+        j = body.find('"main"')
+        if j >= 0:
+            print(f"==== /data/anr/{t} main thread\n" + body[j:j + 4000])
+
+
 def check(path, before_pid, before_crash):
     """Records a crash if the process died or the crash buffer grew."""
     now_crash = crash_lines()
@@ -181,6 +218,8 @@ def check(path, before_pid, before_crash):
         summary = next((l for l in new.splitlines() if "Exception" in l or "Error" in l or "Fatal signal" in l), "")
         summary = summary or ("ANR" if anr else "process died")
         crashes.append((" > ".join(path), summary.strip()))
+        if anr:
+            print_anr()
         log(f"!!! CRASH after: {' > '.join(path)}\n    {summary.strip()}")
         with open(os.path.join(OUT, "crashes.txt"), "a") as f:
             f.write(f"===== after: {' > '.join(path)}\n{new}\n")
@@ -222,6 +261,8 @@ def explore(path, depth):
     seen_screens.append(sig)
     screens.append((list(path), sig))
     log(f"screen depth={depth} path={' > '.join(path) or '(root)'}")
+    if not sig:
+        describe_screen("empty screen")
     count = 0
     for page in range(7):  # the visible part, then up to six scrolls down
         nodes = dump()
