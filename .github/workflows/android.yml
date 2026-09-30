@@ -82,8 +82,26 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/src/main/jniLibs
-          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('.github/workflows/android.yml', 'scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          restore-keys: |
+            ghajar-native-v1-${{ runner.os }}-
 
+      - name: Validate restored native checkpoint
+        id: native-ready
+        shell: bash
+        run: |
+          set -e
+          ready=true
+          for abi in arm64-v8a armeabi-v7a; do
+            for lib in libzeptun.so libzeptun-jni.so libsingbox.so libdnstt.so libvaydns.so libnoizdns.so libmasterdns.so libstormdns.so libcottendns.so libslipstream.so libghajarhelper.so liblyrebird.so libaether.so libjuicity.so libndpiclassify.so; do
+              [ -s "app/src/main/jniLibs/$abi/$lib" ] || ready=false
+            done
+          done
+          for lib in libzeptun.so libzeptun-jni.so libaether.so; do
+            [ -s "app/src/main/jniLibs/x86_64/$lib" ] || ready=false
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "Native checkpoint ready: $ready"
 
       # The zeptun tun engine (MIT, Noisemux/zeptun), pinned to one commit and
       # built from source rather than vendored: it is Zig, and a committed
@@ -93,12 +111,12 @@ jobs:
       # break the app: the libraries simply will not be in the APK, and
       # ZeptunEngine reports itself unavailable at runtime.
       - uses: mlugg/setup-zig@v2
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         with:
           version: 0.16.0
 
       - name: Build the zeptun tun engine
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         env:
           ZEPTUN_COMMIT: 5620e57cdbf1a4464567a404adbff7cffd9b4bb9
         run: |
@@ -136,41 +154,41 @@ jobs:
       # Built rather than vendored for the same reason as zeptun: a committed
       # 100 MB binary nobody can reproduce is worse than a build step.
       - uses: actions/setup-go@v5
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         with:
           go-version: '1.26.8'
           cache: false
 
       - name: Build the sing-box core
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-singbox.sh
 
       # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
       # module version and checksum - see scripts/build-dnstt.sh.
       - name: Build the dnstt DNS tunnel client
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-dnstt.sh
 
       - name: Build the DNS tunnel family (VayDNS, NoizDNS, MasterDNS, StormDNS, CottenDNS)
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-dns-tunnels.sh
 
       - name: Build Slipstream (QUIC over DNS)
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-slipstream.sh
 
       - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-ghajar-helper.sh
 
       - name: Build Tor pluggable transports (lyrebird)
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-tor-pt.sh
 
       # Aether (Rust + quiche/BoringSSL) is the slowest native build; its
       # output only changes with the pinned commit, so it is cached on it.
       - name: Cache the Aether build
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -180,17 +198,17 @@ jobs:
           key: aether-21e7150-${{ runner.os }}-ci
 
       - name: Build Aether (WARP MASQUE / WireGuard core)
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         env:
           ABIS: arm64-v8a armeabi-v7a x86_64
         run: sh scripts/build-aether.sh
 
       - name: Build Juicity client
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-juicity.sh
 
       - name: Build nDPI fingerprint check
-        if: steps.native-cache.outputs.cache-hit != 'true'
+        if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-ndpi.sh
 
       - name: Save native-core checkpoint
@@ -198,7 +216,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/src/main/jniLibs
-          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('.github/workflows/android.yml', 'scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
 
       - name: Report 16 KB page alignment of native files
         run: sh scripts/check-16kb.sh
@@ -263,11 +281,10 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 34
-          target: google_apis
+          target: aosp_atd
           arch: x86_64
           ram-size: 4096M
           # A phone-sized screen; the default AVD is 320x640.
-          profile: pixel_6
           disable-animations: false
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           script: python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"
@@ -391,7 +408,23 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/src/main/jniLibs
-          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('.github/workflows/android.yml', 'scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          restore-keys: |
+            ghajar-native-v1-${{ runner.os }}-
+
+      - name: Validate restored native checkpoint
+        id: release-native-ready
+        shell: bash
+        run: |
+          set -e
+          ready=true
+          for abi in arm64-v8a armeabi-v7a; do
+            for lib in libzeptun.so libzeptun-jni.so libsingbox.so libdnstt.so libvaydns.so libnoizdns.so libmasterdns.so libstormdns.so libcottendns.so libslipstream.so libghajarhelper.so liblyrebird.so libaether.so libjuicity.so libndpiclassify.so; do
+              [ -s "app/src/main/jniLibs/$abi/$lib" ] || ready=false
+            done
+          done
+          echo "ready=$ready" >> "$GITHUB_OUTPUT"
+          echo "Release native checkpoint ready: $ready"
 
       # Both built-from-source cores have to be built here too, not only in
       # the build job. zeptun was missing from this job, which meant every
@@ -399,12 +432,12 @@ jobs:
       # the one build nobody would think to check. sing-box is a compile-time
       # dependency on top of that, so without it this job cannot build at all.
       - uses: mlugg/setup-zig@v2
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         with:
           version: 0.16.0
 
       - name: Build the zeptun tun engine
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         env:
           ZEPTUN_COMMIT: 5620e57cdbf1a4464567a404adbff7cffd9b4bb9
         run: |
@@ -425,41 +458,41 @@ jobs:
           done
 
       - uses: actions/setup-go@v5
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         with:
           go-version: '1.26.8'
           cache: false
 
       - name: Build the sing-box core
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         run: sh scripts/build-singbox.sh
 
       # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
       # module version and checksum - see scripts/build-dnstt.sh.
       - name: Build the dnstt DNS tunnel client
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         run: sh scripts/build-dnstt.sh
 
       - name: Build the DNS tunnel family (VayDNS, NoizDNS, MasterDNS, StormDNS, CottenDNS)
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         run: sh scripts/build-dns-tunnels.sh
 
       - name: Build Slipstream (QUIC over DNS)
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         run: sh scripts/build-slipstream.sh
 
       - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         run: sh scripts/build-ghajar-helper.sh
 
       - name: Build Tor pluggable transports (lyrebird)
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         run: sh scripts/build-tor-pt.sh
 
       # Aether (Rust + quiche/BoringSSL) is the slowest native build; its
       # output only changes with the pinned commit, so it is cached on it.
       - name: Cache the Aether build
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         uses: actions/cache@v4
         with:
           path: |
@@ -469,17 +502,17 @@ jobs:
           key: aether-21e7150-${{ runner.os }}-release
 
       - name: Build Aether (WARP MASQUE / WireGuard core)
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         env:
           ABIS: arm64-v8a armeabi-v7a
         run: sh scripts/build-aether.sh
 
       - name: Build Juicity client
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         run: sh scripts/build-juicity.sh
 
       - name: Build nDPI fingerprint check
-        if: steps.release-native-cache.outputs.cache-hit != 'true'
+        if: steps.release-native-ready.outputs.ready != 'true'
         run: sh scripts/build-ndpi.sh
 
       - name: Save native-core checkpoint
@@ -487,7 +520,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/src/main/jniLibs
-          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('.github/workflows/android.yml', 'scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
 
       - name: Report 16 KB page alignment of native files
         run: sh scripts/check-16kb.sh

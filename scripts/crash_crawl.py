@@ -77,6 +77,48 @@ def foreground():
     return m.group(1) if m else ""
 
 
+def focused_window():
+    out = adb("shell", "dumpsys", "window", "windows")
+    m = re.search(r"mCurrentFocus=Window\{[^}]*\s([^\s}]+)", out)
+    return m.group(1) if m else ""
+
+
+def dismiss_external_launcher_anr():
+    """Dismiss an emulator launcher ANR without hiding a Ghajar app ANR."""
+    adb("shell", "uiautomator", "dump", "--compressed", "/sdcard/ui.xml")
+    raw = adb("shell", "cat", "/sdcard/ui.xml")
+    start = raw.find("<?xml")
+    if start < 0:
+        return False
+    try:
+        root = ET.fromstring(raw[start:])
+    except ET.ParseError:
+        return False
+    labels = []
+    close_xy = None
+    for n in root.iter("node"):
+        text = (n.get("text") or n.get("content-desc") or "").strip()
+        if text:
+            labels.append(text)
+        if text.lower() == "close app" and n.get("clickable") == "true":
+            b = re.findall(r"\d+", n.get("bounds") or "")
+            if len(b) == 4:
+                x1, y1, x2, y2 = map(int, b)
+                close_xy = ((x1 + x2) // 2, (y1 + y2) // 2)
+    joined = " | ".join(labels)
+    # #279 was blocked by "Pixel Launcher isn't responding". Never auto-close
+    # a dialog naming Ghajar itself; that must remain a real crash-hunt failure.
+    if ("Pixel Launcher isn't responding" in joined or "Launcher isn't responding" in joined) and "Ghajar" not in joined:
+        log("dismissing external launcher ANR: " + joined[:180])
+        if close_xy:
+            adb("shell", "input", "tap", str(close_xy[0]), str(close_xy[1]))
+        else:
+            adb("shell", "am", "force-stop", "com.google.android.apps.nexuslauncher")
+        time.sleep(1.5)
+        return True
+    return False
+
+
 def launch():
     adb("shell", "am", "start", "-W", "-n", ACTIVITY, timeout=60)
 
@@ -84,9 +126,15 @@ def launch():
 def wait_resumed(seconds=40):
     end = time.time() + seconds
     while time.time() < end:
+        dismiss_external_launcher_anr()
         fg = foreground()
+        focus = focused_window()
         if fg.startswith(PKG + "/") and "MainActivity" in fg:
-            return True
+            # A system dialog can sit above MainActivity while ActivityManager
+            # still reports MainActivity as resumed. Require the app window to
+            # own focus when WindowManager can report one.
+            if not focus or PKG in focus:
+                return True
         time.sleep(1)
     return False
 
