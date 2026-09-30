@@ -288,8 +288,8 @@ jobs:
           ram-size: 4096M
           # A phone-sized screen; the default AVD is 320x640.
           disable-animations: false
-          # Avoid the deprecated indirect renderer: SystemUI stopped draining
-          # Binder calls in run 36735983281 until its async buffer was full.
+          # Use the current software renderer with Vulkan disabled for the
+          # headless emulator's repeated activity and window transitions.
           emulator-options: -no-window -gpu swiftshader -feature -Vulkan -noaudio -no-boot-anim -no-snapshot
           script: python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"
 

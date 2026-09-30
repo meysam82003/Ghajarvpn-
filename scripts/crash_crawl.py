@@ -490,6 +490,16 @@ def main():
     adb("root")
     time.sleep(3)
     adb("wait-for-device", timeout=120)
+    # In run 36735983281 the ATD image froze PermissionController (pid 800).
+    # Repeated accessibility dumps then filled its async Binder buffer, and
+    # system dialogs stopped responding. Keep cached emulator processes
+    # running during this stress test; app crash/ANR detection stays active.
+    adb("shell", "settings", "put", "global", "cached_apps_freezer", "disabled")
+    freezer = adb("shell", "settings", "get", "global", "cached_apps_freezer").strip()
+    log("emulator cached-app freezer: " + freezer)
+    if freezer != "disabled":
+        print("::error::could not disable the emulator cached-app freezer")
+        return 1
     log("device ABIs: " + adb("shell", "getprop", "ro.product.cpu.abilist").strip())
     read_screen_size()
     animations(False)
