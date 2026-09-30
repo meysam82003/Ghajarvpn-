@@ -31,6 +31,12 @@ object ConfigShare {
             "version" to c.mode.takeIf { it == "1" || it == "2" }.orEmpty(), "path" to c.path, "sni" to c.sni,
             "alpn" to c.alpn, "fp" to c.fingerprint, "pin" to c.pinnedCertSha256,
             "insecure" to if (c.allowInsecure) "1" else "", "mtu" to c.mtu.takeIf { it > 0 }?.toString().orEmpty()))
+        // The auth key and the tailcat private key are never put in a share
+        // link: either one lets whoever holds it join as this device.
+        "tailscale" -> simpleLink("tailscale", "", c, listOf(
+            "control" to c.host, "exit" to c.path, "hostname" to c.sni, "flags" to c.headerType))
+        "tailcat" -> simpleLink("tailcat", "", c, listOf(
+            "pub" to c.publicKey, "disco" to c.uuid, "psk" to c.password, "derp" to c.host, "region" to c.mode))
         "anytls" -> simpleLink("anytls", enc(c.password), c, listOf(
             "sni" to c.sni, "fp" to c.fingerprint, "insecure" to if (c.allowInsecure) "1" else ""))
         // The private key is never put in a share link.

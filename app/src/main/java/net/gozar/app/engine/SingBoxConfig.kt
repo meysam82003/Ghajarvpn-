@@ -21,7 +21,7 @@ object SingBoxConfig {
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
     val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect", "masque",
         "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream",
-        "amneziawg", "mieru", "brook", "juicity", "naive", "shadowtls", "sstp", "softether")
+        "amneziawg", "mieru", "brook", "juicity", "naive", "shadowtls", "sstp", "softether", "tailscale", "tailcat")
 
     /** DNS tunnels whose server forwards to a SOCKS5 or SSH upstream. */
     val DNSTT_FAMILY = setOf("dnstt", "vaydns", "noizdns", "slipstream")
@@ -30,7 +30,7 @@ object SingBoxConfig {
     val MASTERDNS_FAMILY = setOf("masterdns", "stormdns", "cottendns")
 
     /** Protocols carried as sing-box endpoints rather than outbounds. */
-    private val ENDPOINTS = setOf("openconnect", "masque")
+    private val ENDPOINTS = setOf("openconnect", "masque", "tailscale")
 
     fun handles(config: ProxyConfig): Boolean = config.protocol in PROTOCOLS
 
@@ -198,6 +198,31 @@ object SingBoxConfig {
                 pinBase64(c.pinnedCertSha256)?.let { t.put("certificate_sha256", JSONArray().put(it)) }
                 o.put("tls", t)
             }
+            "tailscale" -> {
+                // Userspace Tailscale node (option/tailscale.go). Its state
+                // lives under the sing-box working directory (-D), so the node
+                // keeps its identity between connects unless it is ephemeral.
+                val flags = c.headerType.split(',').map { it.trim() }.toSet()
+                o.put("type", "tailscale")
+                    .put("state_directory", "tailscale-" + stateId(c))
+                    .putIf("auth_key", c.password)
+                    .putIf("control_url", c.host.takeIf { it.startsWith("https://") || it.startsWith("http://") })
+                    .put("hostname", c.sni.ifBlank { "ghajar-android" })
+                    .putIf("exit_node", c.path)
+                if ("ephemeral" in flags) o.put("ephemeral", true)
+                if ("routes" in flags) o.put("accept_routes", true)
+                if ("lan" in flags && c.path.isNotBlank()) o.put("exit_node_allow_lan_access", true)
+            }
+            "tailcat" -> {
+                // DERP-only Tailscale-protocol client (option/tailcat.go).
+                o.put("type", "tailcat")
+                    .putIf("private_key", c.privateKey)
+                    .put("server_public_key", c.publicKey)
+                    .put("server_disco_key", c.uuid)
+                    .putIf("pre_shared_key", c.password)
+                    .putIf("derp_map_url", c.host.takeIf { it.startsWith("https://") || it.startsWith("http://") })
+                c.mode.toIntOrNull()?.takeIf { it > 0 }?.let { o.put("derp_region", it) }
+            }
             "masterdns", "stormdns", "cottendns" -> {
                 o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
             }
@@ -312,4 +337,10 @@ object SingBoxConfig {
         if (value is String && value.isBlank()) return this
         return put(key, value)
     }
+
+    /** A stable directory name per Tailscale profile, so two tailnets never share a node key. */
+    internal fun stateId(c: ProxyConfig): String =
+        java.security.MessageDigest.getInstance("SHA-256")
+            .digest((c.host + "|" + c.sni + "|" + c.name).toByteArray())
+            .take(6).joinToString("") { "%02x".format(it) }
 }

@@ -260,6 +260,20 @@ object ForeignImport {
                 "udp_relay_mode" to o.optString("udp_relay_mode"), "allow_insecure" to tls["allowInsecure"]), src)
             "anytls" -> parseLink(link("anytls", enc(o.optString("password")), server, port, name,
                 "sni" to tls["sni"], "fp" to tls["fp"], "alpn" to tls["alpn"], "insecure" to tls["allowInsecure"]), src)
+            "tailscale" -> {
+                val control = o.optString("control_url")
+                val host = runCatching { java.net.URI(control).host }.getOrNull().orEmpty().ifBlank { ConfigParser.TAILSCALE_CONTROL }
+                val flags = listOfNotNull("ephemeral".takeIf { o.optBoolean("ephemeral") }, "routes".takeIf { o.optBoolean("accept_routes") },
+                    "lan".takeIf { o.optBoolean("exit_node_allow_lan_access") }).joinToString(",")
+                parseLink(link("tailscale", enc(o.optString("auth_key")).takeIf { it.isNotEmpty() }, host, 443, name,
+                    "control" to control.takeIf { it.isNotBlank() }, "exit" to o.optString("exit_node").takeIf { it.isNotBlank() },
+                    "hostname" to o.optString("hostname").takeIf { it.isNotBlank() }, "flags" to flags.takeIf { it.isNotEmpty() }), src)
+            }
+            "tailcat" -> parseLink(link("tailcat", null, "tailcat.dev", 443, name,
+                "pub" to o.optString("server_public_key"), "disco" to o.optString("server_disco_key"),
+                "psk" to o.optString("pre_shared_key").takeIf { it.isNotBlank() }, "key" to o.optString("private_key").takeIf { it.isNotBlank() },
+                "derp" to o.optString("derp_map_url").takeIf { it.isNotBlank() },
+                "region" to o.optInt("derp_region", 0).takeIf { it > 0 }?.toString()), src)
             "masque-client" -> parseLink(link("masque", sbUser(o), server, port.takeIf { it > 0 } ?: 443, name,
                 "version" to o.optInt("version", 0).takeIf { it in 1..2 }?.toString(), "path" to o.optString("path").takeIf { it.isNotBlank() },
                 "sni" to tls["sni"], "fp" to tls["fp"], "alpn" to tls["alpn"], "insecure" to tls["allowInsecure"],

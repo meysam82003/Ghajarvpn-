@@ -38,20 +38,21 @@ work=${SINGBOX_WORKDIR:-/tmp/sing-box}
 #   with_utls        client hello fingerprinting
 #   with_openconnect Cisco AnyConnect
 #   with_openvpn     sing-box's own OpenVPN client
+#   with_tailscale   tailscale endpoint and tailcat outbound (userspace,
+#                    no root: the node runs on sing-box's own network stack)
 #   with_clash_api   the stats and selector API
 #
-# snell, anytls, ssh, tor, shadowtls, shadowsocksr, vless, vmess, trojan and
-# shadowsocks need no tag and are always present.
+# snell, anytls, ssh, tor, shadowtls, shadowsocksr, vless, vmess, trojan,
+# shadowsocks and masque need no tag and are always present.
 #
-# Left out on purpose: with_tailscale, with_usbip, with_naive_outbound. None
-# was asked for and each pulls in a large dependency tree, against an APK that
-# is already about 150 MB.
+# Left out on purpose: with_usbip (not a VPN transport) and with_embedded_tor
+# (the app ships its own Tor).
 # with_naive_outbound links Cronet (Chromium's network stack) from the
 # checksum-pinned module github.com/sagernet/cronet-go/lib/android_<arch>
 # (a static libcronet.a built by that project from naiveproxy's Chromium
 # source); it is what makes NaiveProxy work, and is the largest part of the
 # binary. The same tag sing-box uses for its own Android library.
-TAGS=with_quic,with_wireguard,with_utls,with_openconnect,with_openvpn,with_clash_api,with_naive_outbound,badlinkname,tfogo_checklinkname0
+TAGS=with_quic,with_wireguard,with_utls,with_openconnect,with_openvpn,with_tailscale,with_clash_api,with_naive_outbound,badlinkname,tfogo_checklinkname0
 
 # -checklinkname=0 is a LINKER flag and it is not optional. libbox and the
 # main package pull private runtime symbols in with //go:linkname, and since Go
@@ -118,7 +119,7 @@ build_abi armeabi-v7a arm armv7a-linux-androideabi26-clang
 # A typo in a tag is silent, and a core without OpenConnect is
 # indistinguishable from one with it until the first connect fails.
 missing=0
-for proto in openconnect snell anytls shadowtls ssh tor hysteria2 tuic; do
+for proto in openconnect snell anytls shadowtls ssh tor hysteria2 tuic masque tailscale; do
     if strings -n 4 "$root/app/src/main/jniLibs/arm64-v8a/libsingbox.so" \
          | grep -q "protocol/$proto"; then
         echo "ok: $proto"

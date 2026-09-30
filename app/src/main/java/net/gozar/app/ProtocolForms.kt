@@ -96,6 +96,19 @@ object ProtocolForms {
             SNI, Field("alpn", "ALPN", advanced = true), Field("fp", "f_utls_fp", Kind.SELECT, advanced = true,
                 options = listOf("", "chrome", "firefox", "safari", "ios", "android", "edge", "random")),
             PIN, INSECURE, MTU)),
+        Form("tailscale", "Tailscale / Headscale", "vpn", listOf(NAME,
+            Field("pass", "f_ts_authkey", Kind.PASSWORD, required = true, hint = "tskey-auth-…"),
+            Field("exit", "f_ts_exit", hint = "100.64.0.1 / exit-node-name"),
+            Field("control", "f_ts_control", advanced = true, hint = "https://headscale.example.com"),
+            Field("hostname", "f_ts_hostname", advanced = true, hint = "ghajar-android"),
+            Field("ephemeral", "f_ts_ephemeral", Kind.SWITCH, advanced = true, default = "1"),
+            Field("routes", "f_ts_routes", Kind.SWITCH, advanced = true),
+            Field("lan", "f_ts_lan", Kind.SWITCH, advanced = true))),
+        Form("tailcat", "Tailcat (DERP)", "vpn", listOf(NAME,
+            Field("pubkey", "f_tc_pub", required = true), Field("disco", "f_tc_disco", required = true),
+            Field("psk", "f_tc_psk", Kind.PASSWORD, advanced = true), Field("privkey", "f_tc_key", Kind.PASSWORD, advanced = true),
+            Field("derp", "f_tc_derp", advanced = true, hint = "https://tailcat.dev/derpmap.json"),
+            Field("region", "f_tc_region", Kind.NUMBER, advanced = true))),
         Form("anytls", "AnyTLS", "proxy", listOf(NAME, server(), port("443"), PASS.copy(required = true), SNI, INSECURE)),
         Form("juicity", "Juicity", "proxy", listOf(NAME, server(), port("443"), Field("uuid", "UUID", required = true), PASS,
             Field("cc", "f_cc", Kind.SELECT, advanced = true, default = "bbr", options = listOf("bbr", "cubic", "new_reno")), SNI, PIN, INSECURE)),
@@ -113,12 +126,12 @@ object ProtocolForms {
     /** Which section a field belongs to, by what it configures (not by protocol). */
     fun sectionOf(f: Field): String = when (f.key) {
         "name", "server", "port", "variant", "flavor", "domain", "hub", "bridges", "version" -> "basic"
-        "user", "pass", "uuid", "key", "privkey", "psk", "pubkey", "authgroup", "auth", "pk", "hostkey", "plain" -> "auth"
+        "user", "pass", "uuid", "key", "privkey", "psk", "pubkey", "authgroup", "auth", "pk", "hostkey", "plain", "disco" -> "auth"
         "mode", "transport", "wspath", "wshost", "payload", "proxy", "cc", "quic", "path", "upstream", "enc" -> "transport"
         "sni", "pin", "insecure", "alpn", "fp", "cert", "nodtls", "os", "ua" -> "tls"
-        "mtu", "ip", "gw", "address", "endpoint", "reconnect", "noipv6", "peerkey" -> "network"
+        "mtu", "ip", "gw", "address", "endpoint", "reconnect", "noipv6", "peerkey", "control", "hostname", "derp", "region", "ephemeral" -> "network"
         "dns", "resolver", "resolvers" -> "dns"
-        "allowed" -> "routing"
+        "allowed", "exit", "routes", "lan" -> "routing"
         else -> "advanced"
     }
 
@@ -198,6 +211,15 @@ object ProtocolForms {
             "masque" -> "masque://" + userInfo(v["user"], v["pass"]) + hostPort(v["server"]!!, v["port"].orEmpty()) +
                 query("version" to v["version"]?.takeIf { it != "3" }, "path" to v["path"], "sni" to v["sni"], "alpn" to v["alpn"],
                     "fp" to v["fp"], "pin" to v["pin"], "mtu" to v["mtu"], "insecure" to if (on("insecure")) "1" else null) + tail
+            "tailscale" -> {
+                val control = v["control"]?.trim().orEmpty()
+                val host = runCatching { java.net.URI(control).host }.getOrNull().orEmpty().ifBlank { ConfigParser.TAILSCALE_CONTROL }
+                "tailscale://" + enc(v["pass"].orEmpty().trim()) + "@" + host +
+                    query("control" to control.ifBlank { null }, "exit" to v["exit"]?.trim(), "hostname" to v["hostname"]?.trim(),
+                        "flags" to listOf("ephemeral", "routes", "lan").filter { on(it) }.joinToString(",").ifBlank { null }) + tail
+            }
+            "tailcat" -> "tailcat://tailcat.dev" + query("pub" to v["pubkey"]?.trim(), "disco" to v["disco"]?.trim(), "psk" to v["psk"],
+                "key" to v["privkey"], "derp" to v["derp"]?.trim(), "region" to v["region"]) + tail
             "naive" -> (if (on("quic")) "naive+quic://" else "naive+https://") + userInfo(v["user"], v["pass"]) + hostPort(v["server"]!!, v["port"].orEmpty()) + tail
             "mieru" -> "mierus://" + userInfo(v["user"], v["pass"]) + v["server"]!!.trim() + query("port" to v["port"], "protocol" to v["transport"]) + tail
             "wireguard" -> return buildWireGuard(v, name)

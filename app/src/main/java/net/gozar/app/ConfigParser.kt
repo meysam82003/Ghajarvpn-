@@ -222,6 +222,8 @@ object ConfigParser {
             lower.startsWith("hysteria://") -> parseHysteria1(trimmed.substring(11), source)
             lower.startsWith("anytls://") -> parseAnyTls(trimmed.substring(9), source)
             lower.startsWith("masque://") -> parseMasque(trimmed.substring(9), source)
+            lower.startsWith("tailscale://") -> parseTailscale(trimmed.substring(12), source)
+            lower.startsWith("tailcat://") -> parseTailcat(trimmed.substring(10), source)
             lower.startsWith("ssh://") -> parseSsh(trimmed.substring(6), source)
             lower.startsWith("openconnect://") -> parseOpenConnect(trimmed.substring(14), source)
             lower.startsWith("anyconnect://") -> parseOpenConnect(trimmed.substring(13), source)
@@ -401,6 +403,53 @@ object ConfigParser {
             source = source
         ).takeIf { it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
+
+    /**
+     * tailscale://[authkey@]controlhost[:port]?control=&exit=&hostname=&flags=ephemeral,routes,lan#name
+     *
+     * sing-box's tailscale endpoint: a userspace Tailscale node, no root and no
+     * second VPN. The host is only where the control plane lives (the default
+     * Tailscale one, or a Headscale server given in full by `control`); the
+     * traffic leaves through [exit] when one is set. Ghajar's own link shape.
+     */
+    private fun parseTailscale(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "Tailscale")
+        val hasKey = uhp.contains('@')
+        val hp = splitHostPortOrDefault(uhp.substringAfterLast('@').ifBlank { TAILSCALE_CONTROL }, 443)
+        val flags = p["flags"].orEmpty().split(',').map { it.trim() }.filter { it in TAILSCALE_FLAGS }
+        ProxyConfig(
+            name = name, protocol = "tailscale", address = hp.first.ifBlank { TAILSCALE_CONTROL }, port = hp.second,
+            password = if (hasKey) pctDecode(uhp.substringBeforeLast('@')) else "",
+            host = pctDecode(p["control"].orEmpty()), path = pctDecode(p["exit"].orEmpty()),
+            sni = pctDecode(p["hostname"].orEmpty()), headerType = flags.joinToString(","),
+            source = source
+        )
+    } catch (e: Exception) { null }
+
+    /**
+     * tailcat://derphost?pub=&disco=&psk=&key=&derp=&region=#name
+     *
+     * sing-box's tailcat outbound: a Tailscale-protocol client that reaches
+     * its one server over DERP relays only, keyed by the server's public and
+     * disco keys. [derp] is the DERP map URL (tailcat.dev's by default).
+     */
+    private fun parseTailcat(body: String, source: ConfigSource): ProxyConfig? = try {
+        val (name, uhp, p) = splitUserUri(body, "Tailcat")
+        val derp = pctDecode(p["derp"].orEmpty())
+        val host = uhp.substringAfterLast('@').substringBefore(':').ifBlank {
+            runCatching { java.net.URI(derp).host }.getOrNull().orEmpty().ifBlank { "tailcat.dev" }
+        }
+        ProxyConfig(
+            name = name, protocol = "tailcat", address = host, port = 443,
+            publicKey = pctDecode(p["pub"].orEmpty()), uuid = pctDecode(p["disco"].orEmpty()),
+            password = pctDecode(p["psk"].orEmpty()), privateKey = pctDecode(p["key"].orEmpty()),
+            host = derp, mode = p["region"]?.toIntOrNull()?.takeIf { it > 0 }?.toString().orEmpty(),
+            source = source
+        ).takeIf { it.publicKey.isNotBlank() && it.uuid.isNotBlank() }
+    } catch (e: Exception) { null }
+
+    const val TAILSCALE_CONTROL = "controlplane.tailscale.com"
+    val TAILSCALE_FLAGS = setOf("ephemeral", "routes", "lan")
 
     /** ssh://user:password@host:port?hostkey=&pk=#name (pk = base64 of a PEM private key). */
     private fun parseSsh(body: String, source: ConfigSource): ProxyConfig? = try {

@@ -140,4 +140,36 @@ class ProtocolFormsTest {
         val names = ProtocolForms.sections(ProtocolForms.form("masque")).map { it.first }
         assertTrue(names.containsAll(listOf("basic", "auth", "tls", "network")))
     }
+
+    @Test
+    fun tailscaleFormBuildsAUserspaceEndpoint() {
+        val c = ProtocolForms.build("tailscale", mapOf("name" to "TS", "pass" to "tskey-auth-abc", "exit" to "100.64.0.9",
+            "control" to "https://hs.example.com", "routes" to "true", "lan" to "true")).getOrThrow()
+        assertEquals("tailscale", c.protocol); assertEquals("hs.example.com", c.address)
+        assertEquals("tskey-auth-abc", c.password); assertEquals("100.64.0.9", c.path)
+        val spec = JSONObject(SingBoxConfig.spec(c)!!)
+        val e = spec.getJSONObject("endpoint")
+        assertEquals("tailscale", e.getString("type")); assertEquals("proxy", e.getString("tag"))
+        assertEquals("tskey-auth-abc", e.getString("auth_key")); assertEquals("https://hs.example.com", e.getString("control_url"))
+        assertEquals("100.64.0.9", e.getString("exit_node")); assertTrue(e.getBoolean("ephemeral"))
+        assertTrue(e.getBoolean("accept_routes")); assertTrue(e.getBoolean("exit_node_allow_lan_access"))
+        assertTrue(e.getString("state_directory").startsWith("tailscale-"))
+        // The auth key never leaves in a share link.
+        val link = ConfigShare.toLink(c)
+        assertTrue(link, !link.contains("tskey"))
+    }
+
+    @Test
+    fun tailcatFormAndSingBoxJsonImport() {
+        val c = ProtocolForms.build("tailcat", mapOf("pubkey" to "nodekey:aa", "disco" to "discokey:bb", "region" to "7")).getOrThrow()
+        val o = JSONObject(SingBoxConfig.spec(c)!!).getJSONObject("outbound")
+        assertEquals("tailcat", o.getString("type")); assertEquals("nodekey:aa", o.getString("server_public_key"))
+        assertEquals("discokey:bb", o.getString("server_disco_key")); assertEquals(7, o.getInt("derp_region"))
+        val r = ForeignImport.singBox(JSONObject("""{"endpoints":[{"type":"tailscale","tag":"home","auth_key":"tskey-x",
+            "exit_node":"exit1","ephemeral":true}],"outbounds":[{"type":"tailcat","tag":"cat","server_public_key":"p","server_disco_key":"d"}]}"""))
+        assertEquals(2, r.configs.size)
+        val ts = r.configs.single { it.protocol == "tailscale" }
+        assertEquals("tskey-x", ts.password); assertEquals("exit1", ts.path); assertEquals("ephemeral", ts.headerType)
+        assertEquals("d", r.configs.single { it.protocol == "tailcat" }.uuid)
+    }
 }

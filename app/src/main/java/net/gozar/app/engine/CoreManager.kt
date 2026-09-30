@@ -121,7 +121,8 @@ object CoreManager {
             EngineCapabilities(listOf("TUIC v5", "Hysteria (v1)", "AnyTLS", "SSH (direct, payload, HTTP/HTTPS proxy, TLS-SNI, payload+TLS, WS, WSS)",
                 "Snell v4/v6", "OpenConnect (AnyConnect, GlobalProtect, Fortinet, F5, Pulse, NC)", "NaiveProxy (Cronet)", "ShadowTLS v1-3",
                 "AmneziaWG 1.x/2.0", "Mieru", "Brook", "Juicity", "SSTP (PAP / MS-CHAPv2, crypto binding)", "SoftEther VPN protocol (Virtual Hub, DHCP / static)",
-                "MASQUE CONNECT-IP (RFC 9484, HTTP/3 · 2 · 1)"),
+                "MASQUE CONNECT-IP (RFC 9484, HTTP/3 · 2 · 1)",
+                "Tailscale / Headscale (userspace node, exit node)", "Tailcat (DERP relay)"),
                 ownsTun = false, providesSocks = true, license = "GPL-3.0-or-later",
                 integration = "executable libsingbox.so built in CI (scripts/build-singbox.sh), SOCKS5 -> zeptun"),
             availability = { ctx ->
