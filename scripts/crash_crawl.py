@@ -78,7 +78,9 @@ def foreground():
 
 
 def focused_window():
-    out = adb("shell", "dumpsys", "window", "windows")
+    # On Android 14 mCurrentFocus belongs to the display section, which the
+    # "windows" filter omits. Read the complete WindowManager dump.
+    out = adb("shell", "dumpsys", "window")
     m = re.search(r"mCurrentFocus=Window\{[^}]*\s([^\s}]+)", out)
     return m.group(1) if m else ""
 
@@ -455,7 +457,7 @@ def stress():
 def collect():
     for name, args in (
         ("activities.txt", ("shell", "dumpsys", "activity", "activities")),
-        ("windows.txt", ("shell", "dumpsys", "window", "windows")),
+        ("windows.txt", ("shell", "dumpsys", "window")),
     ):
         with open(os.path.join(OUT, name), "w") as f:
             f.write(adb(*args, timeout=60))

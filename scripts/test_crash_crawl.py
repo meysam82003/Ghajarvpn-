@@ -55,6 +55,17 @@ class ReadinessTests(unittest.TestCase):
         ready, _ = self.wait_with_focus(self.crawl.PKG + "/net.gozar.app.ConfigCenterActivity")
         self.assertFalse(ready)
 
+    def test_android_14_focus_is_in_the_display_section(self):
+        def fake_adb(*args):
+            if args == ("shell", "dumpsys", "window"):
+                return "WINDOW MANAGER DISPLAY CONTENTS\n  mCurrentFocus=Window{abc u0 " + self.crawl.ACTIVITY + "}\n"
+            if args == ("shell", "dumpsys", "window", "windows"):
+                return "WINDOW MANAGER WINDOWS\n  Window #0 Window{abc u0 " + self.crawl.ACTIVITY + "}\n"
+            self.fail("Unexpected adb command: " + repr(args))
+
+        with patch.object(self.crawl, "adb", side_effect=fake_adb):
+            self.assertEqual(self.crawl.focused_window(), self.crawl.ACTIVITY)
+
     def test_failed_dump_cannot_read_a_previous_screen(self):
         commands = []
 
