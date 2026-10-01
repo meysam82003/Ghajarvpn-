@@ -4537,27 +4537,10 @@ private fun AddServerPanel(
                     exit = fadeOut(tween(160)) + shrinkVertically(tween(200, easing = FastOutSlowInEasing))
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-                        Rail("مدیریت افزونه‌ها")
-                        net.gozar.app.plugins.PluginEntryButton()
-                        Rail("Protocol · اتصال SSH")
-                        SlabRow(title = "SSH", subtitle = t("add_ssh_sub"), icon = Icons.Filled.Terminal,
-                            accent = c.highlight, chevron = true, enabled = !busy, onClick = onSsh)
-                        SlabDivider()
-                        SlabRow(title = t("dnslab_title"), subtitle = "DNS · " + t("add_dnslab_sub"), icon = Icons.Filled.Dns,
-                            accent = c.info, chevron = true, enabled = !busy, onClick = onDnsLab)
-                        // Catalog groups describe the concept; plugin delivery is managed separately.
-                        listOf("vpn" to "Protocol · پروتکل‌های VPN", "core" to "Core · هسته",
-                            "dns" to "Transport · تونل روی DNS", "proxy" to "Protocol · پروکسی").forEach { (group, label) ->
-                            val forms = ProtocolForms.forms.filter { it.group == group && it.id != "openconnect" }
-                            if (forms.isNotEmpty()) {
-                                Rail(label)
-                                forms.forEachIndexed { i, f ->
-                                    if (i > 0) SlabDivider()
-                                    SlabRow(title = f.title, subtitle = t("form_sub_" + f.id), icon = Icons.Filled.Add,
-                                        chevron = true, enabled = !busy, onClick = { onProtocolForm(f.id) })
-                                }
-                            }
-                        }
+                        net.gozar.app.plugins.MethodCatalog(
+                            enabled = !busy, onForm = onProtocolForm, onSsh = onSsh,
+                            onDns = onDnsLab, onPsiphon = onPsiphon, onWarp = onProjects)
+
                     }
                 }
             }
@@ -7278,202 +7261,10 @@ private fun ToolsScreen(
     if (connectionHistoryOpen) ConnectionHistoryDialog(onDismiss = { connectionHistoryOpen = false })
 }
 
-/**
- * "VPN Only" sharing: exposes the engine's own local SOCKS5 inbound (already
- * bound to 127.0.0.1 for every connection, see ConfigBuilder's socksIn) on
- * this device's hotspot interface instead. A device connected to this
- * phone's hotspot can point its Wi-Fi proxy settings at this phone's
- * hotspot IP and the shown port to route through the exact same tunnel this
- * phone uses. Fail-closed by construction: the SOCKS listener lives inside
- * the same Xray core process as the tunnel itself, so disconnecting or
- * losing the VPN tears the listener down with it — there is no path for a
- * connected device to fall through to this phone's raw internet.
- *
- * The other two requested modes are NOT implemented, and not faked:
- * - "VPN + Internet" (mixed, chosen routes) would need to selectively
- *   redirect only some destinations from hotspot clients while leaving
- *   others direct. VpnService only ever intercepts this device's own
- *   per-UID-selected traffic; it has no API to inspect or redirect packets
- *   arriving from other devices over the hotspot interface at all.
- * - "VPN only for connected devices, host stays direct" needs the same
- *   thing in reverse (redirect guest traffic, leave the host alone) and
- *   hits the identical wall: without root-level netfilter rules on the
- *   hotspot interface, Android gives this app no hook into hotspot client
- *   traffic. The SOCKS relay above is the only mechanism available without
- *   root, and it only ever affects a device that explicitly configures
- *   itself to use it — it cannot make that separation automatic.
- */
+/** Entry point shared by Settings and server selection; implementation is in sharing/SharingUi.kt. */
 @Composable
 private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, onDismiss: () -> Unit) {
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val enabled by store.vpnShareEnabled.collectAsState()
-    val connected by VpnState.state.collectAsState()
-    val activeId by VpnState.activeId.collectAsState()
-    val configs by store.configs.collectAsState()
-    // Toggling the switch only takes effect on the next connect, exactly
-    // like every other tunnel-affecting setting in this app (adBlock,
-    // splitRouting, ...). But leaving an open (no-password) proxy running
-    // after the user pressed "stop sharing" would be a real leak, not just
-    // a UI inconsistency - so this one setting forces a live rebuild of the
-    // current tunnel through the same switchTo() sequencing a manual server
-    // switch already uses, instead of waiting for the next reconnect.
-    fun applyLiveIfConnected() {
-        if (connected == Connection.CONNECTED) {
-            configs.find { it.id == activeId }?.let(onSwitch)
-        }
-    }
-    val socksPort = MixedPort.value
-    val httpPort = HttpSharePort.value
-    // Re-read every few seconds instead of once: switching Wi-Fi/hotspot
-    // while this dialog stays open must not keep showing a stale address.
-    var hotspotIp by remember { mutableStateOf<String?>(null) }
-    LaunchedEffect(Unit) {
-        while (true) {
-            hotspotIp = withContext(Dispatchers.IO) { hotspotInterfaceAddress() }
-            delay(3000)
-        }
-    }
-    val shareUser by store.vpnShareUsername.collectAsState()
-    val sharePass by store.vpnSharePassword.collectAsState()
-    var showGuide by remember { mutableStateOf(false) }
-    var showQr by remember { mutableStateOf(false) }
-    LaunchedEffect(enabled) { if (enabled) store.ensureVpnShareCredential() }
-    // Only the Xray-core engine (ConfigBuilder's socks-in/http-share-in)
-    // actually exposes the shared proxy - OpenVPN and IKEv2 run through
-    // completely separate engines with no such inbound at all, so telling
-    // the user it's active there would be a real IP/port that never works.
-    val activeProtocol = configs.find { it.id == activeId }?.protocol
-    val xraySupported = !activeId.orEmpty().startsWith("ovpn:") && activeProtocol != "ikev2"
-    val live = enabled && connected == Connection.CONNECTED && xraySupported
-
-    fun copy(label: String, value: String) {
-        clipboard.setText(AnnotatedString(value))
-        android.widget.Toast.makeText(context, "$label کپی شد", android.widget.Toast.LENGTH_SHORT).show()
-    }
-
-    GlassDialog(
-        onDismiss = onDismiss,
-        title = "VPN Share",
-        confirmLabel = "بستن",
-        onConfirm = onDismiss
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text("اشتراک‌گذاری اتصال VPN با دستگاه دیگر", style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(
-                Modifier.fillMaxWidth().clip(RoundedCornerShape(GhajarRadius.sm))
-                    .background(ghajarColors.secondaryCard)
-                    .border(1.dp, ghajarColors.border, RoundedCornerShape(GhajarRadius.sm))
-                    .padding(horizontal = 14.dp, vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    "فعال‌سازی اشتراک‌گذاری", fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f)
-                )
-                SkinSwitch(checked = enabled, onCheckedChange = { store.setVpnShareEnabled(it); applyLiveIfConnected() })
-            }
-            if (enabled && connected != Connection.CONNECTED) {
-                Text(
-                    "وضعیت: غیرفعال (برای شروع، اول از صفحهٔ اصلی به یک سرور وصل شو)",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
-                )
-            } else if (enabled && connected == Connection.CONNECTED && !xraySupported) {
-                Text(
-                    "وضعیت: غیرفعال (این قابلیت فقط برای پروتکل‌های Xray کار می‌کند؛ اتصال فعلی OpenVPN یا IKEv2 است)",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
-                )
-            }
-            if (live) {
-                Text("وضعیت: فعال", fontWeight = FontWeight.Bold, color = AppGreen)
-                val ip = hotspotIp
-                if (ip == null) {
-                    Text("ابتدا هات‌اسپات همین گوشی را روشن کن.", color = MaterialTheme.colorScheme.error)
-                } else {
-                    ShareAddressRow("آدرس پراکسی (HTTP، برای تنظیمات Wi-Fi)", ip, httpPort.toString(), ::copy)
-                    Text(
-                        "بدون رمز؛ هر دستگاهی در همین شبکه می‌تواند از این آدرس استفاده کند.",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error
-                    )
-                    HorizontalDivider(color = ghajarColors.border)
-                    ShareAddressRow("آدرس SOCKS5 (امن‌تر؛ برای اپ/مرورگری که SOCKS را پشتیبانی کند)",
-                        ip, socksPort.toString(), ::copy)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("کاربری: $shareUser", style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { copy("نام کاربری", shareUser) },
-                            contentPadding = PaddingValues(4.dp)) { Text("کپی") }
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text("رمز: $sharePass", style = MaterialTheme.typography.bodySmall)
-                        TextButton(onClick = { copy("رمز", sharePass) },
-                            contentPadding = PaddingValues(4.dp)) { Text("کپی") }
-                    }
-                    // Typing a 24-character hex password into a second phone by
-                    // hand is how this feature stopped being used. The QR
-                    // carries the whole SOCKS5 endpoint - address, port, user
-                    // and password - in the standard URI form, so a client that
-                    // reads proxy QRs is configured in one scan. It is only
-                    // offered while sharing is genuinely live, so the code can
-                    // never encode an address that is not listening.
-                    TextButton(onClick = { showQr = true }) {
-                        Icon(Icons.Filled.QrCodeScanner, null, Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("نمایش QR اتصال")
-                    }
-                    TextButton(onClick = { store.regenerateVpnShareCredential(); applyLiveIfConnected() }) {
-                        Text("تولید رمز SOCKS5 جدید")
-                    }
-                }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onClick = { showGuide = true }, modifier = Modifier.weight(1f)) {
-                        Text("راهنمای اتصال")
-                    }
-                    OutlinedButton(
-                        onClick = { store.setVpnShareEnabled(false); applyLiveIfConnected() },
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                        modifier = Modifier.weight(1f)
-                    ) { Text("توقف اشتراک‌گذاری") }
-                }
-            }
-            HorizontalDivider(color = ghajarColors.border)
-            Text(
-                "این پراکسی فقط ترافیکی را که خودت به آن دستگاه اجازه می‌دهی از VPN رد می‌کند، نه کل دستگاه دوم را؛ بستگی به این دارد که خود آن دستگاه یا برنامه‌اش پراکسی را رعایت کند. اشتراک‌گذاری کامل ترافیک دستگاه دوم بدون دسترسی روت روی اندروید ممکن نیست.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-    }
-
-    // Reuses the app's existing QR sheet rather than drawing a second one. The
-    // address is re-read here, so a hotspot that changed while the dialog was
-    // open cannot produce a code pointing at the old one.
-    // Sharing stopping while the sheet is open closes it, in an effect rather
-    // than a branch: clearing the flag during composition would write state
-    // from the composition that reads it.
-    LaunchedEffect(live) { if (!live) showQr = false }
-    val qrIp = hotspotIp
-    if (showQr && live && qrIp != null && shareUser.isNotBlank() && sharePass.isNotBlank()) {
-        QrDialog(
-            link = "socks5://$shareUser:$sharePass@$qrIp:$socksPort",
-            title = "VPN Share",
-            onDismiss = { showQr = false }
-        )
-    }
-
-    if (showGuide) {
-        VpnShareSetupDialog(
-            sharingOn = enabled,
-            tunnelUp = connected == Connection.CONNECTED,
-            engineSupported = xraySupported,
-            hotspotIp = hotspotIp,
-            socksPort = socksPort,
-            httpPort = httpPort,
-            shareUser = shareUser,
-            sharePass = sharePass,
-            onCopy = ::copy,
-            onDismiss = { showGuide = false }
-        )
-    }
+    net.gozar.app.sharing.SharingDialog(store, dismiss = onDismiss)
 }
 
 /**
@@ -12956,98 +12747,7 @@ private fun GroupPickDialog(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun QrDialog(link: String, title: String, onDismiss: () -> Unit) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val accent = MaterialTheme.colorScheme.primary
-    // Fixed on purpose - a camera has to read this, so it must not follow the
-    // theme. See GhajarFixed for why this is the one documented exception.
-    val qrBg = GhajarFixed.QrBackground
-    val qrFg = lerp(GhajarFixed.QrForeground, accent, 0.06f)
-    val bmp = remember(link, qrBg, qrFg) {
-        ConfigShare.qrBitmap(link, darkColor = qrFg.toArgb(), lightColor = qrBg.toArgb())
-    }
-
-    val pulseTr = rememberInfiniteTransition(label = "qrPulse")
-    val strokeAlpha by pulseTr.animateFloat(
-        initialValue = 0.22f,
-        targetValue = 0.55f,
-        animationSpec = ghajarEndless(infiniteRepeatable(
-            tween(900, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        )),
-        label = "qrStroke"
-    )
-
-    fun shareImage() {
-        val image = bmp ?: return
-        runCatching {
-            val dir = File(context.cacheDir, "shared").apply { mkdirs() }
-            val file = File(dir, "ghajarvpn-qr.png")
-            file.outputStream().use { image.compress(Bitmap.CompressFormat.PNG, 100, it) }
-            val uri = FileProvider.getUriForFile(
-                context, context.packageName + ".fileprovider", file
-            )
-            val send = Intent(Intent.ACTION_SEND).apply {
-                type = "image/png"
-                putExtra(Intent.EXTRA_STREAM, uri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            context.startActivity(Intent.createChooser(send, title))
-        }
-    }
-
-    GlassDialog(
-        onDismiss = onDismiss,
-        title = t("qr_title"),
-        confirmLabel = if (bmp == null) t("cancel") else t("share"),
-        dismissLabel = if (bmp == null) null else t("cancel"),
-        onConfirm = { if (bmp == null) onDismiss() else shareImage() }
-    ) {
-        if (bmp == null) {
-            Text(
-                mixedText(t("qr_too_long")),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.error
-            )
-        } else {
-            Text(
-                mixedText(title),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                Box(
-                    Modifier.size(240.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(qrBg)
-                        .border(
-                            1.dp,
-                            accent.copy(alpha = strokeAlpha),
-                            RoundedCornerShape(18.dp)
-                        )
-                        .padding(12.dp)
-                ) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = null,
-                        filterQuality = FilterQuality.None,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-            Text(
-                mixedText(t("qr_hint")),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                modifier = Modifier.fillMaxWidth()
-            )
-        }
-    }
+    net.gozar.app.sharing.SensitiveQr(link, onDismiss)
 }
 
 @Composable
@@ -13307,6 +13007,8 @@ private fun ConfigRow(
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     var shareMenu by remember { mutableStateOf(false) }
+    var directSharing by remember { mutableStateOf(false) }
+    if (directSharing) net.gozar.app.sharing.SharingDialog(ConfigStore.get(context), config, legacyExport = onShareFile) { directSharing = false }
     var moreMenu by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf(false) }
     var draftName by remember { mutableStateOf(config.name) }
@@ -13688,7 +13390,7 @@ private fun ConfigRow(
                                 icon = Icons.Filled.Share,
                                 label = t("share"),
                                 tint = c.primary,
-                                onClick = { shareMenu = true }
+                                onClick = { if (config.locked) shareMenu = true else directSharing = true }
                             )
                             DropdownMenu(
                                 expanded = shareMenu,
@@ -13698,6 +13400,10 @@ private fun ConfigRow(
                                 border = null
                             ) {
                                 if (!config.locked) {
+                                    CompactMenuItem(Icons.Filled.Share, "انتخاب دستگاه و روش انتقال") {
+                                        shareMenu = false
+                                        directSharing = true
+                                    }
                                     CompactMenuItem(Icons.Filled.ContentCopy, t("share_clipboard")) {
                                         shareMenu = false
                                         clipboard.setText(AnnotatedString(ConfigShare.toLink(config)))
@@ -13713,7 +13419,7 @@ private fun ConfigRow(
                                     }
                                     CompactMenuItem(Icons.Filled.QrCode2, t("qr_share")) {
                                         shareMenu = false
-                                        qrFor = ConfigShare.toLink(config)
+                                        directSharing = true
                                     }
                                 }
                                 CompactMenuItem(Icons.Filled.InsertDriveFile, t("share_file")) {
@@ -13751,7 +13457,7 @@ private fun ConfigRow(
                                 if (!config.locked) {
                                     CompactMenuItem(Icons.Filled.QrCode2, t("qr_show")) {
                                         moreMenu = false
-                                        qrFor = ConfigShare.toLink(config)
+                                        directSharing = true
                                     }
                                 }
                                 CompactMenuItem(Icons.Filled.DriveFileRenameOutline, t("cfg_rename")) {
@@ -15328,6 +15034,9 @@ private fun ProtocolFormScreen(formId: String, onSave: (ProxyConfig) -> Unit, on
             TextButton(onClick = { helpOpen = !helpOpen }) { Text("راهنمای اتصال") }
             if (helpOpen) Text(help)
         }
+        var protocolHelpOpen by remember(form.id) { mutableStateOf(false) }
+        TextButton(onClick = { protocolHelpOpen = !protocolHelpOpen }) { Text("راهنمای این اتصال و انتقال به دستگاه دیگر") }
+        if (protocolHelpOpen) Text(net.gozar.app.sharing.ProtocolHelp.text(form.id), style = MaterialTheme.typography.bodySmall)
         val formStyle = LocalGhajarLook.current.addServerStyle
         if (formStyle == "compact") {
             form.fields.filter { !it.advanced }.forEach { FieldView(it) }

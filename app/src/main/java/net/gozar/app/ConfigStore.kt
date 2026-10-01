@@ -302,12 +302,7 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_BLOCK_WHEN_OFF, enabled).apply()
     }
 
-    /** VPN Share: exposes the same local SOCKS5 inbound the engine already
-     * binds to 127.0.0.1 (see ConfigBuilder's socksIn) on 0.0.0.0 instead, so
-     * devices on this phone's own hotspot can point their proxy settings at
-     * it. Tearing down the tunnel tears down this listener with it - there is
-     * no fallback path, so a dropped VPN fails shared clients closed rather
-     * than leaking their traffic direct. */
+    /** User intent survives restart/backup; authenticated listener exists only during an eligible VPN session. */
     private val _vpnShareEnabled = MutableStateFlow(prefs.getBoolean(KEY_VPN_SHARE, false))
     val vpnShareEnabled: StateFlow<Boolean> = _vpnShareEnabled.asStateFlow()
 
@@ -316,21 +311,14 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_VPN_SHARE, enabled).apply()
     }
 
-    /** SOCKS5 credential Xray requires from every VPN-Share client. Without
-     * this the shared inbound was a plain unauthenticated open proxy on the
-     * hotspot subnet - anyone on the same Wi-Fi AP could use or sniff through
-     * it. Generated once on first use and stored the same way other secrets
-     * (KEY_CONFIGS/KEY_SUBS) already are; changing it forces every guest
-     * device to re-enter the new value, which is the intended effect of the
-     * "تولید مجدد" action in the share dialog. */
-    private val _vpnShareUsername = MutableStateFlow(readSecret(KEY_VPN_SHARE_USER).orEmpty())
+    /** Authenticated sharing relay credentials; memory only, regenerated after process death/restore. */
+    private val _vpnShareUsername = MutableStateFlow("")
     val vpnShareUsername: StateFlow<String> = _vpnShareUsername.asStateFlow()
 
-    private val _vpnSharePassword = MutableStateFlow(readSecret(KEY_VPN_SHARE_PASS).orEmpty())
+    private val _vpnSharePassword = MutableStateFlow("")
     val vpnSharePassword: StateFlow<String> = _vpnSharePassword.asStateFlow()
 
-    /** Returns the current credential, generating and persisting one first if
-     * this is the first time VPN Share is used. */
+    /** Returns this process's credential, generating it on first use. */
     fun ensureVpnShareCredential(): Pair<String, String> {
         if (_vpnShareUsername.value.isNotBlank() && _vpnSharePassword.value.isNotBlank()) {
             return _vpnShareUsername.value to _vpnSharePassword.value
@@ -343,10 +331,8 @@ class ConfigStore private constructor(context: Context) {
         val pass = secureRandomToken(12)
         _vpnShareUsername.value = user
         _vpnSharePassword.value = pass
-        scope.launch(writeDispatcher) {
-            putSecretBlocking(KEY_VPN_SHARE_USER, user)
-            putSecretBlocking(KEY_VPN_SHARE_PASS, pass)
-        }
+        // Session credentials are deliberately not persisted or restored.
+        prefs.edit().remove(KEY_VPN_SHARE_USER).remove(KEY_VPN_SHARE_PASS).apply()
         return user to pass
     }
 
@@ -947,7 +933,11 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("mux")) setMux(o.getBoolean("mux"))
         if (o.has("muxConcurrency")) setMuxConcurrency(o.getInt("muxConcurrency"))
         if (o.has("blockWhenOff")) setBlockWhenOff(o.getBoolean("blockWhenOff"))
-        if (o.has("vpnShareEnabled")) setVpnShareEnabled(o.getBoolean("vpnShareEnabled"))
+        if (o.has("vpnShareEnabled")) {
+            net.gozar.app.sharing.PhoneSharing.invalidate()
+            regenerateVpnShareCredential()
+            setVpnShareEnabled(o.getBoolean("vpnShareEnabled"))
+        }
         if (o.has("onionRouting")) setOnionRouting(o.getBoolean("onionRouting"))
         if (o.has("encryptedDns")) setEncryptedDns(o.getBoolean("encryptedDns"))
         if (o.has("fakeDns")) setFakeDns(o.getBoolean("fakeDns"))

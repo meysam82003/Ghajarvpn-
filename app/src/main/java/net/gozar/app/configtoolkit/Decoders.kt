@@ -18,6 +18,9 @@ class DecoderRegistry(
 
     fun decode(input: ConfigInput): ParsedConfig {
         require(input.bytes.size <= MAX_FILE_BYTES) { throw ConfigToolkitException.TooLarge(MAX_FILE_BYTES) }
+        net.gozar.app.sharing.DirectShare.importPackage(input.bytes.toString(Charsets.UTF_8), net.gozar.app.ConfigSource.PERSONAL)?.let { configs ->
+            return ParsedConfig(ConfigFormat.JSON, configs.map { NormalizedProfile.from(it, ConfigFormat.JSON) })
+        }
         net.gozar.app.plugins.PluginProfiles.import(input.bytes.toString(Charsets.UTF_8))?.let { config ->
             return ParsedConfig(ConfigFormat.TEXT, listOf(NormalizedProfile.from(config, ConfigFormat.TEXT)),
                 warnings = listOf(net.gozar.app.plugins.PluginProfiles.requirement(config).orEmpty()))

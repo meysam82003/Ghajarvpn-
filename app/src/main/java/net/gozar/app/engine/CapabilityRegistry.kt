@@ -43,6 +43,10 @@ object CapabilityRegistry {
                 supportsXhttp = c.supportsXhttp && config.protocol in setOf("vless", "vmess", "trojan"))
         }
     }
+    /** Source-proven remote destination name forwarding; runtime must also confirm Xray owns this session. */
+    fun supportsPhoneSharing(config: ProxyConfig): Boolean =
+        EngineRouting.engineFor(config) in setOf(EngineId.XRAY, EngineId.TOR) &&
+            config.protocol in setOf("vless", "vmess", "trojan", "shadowsocks", "hysteria", "hysteria2", "tor")
     fun settingsFor(protocol: String) = net.gozar.app.EngineSettings.supported(protocol)
     fun candidate(id: String) = PluginCatalog.candidate(id)?.supported ?: CapabilityContract()
 }

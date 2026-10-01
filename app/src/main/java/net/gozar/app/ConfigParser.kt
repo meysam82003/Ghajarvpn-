@@ -8,6 +8,7 @@ import java.net.URLDecoder
 object ConfigParser {
 
     fun parseBundle(text: String, source: ConfigSource = ConfigSource.PERSONAL): List<ProxyConfig> {
+        net.gozar.app.sharing.DirectShare.importPackage(text, source)?.let { return it }
         net.gozar.app.plugins.PluginProfiles.import(text, source)?.let { return listOf(it) }
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return emptyList()
@@ -899,6 +900,7 @@ object ConfigParser {
                 localAddress = address,
                 mtu = mtu,
                 reserved = reserved,
+                extra = JSONObject().put("wireguardOriginal", text.trim()).toString(),
                 source = source
             )
         } catch (e: Exception) {

@@ -174,7 +174,8 @@ object ConfigShare {
         if (c.maskPassword.isNotEmpty()) params.add("maskPass" to c.maskPassword)
         if (c.echConfigList.isNotEmpty()) params.add("ech" to c.echConfigList)
         val query = params.joinToString("&") { "${it.first}=${enc(it.second)}" }
-        return "$scheme://${enc(userInfo)}@${c.address}:${c.port}?$query#${enc(c.name)}"
+        val host = if (c.address.contains(':')) "[${c.address}]" else c.address
+        return "$scheme://${enc(userInfo)}@$host:${c.port}?$query#${enc(c.name)}"
     }
 
     private fun vmessLink(c: ProxyConfig): String {
@@ -202,7 +203,8 @@ object ConfigShare {
             "${c.method}:${c.password}".toByteArray(Charsets.UTF_8),
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
-        return "ss://$userInfo@${c.address}:${c.port}#${enc(c.name)}"
+        val host = if (c.address.contains(':')) "[${c.address}]" else c.address
+        return "ss://$userInfo@$host:${c.port}#${enc(c.name)}"
     }
 
     const val QR_MAX_CHARS = 2300

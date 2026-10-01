@@ -139,9 +139,9 @@ object ProtocolForms {
     /** Which section a field belongs to, by what it configures (not by protocol). */
     fun sectionOf(f: Field): String = when (f.key) {
         "name", "server", "port", "variant", "flavor", "domain", "hub", "bridges", "version" -> "basic"
-        "user", "pass", "uuid", "key", "privkey", "psk", "pubkey", "authgroup", "auth", "pk", "hostkey", "plain", "disco" -> "auth"
-        "mode", "transport", "wspath", "wshost", "payload", "proxy", "cc", "quic", "path", "upstream", "enc" -> "transport"
-        "sni", "pin", "insecure", "alpn", "fp", "cert", "nodtls", "os", "ua" -> "tls"
+        "cookie", "token_mode", "token_secret", "key_password", "mca_key_password", "user", "pass", "uuid", "key", "privkey", "psk", "pubkey", "authgroup", "auth", "pk", "hostkey", "plain", "disco" -> "auth"
+        "server_ports", "hop_interval", "udp_over_stream", "mode", "transport", "wspath", "wshost", "payload", "proxy", "cc", "quic", "path", "upstream", "enc" -> "transport"
+        "ech_config", "ca", "mca_cert", "mca_key", "tls_min", "sni", "pin", "insecure", "alpn", "fp", "cert", "nodtls", "os", "ua" -> "tls"
         "mtu", "ip", "gw", "address", "endpoint", "reconnect", "noipv6", "peerkey", "control", "hostname", "derp", "region", "ephemeral" -> "network"
         "dns", "resolver", "resolvers" -> "dns"
         "allowed", "exit", "routes", "lan" -> "routing"

@@ -334,25 +334,11 @@ object ConfigBuilder {
         chainBase: ProxyConfig? = null,
         onionRouting: Boolean = false,
         coreLogLevel: String = "warning",
-        /** VPN Share ("VPN Only" mode): binds the mixed SOCKS5 inbound to
-         * [shareListenAddress] instead of loopback so devices on this phone's
-         * own hotspot can use it as their proxy. See ConfigStore.vpnShareEnabled. */
+        /** Legacy caller parameters retained for compatibility. LAN binding is now owned by PhoneSharing;
+         * the core exposes only loopback inbounds and never handles LAN authentication. */
         shareOnLan: Boolean = false,
-        /** Required whenever [shareOnLan] is true: without a SOCKS5 username/
-         * password Xray's socks-in accepts any client on the LAN with no
-         * check at all, i.e. an open proxy. Ignored when [shareOnLan] is
-         * false (the loopback-only inbound never needs one). */
         shareUser: String = "",
         sharePass: String = "",
-        /** The exact interface address to bind the shared inbounds to -
-         * hotspotInterfaceAddress() from the caller, or "127.0.0.1" when no
-         * hotspot interface is currently up. Must never be the 0.0.0.0
-         * wildcard: that also binds the cellular data interface, which on
-         * some carriers/networks carries a real, routable address, turning
-         * this unauthenticated/LAN-only proxy into one reachable from the
-         * public internet. Falling back to loopback here disables the
-         * sharing without touching shareOnLan/UI state, exactly like the
-         * existing "missing credential -> loopback-only" fail-safe below. */
         shareListenAddress: String = "127.0.0.1"
     ): String {
         require(!net.gozar.app.plugins.PluginProfiles.isPlugin(config)) { "Full plugin configs require their own engine" }
@@ -407,44 +393,17 @@ object ConfigBuilder {
                 .put("routeOnly", !adBlock && splitRouting && !sniffing))
         }
 
-        // A missing credential must never fall back to an open, unauthenticated
-        // proxy on the LAN - fail safe to loopback-only instead.
-        val shareAuthed = shareOnLan && shareUser.isNotBlank() && sharePass.isNotBlank()
-        val socksSettings = JSONObject().put("udp", true)
-        if (shareAuthed) {
-            socksSettings.put("auth", "password")
-                .put("accounts", JSONArray().put(JSONObject().put("user", shareUser).put("pass", sharePass)))
-        }
-        val socksIn = JSONObject().put("tag", "socks-in")
-            .put("port", MixedPort.value)
-            .put("listen", if (shareAuthed) shareListenAddress else "127.0.0.1")
-            .put("protocol", "socks")
-            .put("settings", socksSettings)
-        if (splitRouting || sniffing || adBlock) {
-            val socksTypes = JSONArray()
-            listOf("http", "tls", "quic").forEach { socksTypes.put(it) }
-            socksIn.put("sniffing", JSONObject()
-                .put("enabled", true)
-                .put("destOverride", socksTypes)
-                .put("routeOnly", false))
-        }
-
+        // Phone sharing has a separate authenticated relay. Never expose the app's local inbound.
+        val socksIn = JSONObject().put("tag", "socks-in").put("port", MixedPort.value)
+            .put("listen", "127.0.0.1").put("protocol", "socks")
+            .put("settings", JSONObject().put("udp", true))
+        if (splitRouting || sniffing || adBlock) socksIn.put("sniffing", JSONObject()
+            .put("enabled", true).put("destOverride", JSONArray().put("http").put("tls").put("quic")).put("routeOnly", false))
         val inbounds = JSONArray().put(tunIn).put(socksIn)
-        if (shareOnLan) {
-            // Android's own per-network "Manual Proxy" setting is HTTP-only
-            // and has no credential field at all, so it can never speak to
-            // an authenticated SOCKS5 inbound. This plain HTTP inbound is
-            // what that native setting actually needs - by construction it
-            // cannot carry a password, so anyone on the same Wi-Fi/hotspot
-            // can use it while it's on. The authenticated socks-in above
-            // stays available at the same time for anything that supports
-            // manual SOCKS5+credentials (a browser, Telegram, etc.).
-            inbounds.put(JSONObject().put("tag", "http-share-in")
-                .put("port", HttpSharePort.value)
-                .put("listen", shareListenAddress)
-                .put("protocol", "http")
-                .put("settings", JSONObject()))
-        }
+        inbounds.put(JSONObject().put("tag", "phone-share-in")
+            .put("port", net.gozar.app.sharing.PhoneSharing.XRAY_PORT)
+            .put("listen", "127.0.0.1").put("protocol", "socks")
+            .put("settings", JSONObject().put("udp", false)))
         if (config.protocol == "tor" || onion) {
             inbounds.put(JSONObject().put("tag", "tor-in")
                 .put("port", TorController.BRIDGE_PORT).put("listen", "127.0.0.1")
@@ -514,6 +473,9 @@ object ConfigBuilder {
         root.put("outbounds", outbounds)
 
         val rules = JSONArray()
+        // First rule: shared requests cannot hit split routing, Youtube Direct, local DNS or onion detours.
+        rules.put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put("phone-share-in"))
+            .put("outboundTag", "proxy"))
         if (onion) {
             rules.put(JSONObject().put("type", "field")
                 .put("domain", JSONArray().put("regexp:\\.onion$"))
@@ -573,7 +535,6 @@ object ConfigBuilder {
                 .put("outboundTag", "direct"))
         }
         val proxiedInbounds = JSONArray().put("tun-in").put("socks-in")
-        if (shareOnLan) proxiedInbounds.put("http-share-in")
         rules.put(JSONObject().put("type", "field")
             .put("inboundTag", proxiedInbounds)
             .put("outboundTag", "proxy"))

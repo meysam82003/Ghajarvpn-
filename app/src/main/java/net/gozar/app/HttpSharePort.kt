@@ -1,7 +1,6 @@
 package net.gozar.app
 
-/** Port for VPN Share's unauthenticated HTTP inbound (see ConfigBuilder) -
- * separate from MixedPort's SOCKS5 inbound, which requires a credential. */
+/** Legacy port identifier retained for diagnostics. Phase 5 PhoneSharing owns the authenticated relay. */
 object HttpSharePort {
     @Volatile
     var value: Int = 18686

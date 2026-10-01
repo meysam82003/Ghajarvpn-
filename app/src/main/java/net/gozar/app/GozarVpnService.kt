@@ -118,6 +118,7 @@ class GozarVpnService : VpnService() {
             }
             ACTION_WARM -> {
                 if (enginesReady && !tearingDown) {
+                    publishSharingSession()
                     VpnBridge.sendConnected(applicationContext)
                     return START_STICKY
                 }
@@ -362,6 +363,7 @@ class GozarVpnService : VpnService() {
                 }
                 ensureActive()
                 enginesReady = true
+                publishSharingSession()
                 VpnBridge.sendConnected(applicationContext)
                 startPolling()
             } catch (e: CancellationException) {
@@ -372,6 +374,14 @@ class GozarVpnService : VpnService() {
             }
           }
         }
+    }
+
+    private fun publishSharingSession() {
+        val store = ConfigStore.get(applicationContext)
+        val config = store.configs.value.firstOrNull { it.id == VpnState.activeId.value } ?: return
+        if (enginesReady && !tearingDown && !zeptunOwnsTun && oblivionOptions?.proxyOnly != true &&
+            net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(config))
+            net.gozar.app.sharing.PhoneSharing.sessionReady(store, net.gozar.app.sharing.PhoneSharing.XRAY_PORT)
     }
 
     private fun startAutoSelect() {
@@ -394,6 +404,7 @@ class GozarVpnService : VpnService() {
     }
 
     private fun switchTunnel(config: ProxyConfig) {
+        net.gozar.app.sharing.PhoneSharing.invalidate()
         if (tearingDown) return
         val store = ConfigStore.get(applicationContext)
         val sharing = store.vpnShareEnabled.value
@@ -554,6 +565,7 @@ class GozarVpnService : VpnService() {
     }
 
     private fun die(error: String?) {
+        net.gozar.app.sharing.PhoneSharing.invalidate()
         if (tearingDown) return
         tearingDown = true
         enginesReady = false
@@ -662,6 +674,7 @@ class GozarVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        net.gozar.app.sharing.PhoneSharing.invalidate()
         if (delegatedPluginStop) {
             noticeJob?.cancel(); scope.cancel(); super.onDestroy(); return
         }

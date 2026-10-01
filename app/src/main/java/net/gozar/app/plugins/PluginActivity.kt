@@ -56,7 +56,16 @@ class PluginActivity : ComponentActivity() {
 @Composable
 fun PluginEntryButton() {
     val context = LocalContext.current
-    OutlinedButton(onClick = { PluginActivity.open(context) }, modifier = Modifier.fillMaxWidth()) { Text("افزونه‌ها · ShadowQUIC / Mihomo") }
+    val manager = remember { PluginManager.get(context) }
+    val revision by manager.revision.collectAsState()
+    Column(Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { PluginActivity.open(context) }, modifier = Modifier.fillMaxWidth()) { Text("افزونه‌ها · نصب، بروزرسانی و تنظیمات") }
+        PluginCatalog.candidates.filter { it.id in setOf("shadowquic", "mihomo") }.forEach { candidate ->
+            val view = remember(revision, candidate.id) { manager.view(candidate.id) }
+            Text(candidate.name + " · " + stateLabel(view.state) + (view.activeVersion?.let { " · v$it" } ?: ""), style = MaterialTheme.typography.bodySmall)
+            view.release?.let { Text("حجم دریافت: %.1f MB".format(java.util.Locale.ROOT, it.size / 1048576.0), style = MaterialTheme.typography.labelSmall) }
+        }
+    }
 }
 
 @Composable
@@ -109,7 +118,16 @@ private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (
                     if (view.error.isNotBlank()) Text(view.error, color = MaterialTheme.colorScheme.error)
                     // Only verified installed capabilities determine available settings; no protocol-name if/else tree.
                     val capabilities = active?.capabilities
-                    if (capabilities != null) Text(capabilities.names().joinToString(" · ") { it.removePrefix("supports") })
+                    var detailsOpen by remember(candidate.id) { mutableStateOf(false) }
+                    if (capabilities != null) {
+                        TextButton(onClick = { detailsOpen = !detailsOpen }) { Text("تنظیمات و جزئیات پیشرفته") }
+                        if (detailsOpen) {
+                            Text(capabilities.names().joinToString(" · ") { it.removePrefix("supports") })
+                            configs.filter { runCatching { PluginProfiles.read(it)?.id == candidate.id }.getOrDefault(false) }.forEach { profile ->
+                                TextButton(onClick = { editor = candidate.id; payload = PluginProfiles.read(profile)!!.payload; editingId = profile.id }) { Text("ویرایش: ${profile.name}") }
+                            }
+                        }
+                    }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Button(enabled = view.release != null && !busy && !PluginRuntime.isUsing(candidate.id), onClick = { manager.requestInstall(activity, candidate.id) }) {
                             Text(when (view.state) { PluginState.UPDATE_AVAILABLE -> "بروزرسانی"; PluginState.FAILED -> "تلاش مجدد"; else -> "نصب" })
@@ -136,7 +154,7 @@ private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (
     }
     editor?.let { id ->
         val candidate = PluginCatalog.candidate(id)!!
-        var format by remember(id, editingId) { mutableStateOf(if (editingId != null) requestedProfile?.format ?: candidate.formats.first() else candidate.formats.first()) }
+        var format by remember(id, editingId) { mutableStateOf(if (editingId != null) configs.firstOrNull { it.id == editingId }?.let { PluginProfiles.read(it)?.format } ?: candidate.formats.first() else candidate.formats.first()) }
         AlertDialog(onDismissRequest = { editor = null }, title = { Text(candidate.name) }, text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 candidate.formats.forEach { f -> TextButton(onClick = { format = f }) { Text(if (format == f) "✓ $f" else f) } }
@@ -167,7 +185,7 @@ private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (
     }
 }
 
-private fun stateLabel(state: PluginState) = when (state) {
+internal fun stateLabel(state: PluginState) = when (state) {
     PluginState.NOT_INSTALLED -> "نصب نشده"
     PluginState.AVAILABLE -> "آمادهٔ نصب"
     PluginState.DOWNLOADING -> "در حال دریافت"
