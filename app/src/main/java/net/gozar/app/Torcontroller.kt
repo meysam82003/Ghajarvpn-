@@ -137,7 +137,7 @@ object TorController {
             sb.appendLine("ExitNodes {" + cc + "}")
             sb.appendLine("StrictNodes 0")
         } else if (cc.length == 2) {
-            Log.w(TAG, "geoip assets missing, exit country ignored")
+            GhajarLog.w(TAG, "geoip assets missing, exit country ignored")
         }
         if (throughVpn) {
             sb.appendLine("Socks5Proxy 127.0.0.1:" + BRIDGE_PORT)
@@ -156,13 +156,13 @@ object TorController {
 
         val bin = binary(context)
         if (!bin.exists()) {
-            Log.e(TAG, "binary missing at " + bin.absolutePath)
+            GhajarLog.e(TAG, "binary missing at " + bin.absolutePath)
             return false
         }
 
         val dir = dataDir(context)
         if (bridges.transport.isNotEmpty() && bridges.transport != "vanilla" && !ptBinary(context).exists()) {
-            Log.e(TAG, "bridges need lyrebird, which is not in this build")
+            GhajarLog.e(TAG, "bridges need lyrebird, which is not in this build")
             return false
         }
         val torrc = writeTorrc(context, exitCountry, throughVpn, bridges)
@@ -174,7 +174,7 @@ object TorController {
                 .apply { environment()["HOME"] = dir.absolutePath }
                 .start()
         } catch (e: Exception) {
-            Log.e(TAG, "spawn failed", e)
+            GhajarLog.e(TAG, "spawn failed", e)
             return false
         }
         process = p
@@ -211,7 +211,7 @@ object TorController {
             if (stopping) return false
             val p = process
             if (p == null || !p.isAlive) {
-                Log.e(TAG, "process exited before bootstrap completed")
+                GhajarLog.e(TAG, "process exited before bootstrap completed")
                 return false
             }
             if (!portOpen) {
@@ -228,7 +228,7 @@ object TorController {
             }
             Thread.sleep(500)
         }
-        Log.e(TAG, "timed out at bootstrap " + bootstrapPercent + "%")
+        GhajarLog.e(TAG, "timed out at bootstrap " + bootstrapPercent + "%")
         return false
     }
 

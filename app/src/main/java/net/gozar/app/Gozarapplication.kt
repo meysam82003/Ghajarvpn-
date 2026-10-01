@@ -50,7 +50,12 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         // connection state. This costs nothing when no widget is placed -
         // refresh() returns immediately on an empty id list.
         if (processName == packageName) scope.launch {
-            VpnState.state.collect { GhajarWidget.refresh(this@GozarApplication) }
+            var previous = Connection.DISCONNECTED
+            VpnState.state.collect { current ->
+                GhajarNotificationChannels.transition(this@GozarApplication, previous, current)
+                previous = current
+                GhajarWidget.refresh(this@GozarApplication)
+            }
         }
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {

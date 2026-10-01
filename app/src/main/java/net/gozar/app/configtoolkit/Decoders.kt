@@ -145,7 +145,7 @@ open class GenericJsonDecoder(override val format: ConfigFormat = ConfigFormat.J
             fingerprint = first(o, "fingerprint", "fp").ifBlank { sec.optString("fingerprint", "chrome") },
             flow = first(o, "flow"), publicKey = first(o, "publicKey", "pbk").ifBlank { reality.optString("publicKey") },
             shortId = first(o, "shortId", "sid").ifBlank { reality.optString("shortId") },
-            spiderX = first(o, "spiderX", "spx").ifBlank { reality.optString("spiderX") },
+            spiderX = first(o, "spiderX", "spx").ifBlank { reality.optString("spiderX", "/") },
             grpcServiceName = first(o, "serviceName").ifBlank { grpc.optString("serviceName") },
             authority = first(o, "authority").ifBlank { grpc.optString("authority") },
             allowInsecure = o.optBoolean("allowInsecure", sec.optBoolean("allowInsecure", false)),
@@ -184,7 +184,7 @@ open class GenericJsonDecoder(override val format: ConfigFormat = ConfigFormat.J
 
     private fun criticalSignature(p: NormalizedProfile) = listOf(
         p.protocol, p.server.lowercase(), p.port, p.uuid, p.password, p.method,
-        p.network, p.security, p.sni, p.host, p.path, p.publicKey, p.shortId
+        p.network, p.security, p.sni, p.host, p.path, p.publicKey, p.shortId, p.spiderX
     ).joinToString("\u0000")
 }
 

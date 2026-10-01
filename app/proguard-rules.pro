@@ -17,9 +17,8 @@
     native <methods>;
 }
 
--keepclassmembers class net.gozar.app.** {
-    <fields>;
-}
+# Profile/backup serialization is explicit JSONObject mapping, not field reflection.
+# JNI keeps above remain scoped to their actual bridge packages.
 
 -keepclassmembers enum * {
     public static **[] values();
@@ -47,3 +46,10 @@
 # the registration failed, and the release build reported zeptun (and so
 # sing-box, which rides on it) as missing while debug builds worked.
 -keep class dev.zeptun.Zeptun { *; }
+
+# Debug chatter must not reach Logcat in release; error/warning diagnostics remain.
+-assumenosideeffects class android.util.Log {
+    public static int v(...);
+    public static int d(...);
+    public static int i(...);
+}

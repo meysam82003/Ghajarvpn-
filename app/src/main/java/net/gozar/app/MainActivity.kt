@@ -210,6 +210,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import android.content.ContextWrapper
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
@@ -1062,7 +1063,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 val best = runCatching { selector.pickFastest(AUTO_SWITCH_PROBE_MS) }
-                    .onFailure { android.util.Log.w(tag, "probe threw", it) }
+                    .onFailure { net.gozar.app.GhajarLog.w(tag, "probe threw", it) }
                     .getOrNull()
                 if (best == null) {
                     android.util.Log.d(tag, "skip: no server responded to the probe"); continue
@@ -1110,7 +1111,7 @@ class MainActivity : ComponentActivity() {
             // class + message through GhajarLog so it's actually diagnosable
             // from an exported log next time this fires.
             GhajarLog.e("GhajarConnect", "${error.javaClass.name}: ${error.message}")
-            android.util.Log.e("GhajarConnect", "connect failed", error)
+            net.gozar.app.GhajarLog.e("GhajarConnect", "connect failed", error)
             VpnState.setError("شروع اتصال ناموفق بود؛ مجوز VPN و تنظیمات سرویس را بررسی کن.")
             VpnCommandCoordinator.onTunnelFailed()
         }
@@ -4078,6 +4079,7 @@ private fun ManualConfigScreen(
     var sni by remember { mutableStateOf(existing?.sni ?: "") }
     var publicKey by remember { mutableStateOf(existing?.publicKey ?: "") }
     var shortId by remember { mutableStateOf(existing?.shortId ?: "") }
+    var spiderX by remember { mutableStateOf(existing?.spiderX ?: "/") }
     var path by remember { mutableStateOf(existing?.path ?: "") }
     var host by remember { mutableStateOf(existing?.host ?: "") }
     var serviceName by remember { mutableStateOf(existing?.serviceName ?: "") }
@@ -4246,6 +4248,7 @@ private fun ManualConfigScreen(
             if (security == "reality") {
                 SkinField(value = publicKey, onValueChange = { publicKey = it }, label = t("public_key"))
                 SkinField(value = shortId, onValueChange = { shortId = it }, label = t("short_id"))
+                SkinField(value = spiderX, onValueChange = { spiderX = it }, label = "REALITY spiderX")
             }
             if (security == "tls") {
                     SettingRow(
@@ -4322,6 +4325,7 @@ private fun ManualConfigScreen(
                                 sni = sni.trim(),
                                 publicKey = publicKey.trim(),
                                 shortId = shortId.trim(),
+                                spiderX = spiderX,
                                 path = path.trim(),
                                 host = host.trim(),
                                 serviceName = serviceName.trim(),
@@ -12869,7 +12873,7 @@ private fun QrScannerScreen(onResult: (String) -> Unit) {
                                 proxy.close()
                             }
                             if (lifecycleOwner == null) {
-                                android.util.Log.e("GhajarQr", "no LifecycleOwner found - cannot bind")
+                                net.gozar.app.GhajarLog.e("GhajarQr", "no LifecycleOwner found - cannot bind")
                             } else {
                                 provider.unbindAll()
                                 provider.bindToLifecycle(
@@ -12881,7 +12885,7 @@ private fun QrScannerScreen(onResult: (String) -> Unit) {
                                 android.util.Log.d("GhajarQr", "camera bound")
                             }
                         }.onFailure {
-                            android.util.Log.e("GhajarQr", "camera setup failed", it)
+                            net.gozar.app.GhajarLog.e("GhajarQr", "camera setup failed", it)
                         }
                     }, ContextCompat.getMainExecutor(ctx))
                     view
@@ -13637,7 +13641,7 @@ private fun buzz(context: Context) {
             context.getSystemService(Context.VIBRATOR_SERVICE) as android.os.Vibrator
         }
         if (!vibrator.hasVibrator()) {
-            android.util.Log.w("GhajarHaptic", "device reports no vibrator")
+            net.gozar.app.GhajarLog.w("GhajarHaptic", "device reports no vibrator")
             return
         }
         val amplitude = if (vibrator.hasAmplitudeControl()) 255
@@ -14362,12 +14366,12 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
     val lang = LocalLang.current
     val c = ghajarColors
     val context = LocalContext.current
-    val conn by VpnState.state.collectAsState()
-    val activeId by VpnState.activeId.collectAsState()
-    val connectedAt by VpnState.connectedAt.collectAsState()
-    val counters by VpnBridge.counters.collectAsState()
-    val configs by store.configs.collectAsState()
-    val logs by GhajarLog.entries.collectAsState()
+    val conn by VpnState.state.collectAsStateWithLifecycle()
+    val activeId by VpnState.activeId.collectAsStateWithLifecycle()
+    val connectedAt by VpnState.connectedAt.collectAsStateWithLifecycle()
+    val counters by VpnBridge.counters.collectAsStateWithLifecycle()
+    val configs by store.configs.collectAsStateWithLifecycle()
+    val logs by GhajarLog.entries.collectAsStateWithLifecycle()
     val active = configs.find { it.id == activeId }
 
     // The last sixty samples, newest last.
@@ -14384,9 +14388,11 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
     var device by remember { mutableStateOf<DeviceMonitor.Sample?>(null) }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }
     var engine by remember { mutableStateOf(runCatching { net.gozar.app.engine.CoreManager.status() }.getOrNull()) }
-    LaunchedEffect(Unit) {
+    val monitorLifecycle = androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(monitorLifecycle) {
+        monitorLifecycle.repeatOnLifecycle(androidx.lifecycle.Lifecycle.State.STARTED) {
         val sampler = DeviceMonitor.Sampler(context)
-        while (true) {
+        while (isActive) {
             val s = withContext(Dispatchers.IO) { runCatching { sampler.sample() }.getOrNull() }
             if (s != null) {
                 device = s
@@ -14397,6 +14403,7 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
             now = System.currentTimeMillis()
             engine = runCatching { net.gozar.app.engine.CoreManager.status() }.getOrDefault(engine)
             kotlinx.coroutines.delay(2000)
+        }
         }
     }
     val elapsed = if (conn == Connection.CONNECTED && connectedAt > 0) ((now - connectedAt) / 1000).coerceAtLeast(0L) else 0L

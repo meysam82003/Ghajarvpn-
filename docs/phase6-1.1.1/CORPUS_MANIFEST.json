@@ -1,0 +1,755 @@
+{
+  "synthetic": true,
+  "cases": [
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-tcp-none",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-tcp-tls",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-ws-none",
+      "network": "ws"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-ws-tls",
+      "network": "ws"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-grpc-none",
+      "network": "grpc"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-grpc-tls",
+      "network": "grpc"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-httpupgrade-none",
+      "network": "httpupgrade"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-httpupgrade-tls",
+      "network": "httpupgrade"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-xhttp-none",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-xhttp-tls",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-splithttp-none",
+      "network": "splithttp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-splithttp-tls",
+      "network": "splithttp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-kcp-none",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-kcp-tls",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-quic-none",
+      "network": "quic"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-quic-tls",
+      "network": "quic"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-http-none",
+      "network": "http"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "vless-http-tls",
+      "network": "http"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-tcp-none",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-tcp-tls",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-ws-none",
+      "network": "ws"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-ws-tls",
+      "network": "ws"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-grpc-none",
+      "network": "grpc"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-grpc-tls",
+      "network": "grpc"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-httpupgrade-none",
+      "network": "httpupgrade"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-httpupgrade-tls",
+      "network": "httpupgrade"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-xhttp-none",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-xhttp-tls",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-splithttp-none",
+      "network": "splithttp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-splithttp-tls",
+      "network": "splithttp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-kcp-none",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-kcp-tls",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-quic-none",
+      "network": "quic"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-quic-tls",
+      "network": "quic"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-http-none",
+      "network": "http"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "vmess-http-tls",
+      "network": "http"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-tcp-none",
+      "network": "tcp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-tcp-tls",
+      "network": "tcp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-ws-none",
+      "network": "ws"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-ws-tls",
+      "network": "ws"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-grpc-none",
+      "network": "grpc"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-grpc-tls",
+      "network": "grpc"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-httpupgrade-none",
+      "network": "httpupgrade"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-httpupgrade-tls",
+      "network": "httpupgrade"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-xhttp-none",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-xhttp-tls",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-splithttp-none",
+      "network": "splithttp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-splithttp-tls",
+      "network": "splithttp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-kcp-none",
+      "network": "kcp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-kcp-tls",
+      "network": "kcp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-quic-none",
+      "network": "quic"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-quic-tls",
+      "network": "quic"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-http-none",
+      "network": "http"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "trojan-http-tls",
+      "network": "http"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-tcp-none",
+      "network": "tcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-tcp-tls",
+      "network": "tcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-ws-none",
+      "network": "ws"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-ws-tls",
+      "network": "ws"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-grpc-none",
+      "network": "grpc"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-grpc-tls",
+      "network": "grpc"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-httpupgrade-none",
+      "network": "httpupgrade"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-httpupgrade-tls",
+      "network": "httpupgrade"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-xhttp-none",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-xhttp-tls",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-splithttp-none",
+      "network": "splithttp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-splithttp-tls",
+      "network": "splithttp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-kcp-none",
+      "network": "kcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-kcp-tls",
+      "network": "kcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-quic-none",
+      "network": "quic"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-quic-tls",
+      "network": "quic"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-http-none",
+      "network": "http"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "shadowsocks-http-tls",
+      "network": "http"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "reality-tcp",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "reality-grpc",
+      "network": "grpc"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "reality-xhttp",
+      "network": "xhttp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-none-original",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-none-seed",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-srtp-original",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-srtp-seed",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-utp-original",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-utp-seed",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-wechat-original",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-wechat-seed",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-dtls-original",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-dtls-seed",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-wireguard-original",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-wireguard-seed",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-dns-original",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mkcp-dns-seed",
+      "network": "kcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "ss-2022-blake3-aes-128-gcm",
+      "network": "tcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "ss-2022-blake3-aes-256-gcm",
+      "network": "tcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "ss-2022-blake3-chacha20-poly1305",
+      "network": "tcp"
+    },
+    {
+      "protocol": "wireguard",
+      "generated": true,
+      "id": "wireguard-v4",
+      "network": "tcp"
+    },
+    {
+      "protocol": "wireguard",
+      "generated": true,
+      "id": "wireguard-v6-psk",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mux",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "dns",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "doh",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "fakedns",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "routing-geodata",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "fragment",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "noise-light",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "noise-standard",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "noise-aggressive",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "noise-quic",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mask-sudoku",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mask-salamander",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mask-noise",
+      "network": "kcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "mask-xdns",
+      "network": "kcp"
+    },
+    {
+      "protocol": "hysteria2",
+      "generated": true,
+      "id": "hy2",
+      "network": "tcp"
+    },
+    {
+      "protocol": "hysteria2",
+      "generated": true,
+      "id": "hy2-obfs",
+      "network": "tcp"
+    },
+    {
+      "protocol": "socks",
+      "generated": true,
+      "id": "socks",
+      "network": "tcp"
+    },
+    {
+      "protocol": "http",
+      "generated": true,
+      "id": "http-proxy",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "sharing-routing",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "chain",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "clipboard-qr-0",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "clipboard-qr-1",
+      "network": "tcp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "clipboard-qr-2",
+      "network": "tcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "clipboard-qr-3",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "clipboard-qr-4",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "subscription-0",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vmess",
+      "generated": true,
+      "id": "subscription-1",
+      "network": "tcp"
+    },
+    {
+      "protocol": "trojan",
+      "generated": true,
+      "id": "subscription-2",
+      "network": "tcp"
+    },
+    {
+      "protocol": "shadowsocks",
+      "generated": true,
+      "id": "subscription-3",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "subscription-4",
+      "network": "tcp"
+    },
+    {
+      "protocol": "vless",
+      "generated": true,
+      "id": "json-import-0",
+      "network": "tcp"
+    }
+  ]
+}

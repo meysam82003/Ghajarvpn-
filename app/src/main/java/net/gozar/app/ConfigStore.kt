@@ -319,14 +319,14 @@ class ConfigStore private constructor(context: Context) {
     val vpnSharePassword: StateFlow<String> = _vpnSharePassword.asStateFlow()
 
     /** Returns this process's credential, generating it on first use. */
-    fun ensureVpnShareCredential(): Pair<String, String> {
+    @Synchronized fun ensureVpnShareCredential(): Pair<String, String> {
         if (_vpnShareUsername.value.isNotBlank() && _vpnSharePassword.value.isNotBlank()) {
             return _vpnShareUsername.value to _vpnSharePassword.value
         }
         return regenerateVpnShareCredential()
     }
 
-    fun regenerateVpnShareCredential(): Pair<String, String> {
+    @Synchronized fun regenerateVpnShareCredential(): Pair<String, String> {
         val user = "ghajar" + secureRandomToken(4)
         val pass = secureRandomToken(12)
         _vpnShareUsername.value = user
@@ -1001,6 +1001,9 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun restoreBackup(configs: List<ProxyConfig>, subs: List<Subscription>, settings: JSONObject?) {
+        // Even a 1.0.10 backup without sharing settings invalidates temporary sessions.
+        net.gozar.app.sharing.PhoneSharing.invalidate()
+        regenerateVpnShareCredential()
         _configs.value = configs
         _subscriptions.value = subs
         persistConfigs()

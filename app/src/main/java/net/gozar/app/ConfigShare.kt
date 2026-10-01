@@ -158,6 +158,7 @@ object ConfigShare {
         if (c.sni.isNotEmpty()) params.add("sni" to c.sni)
         if (c.publicKey.isNotEmpty()) params.add("pbk" to c.publicKey)
         if (c.shortId.isNotEmpty()) params.add("sid" to c.shortId)
+        if (c.security == "reality") params.add("spx" to c.spiderX)
         if (c.fingerprint.isNotEmpty()) params.add("fp" to c.fingerprint)
         if (c.path.isNotEmpty()) params.add("path" to c.path)
         if (c.host.isNotEmpty()) params.add("host" to c.host)

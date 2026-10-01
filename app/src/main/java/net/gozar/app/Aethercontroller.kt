@@ -145,7 +145,7 @@ object AetherController {
 
         val bin = binary(context)
         if (!bin.exists()) {
-            Log.e(TAG, "binary missing at " + bin.absolutePath)
+            GhajarLog.e(TAG, "binary missing at " + bin.absolutePath)
             return false
         }
 
@@ -161,7 +161,7 @@ object AetherController {
                 .apply { environment().putAll(env(spec, context)) }
                 .start()
         } catch (e: Exception) {
-            Log.e(TAG, "spawn failed", e)
+            GhajarLog.e(TAG, "spawn failed", e)
             return false
         }
         process = p
@@ -177,7 +177,7 @@ object AetherController {
                         if (!stopping) Log.i(TAG, it)
                     }
                 }
-            }.onFailure { Log.w(TAG, "log reader ended: " + it.message) }
+            }.onFailure { GhajarLog.w(TAG, "log reader ended: " + it.message) }
         }
 
         return waitForPort()
@@ -190,7 +190,7 @@ object AetherController {
             val p = process
             if (p == null || !p.isAlive) {
                 val code = runCatching { p?.exitValue() }.getOrNull()
-                Log.e(TAG, "process exited before the proxy came up, exit code=" + code)
+                GhajarLog.e(TAG, "process exited before the proxy came up, exit code=" + code)
                 dumpOutput()
                 return false
             }
@@ -206,7 +206,7 @@ object AetherController {
             }
             Thread.sleep(400)
         }
-        Log.e(TAG, "timed out after " + READY_TIMEOUT_MS + "ms waiting for the proxy")
+        GhajarLog.e(TAG, "timed out after " + READY_TIMEOUT_MS + "ms waiting for the proxy")
         dumpOutput()
         return false
     }
@@ -216,10 +216,10 @@ object AetherController {
     private fun dumpOutput() {
         val tail = synchronized(lastOutput) { lastOutput.toList() }
         if (tail.isEmpty()) {
-            Log.e(TAG, "no output was produced by the binary")
+            GhajarLog.e(TAG, "no output was produced by the binary")
         } else {
-            Log.e(TAG, "last " + tail.size + " lines from aether:")
-            tail.forEach { Log.e(TAG, "  | " + it) }
+            GhajarLog.e(TAG, "last " + tail.size + " lines from aether:")
+            tail.forEach { GhajarLog.e(TAG, "  | " + it) }
         }
     }
 

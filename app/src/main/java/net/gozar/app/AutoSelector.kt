@@ -116,7 +116,7 @@ class AutoSelector(
         val ranked = scores.best(configs.map { it.id })
         val best = ranked?.let { r -> configs.firstOrNull { it.id == r.first }?.let { it to r.second.toInt() } }
         if (best == null) {
-            android.util.Log.w(TAG, "no config responded, nothing to switch to")
+            net.gozar.app.GhajarLog.w(TAG, "no config responded, nothing to switch to")
             return@coroutineScope
         }
         android.util.Log.d(TAG, "best=${best.first.name} ${best.second}ms")

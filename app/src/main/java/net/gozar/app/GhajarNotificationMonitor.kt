@@ -316,7 +316,7 @@ object GhajarNotificationMonitor {
             .setContentTitle(notice.title)
             .setContentText(notice.message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(notice.message))
-            .setPriority(if (notice.important) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(if (notice.important || notice.serviceAlert) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(open)
         GhajarShopOpenRequest.fromNotice(notice.action, notice.actionRef)?.let { target ->

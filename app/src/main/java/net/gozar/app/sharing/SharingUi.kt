@@ -19,6 +19,7 @@ import androidx.compose.ui.window.SecureFlagPolicy
 import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import kotlinx.coroutines.delay
 import net.gozar.app.*
@@ -43,7 +44,12 @@ fun SharingDialog(store: ConfigStore, initial: ProxyConfig? = null, legacyExport
     LaunchedEffect(state.state,state.password) { if(localQr) { qr=null; localQr=false } }
     LaunchedEffect(Unit) { cleanExports(context) }
     var addresses by remember { mutableStateOf(emptyList<String>()) }
-    LaunchedEffect(mode) { if(mode>=2) while(true) { addresses=PhoneSharing.addresses(); delay(2000) } }
+    val sharingLifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(mode, sharingLifecycle) {
+        if(mode>=2) sharingLifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while(true) { addresses=PhoneSharing.addresses(); delay(2000) }
+        }
+    }
     AlertDialog(onDismissRequest=dismiss, title={ Text("اشتراک‌گذاری اتصال") }, text={
         Column(Modifier.verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
             if(mode==0) {
@@ -111,6 +117,8 @@ fun SharingDialog(store: ConfigStore, initial: ProxyConfig? = null, legacyExport
                 }
                 Text("نام مقصد را با Remote DNS / SOCKS5 hostname بفرستید. این پراکسی فقط TCP و HTTP CONNECT را عبور می‌دهد؛ UDP و HTTP ساده پذیرفته نمی‌شوند. تنظیم Wi-Fi اندروید معمولاً فیلد رمز ندارد؛ از برنامه‌ای با پشتیبانی احراز هویت استفاده کنید.")
                 Text("قطع VPN، توقف Sharing یا تعویض سرور فوراً همهٔ نشست‌ها را می‌بندد. پس از اتصال مجدد همان موتور پشتیبانی‌شده، Sharing دوباره برقرار می‌شود. برنامهٔ مقصد نباید fallback مستقیم داشته باشد؛ ترافیک برنامه‌هایی که پراکسی را نادیده می‌گیرند تحت کنترل گوشی نیست.")
+                Text("شروع یا توقف اشتراک، اتصال همین گوشی را برای اعمال درگاه به‌صورت کوتاه دوباره برقرار می‌کند.")
+                Text("رمز اشتراک موقت است؛ با اتصال مجدد VPN یا پس از ۸ ساعت عوض می‌شود و نشست‌های قبلی بسته می‌شوند.")
                 Text("فقط شبکهٔ محلی مورد اعتماد: احراز هویت SOCKS/HTTP خودِ ارتباط محلی را رمز نمی‌کند. از Wi-Fi با رمز WPA2/WPA3 استفاده کنید.")
                 Text("آزمون روی دستگاه دوم: IP عمومی را قبل و بعد مقایسه کنید؛ باید خروجی VPN باشد. سپس VPN گوشی را قطع کنید: درخواست پراکسی باید شکست بخورد. DNS/IPv6 و برنامه‌های دیگر را جدا بررسی کنید؛ باز بودن درگاه به معنی قبولی این آزمون‌ها نیست.")
             }

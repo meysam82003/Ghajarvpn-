@@ -5,6 +5,24 @@ import org.json.JSONObject
 
 object ConfigBuilder {
 
+    private fun phoneSharingInbound() = JSONObject().put("tag", "phone-share-in")
+        .put("port", net.gozar.app.sharing.PhoneSharing.XRAY_PORT)
+        .put("listen", "127.0.0.1").put("protocol", "socks")
+        .put("settings", JSONObject().put("udp", false))
+
+    /** Patch only our private relay inbound; preserve every outbound, chain and routing setting. */
+    internal fun withPhoneSharing(json: String, enabled: Boolean): String {
+        val root = JSONObject(json)
+        val previous = root.getJSONArray("inbounds")
+        val inbounds = JSONArray()
+        for (i in 0 until previous.length()) {
+            val inbound = previous.getJSONObject(i)
+            if (inbound.optString("tag") != "phone-share-in") inbounds.put(inbound)
+        }
+        if (enabled) inbounds.put(phoneSharingInbound())
+        return root.put("inbounds", inbounds).toString()
+    }
+
     private val DohHosts = listOf(
         "chrome.cloudflare-dns.com",
         "mozilla.cloudflare-dns.com",
@@ -400,10 +418,8 @@ object ConfigBuilder {
         if (splitRouting || sniffing || adBlock) socksIn.put("sniffing", JSONObject()
             .put("enabled", true).put("destOverride", JSONArray().put("http").put("tls").put("quic")).put("routeOnly", false))
         val inbounds = JSONArray().put(tunIn).put(socksIn)
-        inbounds.put(JSONObject().put("tag", "phone-share-in")
-            .put("port", net.gozar.app.sharing.PhoneSharing.XRAY_PORT)
-            .put("listen", "127.0.0.1").put("protocol", "socks")
-            .put("settings", JSONObject().put("udp", false)))
+        if (shareOnLan && net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(config))
+            inbounds.put(phoneSharingInbound())
         if (config.protocol == "tor" || onion) {
             inbounds.put(JSONObject().put("tag", "tor-in")
                 .put("port", TorController.BRIDGE_PORT).put("listen", "127.0.0.1")
@@ -708,8 +724,10 @@ object ConfigBuilder {
 
         val peer = JSONObject()
             .put("publicKey", config.publicKey)
-            .put("endpoint", "$epAddress:$epPort")
+            .put("endpoint", "${if (epAddress.contains(':') && !epAddress.startsWith('[')) "[$epAddress]" else epAddress}:$epPort")
             .put("allowedIPs", JSONArray().put("0.0.0.0/0").put("::/0"))
+
+        if (config.password.isNotEmpty()) peer.put("preSharedKey", config.password)
 
         val addrs = JSONArray()
         config.localAddress.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -841,10 +859,18 @@ object ConfigBuilder {
                 }
             }
             "kcp" -> {
-                val kcp = JSONObject().put("header",
-                    JSONObject().put("type", config.headerType.ifEmpty { "none" }))
-                if (config.path.isNotEmpty()) kcp.put("seed", config.path)
-                stream.put("kcpSettings", kcp)
+                // v26.3.27 moved the legacy packet header and seed into FinalMask.
+                // Keep the stored profile unchanged; migrate only the generated wire config.
+                val masks = JSONArray()
+                val header = config.headerType.lowercase()
+                require(header in setOf("", "none", "srtp", "utp", "wechat", "dtls", "wireguard", "dns")) {
+                    "Unsupported mKCP header: $header"
+                }
+                if (header !in setOf("", "none")) masks.put(JSONObject().put("type", "header-$header"))
+                masks.put(if (config.path.isEmpty()) JSONObject().put("type", "mkcp-original")
+                    else JSONObject().put("type", "mkcp-aes128gcm").put("settings", JSONObject().put("password", config.path)))
+                stream.put("kcpSettings", JSONObject())
+                stream.put("finalmask", JSONObject().put("udp", masks))
             }
             "ws" -> {
                 val ws = JSONObject().put("path", config.path.ifEmpty { "/" })
@@ -881,7 +907,7 @@ object ConfigBuilder {
                     if (config.randomSubdomain) randomLabel(config.sni) else config.sni
                 )
                 .put("publicKey", config.publicKey)
-                .put("shortId", config.shortId).put("fingerprint", config.fingerprint).put("spiderX", "/"))
+                .put("shortId", config.shortId).put("fingerprint", config.fingerprint).put("spiderX", config.spiderX))
             "tls" -> {
                 val baseSni = config.sni.ifEmpty {
                     config.host.substringBefore(",").trim().ifEmpty { config.address }
@@ -919,7 +945,9 @@ object ConfigBuilder {
         maskEntry(config)?.let { entry ->
             val side = maskSide(net, entry.optString("type"))
             if (side != null) {
-                stream.put("finalmask", JSONObject().put(side, JSONArray().put(entry)))
+                val masks = stream.optJSONObject("finalmask") ?: JSONObject().also { stream.put("finalmask", it) }
+                val entries = masks.optJSONArray(side) ?: JSONArray().also { masks.put(side, it) }
+                entries.put(entry)
             } else {
                 // Named but not applicable here. Said out loud, because a
                 // silently dropped disguise is worse than one that is not

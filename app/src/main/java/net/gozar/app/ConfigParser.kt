@@ -141,6 +141,14 @@ object ConfigParser {
                 val kcp = stream.optJSONObject("kcpSettings")
                 headerType = normalizeHeaderType(kcp?.optJSONObject("header")?.optString("type"))
                 path = kcp?.optString("seed").orEmpty()
+                val masks = stream.optJSONObject("finalmask")?.optJSONArray("udp")
+                if (masks != null) for (i in 0 until masks.length()) {
+                    val mask = masks.optJSONObject(i) ?: continue
+                    when (val type = mask.optString("type")) {
+                        "mkcp-aes128gcm" -> path = mask.optJSONObject("settings")?.optString("password").orEmpty()
+                        "header-dns", "header-dtls", "header-srtp", "header-utp", "header-wechat", "header-wireguard" -> headerType = type.removePrefix("header-")
+                    }
+                }
             }
             "ws" -> {
                 val ws = stream.optJSONObject("wsSettings")
@@ -201,6 +209,7 @@ object ConfigParser {
             fingerprint = sec?.optString("fingerprint").orEmpty().ifEmpty { "chrome" },
             publicKey = reality?.optString("publicKey").orEmpty(),
             shortId = reality?.optString("shortId").orEmpty(),
+            spiderX = reality?.optString("spiderX", "/") ?: "/",
             allowInsecure = sec?.optBoolean("allowInsecure", false) ?: false,
             source = source
         )
@@ -291,6 +300,7 @@ object ConfigParser {
             encryption = p["encryption"].orEmpty().ifEmpty { "none" }, flow = p["flow"] ?: "",
             network = network, security = p["security"].orEmpty().ifEmpty { "none" },
             sni = p["sni"] ?: "", publicKey = p["pbk"] ?: "", shortId = p["sid"] ?: "",
+            spiderX = p["spx"] ?: "/",
             fingerprint = p["fp"].orEmpty().ifEmpty { "chrome" },
             allowInsecure = (p["allowInsecure"] ?: p["insecure"] ?: "") in setOf("1", "true"),
             path = p["path"].orEmpty().ifEmpty { p["seed"].orEmpty() }, host = p["host"] ?: "",
@@ -317,6 +327,7 @@ object ConfigParser {
             password = pctDecode(password), flow = p["flow"] ?: "",
             network = network, security = p["security"].orEmpty().ifEmpty { "tls" },
             sni = p["sni"] ?: "", publicKey = p["pbk"] ?: "", shortId = p["sid"] ?: "",
+            spiderX = p["spx"] ?: "/",
             fingerprint = p["fp"].orEmpty().ifEmpty { "chrome" },
             allowInsecure = (p["allowInsecure"] ?: p["insecure"] ?: "") in setOf("1", "true"),
             path = p["path"].orEmpty().ifEmpty { p["seed"].orEmpty() }, host = p["host"] ?: "",

@@ -129,4 +129,16 @@ class GhajarLogRedactionTest {
         assertGone("my-npvs-secret-99", "passphrase: my-npvs-secret-99")
         assertTrue(redacted("<ca>x</ca> remote vpn.example.com 1194").contains("vpn.example.com"))
     }
+    @Test fun `short credentials and HTTP basic and encoded profiles are removed`() {
+        assertGone("YWJjOmRlZg==", "Proxy-Authorization: Basic YWJjOmRlZg==")
+        assertGone("xy", "token=xy&safe=1")
+        assertGone("abc123+/=", "secretKey=abc123+/=")
+        assertGone("user:short", "https://user:short@example.org")
+        assertGone("YWVzOnNlY3JldEBob3N0OjQ0Mw==", "ss://YWVzOnNlY3JldEBob3N0OjQ0Mw==")
+    }
+    @Test fun `memory sink is sanitized before export`() {
+        GhajarLog.i("Regression", "password=synthetic-sensitive-value")
+        assertFalse(GhajarLog.entries.value.last().message.contains("synthetic-sensitive-value"))
+    }
+
 }

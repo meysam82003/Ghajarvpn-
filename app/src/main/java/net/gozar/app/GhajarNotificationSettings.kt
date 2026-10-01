@@ -35,7 +35,7 @@ fun GhajarNotificationSettings() {
     }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(if (enabled) "اعلان‌های گوشی فعال هستند" else "برای دریافت پیام‌ها خارج از اپ، اعلان‌های گوشی را فعال کن.")
-        Text("اعلان‌های جدید و شناور اینجا و در نوار اعلانات نمایش داده می‌شوند. دریافت در پس‌زمینه ممکن است با تأخیر انجام شود.", style = MaterialTheme.typography.bodySmall)
+        Text("هشدارهای مهم کانال جدا دارند؛ نمایش شناور به تنظیمات هر کانال، حالت مزاحم نشوید و سیاست گوشی بستگی دارد. دریافت در پس‌زمینه ممکن است با تأخیر انجام شود.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = {
             val prefs = context.getSharedPreferences("ghajar_notice_permission", 0)
             if (!enabled && Build.VERSION.SDK_INT >= 33 && !prefs.getBoolean("requested", false)) {
@@ -54,11 +54,8 @@ fun GhajarNotificationSettings() {
             )
             val channels = remember(channelRevision) {
                 val manager = context.getSystemService(NotificationManager::class.java)
-                listOf(
-                    BrandConfig.NOTIFICATION_CHANNEL_GENERAL to "اعلان‌های عمومی",
-                    BrandConfig.NOTIFICATION_CHANNEL_SERVICE to "هشدار حجم و زمان سرویس",
-                    BrandConfig.NOTIFICATION_CHANNEL_IMPORTANT to "اعلان‌های مهم و شناور"
-                ).map { (id, label) ->
+                GhajarNotificationChannels.ensure(context)
+                GhajarNotificationChannels.settings.map { (id, label) ->
                     val on = manager?.getNotificationChannel(id)?.importance != NotificationManager.IMPORTANCE_NONE
                     Triple(id, label, on)
                 }

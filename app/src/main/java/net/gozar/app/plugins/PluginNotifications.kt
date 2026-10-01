@@ -6,9 +6,9 @@ import android.content.Intent
 import net.gozar.app.R
 
 object PluginNotifications {
-    private const val CHANNEL = "ghajar_plugins"
+    private const val CHANNEL = net.gozar.app.GhajarNotificationChannels.PLUGIN_ACTION
     private fun manager(context: Context): NotificationManager = requireNotNull(context.getSystemService(NotificationManager::class.java)).also {
-        it.createNotificationChannel(NotificationChannel(CHANNEL, "افزونه‌های VPN", NotificationManager.IMPORTANCE_DEFAULT))
+        net.gozar.app.GhajarNotificationChannels.ensure(context)
     }
     fun confirm(context: Context, intent: Intent, session: Int) {
         val manager = manager(context)
@@ -21,7 +21,7 @@ object PluginNotifications {
         manager(context)
         val stop = PendingIntent.getService(context, 7410, Intent(context, PluginVpnService::class.java).setAction(PluginVpnService.STOP), PendingIntent.FLAG_IMMUTABLE)
         val open = PendingIntent.getActivity(context, 7411, Intent(context, PluginActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
-        return Notification.Builder(context, CHANNEL).setSmallIcon(R.drawable.ic_stat_ghajar)
+        return Notification.Builder(context, net.gozar.app.GhajarNotificationChannels.PLUGIN_SERVICE).setSmallIcon(R.drawable.ic_stat_ghajar)
             .setContentTitle("Ghajar VPN · افزونه").setContentText("مدیریت اتصال افزونه")
             .setContentIntent(open).setOngoing(true).setOnlyAlertOnce(true)
             .addAction(Notification.Action.Builder(null, "قطع اتصال", stop).build()).build()
