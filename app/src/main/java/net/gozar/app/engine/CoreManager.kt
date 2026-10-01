@@ -28,7 +28,7 @@ import java.io.File
  * Nothing here pretends. A core is [Availability.Available] only when its
  * code or binary is actually present in this APK.
  */
-enum class EngineId { XRAY, PSIPHON, OPENVPN, IKEV2, TOR, AETHER, ZEPTUN_TUN, DNS_TUNNEL, SINGBOX }
+enum class EngineId { XRAY, PSIPHON, OPENVPN, IKEV2, TOR, AETHER, ZEPTUN_TUN, DNS_TUNNEL, SINGBOX, PLUGIN }
 
 sealed class Availability {
     object Available : Availability()
@@ -58,6 +58,10 @@ interface VpnEngine {
 object CoreManager {
 
     val engines: List<VpnEngine> = listOf(
+        engine(EngineId.PLUGIN, "Plugin",
+            EngineCapabilities(emptyList(), false, false, "Per signed release", "Versioned signed APK / IPC API 1"),
+            availability = { Availability.Experimental("Per-profile plugin installation required") },
+            running = { net.gozar.app.plugins.PluginRuntime.running }),
         engine(EngineId.XRAY, "Xray",
             EngineCapabilities(listOf("VLESS", "VMess", "Trojan", "Shadowsocks", "SOCKS", "HTTP", "Hysteria2", "WireGuard",
                 "REALITY", "XHTTP", "gRPC", "WebSocket", "HTTPUpgrade", "KCP"),
@@ -166,6 +170,12 @@ object CoreManager {
      */
     fun prepare(context: Context, config: net.gozar.app.ProxyConfig): String? {
         val id = engineFor(config)
+        if (id == EngineId.PLUGIN) {
+            val profile = runCatching { net.gozar.app.plugins.PluginProfiles.read(config) }.getOrNull()
+                ?: return "Invalid plugin profile"
+            return if (net.gozar.app.plugins.PluginManager.get(context).active(profile.id) == null)
+                net.gozar.app.plugins.PluginProfiles.requirement(config) else null
+        }
         when (val a = runCatching { engine(id).availability(context) }.getOrElse { Availability.Missing(it.javaClass.simpleName) }) {
             is Availability.Missing -> return "${engine(id).displayName}: ${a.why}"
             else -> {}
@@ -186,6 +196,7 @@ object CoreManager {
         net.gozar.app.VpnLauncher.relaunch(context.applicationContext, store, config)
 
     fun stop(context: Context) {
+        if (net.gozar.app.plugins.PluginRuntime.running) { net.gozar.app.plugins.PluginRuntime.stop(context); return }
         runCatching {
             context.startService(android.content.Intent(context, net.gozar.app.GozarVpnService::class.java)
                 .setAction(net.gozar.app.GozarVpnService.ACTION_STOP))
@@ -283,6 +294,7 @@ object EngineFlags {
  */
 object EngineRouting {
     fun engineFor(config: net.gozar.app.ProxyConfig): EngineId = when {
+        net.gozar.app.plugins.PluginProfiles.isPlugin(config) -> EngineId.PLUGIN
         config.protocol == "ikev2" -> EngineId.IKEV2
         config.protocol == "openvpn" -> EngineId.OPENVPN
         SingBoxConfig.handles(config) -> EngineId.SINGBOX

@@ -942,6 +942,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectTo(config: ProxyConfig) {
+        if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) {
+            val profile = runCatching { net.gozar.app.plugins.PluginProfiles.read(config) }.getOrNull()
+            if (profile == null || net.gozar.app.plugins.PluginManager.get(this).active(profile.id) == null) {
+                net.gozar.app.plugins.PluginActivity.open(this, config)
+                return // Keep both the imported config and any current working connection.
+            }
+        }
         // Any request to connect to a specific server - the picker's play
         // button, the home screen's main button, a quick-connect shortcut -
         // makes that server the selection, exactly like tapping the row
@@ -962,7 +969,7 @@ class MainActivity : ComponentActivity() {
             ConnectAction.CONNECT -> Unit
         }
 
-        if (!store.autoSelect.value) {
+        if (!store.autoSelect.value || net.gozar.app.plugins.PluginProfiles.isPlugin(config)) {
             launchConnect(config)
             return
         }
@@ -1120,6 +1127,12 @@ class MainActivity : ComponentActivity() {
 
     private fun proceedConnectChecked(config: ProxyConfig) {
         if (VpnState.state.value == Connection.CONNECTED) return
+        if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) {
+            val start: () -> Unit = { lifecycleScope.launch { net.gozar.app.plugins.PluginRuntime.launch(applicationContext, config) }; Unit }
+            val consent = VpnService.prepare(this)
+            if (consent != null) { afterPermission = start; vpnPermission.launch(consent) } else start()
+            return
+        }
         if (config.protocol == "ikev2") {
             val xrayWasUp = VpnState.state.value != Connection.DISCONNECTED
             IkeController.claim(config)
@@ -1248,6 +1261,8 @@ class MainActivity : ComponentActivity() {
         // Serialized through the coordinator: rapid connect/disconnect taps always
         // resolve with the latest intent winning and watchdogs reconciling hangs.
         VpnCommandCoordinator.onDisconnectRequested {
+            net.gozar.app.plugins.PluginRuntime.cancelPending()
+            if (net.gozar.app.plugins.PluginRuntime.running) { net.gozar.app.plugins.PluginRuntime.stop(this); return@onDisconnectRequested }
             // Ask the embedded engine to stop even when the app process was recreated
             // and no longer remembers the ovpn: id, otherwise its notification lingers.
             if (VpnState.activeId.value.orEmpty().startsWith("ovpn:") ||
@@ -1930,7 +1945,8 @@ private fun GozarApp(
                                     store.configs.value.find { c -> c.id == id }?.let(onSwitch)
                                 }
                             },
-                            onEdit = { editingConfig = it; showManual = true },
+                            onEdit = { if (net.gozar.app.plugins.PluginProfiles.isPlugin(it)) net.gozar.app.plugins.PluginActivity.open(updateCtx, it)
+                                else { editingConfig = it; showManual = true } },
                             onAddManually = { showManual = true },
                             onFreeProjects = { showProjects = true },
                             onWindscribe = { showWindscribe = true },
@@ -4362,6 +4378,7 @@ private fun AddServerPanel(
     // borderless slab instead of a bordered card full of bordered buttons.
     val c = ghajarColors
     Slab(modifier, spacing = 0.dp) {
+        net.gozar.app.plugins.PluginEntryButton()
         Row(
             Modifier
                 .fillMaxWidth()
@@ -6747,6 +6764,7 @@ private fun SettingsScreen(
             )
         )
 
+        net.gozar.app.plugins.PluginEntryButton()
         groups.forEach { (title, tiles) ->
             val arranged = arrangeTiles(tiles, look)
             // Keep the two requested shortcuts at the top even for saved tile orders.
@@ -13589,6 +13607,7 @@ private fun ConfigRow(
             // it - dropping the whole line was what made a compact row
             // indistinguishable from the one above it - but drops the endpoint,
             // which is the long half and one tap away in edit.
+            if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) net.gozar.app.plugins.PluginConfigEntry(config)
             Row(
                 Modifier.fillMaxWidth().padding(start = if (compact) 36.dp else 42.dp),
                 verticalAlignment = Alignment.CenterVertically,
@@ -13609,6 +13628,7 @@ private fun ConfigRow(
                 if (!compact) {
                     Text(
                         if (config.locked) AnnotatedString(t("locked_config"))
+                        else if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) AnnotatedString("کانفیگ افزونه")
                         else scriptRuns("${config.address}:${config.port}", LexendFont),
                         style = MaterialTheme.typography.labelMedium,
                         color = if (isActive) c.primary else c.textSecondary,
@@ -15105,6 +15125,7 @@ private fun ServerDetailsDialog(
     var dpi by remember { mutableStateOf<net.gozar.app.engine.DpiCheck.Result?>(null) }
     var dpiRunning by remember { mutableStateOf(false) }
     val engine = remember(config) { net.gozar.app.engine.EngineRouting.engineFor(config) }
+    val capabilities = net.gozar.app.engine.CapabilityRegistry.forConfig(config)
     val country = remember(config.name, result) {
         splitFlags(config.name).firstOrNull { it.first }?.second?.uppercase() ?: result?.exitCountry.orEmpty()
     }
@@ -15129,6 +15150,12 @@ private fun ServerDetailsDialog(
             Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
         ) {
+            if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) {
+                Text(net.gozar.app.plugins.PluginProfiles.requirement(config).orEmpty())
+                TextButton(onClick = { net.gozar.app.plugins.PluginActivity.open(context, config) }) { Text("مدیریت افزونه / نصب و اتصال") }
+            } else {
+                Text(capabilities.names().joinToString(" · ") { it.removePrefix("supports") }, style = MaterialTheme.typography.bodySmall)
+            }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (country.length == 2) CountryFlag(country, height = 16.dp)
                 Text(flagRuns(GhajarUiRules.brandedConfigName(config.name), FontFamily.Default),
@@ -15377,6 +15404,7 @@ internal fun countryOf(name: String): String? {
 }
 
 internal fun coreLabel(c: ProxyConfig): String = when (net.gozar.app.engine.EngineRouting.engineFor(c)) {
+    net.gozar.app.engine.EngineId.PLUGIN -> runCatching { net.gozar.app.plugins.PluginProfiles.read(c)?.id }.getOrNull() ?: "Plugin"
     net.gozar.app.engine.EngineId.XRAY -> "Xray"
     net.gozar.app.engine.EngineId.SINGBOX -> "sing-box"
     net.gozar.app.engine.EngineId.PSIPHON -> "Psiphon"

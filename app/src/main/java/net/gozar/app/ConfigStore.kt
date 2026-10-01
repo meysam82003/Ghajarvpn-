@@ -754,7 +754,8 @@ class ConfigStore private constructor(context: Context) {
     }
 
     private fun sigOf(c: ProxyConfig): String =
-        "${c.protocol}|${c.address}|${c.port}|${c.uuid}|${c.password}"
+        if (net.gozar.app.plugins.PluginProfiles.isPlugin(c)) net.gozar.app.plugins.PluginProfiles.identity(c)
+        else "${c.protocol}|${c.address}|${c.port}|${c.uuid}|${c.password}"
 
     /** A config's display name only; everything else about it stays. */
     fun renameConfig(id: String, newName: String) {
@@ -840,7 +841,7 @@ class ConfigStore private constructor(context: Context) {
         val seen = HashSet<String>()
         val dupes = LinkedHashSet<String>()
         _configs.value.forEach { c ->
-            val key = listOf(
+            val key = if (net.gozar.app.plugins.PluginProfiles.isPlugin(c)) net.gozar.app.plugins.PluginProfiles.identity(c) else listOf(
                 c.protocol, c.address.trim().lowercase(), c.port.toString(),
                 c.uuid, c.password, c.method, c.encryption, c.flow,
                 c.alterId.toString(), c.network, c.security, c.sni,
@@ -861,6 +862,7 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun settingsSnapshot(): JSONObject = JSONObject().apply {
+        put("plugins", net.gozar.app.plugins.PluginManager.get(appCtx).backup())
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
         put("zeptunTunnel", _zeptunTunnel.value)
@@ -915,6 +917,7 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun restoreSettings(o: JSONObject) {
+        o.optJSONArray("plugins")?.let { net.gozar.app.plugins.PluginManager.get(appCtx).restore(it) }
         if (o.has("fragment")) setFragment(o.getBoolean("fragment"))
         if (o.has("fragmentPackets")) setFragmentPackets(o.getString("fragmentPackets"))
         if (o.has("fragmentLength")) setFragmentLength(o.getString("fragmentLength"))

@@ -34,7 +34,12 @@ object ForeignImport {
         return !t.startsWith("{") && !t.startsWith("[") && Regex("(?m)^\\s*proxies\\s*:").containsMatchIn(t)
     }
 
-    fun clash(text: String, source: ConfigSource = ConfigSource.PERSONAL): Result {
+    fun clash(text: String, source: ConfigSource = ConfigSource.PERSONAL): Result = Result(
+        listOf(net.gozar.app.plugins.PluginProfiles.create("mihomo", "mihomo-yaml", text, source = source)),
+        listOf("کانفیگ کامل حفظ شد؛ برای اتصال افزونه Mihomo لازم است."))
+
+    /** Explicit node extraction remains available; never the default full-config import. */
+    fun clashNodes(text: String, source: ConfigSource = ConfigSource.PERSONAL): Result {
         val root = runCatching { MiniYaml.parse(text) }.getOrNull() as? Map<*, *>
             ?: return Result(emptyList(), listOf("the YAML could not be read"))
         val proxies = root["proxies"] as? List<*> ?: return Result(emptyList(), listOf("no proxies: list"))

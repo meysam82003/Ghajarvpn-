@@ -8,6 +8,7 @@ import java.net.URLDecoder
 object ConfigParser {
 
     fun parseBundle(text: String, source: ConfigSource = ConfigSource.PERSONAL): List<ProxyConfig> {
+        net.gozar.app.plugins.PluginProfiles.import(text, source)?.let { return listOf(it) }
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return emptyList()
         val lower = trimmed.lowercase()
@@ -205,6 +206,7 @@ object ConfigParser {
     }
 
     fun parse(uri: String, source: ConfigSource = ConfigSource.PERSONAL): ProxyConfig? {
+        net.gozar.app.plugins.PluginProfiles.import(uri, source)?.let { return it }
         val trimmed = uri.trim()
         val lower = trimmed.lowercase()
         return when {

@@ -24,3 +24,5 @@ include(":app")
 include(":strongswan")
 include(":openvpn")
 include(":browser")
+
+include(":plugin-api")

@@ -32,6 +32,8 @@ class GozarVpnService : VpnService() {
     /** sing-box proxy part (SingBoxConfig.spec) when this session runs on sing-box; null otherwise. */
     private var singboxSpec: String? = null
     private var oblivionOptions: OblivionOptions? = null
+    private val pluginHandoffs = mutableSetOf<String>()
+    private var delegatedPluginStop = false
     @Volatile private var enginesReady = false
     @Volatile private var pendingEnd = false
     private var endError: String? = null
@@ -101,6 +103,15 @@ class GozarVpnService : VpnService() {
                 return START_STICKY
             }
             ACTION_STOP -> {
+                val handoff = intent.getStringExtra("pluginHandoff")
+                if (handoff != null) pluginHandoffs.add(handoff)
+                else net.gozar.app.plugins.PluginRuntime.cancelPending()
+                if (handoff == null && pluginHandoffs.isEmpty() && !tearingDown && !pendingEnd && tunFd == null && net.gozar.app.plugins.PluginRuntime.running && !enginesReady && startJob?.isActive != true) {
+                    delegatedPluginStop = true
+                    net.gozar.app.plugins.PluginRuntime.stop(this)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 runCatching { blockFd?.close() }; blockFd = null
                 die(null)
                 return START_NOT_STICKY
@@ -651,6 +662,9 @@ class GozarVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        if (delegatedPluginStop) {
+            noticeJob?.cancel(); scope.cancel(); super.onDestroy(); return
+        }
         noticeJob?.cancel()
         tearingDown = true
         enginesReady = false
@@ -659,6 +673,7 @@ class GozarVpnService : VpnService() {
         stopAutoSelect()
         untrackUnderlyingNetwork()
         if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
+        val handoffs = pluginHandoffs.toList()
         // Report completion only after native teardown. A new UI retry cannot
         // start a tunnel that this older service instance is still stopping.
         scope.launch {
@@ -673,6 +688,7 @@ class GozarVpnService : VpnService() {
                 runCatching { blockFd?.close() }; blockFd = null
                 runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
             }
+            handoffs.forEach { pluginStopWaiters.remove(it)?.complete(Unit) }
             if (pendingEnd && endError != null) VpnBridge.sendError(applicationContext, endError!!)
             else VpnBridge.sendDisconnected(applicationContext)
             scope.cancel()
@@ -771,6 +787,16 @@ class GozarVpnService : VpnService() {
     }
 
     companion object {
+        private val pluginStopWaiters = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Unit>>()
+        /** Await native teardown directly; stale-broadcast filtering is not a teardown acknowledgement. */
+        suspend fun stopForPlugin(context: android.content.Context) {
+            val key = java.util.UUID.randomUUID().toString()
+            val done = kotlinx.coroutines.CompletableDeferred<Unit>(); pluginStopWaiters[key] = done
+            try {
+                context.startService(Intent(context, GozarVpnService::class.java).setAction(ACTION_STOP).putExtra("pluginHandoff", key))
+                kotlinx.coroutines.withTimeout(10000) { done.await() }
+            } finally { pluginStopWaiters.remove(key) }
+        }
         private const val TAG = "GozarVpnService"
         private const val CHANNEL_ID = "gozarnet_vpn"
         private const val NOTIF_ID = 1

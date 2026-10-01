@@ -18,6 +18,10 @@ class DecoderRegistry(
 
     fun decode(input: ConfigInput): ParsedConfig {
         require(input.bytes.size <= MAX_FILE_BYTES) { throw ConfigToolkitException.TooLarge(MAX_FILE_BYTES) }
+        net.gozar.app.plugins.PluginProfiles.import(input.bytes.toString(Charsets.UTF_8))?.let { config ->
+            return ParsedConfig(ConfigFormat.TEXT, listOf(NormalizedProfile.from(config, ConfigFormat.TEXT)),
+                warnings = listOf(net.gozar.app.plugins.PluginProfiles.requirement(config).orEmpty()))
+        }
         val detection = FormatDetector.detect(input)
         val decoder = decoderFor(detection) ?: throw ConfigToolkitException.UnsupportedFormat(detection.format)
         val parsed = decoder.decode(input)

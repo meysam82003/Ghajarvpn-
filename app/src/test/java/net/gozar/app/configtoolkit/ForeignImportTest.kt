@@ -75,7 +75,7 @@ class ForeignImportTest {
 
     @Test
     fun clashProxiesBecomeProfiles() {
-        val r = ForeignImport.clash(clash)
+        val r = ForeignImport.clashNodes(clash)
         val by = r.configs.associateBy { it.name }
         assertEquals(setOf("ss-plain", "vless-reality", "vmess-ws", "hy2", "wg"), by.keys)
         assertEquals("shadowsocks", by.getValue("ss-plain").protocol); assertEquals("p#ss", by.getValue("ss-plain").password)
@@ -88,7 +88,8 @@ class ForeignImportTest {
         assertEquals(1280, by.getValue("wg").mtu)
         assertTrue(r.warnings.single().contains("ssr"))
         // The common entry point takes the YAML as a subscription body.
-        assertEquals(5, ConfigParser.parseBundle(clash).size)
+        assertEquals(1, ConfigParser.parseBundle(clash).size)
+        assertEquals(clash, net.gozar.app.plugins.PluginProfiles.read(ConfigParser.parseBundle(clash).single())!!.payload)
     }
 
     @Test

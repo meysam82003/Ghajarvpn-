@@ -174,6 +174,7 @@ object EngineTester {
      */
     fun realDelay(cfg: ProxyConfig, chain: ProxyConfig? = null, boundMs: Long = 0L): Long =
         when (EngineRouting.engineFor(cfg)) {
+            EngineId.PLUGIN -> -1L // Never feed an opaque config into Xray or initialize plugins for list probes.
             EngineId.SINGBOX -> test(cfg, if (boundMs > 0) boundMs.toInt() else 10_000, probes = 2, trace = false).latencyMs?.toLong() ?: -1L
             else -> {
                 val json = ConfigBuilder.buildForTest(cfg, chain)

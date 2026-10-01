@@ -46,7 +46,7 @@ object ConfigNormalizer {
             val link = runCatching {
                 net.gozar.app.configtoolkit.V2RayLinkGenerator.generate(profile)
             }.getOrNull() ?: ""
-            val hash = if (link.isNotBlank()) sha256(link) else sha256("${profile.protocol}|${profile.server}|${profile.port}|${profile.uuid}|${profile.password}")
+            val hash = if (profile.protocol == "plugin") net.gozar.app.plugins.PluginProfiles.identity(profile.toProxyConfig()) else if (link.isNotBlank()) sha256(link) else sha256("${profile.protocol}|${profile.server}|${profile.port}|${profile.uuid}|${profile.password}")
             val outcome = when {
                 hash in knownHashes -> Outcome.DUPLICATE
                 else -> { knownHashes += hash; Outcome.VALID }
@@ -55,6 +55,7 @@ object ConfigNormalizer {
             items += Item(link, hash, profile.protocol.lowercase(Locale.US), outcome, profile = profile)
         }
 
+        if (profiles.isNotEmpty() && profiles.all { it.protocol == "plugin" }) return Result(items)
         ConfigExtractor.extract(fileName, bytes).links.forEach { link ->
             if (link in linksSeen) return@forEach
             items += normalizeLink(link, knownHashes)

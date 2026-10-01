@@ -137,6 +137,7 @@ android {
 }
 
 dependencies {
+    implementation(project(":plugin-api"))
     implementation(project(":strongswan"))
     implementation(project(":openvpn"))
     implementation(project(":browser"))

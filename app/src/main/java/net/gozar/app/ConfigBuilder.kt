@@ -355,6 +355,7 @@ object ConfigBuilder {
          * existing "missing credential -> loopback-only" fail-safe below. */
         shareListenAddress: String = "127.0.0.1"
     ): String {
+        require(!net.gozar.app.plugins.PluginProfiles.isPlugin(config)) { "Full plugin configs require their own engine" }
         val onion = onionRouting && config.protocol != "tor"
         val fake = fakeDns || onion
         val chosenDns = customDns.trim()
@@ -582,6 +583,7 @@ object ConfigBuilder {
     }
 
     fun buildForTest(config: ProxyConfig, chainBase: ProxyConfig? = null): String {
+        require(!net.gozar.app.plugins.PluginProfiles.isPlugin(config)) { "Plugin profiles cannot be probed through Xray" }
         val root = JSONObject()
         root.put("log", JSONObject().put("loglevel", "none"))
         val proxyOut = buildOutbound(config)

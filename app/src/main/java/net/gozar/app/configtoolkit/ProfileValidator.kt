@@ -27,6 +27,10 @@ object ProfileValidator {
     fun validate(profile: NormalizedProfile): ValidationResult {
         val issues = mutableListOf<ValidationIssue>()
         val protocol = profile.protocol.lowercase()
+        if (protocol == "plugin") {
+            val valid = runCatching { net.gozar.app.plugins.PluginProfiles.read(profile.toProxyConfig()) != null }.getOrDefault(false)
+            return ValidationResult(if (valid) emptyList() else listOf(ValidationIssue("plugin", "ساختار کانفیگ افزونه نامعتبر است.")))
+        }
         if (protocol in engineProtocols) {
             if (protocol !in linkCarried || profile.server.isNotBlank()) {
                 if (!validHost(profile.server)) issues += ValidationIssue("server", "آدرس سرور معتبر نیست.")
