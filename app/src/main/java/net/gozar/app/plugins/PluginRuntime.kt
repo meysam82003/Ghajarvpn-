@@ -20,6 +20,7 @@ object PluginRuntime {
         get() = lease.value
         set(value) { lease.value = value }
     @Volatile private var service: PluginVpnService? = null
+    suspend fun test(id: String): Long { require(isUsing(id)); return requireNotNull(service).test() }
     val running: Boolean get() = leasedId != null
     fun isUsing(id: String) = leasedId == id
     suspend fun <T> whileInactive(id: String, block: suspend () -> T): T = slots.withLock {

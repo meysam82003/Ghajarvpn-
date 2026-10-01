@@ -110,7 +110,7 @@ class PluginContractsTest {
     @Test fun jsonAndUnknownPluginAvailabilityDoNotDiscardConfig() {
         val raw = " {\"proxy-providers\":{\"a\":{\"type\":\"http\"}},\"rules\":[\"MATCH,DIRECT\"],\"tun\":{\"enable\":true}} \n"
         assertEquals(raw, PluginProfiles.read(PluginProfiles.import(raw)!!)!!.payload)
-        val sq = "shadowquic://secret@example.org:443#name"
+        val sq = "shadowquic://user:secret@example.org:443?sni=camouflage.example#name"
         assertEquals(sq, PluginProfiles.read(ConfigParser.parseBundle(sq).single())!!.payload)
         assertEquals(2, ConfigParser.parseBundle("$sq\n$sq").size)
     }

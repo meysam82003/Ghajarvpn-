@@ -13,6 +13,7 @@ import java.net.URLEncoder
 object ConfigShare {
 
     fun toLink(c: ProxyConfig): String = when (c.protocol) {
+        "plugin" -> net.gozar.app.plugins.PluginProfiles.export(c)
         "vless" -> userLink("vless", c.uuid, c, includeEncryption = true)
         "trojan" -> userLink("trojan", c.password, c, includeEncryption = false)
         "vmess" -> vmessLink(c)
@@ -118,7 +119,7 @@ object ConfigShare {
     }
 
     private fun simpleLink(scheme: String, userInfo: String, c: ProxyConfig, params: List<Pair<String, String>>): String {
-        val query = params.filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
+        val query = (params + EngineSettings.share(c)).filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
         val host = if (c.address.contains(':')) "[" + c.address + "]" else c.address
         val user = if (userInfo.isEmpty() || userInfo == ":") "" else "$userInfo@"
         return "$scheme://$user$host:${c.port}" + (if (query.isEmpty()) "" else "?$query") + "#" + enc(c.name)
@@ -137,7 +138,7 @@ object ConfigShare {
         }
         if (c.hyUpMbps > 0) params.add("upmbps" to c.hyUpMbps.toString())
         if (c.hyDownMbps > 0) params.add("downmbps" to c.hyDownMbps.toString())
-        val query = params.joinToString("&") { it.first + "=" + enc(it.second) }
+        val query = (params + EngineSettings.share(c)).joinToString("&") { it.first + "=" + enc(it.second) }
         val host = if (c.address.contains(':')) "[" + c.address + "]" else c.address
         return "hysteria2://" + enc(c.password) + "@" + host + ":" + c.port +
                 (if (query.isEmpty()) "" else "?" + query) + "#" + enc(c.name)

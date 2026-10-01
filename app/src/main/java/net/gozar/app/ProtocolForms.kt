@@ -67,7 +67,7 @@ object ProtocolForms {
             Field("jmax", "Jmax", Kind.NUMBER, advanced = true), Field("s1", "S1", Kind.NUMBER, advanced = true),
             Field("s2", "S2", Kind.NUMBER, advanced = true), Field("h1", "H1", advanced = true), Field("h2", "H2", advanced = true),
             Field("h3", "H3", advanced = true), Field("h4", "H4", advanced = true))),
-        Form("ssh", "SSH", "tunnel", listOf(
+        Form("ssh", "SSH", "proxy", listOf(
             NAME, server(), port("22"), USER.copy(required = true), PASS,
             Field("mode", "f_ssh_mode", Kind.SELECT, default = "direct", options = listOf("direct", "payload", "tls", "payload-tls", "ws", "wss", "http-proxy", "https-proxy")),
             Field("sni", "f_sni"), Field("payload", "f_payload", Kind.MULTILINE, default = "CONNECT [host_port] [protocol][crlf]Host: [host][crlf][crlf]"),
@@ -85,6 +85,11 @@ object ProtocolForms {
             Field("domain", "f_dns_domain", required = true), Field("key", "f_dns_key", Kind.PASSWORD, required = true),
             Field("resolvers", "f_dns_resolvers", Kind.MULTILINE, required = true, hint = "8.8.8.8:53"),
             Field("enc", "f_dns_enc", Kind.NUMBER, advanced = true, default = "1"))),
+        Form("shadowquic", "ShadowQUIC · نیازمند افزونه", "proxy", listOf(NAME, server(), port("443"),
+            USER.copy(required = true), PASS.copy(required = true), SNI.copy(required = true, advanced = false),
+            Field("udpMode", "حالت UDP", Kind.SELECT, options = listOf("datagram", "stream"), default = "datagram", advanced = true),
+            Field("congestion", "کنترل ازدحام", Kind.SELECT, options = listOf("bbr", "cubic", "new-reno"), default = "bbr", advanced = true),
+            Field("mtu", "MTU", Kind.NUMBER, default = "1280", advanced = true), Field("alpn", "ALPN", default = "h3", advanced = true))),
         Form("tuic", "TUIC v5", "proxy", listOf(NAME, server(), port("443"), Field("uuid", "UUID", required = true), PASS,
             Field("cc", "f_cc", Kind.SELECT, advanced = true, default = "bbr", options = listOf("bbr", "cubic", "new_reno")),
             Field("alpn", "ALPN", advanced = true, default = "h3"), SNI, INSECURE)),
@@ -116,9 +121,17 @@ object ProtocolForms {
             Field("quic", "f_naive_quic", Kind.SWITCH, advanced = true))),
         Form("mieru", "Mieru", "proxy", listOf(NAME, server(), Field("port", "f_port", Kind.NUMBER, required = true), USER.copy(required = true),
             PASS.copy(required = true), Field("transport", "f_transport", Kind.SELECT, default = "TCP", options = listOf("TCP", "UDP")))),
-        Form("tor", "Tor bridges", "tunnel", listOf(NAME,
+        Form("tor", "Tor bridges", "core", listOf(NAME,
             Field("bridges", "f_tor_bridges", Kind.MULTILINE, required = true, hint = "obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0")))
-    )
+    ).map { form -> form.copy(fields = form.fields + EngineSettings.supported(form.id).map { setting ->
+        Field(setting.key, setting.label, when (setting.type) {
+            EngineSettings.Type.BOOL -> Kind.SWITCH
+            EngineSettings.Type.SECONDS, EngineSettings.Type.COUNT -> Kind.NUMBER
+            EngineSettings.Type.SECRET, EngineSettings.Type.PROXY -> Kind.PASSWORD
+            EngineSettings.Type.PEM -> Kind.PEM
+            else -> Kind.TEXT
+        }, advanced = true, hint = setting.hint)
+    }) }
 
     /** Add-server sections, in display order. A form shows only those it has fields in. */
     val SECTIONS = listOf("basic", "auth", "transport", "tls", "network", "dns", "routing", "advanced")
@@ -160,6 +173,19 @@ object ProtocolForms {
             input.filterValues { it.isNotBlank() }
         f.fields.firstOrNull { it.required && v[it.key].isNullOrBlank() }?.let {
             return Result.failure(IllegalArgumentException(it.label))
+        }
+        if (f.fields.any { it.key == "port" } && v["port"]?.toIntOrNull() !in 1..65535)
+            return Result.failure(IllegalArgumentException("پورت باید بین ۱ تا ۶۵۵۳۵ باشد"))
+        if (id == "openconnect") {
+            val cert = v["cert"].orEmpty(); val key = v["key"].orEmpty()
+            if ((cert.isNotBlank() && !cert.contains("BEGIN CERTIFICATE")) || (key.isNotBlank() && !key.contains("PRIVATE KEY")))
+                return Result.failure(IllegalArgumentException("قالب گواهی یا کلید خصوصی معتبر نیست"))
+        }
+        if (id == "shadowquic") return runCatching {
+            val p = org.json.JSONObject().put("server", v["server"]).put("port", v["port"]?.toInt() ?: 443)
+                .put("username", v["user"]).put("password", v["pass"]).put("sni", v["sni"])
+                .put("udpMode", v["udpMode"]).put("congestion", v["congestion"]).put("mtu", v["mtu"]?.toInt() ?: 1280).put("alpn", v["alpn"])
+            net.gozar.app.plugins.PluginProfiles.create("shadowquic", "shadowquic-json", p.toString(), v["name"].orEmpty())
         }
         val name = v["name"].orEmpty().ifBlank { f.title }
         fun on(k: String) = v[k] == "true" || v[k] == "1"
@@ -227,7 +253,8 @@ object ProtocolForms {
                 ?: Result.failure(IllegalArgumentException("f_tor_bridges"))
             else -> return Result.failure(IllegalArgumentException(id))
         }
-        val c = ConfigParser.parse(link) ?: return Result.failure(IllegalArgumentException("f_invalid"))
+        val parsed = ConfigParser.parse(link) ?: return Result.failure(IllegalArgumentException("f_invalid"))
+        val c = runCatching { EngineSettings.merge(parsed, v) }.getOrElse { return Result.failure(it) }
         if (id == "openconnect" && (!v["cert"].isNullOrBlank() || !v["key"].isNullOrBlank())) {
             val x = c.extraJson()
             v["cert"]?.takeIf { it.contains("BEGIN CERTIFICATE") }?.let { x.put("clientCert", it.trim()) }

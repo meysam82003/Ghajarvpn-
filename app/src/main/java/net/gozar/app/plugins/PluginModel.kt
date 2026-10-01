@@ -15,7 +15,7 @@ data class CapabilityContract(
     val supportsPortHopping: Boolean = false, val supportsEch: Boolean = false,
     val supportsMasque: Boolean = false, val supportsReality: Boolean = false,
     val supportsXhttp: Boolean = false, val supportsFullConfig: Boolean = false,
-    val supportsSubscription: Boolean = false, val supportsAdvancedAuth: Boolean = false
+    val supportsSubscription: Boolean = false, val supportsAdvancedAuth: Boolean = false, val supportsConnectionTest: Boolean = false
 ) {
     fun names(): Set<String> = values().filterValues { it }.keys
     private fun values() = linkedMapOf("supportsTcp" to supportsTcp, "supportsUdp" to supportsUdp,
@@ -23,7 +23,7 @@ data class CapabilityContract(
         "supportsDns" to supportsDns, "supportsPortHopping" to supportsPortHopping, "supportsEch" to supportsEch,
         "supportsMasque" to supportsMasque, "supportsReality" to supportsReality, "supportsXhttp" to supportsXhttp,
         "supportsFullConfig" to supportsFullConfig, "supportsSubscription" to supportsSubscription,
-        "supportsAdvancedAuth" to supportsAdvancedAuth)
+        "supportsAdvancedAuth" to supportsAdvancedAuth, "supportsConnectionTest" to supportsConnectionTest)
     fun json() = JSONObject(values() as Map<*, *>)
     companion object {
         fun parse(o: JSONObject): CapabilityContract {
@@ -33,7 +33,7 @@ data class CapabilityContract(
             o.optBoolean("supportsIPv6"), o.optBoolean("supportsTun"), o.optBoolean("supportsSocks"), o.optBoolean("supportsDns"),
             o.optBoolean("supportsPortHopping"), o.optBoolean("supportsEch"), o.optBoolean("supportsMasque"),
             o.optBoolean("supportsReality"), o.optBoolean("supportsXhttp"), o.optBoolean("supportsFullConfig"),
-            o.optBoolean("supportsSubscription"), o.optBoolean("supportsAdvancedAuth"))
+            o.optBoolean("supportsSubscription"), o.optBoolean("supportsAdvancedAuth"), o.optBoolean("supportsConnectionTest"))
         }
     }
 }
@@ -76,8 +76,8 @@ object PluginCatalog {
     val candidates = listOf(
         PluginCandidate("shadowquic", "ShadowQUIC", ComponentKind.PROTOCOL, setOf("shadowquic-uri", "shadowquic-json"),
             "https://github.com/spongebob888/shadowquic", "5540e3a32ca73c85af125723e4262e02cf28ebcd", "0.4.0",
-            "audit-1.1.1 F006; Husi plugin gitlink; TLS/QUIC dependencies and Ghajar adapter remain release gates",
-            CapabilityContract(supportsTcp = true, supportsUdp = true, supportsSocks = true)),
+            "audit-1.1.1 F006; Husi plugin gitlink; adapter source in plugins/shadowquic; native ABI/device/signing qualification remains a release gate",
+            CapabilityContract(supportsTcp = true, supportsUdp = true, supportsSocks = true, supportsConnectionTest = true)),
         PluginCandidate("mihomo", "Mihomo full-config", ComponentKind.CORE, setOf("mihomo-yaml", "mihomo-json"),
             "https://github.com/appshubcc/Bettbox", "3189346611caeba73aa87feaf708e4fd65115d16", "vendored snapshot",
             "audit-1.1.1 F015; core/Clash.Meta; full config must remain opaque to host",

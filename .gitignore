@@ -55,3 +55,7 @@ app/src/main/jniLibs/*/libjuicity.so
 app/src/main/jniLibs/*/libndpiclassify.so
 app/src/main/jniLibs/*/libaether.so
 build/ndpi/
+
+# Signed on-demand APK payloads are prepared only in the deferred release phase.
+plugins/*/src/main/jniLibs/
+plugins/*/build/

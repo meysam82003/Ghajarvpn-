@@ -42,13 +42,22 @@ fun OblivionSettings(raw: String, onChange: (String)->Unit) {
     choice("هسته","core",listOf("psiphon" to "سایفون","aether" to "Aether","chain" to "Aether سپس سایفون"))
     if(options.core=="chain")Text("در این حالت ابتدا Aether و سپس تونل سایفون برقرار می‌شود؛ پروتکل‌های TCP استفاده می‌شوند.")
     if(options.aether)section("پروتکل و پیدا کردن سرور") {
-        choice("پروتکل","protocol",listOf("masque" to "MASQUE","wg" to "WireGuard","gool" to "gool — WireGuard تو در تو"))
+        choice("پروتکل","protocol",listOf("masque" to "MASQUE","wg" to "WireGuard","gool" to "gool — WireGuard تو در تو", "mim" to "mim — MASQUE تو در تو"))
         choice("انتقال MASQUE","transport",listOf("h3" to "HTTP/3","h2" to "HTTP/2"))
         choice("اسکن","scanMode",listOf("turbo","balanced","thorough","stealth","ironclad").map{it to it})
         choice("استتار","obfuscation",listOf("off","light","balanced","aggressive").map{it to it})
         choice("نسخه IP","ipVersion",listOf("v4" to "IPv4","v6" to "IPv6","both" to "هر دو"))
         field("سرور دستی (IP:port)","endpoint");field("سرور WireGuard","wgEndpoint");field("سرور HTTP/2","h2Endpoint")
         field("سرور بیرونی gool","wiwOuter");field("سرور درونی gool","wiwInner")
+        field("سرور بیرونی mim", "mimOuter"); field("سرور درونی mim", "mimInner")
+        field("فیلتر کشور خروجی؛ مثال DE,SE یا !IR", "exitLoc")
+        Text("این فیلتر کشور خروجی را پس از اتصال بررسی می‌کند؛ پیدا شدن خروجی دلخواه تضمین نمی‌شود.")
+    }
+    if (options.psiphon) section("تنظیمات سایفون") {
+        choice("ترجیح پروتکل", "psiphonProtocol", listOf("" to "خودکار") + PsiphonConfig.protocolChoices.map { it to it })
+        field("مهلت برقراری تونل (ثانیه؛ خالی = پیش‌فرض)", "psiphonTimeout")
+        toggle("گزارش عیب‌یابی", "psiphonDiagnostics")
+        Text("Conduit / INPROXY در دسترس نیست: کلید معتبر اختصاصی Ghajar هنوز فراهم نشده است.")
     }
     section("شبکه، DNS و اتصال محلی") {
         choice("مسیر اتصال","routingMode",listOf("vpn" to "VPN دستگاه","proxy" to "فقط پروکسی محلی"))

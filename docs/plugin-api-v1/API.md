@@ -101,3 +101,11 @@ Explicit Rollback re-verifies and health-checks previous before swapping slots. 
 ## Release/device gates (not executed in this phase)
 
 Android 8/12/14/15/16 installation consent, callback delivery, notification denial, process death at every transition, native ABI/16-KiB-page compatibility, service/binder crash, rapid connect/stop/switch, VPN revoke, host upgrade, rollback with previous package missing, dependency loss, IPv4/IPv6 and UDP DNS routing, per-app rules and kill switch. Test with real signed Ghajar adapters, not arbitrary upstream APKs. Do one authorized full build/CI/regression cycle only after all upgrade phases are ready.
+
+## Phase 4 source adapters (still unpublished)
+
+`plugins/shadowquic` and `plugins/mihomo` are separate APK modules, included only with `-PincludeOnDemandPlugins=true`; neither is an app dependency. Versioned generated service classes keep the existing strict package/service trust rule intact. Deferred preparation scripts pin upstream source and preserve lockfiles. Pre-build checks reject missing ARM binaries and an absent real host certificate. No production publisher, download URL, hash or artifact size is invented.
+
+Optional operation `TEST=7` is advertised only by `supportsConnectionTest`; ShadowQUIC implements a bounded HTTPS 204 probe through its running local SOCKS with normal certificate/hostname checks. Other adapters do not advertise that capability. API 1's existing operations remain unchanged. A ready local engine is not proof that the remote server or Internet is reachable.
+
+Mihomo's original full config stays authoritative. API 1's representable rootless policies are validated before activation; unrepresentable policies fail rather than being discarded. TUN FD handoff uses the plugin-private Unix control socket; only the host creates the VPN interface, and the TUN-mode branch never starts zeptun. See `../phase4-1.1.1/PHASE4_FA.md` for qualification limits.

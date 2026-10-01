@@ -193,7 +193,7 @@ object ForeignImport {
             val type = o.optString("type")
             if (type in skipTypes || o.optString("tag") in carriers) continue
             val name = o.optString("tag").ifBlank { type }
-            val c = runCatching { singBoxOutbound(o, byTag, source) }.getOrNull()
+            val c = runCatching { singBoxOutbound(o, byTag, source)?.let { EngineSettings.fromUpstream(it, o) } }.getOrNull()
             if (c != null) out += c else warn += "$name: type \"$type\" skipped (not supported or incomplete)"
         }
         return Result(out, warn)

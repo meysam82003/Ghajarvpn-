@@ -53,7 +53,7 @@ object FormatDetector {
             return result(hinted, if (hinted == ConfigFormat.JSON) 80 else 75, "json")
         }
 
-        val standardLink = Regex("(?im)^\\s*(vless|vmess|trojan|ss|socks5?|hysteria2?|hy2|tuic|anytls|ssh|openconnect|anyconnect|" +
+        val standardLink = Regex("(?im)^\\s*(vless|vmess|trojan|ss|socks5?|hysteria2?|hy2|tuic|anytls|shadowquic|sq|ssh|openconnect|anyconnect|" +
             "dnstt|vaydns|noizdns|slipstream|masterdns|stormdns|cottendns|mierus?|brook|juicity|naive\\+https|naive\\+quic|naive|" +
             "sstp|softether|amneziawg|awg|wireguard|wg|ikev2)://").containsMatchIn(text)
         if (standardLink) return result(ConfigFormat.TEXT, 90, "standard-link")

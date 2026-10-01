@@ -30,10 +30,10 @@ object CapabilityRegistry {
     private val protocolOverrides = mapOf(
         "openconnect" to socket.copy(supportsUdp = true, supportsDns = true, supportsAdvancedAuth = true),
         "masque" to socket.copy(supportsUdp = true, supportsMasque = true),
-        "anytls" to socket,
+        "anytls" to socket.copy(supportsEch = true),
         "ssh" to socket,
-        "tuic" to socket.copy(supportsUdp = true),
-        "hysteria2" to socket.copy(supportsUdp = true),
+        "tuic" to socket.copy(supportsUdp = true, supportsEch = true),
+        "hysteria2" to socket.copy(supportsUdp = true, supportsPortHopping = true, supportsEch = true),
         "hysteria" to socket.copy(supportsUdp = true)
     )
     fun forConfig(config: ProxyConfig): CapabilityContract {
@@ -43,5 +43,6 @@ object CapabilityRegistry {
                 supportsXhttp = c.supportsXhttp && config.protocol in setOf("vless", "vmess", "trojan"))
         }
     }
+    fun settingsFor(protocol: String) = net.gozar.app.EngineSettings.supported(protocol)
     fun candidate(id: String) = PluginCatalog.candidate(id)?.supported ?: CapabilityContract()
 }

@@ -32,7 +32,7 @@ object SingBoxConfig {
     /** Protocols carried as sing-box endpoints rather than outbounds. */
     private val ENDPOINTS = setOf("openconnect", "masque", "tailscale")
 
-    fun handles(config: ProxyConfig): Boolean = config.protocol in PROTOCOLS
+    fun handles(config: ProxyConfig): Boolean = config.protocol in PROTOCOLS || net.gozar.app.EngineSettings.usesSingBox(config)
 
     /**
      * The proxy part only, as passed to the service in an intent extra:
@@ -104,6 +104,15 @@ object SingBoxConfig {
                     .putIf("udp_relay_mode", c.mode.takeIf { it in setOf("native", "quic") })
                     .put("tls", tls(c, forceOn = true))
             }
+            "hysteria2" -> {
+                o.put("type", "hysteria2").server(c).put("password", c.password).put("tls", tls(c, forceOn = true))
+                if (c.hyUpMbps > 0) o.put("up_mbps", c.hyUpMbps)
+                if (c.hyDownMbps > 0) o.put("down_mbps", c.hyDownMbps)
+                if (c.hyObfsPassword.isNotBlank()) {
+                    require(c.hyObfs.isBlank() || c.hyObfs == "salamander") { "Unsupported Hysteria2 obfuscation" }
+                    o.put("obfs", JSONObject().put("type", "salamander").put("password", c.hyObfsPassword))
+                }
+            }
             "hysteria" -> {
                 o.put("type", "hysteria").server(c)
                     .putIf("auth_str", c.password)
@@ -158,7 +167,8 @@ object SingBoxConfig {
                 }
             }
             "openconnect" -> {
-                val server = if (c.port == 443 || c.port <= 0) c.address else "${c.address}:${c.port}"
+                val host = if (c.address.contains(':')) "[${c.address}]" else c.address
+                val server = if (c.port == 443 || c.port <= 0) host else "$host:${c.port}"
                 o.put("type", "openconnect")
                     .put("server", server)
                     .put("flavor", c.mode.takeIf { it in setOf("anyconnect", "gp", "fortinet", "f5", "pulse", "nc") } ?: "anyconnect")
@@ -242,6 +252,7 @@ object SingBoxConfig {
             }
             else -> throw IllegalArgumentException("not a sing-box protocol: ${c.protocol}")
         }
+        if (c.protocol != "sstp") net.gozar.app.EngineSettings.apply(c, o)
         return o
     }
 
@@ -276,7 +287,7 @@ object SingBoxConfig {
         }
         "sstp" -> JSONObject().put("kind", "sstp").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
             .put("user", c.uuid).put("password", c.password).put("sni", c.sni).put("auth", c.method.ifBlank { "auto" })
-            .put("allowInsecure", c.allowInsecure).put("pin", c.pinnedCertSha256).put("mtu", c.mtu.takeIf { it in 576..1500 } ?: 1400)
+            .put("allowInsecure", c.allowInsecure).put("pin", c.pinnedCertSha256).put("mtu", c.mtu.takeIf { it in 576..1500 } ?: 1400).also { net.gozar.app.EngineSettings.apply(c, it) }
         "juicity" -> JSONObject().put("kind", "juicity").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
             .put("uuid", c.uuid).put("password", c.password).put("sni", c.sni).put("allowInsecure", c.allowInsecure)
             .put("cc", c.method).put("pin", c.pinnedCertSha256)

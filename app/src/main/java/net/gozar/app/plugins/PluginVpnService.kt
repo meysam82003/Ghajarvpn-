@@ -38,6 +38,7 @@ class PluginVpnService : VpnService() {
                 require(PluginRuntime.isUsing(profile.id)) { "Plugin lease missing" }
                 val release = PluginManager.get(this@PluginVpnService).active(profile.id) ?: error("Plugin missing")
                 val client = PluginRpc(this@PluginVpnService, release); rpc = client
+                GhajarLog.i("Plugin", "Opening verified ${release.id} ${release.version}")
                 client.open(); client.health()
                 val plan = client.configCall(PluginWire.PREPARE, profile)
                 val mode = plan.getString("mode")
@@ -77,6 +78,7 @@ class PluginVpnService : VpnService() {
                         dnsMode = store.zeptunDns.value, dnsUpstream = store.zeptunDnsUpstream.value, profile = store.zeptunProfile.value))
                     require(error == null) { "TUN engine failed" }
                 }
+                GhajarLog.i("Plugin", "${release.id}: local engine ready ($mode)")
                 ensureActive(); VpnState.setConnected(); VpnCommandCoordinator.onTunnelConfirmed()
                 val cm = requireNotNull(getSystemService(ConnectivityManager::class.java))
                 val callback = object : ConnectivityManager.NetworkCallback() {
@@ -119,6 +121,10 @@ class PluginVpnService : VpnService() {
             }
         }
     }
+    suspend fun test(): Long {
+        require(!stopping.get() && VpnState.state.value == Connection.CONNECTED)
+        return requireNotNull(rpc).call(PluginWire.TEST).getLong("latencyMs", -1)
+    }
     fun requestStop() {
         if (stopping.compareAndSet(false, true)) {
             VpnState.setDisconnecting()
@@ -129,6 +135,7 @@ class PluginVpnService : VpnService() {
     }
     private suspend fun cleanup(error: String?) {
         if (!cleaned.compareAndSet(false, true)) return
+        GhajarLog.i("Plugin", if (error == null) "Engine stopped" else "Engine stopped after failure")
         stopping.set(true)
         val keepBlocked = error != null && ConfigStore.get(applicationContext).killSwitch.value && tun != null
         val blocked = if (keepBlocked) runCatching { blackhole?.invoke() }.getOrNull() else null

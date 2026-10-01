@@ -61,6 +61,7 @@ fun PluginEntryButton() {
 
 @Composable
 private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (String) -> Unit) {
+    val scope = rememberCoroutineScope()
     val manager = remember { PluginManager.get(activity) }
     val revision by manager.revision.collectAsState()
     val store = remember { ConfigStore.get(activity) }
@@ -98,7 +99,10 @@ private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (
             val busy = view.state in setOf(PluginState.DOWNLOADING, PluginState.VERIFYING, PluginState.INSTALLING)
             Card(Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    var helpOpen by remember(candidate.id) { mutableStateOf(false) }
                     Text(candidate.name, style = MaterialTheme.typography.titleLarge)
+                    TextButton(onClick = { helpOpen = !helpOpen }) { Text("راهنمای استفاده") }
+                    if (helpOpen) Text(PluginHelp.text[candidate.id] ?: "هنوز برای استفادهٔ عمومی آماده نیست.")
                     Text(stateLabel(view.state) + (view.activeVersion?.let { " · v$it" } ?: ""))
                     view.release?.let { Text("${it.size} بایت · API ${it.apiVersion} · ${it.abis.joinToString()}") }
                         ?: Text("کاندیدا؛ هنوز APK سازگار و امضاشدهٔ تأییدشده منتشر نشده است. اندازه پس از بسته‌بندی مشخص می‌شود.")
@@ -113,6 +117,12 @@ private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (
                         OutlinedButton(onClick = { editor = candidate.id; payload = ""; editingId = null }) { Text(if (active != null) "افزودن سرور" else "ذخیرهٔ کانفیگ") }
                     }
                     if (view.state == PluginState.INSTALLING) TextButton(onClick = { manager.continueInstall(activity, candidate.id) }) { Text("ادامهٔ تأیید نصب در Android") }
+                    if (active?.capabilities?.supportsConnectionTest == true) {
+                        TextButton(enabled = PluginRuntime.isUsing(candidate.id), onClick = { scope.launch {
+                            notice = runCatching { "زمان اتصال از داخل تونل: ${PluginRuntime.test(candidate.id)} ms" }
+                                .getOrElse { "آزمون عبور اینترنت موفق نبود؛ تنظیمات سرور و شبکه را بررسی کنید." }
+                        } }) { Text("آزمون اتصال فعلی") }
+                    }
                     if (active != null) {
                         Row {
                             TextButton(enabled = !busy && !PluginRuntime.isUsing(candidate.id), onClick = { manager.repair(candidate.id) }) { Text("ترمیم") }
@@ -152,7 +162,7 @@ private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (
                 }
             }
                 .onSuccess { editor = null; notice = "کانفیگ ذخیره شد." }
-                .onFailure { notice = "کانفیگ خالی یا بیش از حد مجاز است." }
+                .onFailure { notice = "کانفیگ نامعتبر است؛ قالب انتخابی و فیلدهای اجباری را بررسی کنید." }
         }) { Text("ذخیره") } }, dismissButton = { TextButton(onClick = { editor = null }) { Text("بازگشت") } })
     }
 }

@@ -349,7 +349,7 @@ object ConfigParser {
             method = (p["congestion_control"] ?: p["congestion"] ?: "").lowercase(),
             mode = (p["udp_relay_mode"] ?: "").lowercase(),
             allowInsecure = insecure(p), source = source
-        ).takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+        ).let { EngineSettings.merge(it, p) }.takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
 
     /** hysteria://host:port?auth=&peer=&insecure=&upmbps=&downmbps=&alpn=&obfs=xplus&obfsParam=#name (Hysteria v1). */
@@ -377,7 +377,7 @@ object ConfigParser {
             password = pctDecode(password), sni = p["sni"].orEmpty().ifEmpty { p["peer"].orEmpty() },
             alpn = p["alpn"].orEmpty(), security = "tls",
             fingerprint = p["fp"].orEmpty(), allowInsecure = insecure(p), source = source
-        ).takeIf { it.password.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+        ).let { EngineSettings.merge(it, p) }.takeIf { it.password.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
 
     /**
@@ -543,7 +543,7 @@ object ConfigParser {
             uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user), password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
             sni = p["sni"].orEmpty(), method = auth, allowInsecure = insecure(p), pinnedCertSha256 = p["pin"].orEmpty(),
             security = "tls", mtu = p["mtu"]?.toIntOrNull()?.takeIf { it in 576..1500 } ?: 0,
-            source = source).takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+            source = source).let { EngineSettings.merge(it, p) }.takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
 
     /**
@@ -622,7 +622,7 @@ object ConfigParser {
                 if (p["nodtls"] == "1") put("noUdp", true)
                 if (p["noipv6"] == "1") put("ipv6Off", true)
             }.let { if (it.length() == 0) "" else it.toString() }
-        ).takeIf { it.address.isNotBlank() }
+        ).let { EngineSettings.merge(it, p) }.takeIf { it.address.isNotBlank() }
     } catch (e: Exception) { null }
 
     /**
@@ -694,7 +694,18 @@ object ConfigParser {
 
     private fun parseHysteria2(body: String, source: ConfigSource): ProxyConfig? = try {
         val (name, userHostPort, p) = splitUserUri(body, "Hysteria2")
-        val (password, address, port) = splitUserHostPort(userHostPort)
+        val options = p.toMutableMap()
+        val rawPort = userHostPort.substringAfterLast(':')
+        var authority = userHostPort
+        if (rawPort.contains(',') || rawPort.contains('-')) {
+            val ports = EngineSettings.ports(rawPort)
+            options["server_ports"] = rawPort
+            authority = userHostPort.substringBeforeLast(':') + ":" + ports.first().substringBefore(':')
+        }
+        p["mport"]?.let { options["server_ports"] = it }
+        p["hopInterval"]?.let { options["hop_interval"] = it.removeSuffix("s") }
+        options["hop_interval"]?.let { options["hop_interval"] = it.removeSuffix("s") }
+        val (password, address, port) = splitUserHostPort(authority)
         ProxyConfig(
             name = name, protocol = "hysteria2", address = address, port = port,
             password = pctDecode(password),
@@ -708,7 +719,7 @@ object ConfigParser {
             hyDownMbps = (p["downmbps"] ?: p["down"] ?: "").toIntOrNull() ?: 0,
             allowInsecure = (p["insecure"] ?: p["allowInsecure"] ?: "") in setOf("1", "true"),
             source = source
-        )
+        ).let { EngineSettings.merge(it, options) }
     } catch (e: Exception) { null }
 
     private fun parseVmess(body: String, source: ConfigSource): ProxyConfig? = try {

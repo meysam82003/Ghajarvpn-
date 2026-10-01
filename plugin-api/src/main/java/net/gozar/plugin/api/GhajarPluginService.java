@@ -28,6 +28,7 @@ public abstract class GhajarPluginService extends Service {
     protected abstract Bundle startEngine(String originalConfig, String format, String settingsJson, ParcelFileDescriptor tun) throws Exception;
     protected abstract void stopEngine();
     protected abstract Bundle engineStatus();
+    protected Bundle testEngine() throws Exception { throw new UnsupportedOperationException(); }
     protected void networkChanged() throws Exception { }
     private HandlerThread thread;
     private Messenger messenger;
@@ -81,6 +82,7 @@ public abstract class GhajarPluginService extends Service {
                     catch (Exception e) { if (tun != null) tun.close(); stopAndUnlink(); throw e; }
                     break;
                 case PluginWire.STOP: stopAndUnlink(); break;
+                case PluginWire.TEST: result = testEngine(); break;
                 case PluginWire.STATUS: result = engineStatus(); break;
                 case PluginWire.NETWORK_CHANGED: networkChanged(); break;
                 default: throw new IllegalArgumentException();

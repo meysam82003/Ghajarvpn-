@@ -22,6 +22,18 @@ class ConfigStore private constructor(context: Context) {
     private val appCtx: Context = context.applicationContext
 
     private val prefs = context.getSharedPreferences("gozarnet", Context.MODE_PRIVATE)
+    private val _freeSourcePolicy = MutableStateFlow(prefs.getString("free_source_policy_v1", "{}") ?: "{}")
+    val freeSourcePolicy: StateFlow<String> = _freeSourcePolicy.asStateFlow()
+    fun setFreeSource(id: String, state: String) {
+        val raw = runCatching { JSONObject(_freeSourcePolicy.value) }.getOrElse { JSONObject() }.put(id, state)
+        restoreFreeSourcePolicy(raw)
+    }
+    private fun restoreFreeSourcePolicy(raw: JSONObject) {
+        val json = net.gozar.app.freecfg.FreeSourcePolicy.normalize(raw).toString()
+        prefs.edit().putString("free_source_policy_v1", json).apply(); _freeSourcePolicy.value = json
+    }
+    fun activeFreeSources() = net.gozar.app.freecfg.FreeSourcePolicy.active(runCatching { JSONObject(_freeSourcePolicy.value) }.getOrElse { JSONObject() })
+
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -862,6 +874,7 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun settingsSnapshot(): JSONObject = JSONObject().apply {
+        put("freeSourcePolicyV1", JSONObject(_freeSourcePolicy.value))
         put("plugins", net.gozar.app.plugins.PluginManager.get(appCtx).backup())
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
@@ -917,6 +930,7 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun restoreSettings(o: JSONObject) {
+        o.optJSONObject("freeSourcePolicyV1")?.let { restoreFreeSourcePolicy(it) }
         o.optJSONArray("plugins")?.let { net.gozar.app.plugins.PluginManager.get(appCtx).restore(it) }
         if (o.has("fragment")) setFragment(o.getBoolean("fragment"))
         if (o.has("fragmentPackets")) setFragmentPackets(o.getString("fragmentPackets"))

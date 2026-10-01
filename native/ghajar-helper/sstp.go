@@ -10,6 +10,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"crypto/des"
 	"crypto/hmac"
 	"crypto/rand"
@@ -131,6 +132,9 @@ func (s *sstpConn) sendPPP(proto uint16, payload []byte) error {
 // A non-empty pin (hex SHA-256 of the server's leaf certificate) replaces
 // CA verification, for servers with a self-signed certificate.
 func dialSSTP(server, sni, pin string, insecure bool, timeout time.Duration) (*sstpConn, error) {
+	return dialSSTPWithProxy(server, sni, pin, insecure, timeout, "", tls.VersionTLS12)
+}
+func dialSSTPWithProxy(server, sni, pin string, insecure bool, timeout time.Duration, proxyURL string, minimumTLS uint16) (*sstpConn, error) {
 	host, _, err := net.SplitHostPort(server)
 	if err != nil {
 		return nil, err
@@ -138,21 +142,34 @@ func dialSSTP(server, sni, pin string, insecure bool, timeout time.Duration) (*s
 	if sni == "" {
 		sni = host
 	}
-	d := &net.Dialer{Timeout: timeout}
-	cfg := &tls.Config{ServerName: sni, InsecureSkipVerify: insecure}
+	cfg := &tls.Config{ServerName: sni, InsecureSkipVerify: insecure, MinVersion: minimumTLS}
 	if pin = strings.ToLower(strings.ReplaceAll(pin, ":", "")); pin != "" {
 		cfg.InsecureSkipVerify = true
 		cfg.VerifyPeerCertificate = func(raw [][]byte, _ [][]*x509.Certificate) error {
 			if len(raw) > 0 {
 				if sum := sha256.Sum256(raw[0]); hex.EncodeToString(sum[:]) == pin {
+					cert, err := x509.ParseCertificate(raw[0])
+					if err != nil {
+						return err
+					}
+					if !insecure {
+						return cert.VerifyHostname(sni)
+					}
 					return nil
 				}
 			}
 			return errors.New("server certificate does not match the pinned SHA-256")
 		}
 	}
-	tc, err := tls.DialWithDialer(d, "tcp", server, cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	raw, err := dialSSTPTransport(ctx, server, proxyURL, timeout)
 	if err != nil {
+		return nil, err
+	}
+	tc := tls.Client(raw, cfg)
+	if err := tc.HandshakeContext(ctx); err != nil {
+		raw.Close()
 		return nil, fmt.Errorf("tls: %w", err)
 	}
 	certs := tc.ConnectionState().PeerCertificates
@@ -335,17 +352,22 @@ func callConnected(hashProto byte, nonce, certDER, hlak []byte) []byte {
 // ---- SSTP call ----
 
 type sstpOptions struct {
-	server, sni, pin, user, pass, auth string
-	insecure                           bool
-	mtu                                int
-	timeout                            time.Duration
-	log                                func(string, ...any)
+	server, sni, pin, user, pass, auth, proxyURL string
+	minimumTLS                                   uint16
+	insecure                                     bool
+	mtu                                          int
+	timeout                                      time.Duration
+	log                                          func(string, ...any)
 }
 
 // sstpCall opens the SSTP call and returns the PPP frame channel; control
 // messages after the call is accepted are answered here.
 func sstpCall(o sstpOptions) (*sstpConn, byte, []byte, chan []byte, chan error, error) {
-	s, err := dialSSTP(o.server, o.sni, o.pin, o.insecure, o.timeout)
+	minimum := o.minimumTLS
+	if minimum == 0 {
+		minimum = tls.VersionTLS12
+	}
+	s, err := dialSSTPWithProxy(o.server, o.sni, o.pin, o.insecure, o.timeout, o.proxyURL, minimum)
 	if err != nil {
 		return nil, 0, nil, nil, nil, err
 	}
@@ -434,9 +456,25 @@ func runSSTP(args []string) error {
 	insecure := fs.Bool("insecure", false, "skip certificate verification")
 	pin := fs.String("pin", "", "hex SHA-256 of the server certificate (replaces CA checks)")
 	mtu := fs.Int("mtu", 1400, "link MTU")
+	tlsMin := fs.String("tls-min", "1.2", "minimum TLS: 1.2 | 1.3")
 	dns := fs.String("dns", "", "DNS servers when the server gives none (comma list)")
 	verbose := fs.Bool("v", false, "log negotiation")
 	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	minimumTLS := uint16(tls.VersionTLS12)
+	if *tlsMin == "1.3" {
+		minimumTLS = tls.VersionTLS13
+	} else if *tlsMin != "1.2" {
+		return errors.New("invalid minimum TLS version")
+	}
+	for _, addr := range strings.Split(*dns, ",") {
+		if addr != "" && net.ParseIP(strings.TrimSpace(addr)) == nil {
+			return errors.New("DNS must be an IP address")
+		}
+	}
+	proxyURL, err := secretFromEnv("SSTP_PROXY")
+	if err != nil {
 		return err
 	}
 	pass, err := secretFromEnv("SSTP_PASSWORD")
@@ -455,7 +493,7 @@ func runSSTP(args []string) error {
 		}
 	}
 	o := sstpOptions{server: *server, sni: *sni, pin: *pin, user: *user, pass: pass, auth: *auth,
-		insecure: *insecure, mtu: *mtu, timeout: 25 * time.Second, log: logf}
+		insecure: *insecure, mtu: *mtu, proxyURL: proxyURL, minimumTLS: minimumTLS, timeout: 25 * time.Second, log: logf}
 	s, hashProto, nonce, frames, errc, err := sstpCall(o)
 	if err != nil {
 		return err

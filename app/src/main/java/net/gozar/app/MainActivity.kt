@@ -4103,6 +4103,9 @@ private fun ManualConfigScreen(
     var hyUp by remember { mutableStateOf(if ((existing?.hyUpMbps ?: 0) > 0) "${existing?.hyUpMbps}" else "") }
     var hyDown by remember { mutableStateOf(if ((existing?.hyDownMbps ?: 0) > 0) "${existing?.hyDownMbps}" else "") }
     var error by remember { mutableStateOf("") }
+    val engineValues = remember(existing?.id) { mutableStateMapOf<String, String>().apply {
+        existing?.let { putAll(runCatching { EngineSettings.read(it) }.getOrDefault(emptyMap())) }
+    } }
 
     // The form used to be twenty identical outlined fields in one flat column:
     // the name of the server, the cryptography and the transport all looked
@@ -4277,6 +4280,7 @@ private fun ManualConfigScreen(
             }
         }
 
+        EngineSettingsEditor(protocol, engineValues)
         if (error.isNotEmpty()) SkinError(error)
 
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
@@ -4292,7 +4296,7 @@ private fun ManualConfigScreen(
                         protocol == "ikev2" && uuid.isBlank() -> error = t("err_uuid")
                         (protocol == "trojan" || protocol == "shadowsocks" || protocol == "hysteria2" ||
                                 protocol == "ikev2") && password.isBlank() -> error = t("err_password")
-                        else -> onSave(
+                        else -> runCatching { EngineSettings.merge(
                             (existing ?: ProxyConfig(name = "", protocol = "", address = "", port = 0)).copy(
                                 name = name.ifBlank { "$protocol $address" },
                                 protocol = protocol,
@@ -4332,8 +4336,8 @@ private fun ManualConfigScreen(
                                 hyObfsPassword = hyObfsPassword.trim(),
                                 hyUpMbps = hyUp.toIntOrNull() ?: 0,
                                 hyDownMbps = hyDown.toIntOrNull() ?: 0
-                            )
-                        )
+                            ), engineValues
+                        ) }.onSuccess(onSave).onFailure { error = it.message.orEmpty() }
                     }
                 },
                 Modifier.weight(1f),
@@ -4533,16 +4537,17 @@ private fun AddServerPanel(
                     exit = fadeOut(tween(160)) + shrinkVertically(tween(200, easing = FastOutSlowInEasing))
                 ) {
                     Column(verticalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
-                        Rail(t("add_group_tunnels"))
+                        Rail("مدیریت افزونه‌ها")
+                        net.gozar.app.plugins.PluginEntryButton()
+                        Rail("Protocol · اتصال SSH")
                         SlabRow(title = "SSH", subtitle = t("add_ssh_sub"), icon = Icons.Filled.Terminal,
                             accent = c.highlight, chevron = true, enabled = !busy, onClick = onSsh)
                         SlabDivider()
-                        SlabRow(title = t("dnslab_title"), subtitle = t("add_dnslab_sub"), icon = Icons.Filled.Dns,
+                        SlabRow(title = t("dnslab_title"), subtitle = "DNS · " + t("add_dnslab_sub"), icon = Icons.Filled.Dns,
                             accent = c.info, chevron = true, enabled = !busy, onClick = onDnsLab)
-                        // One entry per core: each opens its own form with the
-                        // fields that protocol needs and an Advanced section.
-                        listOf("vpn" to t("add_group_vpn_forms"), "tunnel" to t("add_group_tunnel_forms"),
-                            "dns" to t("add_group_dns_forms"), "proxy" to t("add_group_proxy_forms")).forEach { (group, label) ->
+                        // Catalog groups describe the concept; plugin delivery is managed separately.
+                        listOf("vpn" to "Protocol · پروتکل‌های VPN", "core" to "Core · هسته",
+                            "dns" to "Transport · تونل روی DNS", "proxy" to "Protocol · پروکسی").forEach { (group, label) ->
                             val forms = ProtocolForms.forms.filter { it.group == group && it.id != "openconnect" }
                             if (forms.isNotEmpty()) {
                                 Rail(label)
@@ -4602,6 +4607,7 @@ private fun FreeProjectsScreen(
         // before it does it - the window it reads, the cap, the latency it
         // accepts - because every one of those is a real rule in FreeConfigs
         // and not knowing them made "I got 6 configs" look like a failure.
+        net.gozar.app.freecfg.FreeSourceControls(store)
         val freeBusy by FreeConfigs.busy.collectAsState()
         val freeProgress by FreeConfigs.progress.collectAsState()
         val freeIncomplete by FreeConfigs.incomplete.collectAsState()
@@ -15257,7 +15263,11 @@ private fun ProtocolFormScreen(formId: String, onSave: (ProxyConfig) -> Unit, on
     var pemTarget by remember { mutableStateOf("") }
     val pemPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null && pemTarget.isNotEmpty()) {
-            runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) } }
+            runCatching { context.contentResolver.openInputStream(uri)?.use { input ->
+                val buffer = ByteArray(65537); var count = 0
+                while (count < buffer.size) { val n = input.read(buffer, count, buffer.size - count); if (n < 0) break; count += n }
+                require(count <= 65536) { "PEM size limit" }; String(buffer, 0, count, Charsets.UTF_8)
+            } }
                 .getOrNull()?.takeIf { it.length < 64 * 1024 }?.let { values[pemTarget] = it.trim() }
         }
     }
@@ -15313,6 +15323,11 @@ private fun ProtocolFormScreen(formId: String, onSave: (ProxyConfig) -> Unit, on
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
         ScreenHeader(title = form.title, context = t("form_sub_" + form.id))
+        net.gozar.app.plugins.PluginHelp.text[form.id]?.let { help ->
+            var helpOpen by remember(form.id) { mutableStateOf(false) }
+            TextButton(onClick = { helpOpen = !helpOpen }) { Text("راهنمای اتصال") }
+            if (helpOpen) Text(help)
+        }
         val formStyle = LocalGhajarLook.current.addServerStyle
         if (formStyle == "compact") {
             form.fields.filter { !it.advanced }.forEach { FieldView(it) }

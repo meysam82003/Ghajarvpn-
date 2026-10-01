@@ -300,9 +300,11 @@ object Sidecars {
             require(Regex("^[0-9a-fA-F:]{64,95}$").matches(it)) { "SSTP: the certificate pin must be a SHA-256 in hex" }
             args += listOf("-pin", it)
         }
+        spec.optString("dns_fallback").takeIf { it.isNotBlank() }?.let { args += listOf("-dns", it) }
+        spec.optString("tls_min").takeIf { it.isNotBlank() }?.let { args += listOf("-tls-min", it) }
         if (spec.optBoolean("allowInsecure")) args += "-insecure"
-        return SidecarLaunch(HELPER, args, socks = true, files = mapOf("sstp.pass" to spec.optString("password")),
-            env = mapOf("SSTP_PASSWORD_FILE" to "${SidecarLaunch.DIR}/sstp.pass"), readyTimeoutMs = 30_000)
+        return SidecarLaunch(HELPER, args, socks = true, files = mapOf("sstp.pass" to spec.optString("password"), "sstp.proxy" to spec.optString("http_proxy")),
+            env = mapOf("SSTP_PASSWORD_FILE" to "${SidecarLaunch.DIR}/sstp.pass", "SSTP_PROXY_FILE" to "${SidecarLaunch.DIR}/sstp.proxy"), readyTimeoutMs = 30_000)
     }
 
     /**
