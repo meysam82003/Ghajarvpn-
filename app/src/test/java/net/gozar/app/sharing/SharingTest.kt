@@ -151,13 +151,13 @@ class SharingTest {
                 val i=client.getInputStream();val o=client.getOutputStream()
                 o.write(byteArrayOf(5,1,2));read(i,2)
                 o.write(byteArrayOf(1,user.length.toByte())+user.toByteArray()+byteArrayOf(password.length.toByte())+password.toByteArray());read(i,2)
-                o.write(byteArrayOf(5,3,0,1,0,0,0,0,0,0));assertEquals(-1,i.read())
+                o.write(byteArrayOf(5,3,0,1,0,0,0,0,0,0));assertEquals(7,read(i,10)[1].toInt())
             }
         }
     }
     @Test fun socksRejectsNoAuthMethod() {
         AuthenticatedRelay(12345,user,password).use { relay -> relay.start(InetAddress.getLoopbackAddress(),0)
-            Socket("127.0.0.1",relay.port).use { s -> s.soTimeout=2000;s.getOutputStream().write(byteArrayOf(5,1,0));assertEquals(-1,s.getInputStream().read()) }
+            Socket("127.0.0.1",relay.port).use { s -> s.soTimeout=2000;s.getOutputStream().write(byteArrayOf(5,1,0));assertArrayEquals(byteArrayOf(5,-1),read(s.getInputStream(),2)) }
         }
     }
     @Test fun socksWrongPasswordCannotOpenUpstream() {
@@ -165,4 +165,66 @@ class SharingTest {
             Socket("127.0.0.1",relay.port).use { s -> s.soTimeout=2000;val o=s.getOutputStream();val i=s.getInputStream();o.write(byteArrayOf(5,1,2));assertArrayEquals(byteArrayOf(5,2),read(i,2));o.write(byteArrayOf(1,1,120,1,120));assertArrayEquals(byteArrayOf(1,1),read(i,2)) }
         }
     }
+
+    @Test fun openvpnRejectsQuotedHooksOptionalHooksAndProviderLoading() {
+        listOf("\"up\" run-me", "'--down' run-me", "setenv opt up run-me", "setenv opt tls-crypt-v2-verify run-me",
+            "providers /private/library.so", "\uFEFF\"config\" another.ovpn", "setenv opt ca /private/ca.pem",
+            "http-proxy proxy.example 8080 /private/auth.txt", "socks-proxy proxy.example 1080 /private/auth.txt").forEach {
+            assertTrue(it,runCatching { OpenVpnExport.portable(it) }.isFailure)
+        }
+    }
+    @Test fun openvpnPreservesQuotedInlineTlsDirectionAndCertificate() {
+        val raw="client\nremote \"vpn.example\" 443 # comment\ntls-auth \"[inline]\" 1 ; direction\n<tls-auth>\nSTATIC KEY\n</tls-auth>\n<ca>\nCERTIFICATE\n</ca>"
+        assertEquals(raw,OpenVpnExport.portable(raw))
+    }
+    @Test fun openvpnQuotedCredentialsBecomeInteractivePrompt() {
+        val raw="client\n\"auth-user-pass\" \"[inline]\" # account\n--<auth-user-pass>\nold-user\nold-password\n</auth-user-pass>"
+        val exported=OpenVpnExport.portable(raw)
+        assertFalse(exported.contains("old-password"));assertFalse(exported.contains("old-user"))
+        assertFalse(exported.contains("[inline]"));assertTrue(exported.contains("auth-user-pass"))
+    }
+    @Test fun openvpnRejectsTruncatedQuotesAndInvalidEscapes() {
+        listOf("remote \"unterminated", "ca C:\\private\\ca.pem", "client\u0000\nup bad").forEach {
+            assertTrue(runCatching { OpenVpnExport.portable(it) }.isFailure)
+        }
+    }
+    @Test fun relayClosesLifecycleAndCannotRestartAfterStop() {
+        AuthenticatedRelay(12345,user,password).use { relay ->
+            assertFalse(relay.isRunning)
+            relay.start(InetAddress.getLoopbackAddress(),0);assertTrue(relay.isRunning)
+            relay.close();assertFalse(relay.isRunning)
+            assertTrue(runCatching { relay.start(InetAddress.getLoopbackAddress(),0) }.isFailure)
+        }
+    }
+    private fun refusedByCore(socks: Boolean) {
+        ServerSocket(0).use { backend ->
+            val worker=Executors.newSingleThreadExecutor()
+            val task=worker.submit { backend.accept().use { remote ->
+                remote.soTimeout=3000; val i=remote.getInputStream();val o=remote.getOutputStream()
+                assertArrayEquals(byteArrayOf(5,1,0),read(i,3));o.write(byteArrayOf(5,0))
+                assertArrayEquals(byteArrayOf(5,1,0,3),read(i,4));read(i,i.read());read(i,2)
+                o.write(byteArrayOf(5,5,0,1,0,0,0,0,0,0));o.flush()
+            } }
+            try { AuthenticatedRelay(backend.localPort,user,password).use { relay ->
+                relay.start(InetAddress.getLoopbackAddress(),0)
+                Socket("127.0.0.1",relay.port).use { client ->
+                    client.soTimeout=3000;val i=client.getInputStream();val o=client.getOutputStream()
+                    if(socks) {
+                        o.write(byteArrayOf(5,1,2));read(i,2)
+                        o.write(byteArrayOf(1,user.length.toByte())+user.toByteArray()+byteArrayOf(password.length.toByte())+password.toByteArray());read(i,2)
+                        val host="never-dial-locally.invalid".toByteArray()
+                        o.write(byteArrayOf(5,1,0,3,host.size.toByte())+host+byteArrayOf(1,-69))
+                        assertEquals(5,read(i,10)[1].toInt())
+                    } else {
+                        val auth=Base64.getEncoder().encodeToString("$user:$password".toByteArray())
+                        o.write("CONNECT never-dial-locally.invalid:443 HTTP/1.1\r\nProxy-Authorization: Basic $auth\r\n\r\n".toByteArray())
+                        assertEquals("HTTP/1.1 502 Bad Gateway",i.bufferedReader().readLine())
+                    }
+                    assertTrue(relay.clients().isEmpty())
+                }
+            };task.get(3,TimeUnit.SECONDS) } finally { worker.shutdownNow() }
+        }
+    }
+    @Test fun httpReceives502WhenCoreRejectsDestination() { refusedByCore(false) }
+    @Test fun socksReceivesCoreFailureWithoutSuccessOrFallback() { refusedByCore(true) }
 }

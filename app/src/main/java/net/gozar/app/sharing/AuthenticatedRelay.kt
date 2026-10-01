@@ -21,21 +21,22 @@ class AuthenticatedRelay(private val upstreamPort: Int, private val user: String
     @Volatile private var listener: ServerSocket? = null
     @Volatile private var closed = false
     val port: Int get() = listener?.localPort ?: 0
+    val isRunning: Boolean get() = !closed && listener?.isClosed == false
     fun clients(): List<Client> = sessions.values.filter { it.authenticated }.map { Client(it.ip, it.since, it.up.get(), it.down.get()) }
-    fun start(address: InetAddress, port: Int = 18686) {
+    @Synchronized fun start(address: InetAddress, port: Int = 18686) {
         require(user.isNotBlank() && password.length >= 16 && upstreamPort in 1..65535)
         check(!closed && listener == null)
         val server = ServerSocket()
         try { server.bind(InetSocketAddress(address, port), 16) } catch (e: Exception) { server.close(); throw e }
         listener = server
         Thread({
-            while (!closed) {
+            try { while (!closed) {
                 val client = try { server.accept() } catch (_: IOException) { break }
                 if (!permits.tryAcquire()) { client.close(); continue }
                 synchronized(this) { if (closed) client.close() else sockets.add(client) }
                 if (closed) { permits.release(); break }
                 try { pool.execute { serve(client) } } catch (_: RejectedExecutionException) { client.close(); sockets.remove(client); permits.release() }
-            }
+            } } finally { close() } // An accept failure must not leave established sessions or an apparently live relay behind.
         }, "Ghajar-share-accept").apply { isDaemon = true; start() }
     }
     private fun equal(a: String, b: String) = MessageDigest.isEqual(a.toByteArray(Charsets.UTF_8), b.toByteArray(Charsets.UTF_8))
@@ -47,19 +48,30 @@ class AuthenticatedRelay(private val upstreamPort: Int, private val user: String
     }
     private fun byte(input: InputStream) = input.read().also { if (it < 0) throw EOFException() }
     private data class Target(val atyp: Int, val address: ByteArray, val port: ByteArray)
+    private class SocksFailure(val reply: Int) : IOException()
+    private fun socksReply(out: OutputStream, reply: Int) {
+        out.write(byteArrayOf(5, reply.toByte(), 0, 1, 0, 0, 0, 0, 0, 0)); out.flush()
+    }
     private fun socks(input: InputStream, out: OutputStream): Target {
-        val methods = read(input, byte(input)); require(methods.contains(2.toByte()))
+        val methods = read(input, byte(input))
+        if (!methods.contains(2.toByte())) { out.write(byteArrayOf(5, -1)); out.flush(); error("authentication required") }
         out.write(byteArrayOf(5,2)); out.flush()
         require(byte(input) == 1)
         val u = String(read(input, byte(input)), Charsets.UTF_8)
         val p = String(read(input, byte(input)), Charsets.UTF_8)
         val valid = equal(u,user) and equal(p,password)
         out.write(byteArrayOf(1, if(valid) 0 else 1)); out.flush(); require(valid)
-        require(byte(input)==5 && byte(input)==1 && byte(input)==0) // CONNECT only; no UDP/BIND fallback
-        val type = byte(input)
-        val address = when(type) { 1 -> read(input,4); 4 -> read(input,16); 3 -> { val n=byte(input); require(n>0); byteArrayOf(n.toByte())+read(input,n) }; else -> error("address") }
-        val port=read(input,2); require(port.any { it.toInt()!=0 })
-        return Target(type,address,port)
+        try {
+            require(byte(input)==5)
+            if (byte(input)!=1) throw SocksFailure(7) // CONNECT only; no UDP/BIND fallback
+            require(byte(input)==0)
+            val type = byte(input)
+            val address = when(type) { 1 -> read(input,4); 4 -> read(input,16); 3 -> { val n=byte(input); require(n>0); byteArrayOf(n.toByte())+read(input,n) }; else -> throw SocksFailure(8) }
+            val port=read(input,2); require(port.any { it.toInt()!=0 })
+            return Target(type,address,port)
+        } catch (e: Exception) {
+            runCatching { socksReply(out, (e as? SocksFailure)?.reply ?: 1) }; throw e
+        }
     }
     private fun http(first: Int, input: InputStream, out: OutputStream): Target {
         val buf=ByteArrayOutputStream(); buf.write(first); var tail=first
@@ -87,6 +99,8 @@ class AuthenticatedRelay(private val upstreamPort: Int, private val user: String
     private fun serve(client: Socket) {
         val session=Session(client.inetAddress.hostAddress.orEmpty()); sessions[client]=session
         var upstream: Socket?=null
+        var requestProtocol = 0
+        var awaitingConnect = false
         try {
             client.soTimeout=10000
             val rawInput=client.getInputStream()
@@ -98,6 +112,7 @@ class AuthenticatedRelay(private val upstreamPort: Int, private val user: String
             }
             val output=client.getOutputStream(); val first=byte(input)
             val target=if(first==5) socks(input,output) else http(first,input,output)
+            requestProtocol=first; awaitingConnect=true
             upstream=Socket()
             synchronized(this) { check(!closed); sockets.add(upstream) }
             upstream.soTimeout=15000
@@ -105,17 +120,27 @@ class AuthenticatedRelay(private val upstreamPort: Int, private val user: String
             val ui=upstream.getInputStream(); val uo=upstream.getOutputStream()
             uo.write(byteArrayOf(5,1,0)); uo.flush(); require(byte(ui)==5 && byte(ui)==0)
             uo.write(byteArrayOf(5,1,0,target.atyp.toByte())+target.address+target.port); uo.flush()
-            require(byte(ui)==5 && byte(ui)==0 && byte(ui)==0)
+            require(byte(ui)==5)
+            val reply=byte(ui)
+            if(reply!=0) throw SocksFailure(if(reply in 1..8) reply else 1)
+            require(byte(ui)==0)
             when(byte(ui)) { 1->read(ui,4); 4->read(ui,16); 3->read(ui,byte(ui)); else->error("upstream address") }; read(ui,2)
             check(!closed)
             if(first==5) output.write(byteArrayOf(5,0,0,1,0,0,0,0,0,0)) else output.write("HTTP/1.1 200 Connection Established\r\n\r\n".toByteArray())
-            output.flush(); session.authenticated=true
+            output.flush(); awaitingConnect=false; session.authenticated=true
             client.soTimeout=120000; upstream.soTimeout=120000
             val remote=upstream
             val downstream=pool.submit { try { pump(ui,output,session.down); client.shutdownOutput() } catch (_:Exception) { client.close(); remote.close() } }
             try { pump(rawInput,uo,session.up); upstream.shutdownOutput(); downstream.get(120,TimeUnit.SECONDS) }
             finally { downstream.cancel(true) }
-        } catch (_:Exception) { /* No credentials, request destinations or payloads in logs. */ }
+        } catch (e:Exception) {
+            if(awaitingConnect && !closed) runCatching {
+                val out=client.getOutputStream()
+                if(requestProtocol==5) socksReply(out, (e as? SocksFailure)?.reply ?: if(e is SocketTimeoutException) 6 else 1)
+                else { out.write("HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\nContent-Length: 0\r\n\r\n".toByteArray()); out.flush() }
+            }
+            // Never return exception text, credentials, destinations or payloads to clients/logs.
+        }
         finally { sessions.remove(client); sockets.remove(client); runCatching { client.close() }; upstream?.let { sockets.remove(it); runCatching { it.close() } }; permits.release() }
     }
     private fun pump(input: InputStream, output: OutputStream, counter: AtomicLong) {

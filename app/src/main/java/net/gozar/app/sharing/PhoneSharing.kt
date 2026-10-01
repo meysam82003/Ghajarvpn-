@@ -23,6 +23,7 @@ object PhoneSharing {
     private var bound = ""
     private var credentials: Pair<String,String>? = null
     private var chosenAddress: String? = null
+    private var listenerFailed = false
     fun addresses(): List<String> = runCatching {
         NetworkInterface.getNetworkInterfaces().asSequence().filter { it.isUp && !it.isLoopback &&
             (it.name.startsWith("ap") || it.name.startsWith("wlan") || it.name.startsWith("swlan") || it.name.startsWith("eth")) }
@@ -39,11 +40,12 @@ object PhoneSharing {
         }
     }
     @Synchronized fun invalidate() {
-        generation++; job?.cancel(); job=null; backend=0; relay?.close(); relay=null; bound=""; credentials=null
+        generation++; job?.cancel(); job=null; backend=0; relay?.close(); relay=null; bound=""; credentials=null; listenerFailed=false
         mutable.value=View(if(store?.vpnShareEnabled?.value==true) State.VPN_DISCONNECTED else State.OFF)
     }
     @Synchronized fun configure(configStore: ConfigStore, enabled: Boolean, address: String? = null, regenerate: Boolean = false) {
         store=configStore
+        listenerFailed=false
         if(address!=null) chosenAddress=address
         configStore.setVpnShareEnabled(enabled)
         if(regenerate) { relay?.close(); relay=null; credentials=null; configStore.regenerateVpnShareCredential() }
@@ -59,6 +61,11 @@ object PhoneSharing {
         val available=addresses()
         val address=chosenAddress?.takeIf { it in available } ?: if(chosenAddress==null) hotspotInterfaceAddress()?.takeIf { it in available } else null
         if(address==null) { relay?.close(); relay=null; bound=""; mutable.value=View(State.ERROR,error="هات‌اسپات را روشن کنید یا آدرس شبکهٔ محلی را انتخاب کنید."); return }
+        if(relay?.isRunning==false) { relay?.close(); relay=null; listenerFailed=true }
+        if(listenerFailed) {
+            mutable.value=View(State.ERROR,error="درگاه اشتراک متوقف شد و نشست‌ها بسته شدند؛ اشتراک‌گذاری را متوقف و دوباره شروع کنید.")
+            return
+        }
         val cred=s.ensureVpnShareCredential()
         if(relay!=null && (bound!=address || credentials!=cred)) { relay?.close(); relay=null }
         if(relay==null) {

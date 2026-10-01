@@ -24,3 +24,10 @@ Primary reference pages consulted for help and export semantics (2026-10-01; not
 - https://github.com/juicity/juicity/blob/main/README.md
 
 No upstream executable, secret, signing identity, closed-source module or Xray prerelease patch was imported.
+
+
+Follow-up at baseline 4cd7bd2, using bundled source only:
+- `openvpn/src/main/cpp/openvpn/src/openvpn/options_parse.c::parse_line`: quoted option names, comment boundaries and allowed escapes.
+- `openvpn/src/main/cpp/openvpn/src/openvpn/options.c::add_option`: `setenv opt` is interpreted as an optional directive; TLS hook/provider/file options must not bypass the portable export gate.
+- `openvpn/src/main/java/de/blinkt/openvpn/core/ConfigParser.java`: quoted/inline syntax and profile conversion are separate from the original portable file. Runtime parser and binary were not replaced.
+- `AuthenticatedRelay.start/serve` and `PhoneSharing.refresh`: accept-loop cleanup, explicit proxy errors, real listener liveness and latched listener-failure state. Socket fixture tests prove local failure behavior only, not Android hotspot/VPN exit acceptance.

@@ -16,3 +16,5 @@ Only execute after the owner allows product build/device qualification. None of 
 12. OpenVPN original text and credential prompt on target; legacy profile missing raw text gives error, not Android runtime config. Test inline cert/key, TLS crypt, external file refusal, scripts refusal, backup/restore.
 13. QR: consent before display, 60-second default expiry, secure window and background dismissal, image sharing with temporary read grant, too-large payload → file.
 14. Plugin catalog metadata only at entry/startup. No absent plugin service, worker, native load or fabricated release size. Phase4 APK signing/device gates still apply.
+
+15. Interrupt the relay listener while VPN remains connected: established proxy sockets must close and ERROR must be shown, without repeated silent restart. Explicit stop/start can retry. A rejected remote destination returns SOCKS failure / HTTP 502 and is never counted as a successful session. Verify ordinary VPN traffic is unaffected.
