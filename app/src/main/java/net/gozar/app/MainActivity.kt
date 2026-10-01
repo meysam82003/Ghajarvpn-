@@ -1375,6 +1375,8 @@ private fun GozarApp(
     var usageDetail by remember { mutableStateOf(false) }
     var perAppDetail by remember { mutableStateOf(false) }
     var logsDetail by remember { mutableStateOf(false) }
+    var vpnShareOpen by remember { mutableStateOf(false) }
+    if (vpnShareOpen) VpnShareDialog(store, onSwitch, onDismiss = { vpnShareOpen = false })
     var stabilityDetail by remember { mutableStateOf(false) }
     var aboutDetail by remember { mutableStateOf(false) }
     var themeDetail by remember { mutableStateOf(false) }
@@ -1587,13 +1589,13 @@ private fun GozarApp(
         page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
         page == PAGE_HOME -> "connection"
+        onSettingsTab && perAppDetail -> "perapp"
+        onSettingsTab && logsDetail -> "logs"
         onSettingsTab && extraPage.isNotEmpty() -> extraPage
         onSettingsTab && backupDetail -> "backup"
         onSettingsTab && sshDetail -> "ssh"
         onSettingsTab && debugDetail -> "debugger"
         onSettingsTab && usageDetail -> "usage"
-        onSettingsTab && perAppDetail -> "perapp"
-        onSettingsTab && logsDetail -> "logs"
         onSettingsTab && stabilityDetail -> "stability"
         onSettingsTab && aboutDetail -> "about"
         onSettingsTab && themeDetail -> "theme"
@@ -1622,12 +1624,12 @@ private fun GozarApp(
             showOpenVpnHub -> showOpenVpnHub = false
             showPsiphonHub -> showPsiphonHub = false
             showPicker -> showPicker = false
+            perAppDetail -> perAppDetail = false
+            logsDetail -> logsDetail = false
             extraPage.startsWith("core:") -> extraPage = "cores"
             extraPage.isNotEmpty() -> extraPage = ""
             backupDetail -> backupDetail = false
             usageDetail -> usageDetail = false
-            perAppDetail -> perAppDetail = false
-            logsDetail -> logsDetail = false
             stabilityDetail -> stabilityDetail = false
             aboutDetail -> aboutDetail = false
             themeDetail -> themeDetail = false
@@ -1934,6 +1936,7 @@ private fun GozarApp(
                             onWindscribe = { showWindscribe = true },
                             onScanQr = { showScanner = true },
                             onShareFile = { exportConfigs = it },
+                            onOpenVpnShare = { vpnShareOpen = true },
                             onOpenVpnHub = { showOpenVpnHub = true },
                             onPsiphonHub = { showPsiphonHub = true },
                             onTor = { showPicker = false; showTorNodes = true },
@@ -2013,13 +2016,13 @@ private fun GozarApp(
                 }
             } else {
                 val setKey = when {
+                    perAppDetail -> "perapp"
+                    logsDetail -> "logs"
                     extraPage.isNotEmpty() -> extraPage
                     backupDetail -> "backup"
                     sshDetail -> "ssh"
                     debugDetail -> "debugger"
                     usageDetail -> "usage"
-                    perAppDetail -> "perapp"
-                    logsDetail -> "logs"
                     stabilityDetail -> "stability"
                     aboutDetail -> "about"
                     themeDetail -> "theme"
@@ -2130,6 +2133,7 @@ private fun GozarApp(
                             onOpenDebugger = { debugDetail = true },
                             onOpenUsage = { usageDetail = true },
                             onOpenTools = { toolsDetail = true },
+                            onOpenVpnShare = { vpnShareOpen = true },
                             onOpenConnection = { connDetail = true },
                             onOpenPreferences = { prefsDetail = true },
                             onOpenAbout = { aboutDetail = true },
@@ -2581,6 +2585,7 @@ private fun ConfigPickerScreen(
     onWindscribe: () -> Unit,
     onScanQr: () -> Unit,
     onShareFile: (List<ProxyConfig>) -> Unit,
+    onOpenVpnShare: () -> Unit = {},
     onOpenVpnHub: () -> Unit = {},
     onPsiphonHub: () -> Unit = {},
     onTor: () -> Unit = {},
@@ -3126,7 +3131,7 @@ private fun ConfigPickerScreen(
             }
         )
 
-        // The five list tools, all the same size, evenly spread. Each one is a
+        // List tools and VPN sharing, all the same size, evenly spread. Each one is a
         // toggle or a menu, none of them needs a word, and putting them on a
         // rail of their own is what stopped them squeezing the labels above.
         Row(
@@ -3134,6 +3139,11 @@ private fun ConfigPickerScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly
         ) {
+            PickerTool(
+                icon = Icons.Filled.Shield,
+                label = t("vpn_share_title"),
+                onClick = onOpenVpnShare
+            )
             PickerTool(
                 icon = if (searchOpen) Icons.Filled.Close else Icons.Filled.Search,
                 label = t("search_servers"),
@@ -6676,6 +6686,7 @@ private fun SettingsScreen(
     scrollState: ScrollState,
     onOpenUsage: () -> Unit,
     onOpenTools: () -> Unit,
+    onOpenVpnShare: () -> Unit,
     onOpenConnection: () -> Unit,
     onOpenPreferences: () -> Unit,
     onOpenAbout: () -> Unit,
@@ -6712,7 +6723,7 @@ private fun SettingsScreen(
                 extra = onOpenExtra, connection = onOpenConnection, tools = onOpenTools, usage = onOpenUsage,
                 preferences = onOpenPreferences, about = onOpenAbout, netmon = onOpenNetMon, ssh = onOpenSsh,
                 debugger = onOpenDebugger, backup = onOpenBackup, theme = onOpenTheme, notifications = onOpenNotifications,
-                stability = onOpenStability,
+                stability = onOpenStability, vpnShare = onOpenVpnShare,
                 logs = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
             )
         )
@@ -6737,7 +6748,11 @@ private fun SettingsScreen(
         )
 
         groups.forEach { (title, tiles) ->
-            val shown = arrangeTiles(tiles, look)
+            val arranged = arrangeTiles(tiles, look)
+            // Keep the two requested shortcuts at the top even for saved tile orders.
+            val shortcuts = listOf("perapp", "vpn_share")
+            val shown = shortcuts.mapNotNull { id -> arranged.find { it.id == id } } +
+                arranged.filterNot { it.id in shortcuts }
             if (shown.isNotEmpty()) {
                 Rail(title)
                 TileGrid(shown)
@@ -6758,11 +6773,12 @@ object SettingsTiles {
         val extra: (String) -> Unit, val connection: () -> Unit, val tools: () -> Unit, val usage: () -> Unit,
         val preferences: () -> Unit, val about: () -> Unit, val netmon: () -> Unit, val ssh: () -> Unit,
         val debugger: () -> Unit, val backup: () -> Unit, val theme: () -> Unit, val notifications: () -> Unit,
-        val stability: () -> Unit, val logs: () -> Unit
+        val stability: () -> Unit, val logs: () -> Unit, val vpnShare: () -> Unit
     )
 
     /** (id, title key) of every tile, for the Personalization order editor. */
     val ALL: List<Pair<String, String>> = listOf(
+        "perapp" to "per_app", "vpn_share" to "vpn_share_title",
         "conn_general" to "set_tile_general", "cores" to "set_tile_cores", "dns" to "sec_dns", "routing" to "routing",
         "geodata" to "geodata_title", "tools" to "tools", "speed" to "stab_title", "netmon" to "netmon_title",
         "livemon" to "livemon_title", "debugger" to "debugger", "ssh" to "ssh", "logs" to "log_title",
@@ -6776,6 +6792,8 @@ object SettingsTiles {
             SettingsTileSpec(id, t(titleKey), subKey?.let(t), icon, iconRes, null, badge, active, id in CRITICAL, onClick)
         return listOf(
             t("sec_connection") to listOf(
+                tile("perapp", "per_app", "per_app_sub", Icons.Filled.Apps) { nav.extra("perapp") },
+                tile("vpn_share", "vpn_share_title", "vpn_share_sub", Icons.Filled.Shield, onClick = nav.vpnShare),
                 tile("conn_general", "set_tile_general", "set_tile_general_sub", Icons.Filled.Router, active = killSwitch) { nav.extra("conn:general") },
                 tile("cores", "set_tile_cores", "set_tile_cores_sub", Icons.Filled.Layers) { nav.extra("cores") },
                 tile("dns", "sec_dns", "set_tile_dns_sub", Icons.Filled.Dns) { nav.extra("conn:dns") },
