@@ -59,7 +59,7 @@ index 176c55e0..c2ddca40 100644
 +	return true
 +}
 diff --git a/common/trafficcontrol/tracker.go b/common/trafficcontrol/tracker.go
-index 1a38908b..ba009070 100644
+index 1a38908b..8dd1aebb 100644
 --- a/common/trafficcontrol/tracker.go
 +++ b/common/trafficcontrol/tracker.go
 @@ -10,7 +10,9 @@ import (
@@ -121,7 +121,7 @@ index 1a38908b..ba009070 100644
  }
  
  func (t *flowTracker) FlowEstablished() {
-@@ -181,3 +191,46 @@ func (t *packetConnTracker) ReaderReplaceable() bool {
+@@ -181,3 +191,55 @@ func (t *packetConnTracker) ReaderReplaceable() bool {
  func (t *packetConnTracker) WriterReplaceable() bool {
  	return true
  }
@@ -152,6 +152,15 @@ index 1a38908b..ba009070 100644
 +	N.PacketConn
 +	manager *Manager
 +}
++
++// Keep packet buffer requirements visible without exposing Upstream: the copy
++// optimizer must never unwrap the freeze barrier. SOCKS UDP adds a header on
++// replies and panics if the caller allocates a buffer without this headroom.
++func (c *ghajarPacketConn) FrontHeadroom() int  { return N.CalculateFrontHeadroom(c.PacketConn) }
++func (c *ghajarPacketConn) RearHeadroom() int   { return N.CalculateRearHeadroom(c.PacketConn) }
++func (c *ghajarPacketConn) ReaderOverhead() int { return N.CalculateReaderOverhead(c.PacketConn) }
++func (c *ghajarPacketConn) ReaderMTU() int      { return N.CalculateMTU(c.PacketConn, nil) }
++func (c *ghajarPacketConn) WriterMTU() int      { return N.CalculateMTU(nil, c.PacketConn) }
 +
 +func (c *ghajarPacketConn) ReadPacket(b *buf.Buffer) (M.Socksaddr, error) {
 +	if !c.manager.ghajarBeginIO() {

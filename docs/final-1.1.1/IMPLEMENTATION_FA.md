@@ -32,7 +32,7 @@ Biometric بدون qualification دستگاه فعال نشده؛ password مس�
 
 Instrumentation واقعی برای modal download/verify، APK خراب/هش/بسته/امضای اشتباه، notification toggle و RemoteViews، palette/actionهای دو widget و migration/backup/quota روی storage Android اضافه شده است. CI روی شاخهٔ phase1 باید آن‌ها و crawl/offline Store را اجرا کند؛ صرف وجود تست به معنی PASS نیست. signed artifact شاخه فقط candidate است؛ publish step برای این شاخه اجرا نمی‌شود.
 
-نمونه‌های خصوصی BPF/NPV در این checkout موجود نیستند؛ synthetic/reference fixtures جایگزین ادعای آزمون دوبارهٔ نمونهٔ خصوصی نمی‌شوند. آمار نهایی و نتایج اجرا جدا ثبت می‌شوند.
+چهار نمونهٔ خصوصی BPF/NPVT/NPVS از فایل‌های قبلی کاربر بازیابی و خارج از مخزن نگه‌داری شدند. suite مربوطه ۱۱ آزمون، شامل privateRegressionFixtures، با صفر failure و صفر skipped پاس شد. فایل‌ها یا secrets آن‌ها به GitHub فرستاده نشدند؛ CI عمومی همچنان نبود ورودی خصوصی را صریحاً skipped ثبت می‌کند. آمار نهایی و نتایج اجرا جدا ثبت می‌شوند.
 
 ## یافته‌های Build/lint و اصلاحات بعدی
 
@@ -41,3 +41,5 @@ Instrumentation واقعی برای modal download/verify، APK خراب/هش/ب
 دانلود subscription قبلاً گواهی و hostname را بدون گزینهٔ صریح کاربر نادیده می‌گرفت؛ این مسیر حذف شد. TLS پیش‌فرض Android و منع redirect از HTTPS به HTTP برقرار است. تست مستقل با گواهی self-signed این رفتار را می‌سنجد. TrustManagerهای باقی‌مانده در ابزار مشاهدهٔ گواهی/handshake و pin inspector، تأیید امن اتصال فروشگاه یا دانلود subscription محسوب نمی‌شوند؛ خروجی lint آن‌ها همچنان قابل مشاهده است.
 
 هم‌ترازی OpenVPN/strongSwan روی ARMv7 از4KiB به16KiB تغییر کرد. در artifact محلی هر دو ABI دارای34 ELF بودند؛ معماری، dependencyهای native، alignment و metadata/zipalign پاس شدند. این بررسی SIGILL یا اتصال دستگاه را ثابت نمی‌کند.
+
+CI نخست در آزمون واقعی UDP، panic در ExtendHeader پاسخ SOCKS را آشکار کرد. wrapper مانع freeze عمداً Upstream را پنهان می‌کند، اما باید headroom/overhead/MTU packet را منتقل کند؛ این انتقال اضافه شد بدون بازکردن راه bypass شمارنده یا freeze. آزمون TCP/UDP/probe/freeze پس از اصلاح پاس شد. بازتولید محلی فقط monitor رابط سیستم را با PlatformInterface آزمون جایگزین می‌کند، زیرا میزبان netlink ندارد؛ socketها، core، API و شمارنده واقعی‌اند. CI همان executable عادی را بدون این جایگزینی اجرا می‌کند.
