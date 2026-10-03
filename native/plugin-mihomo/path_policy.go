@@ -9,10 +9,10 @@ func safePaths(v any, scope string) bool {
 	switch x := v.(type) {
 	case map[string]any:
 		for k, child := range x {
-			if (k == "path" && scope == "provider") || strings.HasSuffix(k, "-path") || (k == "private-key" && x["type"] != "wireguard") || k == "certificate" {
+			if (k == "path" && scope == "provider") || strings.HasSuffix(k, "-path") || (k == "private-key" && x["type"] != "wireguard") || (k == "certificate" || k == "planet") {
 				if s, ok := child.(string); ok && s != "" && !strings.Contains(s, "-----BEGIN") {
 					cleaned := filepath.Clean(s)
-					if filepath.IsAbs(s) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+					if strings.Contains(s, "\\") || strings.ContainsRune(s, 0) || filepath.IsAbs(s) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
 						return false
 					}
 				}

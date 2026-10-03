@@ -50,11 +50,14 @@ public class MihomoService extends GhajarPluginService {
     }
     private File write(String raw, String format, String settings) throws Exception {
         if (!Arrays.asList("mihomo-yaml", "mihomo-json").contains(format)) throw new IllegalArgumentException("Mihomo needs full YAML/JSON");
-        if (new JSONObject(settings).length() != 0) throw new IllegalArgumentException("Mihomo settings belong in the full config");
+        JSONObject fileSettings = new JSONObject(settings);
+        net.gozar.plugin.api.MihomoFiles.decode(fileSettings);
         byte[] data = raw.getBytes(StandardCharsets.UTF_8); if (data.length == 0 || data.length > 8*1024*1024) throw new IllegalArgumentException("Config size limit");
-        byte[] digest = MessageDigest.getInstance("SHA-256").digest(data); StringBuilder id = new StringBuilder(); for (byte v : digest) id.append(String.format("%02x", v));
+        byte[] digest = MessageDigest.getInstance("SHA-256").digest((raw + "\n" + settings).getBytes(StandardCharsets.UTF_8)); StringBuilder id = new StringBuilder(); for (byte v : digest) id.append(String.format("%02x", v));
         File dir = new File(getFilesDir(), "profiles/" + id); if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("Profile directory");
-        File file = new File(dir, "config.yaml"); Files.write(file.toPath(), data); return file;
+        net.gozar.plugin.api.MihomoFiles.materialize(dir, fileSettings);
+        File file = new File(dir, "config.yaml"); if (Files.isSymbolicLink(file.toPath())) throw new IOException("Unsafe config path");
+        Files.write(file.toPath(), data); return file;
     }
     protected Bundle prepare(String raw, String format, String settings) throws Exception {
         File file = write(raw, format, settings);

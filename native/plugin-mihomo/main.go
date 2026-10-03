@@ -1,4 +1,4 @@
-// Built inside the audited Bettbox core/Clash.Meta module, without modifying it.
+// Built inside the audited Bettbox module with the profile-sandbox patch.
 package main
 
 import (
@@ -14,11 +14,13 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/metacubex/mihomo/adapter/inbound"
 	"github.com/metacubex/mihomo/config"
 	C "github.com/metacubex/mihomo/constant"
 	"github.com/metacubex/mihomo/hub/executor"
 	"github.com/metacubex/mihomo/listener"
 	"github.com/metacubex/mihomo/tunnel"
+	"github.com/metacubex/mihomo/tunnel/statistic"
 )
 
 const provenance = "mihomo-ghajar 3189346611caeba73aa87feaf708e4fd65115d16"
@@ -85,12 +87,21 @@ func run(path, socket string, check bool) error {
 	if err != nil {
 		return err
 	}
+	return serve(cfg, p, conn)
+}
+
+// Production passes the private Unix control connection; tests may use net.Pipe for SOCKS mode.
+func serve(cfg *config.Config, p plan, conn net.Conn) error {
 	defer conn.Close()
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 	if p.Mode == "tun" {
 		data := make([]byte, 1)
 		ancillary := make([]byte, syscall.CmsgSpace(4))
-		n, oobn, flags, _, err := conn.ReadMsgUnix(data, ancillary)
+		unix, ok := conn.(*net.UnixConn)
+		if !ok {
+			return errors.New("TUN requires Unix descriptor transfer")
+		}
+		n, oobn, flags, _, err := unix.ReadMsgUnix(data, ancillary)
 		if err != nil || n != 1 || data[0] != 1 || flags&syscall.MSG_CTRUNC != 0 {
 			return errors.New("missing TUN descriptor")
 		}
@@ -119,13 +130,25 @@ func run(path, socket string, check bool) error {
 		cfg.General.Tun.AutoRedirect = false
 	} else {
 		var b [1]byte
-		if _, err = conn.Read(b[:]); err != nil || b[0] != 0 {
+		if _, err := conn.Read(b[:]); err != nil || b[0] != 0 {
 			return errors.New("bad start")
 		}
 	}
 	executor.ApplyConfig(cfg, true)
-	defer executor.Shutdown()
-	// This audited fork intentionally omits listener activation from ApplyConfig.
+	defer func() {
+		tunnel.OnSuspend()
+		listener.ReCreateHTTP(0, tunnel.Tunnel)
+		listener.ReCreateSocks(0, tunnel.Tunnel)
+		listener.ReCreateMixed(0, tunnel.Tunnel)
+		statistic.DefaultManager.Range(func(c statistic.Tracker) bool { c.Close(); return true })
+		executor.Shutdown()
+	}()
+	// This audited fork omits listener activation AND its access policy initialization.
+	listener.SetAllowLan(false)
+	listener.SetBindAddress("127.0.0.1")
+	inbound.SetSkipAuthPrefixes(cfg.General.SkipAuthPrefixes)
+	inbound.SetAllowedIPs(cfg.General.LanAllowedIPs)
+	inbound.SetDisAllowedIPs(cfg.General.LanDisAllowedIPs)
 	listener.ReCreateHTTP(cfg.General.Port, tunnel.Tunnel)
 	listener.ReCreateSocks(cfg.General.SocksPort, tunnel.Tunnel)
 	listener.ReCreateMixed(cfg.General.MixedPort, tunnel.Tunnel)
@@ -146,7 +169,7 @@ func run(path, socket string, check bool) error {
 		}
 		c.Close()
 	}
-	if _, err = conn.Write([]byte{1}); err != nil {
+	if _, err := conn.Write([]byte{1}); err != nil {
 		return err
 	}
 	conn.SetReadDeadline(time.Time{})
@@ -170,12 +193,18 @@ func prepare(original []byte) (*config.Config, plan, error) {
 	}
 	// Explicitly reject OS/server-only semantics; never silently drop them.
 	if raw.AllowLan || raw.RedirPort != 0 || raw.TProxyPort != 0 || raw.IPTables.Enable || raw.RoutingMark != 0 || raw.Interface != "" ||
-		raw.ExternalController != "" || raw.ExternalControllerTLS != "" || raw.ExternalControllerUnix != "" || raw.ExternalControllerPipe != "" || raw.ExternalUI != "" || raw.ExternalUIURL != "" || raw.ExternalDohServer != "" ||
+		raw.ExternalController != "" || raw.ExternalControllerTLS != "" || raw.ExternalControllerUnix != "" || raw.ExternalControllerPipe != "" || raw.ExternalUI != "" || (raw.ExternalUIURL != "" && raw.ExternalUIURL != config.DefaultRawConfig().ExternalUIURL) || raw.ExternalDohServer != "" ||
 		raw.ShadowSocksConfig != "" || raw.VmessConfig != "" || raw.TuicServer.Enable || len(raw.Listeners) != 0 || len(raw.Tunnels) != 0 {
 		return nil, p, errors.New("unsupported rootless or server listener settings")
 	}
 	if raw.BindAddress != "" && raw.BindAddress != "*" && raw.BindAddress != "127.0.0.1" {
 		return nil, p, errors.New("non-loopback listener")
+	}
+	if raw.DNS.Enable && raw.DNS.Listen != "" {
+		host, _, err := net.SplitHostPort(raw.DNS.Listen)
+		if err != nil || (host != "127.0.0.1" && host != "::1") {
+			return nil, p, errors.New("DNS listener must be loopback")
+		}
 	}
 	seenPorts := make(map[int]bool)
 	for _, port := range []int{raw.Port, raw.SocksPort, raw.MixedPort} {

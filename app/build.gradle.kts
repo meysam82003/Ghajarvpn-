@@ -137,6 +137,8 @@ android {
 }
 
 dependencies {
+    // Argon2id lightweight API; pinned MIT-licensed public upstream, no global provider replacement.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.83")
     implementation(project(":plugin-api"))
     implementation(project(":strongswan"))
     implementation(project(":openvpn"))

@@ -46,7 +46,7 @@ object ConfigNormalizer {
             val link = runCatching {
                 net.gozar.app.configtoolkit.V2RayLinkGenerator.generate(profile)
             }.getOrNull() ?: ""
-            val hash = if (profile.protocol == "plugin") net.gozar.app.plugins.PluginProfiles.identity(profile.toProxyConfig()) else if (link.isNotBlank()) sha256(link) else sha256("${profile.protocol}|${profile.server}|${profile.port}|${profile.uuid}|${profile.password}")
+            val hash = if (profile.protocol in setOf("singbox-full", "xray-full", "npv-preserved")) sha256(profile.toProxyConfig().extra) else if (profile.protocol == "plugin") net.gozar.app.plugins.PluginProfiles.identity(profile.toProxyConfig()) else if (link.isNotBlank()) sha256(link) else sha256("${profile.protocol}|${profile.server}|${profile.port}|${profile.uuid}|${profile.password}")
             val outcome = when {
                 hash in knownHashes -> Outcome.DUPLICATE
                 else -> { knownHashes += hash; Outcome.VALID }
@@ -55,7 +55,8 @@ object ConfigNormalizer {
             items += Item(link, hash, profile.protocol.lowercase(Locale.US), outcome, profile = profile)
         }
 
-        if (profiles.isNotEmpty() && profiles.all { it.protocol == "plugin" }) return Result(items)
+        if (profiles.isNotEmpty()) return Result(items) // Do not extract extra nodes after a successful complete import.
+        if (net.gozar.app.configtoolkit.FormatDetector.detect(ConfigInput(bytes, fileName ?: "config")).format in setOf(net.gozar.app.configtoolkit.ConfigFormat.BPF, net.gozar.app.configtoolkit.ConfigFormat.NPVT, net.gozar.app.configtoolkit.ConfigFormat.NPVS)) return Result(items)
         ConfigExtractor.extract(fileName, bytes).links.forEach { link ->
             if (link in linksSeen) return@forEach
             items += normalizeLink(link, knownHashes)

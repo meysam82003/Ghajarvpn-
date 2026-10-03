@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 enum class ConfigFormat(val extensions: Set<String>) {
+    BPF(setOf("bpf")),
     NPVT(setOf("npvt")),
     NPVS(setOf("npvs")),
     HAPP(setOf("happ")),

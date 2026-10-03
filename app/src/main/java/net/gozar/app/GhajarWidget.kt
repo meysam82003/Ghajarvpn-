@@ -134,6 +134,7 @@ class GhajarWidget : AppWidgetProvider() {
             val state = VpnState.state.value
 
             val views = RemoteViews(app.packageName, R.layout.widget_ghajar)
+            GhajarRemoteTheme.widget(app, views)
             views.setTextViewText(
                 R.id.widget_state,
                 when (state) {
@@ -502,6 +503,7 @@ class GhajarWidgetSmall : AppWidgetProvider() {
         private fun build(context: Context): RemoteViews {
             val app = context.applicationContext
             val views = RemoteViews(app.packageName, R.layout.widget_ghajar_small)
+            GhajarRemoteTheme.widget(app, views, small = true)
             views.setImageViewResource(
                 R.id.widget_small_dot,
                 when (VpnState.state.value) {

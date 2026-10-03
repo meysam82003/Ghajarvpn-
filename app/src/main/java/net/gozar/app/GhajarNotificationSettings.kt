@@ -33,7 +33,12 @@ fun GhajarNotificationSettings() {
         channelRevision++
         if (enabled) scope.launch { GhajarNotificationMonitor.refresh(context.applicationContext) }
     }
+    var controls by remember { mutableStateOf(GhajarQuickControls.enabled(context)) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("کنترل سریع قاجار در نوار اعلان", modifier = Modifier.weight(1f))
+            Switch(checked = controls, onCheckedChange = { controls = it; GhajarQuickControls.setEnabled(context, it) })
+        }
         Text(if (enabled) "اعلان‌های گوشی فعال هستند" else "برای دریافت پیام‌ها خارج از اپ، اعلان‌های گوشی را فعال کن.")
         Text("هشدارهای مهم کانال جدا دارند؛ نمایش شناور به تنظیمات هر کانال، حالت مزاحم نشوید و سیاست گوشی بستگی دارد. دریافت در پس‌زمینه ممکن است با تأخیر انجام شود.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = {

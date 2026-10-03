@@ -116,7 +116,7 @@ class ProtocolFormsTest {
         assertEquals(3, ep.getInt("version")); assertTrue(!ep.has("username"))
         val json = JSONObject("""{"endpoints":[{"type":"masque-client","tag":"mq","server":"h.example.com","server_port":443,
             "username":"a","password":"b","version":2,"tls":{"enabled":true,"server_name":"s.example.com"}}]}""")
-        val r = ForeignImport.singBox(json)
+        val r = ForeignImport.singBoxNodes(json)
         assertEquals(1, r.configs.size)
         val m = r.configs[0]
         assertEquals("masque", m.protocol); assertEquals("2", m.mode); assertEquals("a", m.uuid); assertEquals("s.example.com", m.sni)
@@ -165,7 +165,7 @@ class ProtocolFormsTest {
         val o = JSONObject(SingBoxConfig.spec(c)!!).getJSONObject("outbound")
         assertEquals("tailcat", o.getString("type")); assertEquals("nodekey:aa", o.getString("server_public_key"))
         assertEquals("discokey:bb", o.getString("server_disco_key")); assertEquals(7, o.getInt("derp_region"))
-        val r = ForeignImport.singBox(JSONObject("""{"endpoints":[{"type":"tailscale","tag":"home","auth_key":"tskey-x",
+        val r = ForeignImport.singBoxNodes(JSONObject("""{"endpoints":[{"type":"tailscale","tag":"home","auth_key":"tskey-x",
             "exit_node":"exit1","ephemeral":true}],"outbounds":[{"type":"tailcat","tag":"cat","server_public_key":"p","server_disco_key":"d"}]}"""))
         assertEquals(2, r.configs.size)
         val ts = r.configs.single { it.protocol == "tailscale" }

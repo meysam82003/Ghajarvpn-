@@ -148,6 +148,7 @@ class ConfigStore private constructor(context: Context) {
     fun setDynamicAccent(enabled: Boolean) {
         _dynamicAccent.value = enabled
         prefs.edit().putBoolean(KEY_DYNAMIC_ACCENT, enabled).apply()
+        GhajarRemoteTheme.refresh(appCtx)
     }
 
     /** One or two columns in the server list. */
@@ -559,6 +560,7 @@ class ConfigStore private constructor(context: Context) {
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
         prefs.edit().putString(KEY_THEME, mode.name).apply()
+        GhajarRemoteTheme.refresh(appCtx)
     }
 
     private val _uiTheme = MutableStateFlow(loadUiTheme())

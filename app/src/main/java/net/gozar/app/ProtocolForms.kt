@@ -78,6 +78,11 @@ object ProtocolForms {
             Field("domain", "f_dns_domain", required = true), Field("pubkey", "f_dns_pubkey", hint = "64 hex"),
             Field("transport", "f_dns_transport", Kind.SELECT, default = "udp", options = listOf("udp", "dot", "doh")),
             Field("resolver", "f_dns_resolver", default = "8.8.8.8:53", hint = "host:port / https://…/dns-query"),
+            Field("rps", "حداکثر query در ثانیه (VayDNS)", advanced = true),
+            Field("idle_timeout", "Idle timeout (VayDNS)", advanced = true, hint = "30s"),
+            Field("keepalive", "Keepalive (VayDNS)", advanced = true, hint = "2s"),
+            Field("resolver_timeout", "مهلت resolver (VayDNS)", advanced = true, hint = "500ms"),
+            Field("max_labels", "حداکثر label (VayDNS)", Kind.NUMBER, advanced = true),
             Field("upstream", "f_dns_upstream", Kind.SELECT, advanced = true, default = "socks", options = listOf("socks", "ssh")),
             Field("user", "f_user", advanced = true), Field("pass", "f_password", Kind.PASSWORD, advanced = true))),
         Form("masterdns", "MasterDNS / StormDNS / CottenDNS", "dns", listOf(
@@ -126,11 +131,17 @@ object ProtocolForms {
     ).map { form -> form.copy(fields = form.fields + EngineSettings.supported(form.id).map { setting ->
         Field(setting.key, setting.label, when (setting.type) {
             EngineSettings.Type.BOOL -> Kind.SWITCH
-            EngineSettings.Type.SECONDS, EngineSettings.Type.COUNT -> Kind.NUMBER
+            EngineSettings.Type.SECONDS, EngineSettings.Type.COUNT, EngineSettings.Type.MTU -> Kind.NUMBER
             EngineSettings.Type.SECRET, EngineSettings.Type.PROXY -> Kind.PASSWORD
             EngineSettings.Type.PEM -> Kind.PEM
+            EngineSettings.Type.FORM_ENTRIES -> Kind.MULTILINE
+            EngineSettings.Type.TOKEN, EngineSettings.Type.COMPRESSION -> Kind.SELECT
             else -> Kind.TEXT
-        }, advanced = true, hint = setting.hint)
+        }, advanced = true, hint = setting.hint, options = when(setting.type) {
+            EngineSettings.Type.TOKEN -> listOf("", "totp", "stoken", "oidc")
+            EngineSettings.Type.COMPRESSION -> listOf("", "stateless", "all")
+            else -> emptyList()
+        })
     }) }
 
     /** Add-server sections, in display order. A form shows only those it has fields in. */
@@ -217,7 +228,9 @@ object ProtocolForms {
                 (v["variant"] ?: "dnstt") + "://" + userInfo(v["user"], v["pass"]) + v["domain"]!!.trim() + query(
                     "pubkey" to v["pubkey"], "transport" to v["transport"],
                     "resolver" to v["resolver"].takeIf { !doh }, "doh" to v["resolver"].takeIf { doh },
-                    "upstream" to v["upstream"]?.takeIf { it == "ssh" }) + tail
+                    "upstream" to v["upstream"]?.takeIf { it == "ssh" },
+                    "rps" to v["rps"], "idle_timeout" to v["idle_timeout"], "keepalive" to v["keepalive"],
+                    "resolver_timeout" to v["resolver_timeout"], "max_labels" to v["max_labels"]) + tail
             }
             "masterdns" -> {
                 val resolvers = v["resolvers"]!!.split('\n', ',', ' ').map { it.trim() }.filter { it.isNotEmpty() }

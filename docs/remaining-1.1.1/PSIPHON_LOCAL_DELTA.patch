@@ -1,0 +1,1155 @@
+--- a/psiphon/config.go
++++ b/psiphon/config.go
+@@ -1094,6 +1094,14 @@
+ 	FrontedMeekDialOverridesProbability *float64                                `json:",omitempty"`
+ 	FrontedMeekCDNScanSpec              parameters.FrontedMeekCDNScanSpec       `json:",omitempty"`
+ 	FrontedMeekCDNScanUseBuiltInSpec    bool                                    `json:",omitempty"`
++
++	// FrontedMeekCDNScanBuiltInSets restricts the built-in CDN scan corpus to
++	// the named candidate sets, in the order given. Names are the built-in set
++	// names, with or without the "built-in-" prefix, such as "cloudflare" or
++	// "built-in-fastly". When empty, every built-in set is used. Unknown names
++	// are ignored. FrontedMeekCDNScanBuiltInSets has no effect unless
++	// FrontedMeekCDNScanUseBuiltInSpec is set.
++	FrontedMeekCDNScanBuiltInSets []string `json:",omitempty"`
+ 
+ 	// ConjureCachedRegistrationTTLSeconds and other Conjure fields are for
+ 	// testing purposes.
+@@ -2739,6 +2747,10 @@
+ 		applyParameters[parameters.FrontedMeekCDNScanSpecParameter] = config.FrontedMeekCDNScanSpec
+ 	}
+ 
++	if len(config.FrontedMeekCDNScanBuiltInSets) > 0 {
++		applyParameters[parameters.FrontedMeekCDNScanBuiltInSets] = config.FrontedMeekCDNScanBuiltInSets
++	}
++
+ 	if config.FrontedMeekCDNScanUseBuiltInSpec {
+ 		applyParameters[parameters.FrontedMeekCDNScanUseBuiltInSpec] = true
+ 	}
+@@ -3779,6 +3791,13 @@
+ 		hash.Write([]byte("FrontedMeekCDNScanSpec"))
+ 		encodedSpec, _ := json.Marshal(config.FrontedMeekCDNScanSpec)
+ 		hash.Write(encodedSpec)
++	}
++
++	if len(config.FrontedMeekCDNScanBuiltInSets) > 0 {
++		hash.Write([]byte("FrontedMeekCDNScanBuiltInSets"))
++		for _, name := range config.FrontedMeekCDNScanBuiltInSets {
++			hash.Write([]byte(name))
++		}
+ 	}
+ 
+ 	if config.FrontedMeekCDNScanUseBuiltInSpec {
+--- a/psiphon/dialParameters.go
++++ b/psiphon/dialParameters.go
+@@ -2270,11 +2270,25 @@
+ func (dialParams *DialParameters) applyFrontedMeekDialOverride(
+ 	p parameters.ParametersAccessor) (bool, error) {
+ 
++	dialAddressCandidates := []string{dialParams.MeekFrontingDialAddress}
++	if dialParams.ServerEntry != nil {
++		if dialParams.ServerEntry.MeekFrontingDomain != "" {
++			dialAddressCandidates = append(
++				dialAddressCandidates, dialParams.ServerEntry.MeekFrontingDomain)
++		}
++		dialAddressCandidates = append(
++			dialAddressCandidates, dialParams.ServerEntry.MeekFrontingAddresses...)
++		if dialParams.ServerEntry.MeekFrontingAddressesRegex != "" {
++			dialAddressCandidates = append(
++				dialAddressCandidates, dialParams.ServerEntry.MeekFrontingAddressesRegex)
++		}
++	}
++
+ 	override, scanCandidate, scanStateKey, ok, err := selectFrontedMeekCDNScanOverride(
+ 		p,
+ 		dialParams.NetworkID,
+ 		dialParams.FrontingProviderID,
+-		dialParams.MeekFrontingDialAddress,
++		dialAddressCandidates,
+ 		dialParams.MeekFrontingHost,
+ 		dialParams.frontedMeekCDNDialOverrideCandidateNumber())
+ 	if err != nil {
+@@ -2299,12 +2313,19 @@
+ 		override.SNIServerName != "" &&
+ 			override.SNIServerName != override.DialAddress
+ 
+-	dialParams.MeekVerifyServerNames = override.VerifyServerNames
+-	dialParams.MeekVerifyServerName = ""
+-	if len(override.VerifyServerNames) > 0 {
+-		dialParams.MeekVerifyServerName = override.VerifyServerNames[0]
+-	}
+-	dialParams.MeekVerifyPins = override.VerifyPins
++	if override.SkipCertVerify ||
++		protocol.TunnelProtocolUsesFrontedMeekQUIC(dialParams.TunnelProtocol) {
++		dialParams.MeekVerifyServerNames = nil
++		dialParams.MeekVerifyServerName = ""
++		dialParams.MeekVerifyPins = nil
++	} else {
++		dialParams.MeekVerifyServerNames = override.VerifyServerNames
++		dialParams.MeekVerifyServerName = ""
++		if len(override.VerifyServerNames) > 0 {
++			dialParams.MeekVerifyServerName = override.VerifyServerNames[0]
++		}
++		dialParams.MeekVerifyPins = override.VerifyPins
++	}
+ 	dialParams.MeekTLSALPNProtocols = override.ALPNProtocols
+ 
+ 	if override.TLSProfile != "" &&
+--- a/psiphon/socksProxy.go
++++ b/psiphon/socksProxy.go
+@@ -103,6 +103,11 @@
+ 	defer proxy.openConns.Remove(localConn)
+ 
+ 	proxy.openConns.Add(localConn)
++
++	if localConn.Req.Command == socks.SocksCmdUDPAssociate {
++		return errors.Trace(proxy.handleUDPAssociate(localConn))
++	}
++
+ 	// Using downstreamConn so localConn.Close() will be called when remoteConn.Close() is called.
+ 	// This ensures that the downstream client (e.g., web browser) doesn't keep waiting on the
+ 	// open connection for data which will never arrive.
+--- a/psiphon/controller.go
++++ b/psiphon/controller.go
+@@ -2294,6 +2294,24 @@
+ 	return DialTCP(controller.runCtx, remoteAddr, controller.untunneledDialConfig)
+ }
+ 
++// DialUDP creates a tunneled UDP flow, as described by
++// Tunneler.DialUDP. Unlike Dial, DialUDP does not use the light proxy, which
++// provides no UDP transport, and never applies split tunnel classification.
++func (controller *Controller) DialUDP(remoteAddr string) (net.Conn, error) {
++
++	tunnel := controller.getNextActiveTunnel(0)
++	if tunnel == nil {
++		return nil, errors.TraceNew("no active tunnels")
++	}
++
++	conn, err := tunnel.DialUDP(remoteAddr)
++	if err != nil {
++		return nil, errors.Trace(err)
++	}
++
++	return conn, nil
++}
++
+ // triggerFetches signals RSL, OSL, DSL, and upgrade download fetchers to
+ // begin, if not already running. triggerFetches is called when tunnel
+ // establishment fails to complete within a deadline and in other cases where
+--- a/psiphon/frontedMeekCDNScan_test.go
++++ b/psiphon/frontedMeekCDNScan_test.go
+@@ -195,7 +195,7 @@
+ 		params.Get(),
+ 		"test-network",
+ 		"test-provider",
+-		"front.example.com",
++		[]string{"front.example.com"},
+ 		"host.example.com",
+ 		0)
+ 	if err != nil || !ok {
+@@ -211,7 +211,7 @@
+ 		params.Get(),
+ 		"test-network",
+ 		"test-provider",
+-		"front.example.com",
++		[]string{"front.example.com"},
+ 		"host.example.com",
+ 		2)
+ 	if err != nil || !ok {
+@@ -225,7 +225,7 @@
+ 		params.Get(),
+ 		"test-network",
+ 		"test-provider",
+-		"front.example.com",
++		[]string{"front.example.com"},
+ 		"host.example.com",
+ 		3)
+ 	if err != nil || !ok {
+@@ -263,7 +263,7 @@
+ 		params.Get(),
+ 		"test-network",
+ 		"test-provider",
+-		"front.example.com",
++		[]string{"front.example.com"},
+ 		"host.example.com",
+ 		3)
+ 	if err != nil || !ok {
+--- a/psiphon/frontedMeekCDNScan.go
++++ b/psiphon/frontedMeekCDNScan.go
+@@ -104,7 +104,7 @@
+ 	p parameters.ParametersAccessor,
+ 	networkID string,
+ 	frontingProviderID string,
+-	dialAddress string,
++	dialAddresses []string,
+ 	hostHeader string,
+ 	candidateNumber int) (
+ 	*parameters.FrontedMeekDialOverrideParameters,
+@@ -126,7 +126,7 @@
+ 	overrides := p.FrontedMeekDialOverrides(parameters.FrontedMeekDialOverrides)
+ 	overrideCandidateCount, err := overrides.CandidateCount(
+ 		frontingProviderID,
+-		dialAddress,
++		dialAddresses,
+ 		hostHeader)
+ 	if err != nil {
+ 		return nil, nil, "", false, errors.Trace(err)
+@@ -141,7 +141,7 @@
+ 	if scanCandidateCount == 0 {
+ 		override, ok, err := overrides.SelectCandidateParameters(
+ 			frontingProviderID,
+-			dialAddress,
++			dialAddresses,
+ 			hostHeader,
+ 			candidateNumber)
+ 		return override, nil, "", ok, errors.Trace(err)
+@@ -178,7 +178,7 @@
+ 			if sourceCandidateNumber < overrideCandidateCount {
+ 				override, ok, err := overrides.SelectCandidateParametersNoWrap(
+ 					frontingProviderID,
+-					dialAddress,
++					dialAddresses,
+ 					hostHeader,
+ 					sourceCandidateNumber)
+ 				if err != nil {
+@@ -301,7 +301,31 @@
+ 	if !p.Bool(parameters.FrontedMeekCDNScanUseBuiltInSpec) {
+ 		return nil
+ 	}
+-	return frontedMeekCDNScanBuiltInCandidateSets
++
++	selected := p.Strings(parameters.FrontedMeekCDNScanBuiltInSets)
++	if len(selected) == 0 {
++		return frontedMeekCDNScanBuiltInCandidateSets
++	}
++
++	candidateSets := make([]frontedMeekCDNScanCandidateSet, 0, len(selected))
++	for _, name := range selected {
++		for _, candidateSet := range frontedMeekCDNScanBuiltInCandidateSets {
++			if frontedMeekCDNScanBuiltInSetNameMatches(name, candidateSet.name) {
++				candidateSets = append(candidateSets, candidateSet)
++				break
++			}
++		}
++	}
++	return candidateSets
++}
++
++func frontedMeekCDNScanBuiltInSetNameMatches(name, candidateSetName string) bool {
++	name = strings.ToLower(strings.TrimSpace(name))
++	if name == "" {
++		return false
++	}
++	return name == candidateSetName ||
++		name == strings.TrimPrefix(candidateSetName, "built-in-")
+ }
+ 
+ func frontedMeekCDNScanCandidateSetCount(
+--- a/psiphon/tunnel.go
++++ b/psiphon/tunnel.go
+@@ -70,6 +70,10 @@
+ 	Dial(remoteAddr string, downstreamConn net.Conn) (conn net.Conn, err error)
+ 
+ 	DirectDial(remoteAddr string) (conn net.Conn, err error)
++
++	// DialUDP creates a tunneled UDP flow. remoteAddr must be an "IP:port"
++	// address. UDP flows are never split tunneled.
++	DialUDP(remoteAddr string) (conn net.Conn, err error)
+ 
+ 	SignalComponentFailure()
+ }
+@@ -113,6 +117,8 @@
+ 	establishedTime                time.Time
+ 	handledSSHKeepAliveFailure     int32
+ 	inFlightConnectedRequestSignal chan struct{}
++	udpgwMutex                     sync.Mutex
++	udpgw                          *udpgwClient
+ }
+ 
+ // getCustomParameters helpers wrap the verbose function call chain required
+@@ -479,6 +485,8 @@
+ 			afterFunc.Stop()
+ 		}
+ 
++		tunnel.closeUDPGWClient()
++
+ 		tunnel.sshClient.Close()
+ 		// tunnel.conn.Close() may get called multiple times, which is allowed.
+ 		tunnel.conn.Close()
+@@ -634,6 +642,88 @@
+ 		downstreamConn: downstreamConn}
+ 
+ 	return tunnel.wrapWithTransferStats(conn), false, nil
++}
++
++// DialUDP creates a tunneled UDP flow to remoteAddr, which must be an
++// "IP:port" address; domain names are not supported as the udpgw protocol
++// carries only IP addresses.
++//
++// All UDP flows for a tunnel are multiplexed over a single udpgw channel,
++// which is established on first use and closed with the tunnel. The returned
++// net.Conn has datagram semantics: each Write sends exactly one datagram and
++// each Read returns at most one datagram.
++//
++// UDP flows are never split tunneled.
++func (tunnel *Tunnel) DialUDP(remoteAddr string) (net.Conn, error) {
++
++	host, portStr, err := net.SplitHostPort(remoteAddr)
++	if err != nil {
++		return nil, errors.Trace(err)
++	}
++
++	ip := net.ParseIP(host)
++	if ip == nil {
++		return nil, errors.TraceNew("DialUDP requires an IP address")
++	}
++
++	port, err := strconv.Atoi(portStr)
++	if err != nil {
++		return nil, errors.Trace(err)
++	}
++	if port < 0 || port > 65535 {
++		return nil, errors.TraceNew("invalid port")
++	}
++
++	client, err := tunnel.getUDPGWClient()
++	if err != nil {
++		return nil, errors.Trace(err)
++	}
++
++	flow, err := client.OpenFlow(ip, uint16(port))
++	if err != nil {
++		return nil, errors.Trace(err)
++	}
++
++	return newUDPGWConn(flow), nil
++}
++
++func (tunnel *Tunnel) getUDPGWClient() (*udpgwClient, error) {
++
++	tunnel.udpgwMutex.Lock()
++	defer tunnel.udpgwMutex.Unlock()
++
++	if tunnel.udpgw != nil && !tunnel.udpgw.IsClosed() {
++		return tunnel.udpgw, nil
++	}
++
++	// The Psiphon server retains only the most recent udpgw channel per
++	// client, so exactly one channel is established per tunnel.
++	conn, splitTunnel, err := tunnel.DialTCPChannel(
++		UDPGWServerAddress, true, nil)
++	if err != nil {
++		return nil, errors.Trace(err)
++	}
++	if splitTunnel {
++		return nil, errors.TraceNew("unexpected split tunnel classification")
++	}
++
++	tunnel.udpgw = newUDPGWClient(conn, true)
++
++	NoticeInfo("DialUDP: established udpgw channel")
++
++	return tunnel.udpgw, nil
++}
++
++func (tunnel *Tunnel) closeUDPGWClient() {
++
++	tunnel.udpgwMutex.Lock()
++	client := tunnel.udpgw
++	tunnel.udpgw = nil
++	tunnel.udpgwMutex.Unlock()
++
++	if client != nil {
++		_ = client.Close()
++	}
+ }
+ 
+ func (tunnel *Tunnel) DialPacketTunnelChannel() (net.Conn, error) {
+--- a/psiphon/server/server_test.go
++++ b/psiphon/server/server_test.go
+@@ -159,13 +159,14 @@
+ func TestSSH(t *testing.T) {
+ 	runServer(t,
+ 		&runServerConfig{
+-			tunnelProtocol:       "SSH",
+-			requireAuthorization: true,
+-			doTunneledWebRequest: true,
+-			doTunneledNTPRequest: true,
+-			doDanglingTCPConn:    true,
+-			doLogHostProvider:    true,
+-			doLogProtobuf:        useProtobufLogging,
++			tunnelProtocol:         "SSH",
++			requireAuthorization:   true,
++			doTunneledWebRequest:   true,
++			doTunneledNTPRequest:   true,
++			doTunneledUDPAssociate: true,
++			doDanglingTCPConn:      true,
++			doLogHostProvider:      true,
++			doLogProtobuf:          useProtobufLogging,
+ 		})
+ }
+ 
+@@ -739,14 +740,15 @@
+ func TestSplitTunnel(t *testing.T) {
+ 	runServer(t,
+ 		&runServerConfig{
+-			tunnelProtocol:       "OSSH",
+-			requireAuthorization: true,
+-			doTunneledWebRequest: true,
+-			doTunneledNTPRequest: true,
+-			doDanglingTCPConn:    true,
+-			doSplitTunnel:        true,
+-			doLogHostProvider:    true,
+-			doLogProtobuf:        useProtobufLogging,
++			tunnelProtocol:         "OSSH",
++			requireAuthorization:   true,
++			doTunneledWebRequest:   true,
++			doTunneledNTPRequest:   true,
++			doTunneledUDPAssociate: true,
++			doDanglingTCPConn:      true,
++			doSplitTunnel:          true,
++			doLogHostProvider:      true,
++			doLogProtobuf:          useProtobufLogging,
+ 		})
+ }
+ 
+@@ -846,6 +848,7 @@
+ 	doTunneledWebRequest         bool
+ 	doTunneledDomainRequest      bool
+ 	doTunneledNTPRequest         bool
++	doTunneledUDPAssociate       bool
+ 	applyPrefix                  bool
+ 	forceFragmenting             bool
+ 	forceLivenessTest            bool
+@@ -2337,6 +2340,23 @@
+ 			false, localHTTPProxyPort, "https://psiphon.ca", false, "")
+ 		if err != nil {
+ 			t.Fatalf("tunneled web request failed: %s", err)
++		}
++	}
++
++	if runConfig.doTunneledUDPAssociate {
++
++		// Test: tunneled UDP packets via SOCKS5 UDP ASSOCIATE
++
++		err = makeTunneledUDPAssociateRequest(t, localSOCKSProxyPort)
++
++		if err == nil {
++			if expectTrafficFailure {
++				t.Fatalf("unexpected tunneled UDP associate request success")
++			}
++		} else {
++			if !expectTrafficFailure {
++				t.Fatalf("tunneled UDP associate request failed: %s", err)
++			}
+ 		}
+ 	}
+ 
+@@ -4041,6 +4061,252 @@
+ 	}
+ 
+ 	return nil
++}
++
++// makeTunneledUDPAssociateRequest exercises the client's SOCKS5 UDP ASSOCIATE
++// support, which relays datagrams over a udpgw channel. A DNS request resolves
++// a hostname, then an NTP request is made to the resolved address, so both the
++// transparent DNS path and an ordinary UDP port forward are covered.
++func makeTunneledUDPAssociateRequest(t *testing.T, localSOCKSProxyPort int) error {
++
++	timeout := 20 * time.Second
++
++	socksProxyAddress := fmt.Sprintf("127.0.0.1:%d", localSOCKSProxyPort)
++
++	controlConn, err := net.DialTimeout("tcp", socksProxyAddress, timeout)
++	if err != nil {
++		return fmt.Errorf("DialTimeout failed: %s", err)
++	}
++	defer controlConn.Close()
++
++	err = controlConn.SetDeadline(time.Now().Add(timeout))
++	if err != nil {
++		return fmt.Errorf("SetDeadline failed: %s", err)
++	}
++
++	_, err = controlConn.Write([]byte{0x05, 0x01, 0x00})
++	if err != nil {
++		return fmt.Errorf("write auth methods failed: %s", err)
++	}
++
++	authResponse := make([]byte, 2)
++	_, err = io.ReadFull(controlConn, authResponse)
++	if err != nil {
++		return fmt.Errorf("read auth response failed: %s", err)
++	}
++	if authResponse[0] != 0x05 || authResponse[1] != 0x00 {
++		return fmt.Errorf("unexpected auth response: %v", authResponse)
++	}
++
++	_, err = controlConn.Write(
++		[]byte{0x05, 0x03, 0x00, 0x01, 0, 0, 0, 0, 0, 0})
++	if err != nil {
++		return fmt.Errorf("write UDP associate request failed: %s", err)
++	}
++
++	associateResponse := make([]byte, 4)
++	_, err = io.ReadFull(controlConn, associateResponse)
++	if err != nil {
++		return fmt.Errorf("read UDP associate response failed: %s", err)
++	}
++	if associateResponse[0] != 0x05 {
++		return fmt.Errorf("unexpected SOCKS version: 0x%02x", associateResponse[0])
++	}
++	if associateResponse[1] != 0x00 {
++		return fmt.Errorf("UDP associate rejected: 0x%02x", associateResponse[1])
++	}
++
++	var relayIP net.IP
++	switch associateResponse[3] {
++	case 0x01:
++		relayIP = make(net.IP, net.IPv4len)
++	case 0x04:
++		relayIP = make(net.IP, net.IPv6len)
++	default:
++		return fmt.Errorf("unexpected address type: 0x%02x", associateResponse[3])
++	}
++	_, err = io.ReadFull(controlConn, relayIP)
++	if err != nil {
++		return fmt.Errorf("read relay address failed: %s", err)
++	}
++	rawRelayPort := make([]byte, 2)
++	_, err = io.ReadFull(controlConn, rawRelayPort)
++	if err != nil {
++		return fmt.Errorf("read relay port failed: %s", err)
++	}
++	relayAddr := &net.UDPAddr{
++		IP:   relayIP,
++		Port: int(rawRelayPort[0])<<8 | int(rawRelayPort[1]),
++	}
++
++	if !relayIP.IsLoopback() {
++		return fmt.Errorf("unexpected non-loopback relay address: %s", relayAddr)
++	}
++
++	relayConn, err := net.DialUDP("udp", nil, relayAddr)
++	if err != nil {
++		return fmt.Errorf("DialUDP failed: %s", err)
++	}
++	defer relayConn.Close()
++
++	err = relayConn.SetDeadline(time.Now().Add(timeout))
++	if err != nil {
++		return fmt.Errorf("SetDeadline failed: %s", err)
++	}
++
++	// The Psiphon server performs transparent DNS forwarding for destination
++	// port 53, using its own resolver, so this destination is not required to
++	// be reachable.
++	dnsConn := newSocks5UDPDatagramConn(
++		relayConn, &net.UDPAddr{IP: net.IP{8, 8, 8, 8}, Port: 53})
++
++	testHostnames := []string{"time.google.com", "time.nist.gov", "pool.ntp.org"}
++	indexes := prng.Perm(len(testHostnames))
++
++	var addrs []net.IP
++	var testHostname string
++	for _, index := range indexes {
++		testHostname = testHostnames[index]
++		addrs, err = resolveIP(testHostname, dnsConn)
++		if err == nil && len(addrs) > 0 && len(addrs[0]) >= 4 {
++			break
++		}
++		t.Logf("UDP associate resolveIP for %s failed: %v", testHostname, err)
++		err = std_errors.New("no address")
++	}
++	if err != nil {
++		return fmt.Errorf("UDP associate DNS request failed: %s", err)
++	}
++
++	ntpIP := net.IP(addrs[0][len(addrs[0])-4:])
++
++	ntpConn := newSocks5UDPDatagramConn(
++		relayConn, &net.UDPAddr{IP: ntpIP, Port: 123})
++
++	ntpData := make([]byte, 48)
++	ntpData[0] = 3<<3 | 3
++
++	_, err = ntpConn.Write(ntpData)
++	if err != nil {
++		return fmt.Errorf("UDP associate NTP write failed: %s", err)
++	}
++
++	_, err = ntpConn.Read(ntpData)
++	if err != nil {
++		return fmt.Errorf("UDP associate NTP read failed: %s", err)
++	}
++
++	var sec, frac uint64
++	sec = uint64(ntpData[43]) | uint64(ntpData[42])<<8 | uint64(ntpData[41])<<16 | uint64(ntpData[40])<<24
++	frac = uint64(ntpData[47]) | uint64(ntpData[46])<<8 | uint64(ntpData[45])<<16 | uint64(ntpData[44])<<24
++
++	nsec := sec * 1e9
++	nsec += (frac * 1e9) >> 32
++
++	ntpNow := time.Date(1900, 1, 1, 0, 0, 0, 0, time.UTC).Add(time.Duration(nsec)).Local()
++
++	now := time.Now()
++
++	diff := ntpNow.Sub(now)
++	if diff < 0 {
++		diff = -diff
++	}
++
++	if diff > 1*time.Minute {
++		return fmt.Errorf("Unexpected NTP time: %s; local time: %s", ntpNow, now)
++	}
++
++	return nil
++}
++
++// socks5UDPDatagramConn is a net.Conn which wraps and unwraps SOCKS5 UDP
++// request headers for a fixed destination, so that ordinary datagram-oriented
++// code may be run over a SOCKS5 UDP relay.
++type socks5UDPDatagramConn struct {
++	net.Conn
++	destination *net.UDPAddr
++}
++
++func newSocks5UDPDatagramConn(
++	conn net.Conn, destination *net.UDPAddr) *socks5UDPDatagramConn {
++
++	return &socks5UDPDatagramConn{Conn: conn, destination: destination}
++}
++
++// ReadFrom and WriteTo satisfy net.PacketConn, which miekg/dns checks for to
++// select datagram framing over the length-prefixed stream framing.
++func (conn *socks5UDPDatagramConn) ReadFrom(b []byte) (int, net.Addr, error) {
++	n, err := conn.Read(b)
++	return n, conn.destination, err
++}
++
++func (conn *socks5UDPDatagramConn) WriteTo(b []byte, _ net.Addr) (int, error) {
++	return conn.Write(b)
++}
++
++// Close is a no-op: the underlying relay connection is shared by every
++// destination and is closed by the caller.
++func (conn *socks5UDPDatagramConn) Close() error {
++	return nil
++}
++
++func (conn *socks5UDPDatagramConn) Write(b []byte) (int, error) {
++
++	datagram := []byte{0x00, 0x00, 0x00}
++
++	if ip4 := conn.destination.IP.To4(); ip4 != nil {
++		datagram = append(datagram, 0x01)
++		datagram = append(datagram, ip4...)
++	} else {
++		datagram = append(datagram, 0x04)
++		datagram = append(datagram, conn.destination.IP.To16()...)
++	}
++	datagram = append(datagram,
++		byte(conn.destination.Port>>8), byte(conn.destination.Port))
++	datagram = append(datagram, b...)
++
++	_, err := conn.Conn.Write(datagram)
++	if err != nil {
++		return 0, err
++	}
++
++	return len(b), nil
++}
++
++func (conn *socks5UDPDatagramConn) Read(b []byte) (int, error) {
++
++	buffer := make([]byte, 65535)
++
++	for {
++		n, err := conn.Conn.Read(buffer)
++		if err != nil {
++			return 0, err
++		}
++		if n < 4 {
++			continue
++		}
++
++		position := 4
++		switch buffer[3] {
++		case 0x01:
++			position += net.IPv4len
++		case 0x04:
++			position += net.IPv6len
++		case 0x03:
++			if n < 5 {
++				continue
++			}
++			position += 1 + int(buffer[4])
++		default:
++			continue
++		}
++		position += 2
++		if n < position {
++			continue
++		}
++
++		return copy(b, buffer[position:n]), nil
++	}
+ }
+ 
+ func makeTunneledNTPRequest(t *testing.T, localSOCKSProxyPort int, udpgwServerAddress string) error {
+--- a/psiphon/common/goptlib/socks.go
++++ b/psiphon/common/goptlib/socks.go
+@@ -16,8 +16,12 @@
+ 	socksAuthUsernamePassword    = 0x02
+ 	socksAuthNoAcceptableMethods = 0xff
+ 
+-	socksCmdConnect = 0x01
+-	socksReserved   = 0x00
++	socksCmdConnect      = 0x01
++	socksCmdUDPAssociate = 0x03
++	socksReserved        = 0x00
++
++	SocksCmdConnect      = socksCmdConnect
++	SocksCmdUDPAssociate = socksCmdUDPAssociate
+ 
+ 	socksAtypeV4         = 0x01
+ 	socksAtypeDomainName = 0x03
+@@ -55,7 +59,12 @@
+ 
+ // SocksRequest describes a SOCKS request.
+ type SocksRequest struct {
+-	// The endpoint requested by the client as a "host:port" string.
++	// The SOCKS5 command, either SocksCmdConnect or SocksCmdUDPAssociate.
++	// SOCKS4a requests are always SocksCmdConnect.
++	Command byte
++	// The endpoint requested by the client as a "host:port" string. For
++	// SocksCmdUDPAssociate this is the address the client will send datagrams
++	// from, which clients commonly leave as "0.0.0.0:0".
+ 	Target string
+ 	// The userid string sent by the client.
+ 	Username string
+@@ -507,7 +516,7 @@
+ }
+ 
+ // socks5ReadCommand reads a SOCKS5 client command and parses out the relevant
+-// fields into a SocksRequest.  Only CMD_CONNECT is supported.
++// fields into a SocksRequest. CMD_CONNECT and CMD_UDP_ASSOCIATE are supported.
+ func socks5ReadCommand(rw *bufio.ReadWriter, req *SocksRequest) (err error) {
+ 	sendErrResp := func(reason byte) {
+ 		// Swallow errors that occur when writing/flushing the response,
+@@ -522,11 +531,20 @@
+ 		err = newTemporaryNetError("socks5ReadCommand: %s", err)
+ 		return
+ 	}
+-	if err = socksReadByteVerify(rw.Reader, "command", socksCmdConnect); err != nil {
++	var command byte
++	if command, err = socksReadByte(rw.Reader); err != nil {
++		sendErrResp(SocksRepGeneralFailure)
++		err = newTemporaryNetError("socks5ReadCommand: Failed to read command: %s", err)
++		return
++	}
++	if command != socksCmdConnect && command != socksCmdUDPAssociate {
+ 		sendErrResp(SocksRepCommandNotSupported)
+-		err = newTemporaryNetError("socks5ReadCommand: %s", err)
+-		return
+-	}
++		err = newTemporaryNetError(
++			"socks5ReadCommand: SOCKS message field command was 0x%02x, not 0x%02x or 0x%02x",
++			command, socksCmdConnect, socksCmdUDPAssociate)
++		return
++	}
++	req.Command = command
+ 	if err = socksReadByteVerify(rw.Reader, "reserved", socksReserved); err != nil {
+ 		sendErrResp(SocksRepGeneralFailure)
+ 		err = newTemporaryNetError("socks5ReadCommand: %s", err)
+@@ -625,6 +643,145 @@
+ 	return sendSocks5Response(w, socksRepSucceeded)
+ }
+ 
++// GrantUDPAssociate sends a SOCKS5 success response carrying the address and
++// port of the UDP relay the client is to send its datagrams to. Unlike Grant,
++// the address is significant and must be reachable by the client.
++func (conn *SocksConn) GrantUDPAssociate(addr *net.UDPAddr) error {
++	if conn.socksVersion != socks5Version {
++		return newTemporaryNetError(
++			"GrantUDPAssociate: UDP associate requires SOCKS5")
++	}
++	return sendSocks5ResponseGrantedUDPAssociate(conn, addr)
++}
++
++func sendSocks5ResponseGrantedUDPAssociate(w io.Writer, addr *net.UDPAddr) error {
++	if addr == nil {
++		return newTemporaryNetError(
++			"sendSocks5ResponseGrantedUDPAssociate: missing address")
++	}
++
++	resp := []byte{socks5Version, socksRepSucceeded, socksReserved}
++
++	encodedAddr, err := EncodeSocks5Address(addr.IP, uint16(addr.Port))
++	if err != nil {
++		return err
++	}
++	resp = append(resp, encodedAddr...)
++
++	if _, err := w.Write(resp); err != nil {
++		return newTemporaryNetError(
++			"sendSocks5ResponseGrantedUDPAssociate: Failed write response: %s", err)
++	}
++
++	return nil
++}
++
++// EncodeSocks5Address encodes an IP address and port in the SOCKS5 address
++// format: ATYP, followed by the address, followed by the port in network byte
++// order.
++func EncodeSocks5Address(ip net.IP, port uint16) ([]byte, error) {
++	var encoded []byte
++	if ip4 := ip.To4(); ip4 != nil {
++		encoded = make([]byte, 0, 1+net.IPv4len+2)
++		encoded = append(encoded, socksAtypeV4)
++		encoded = append(encoded, ip4...)
++	} else if ip16 := ip.To16(); ip16 != nil {
++		encoded = make([]byte, 0, 1+net.IPv6len+2)
++		encoded = append(encoded, socksAtypeV6)
++		encoded = append(encoded, ip16...)
++	} else {
++		return nil, newTemporaryNetError(
++			"EncodeSocks5Address: invalid IP address")
++	}
++	encoded = append(encoded, byte(port>>8), byte(port))
++	return encoded, nil
++}
++
++// Socks5UDPHeaderSize is the size of the fixed portion of the SOCKS5 UDP
++// request header, RSV and FRAG, which precedes the destination address.
++const Socks5UDPHeaderSize = 3
++
++// DecodeSocks5UDPDatagram parses a SOCKS5 UDP request header, returning the
++// destination host, the destination port, and the payload, which aliases the
++// input datagram.
++//
++// Fragmented datagrams, which have a non-zero FRAG field, are rejected: no
++// common SOCKS5 client emits them and reassembly is not implemented.
++func DecodeSocks5UDPDatagram(datagram []byte) (string, uint16, []byte, error) {
++
++	if len(datagram) < Socks5UDPHeaderSize+1 {
++		return "", 0, nil, newTemporaryNetError(
++			"DecodeSocks5UDPDatagram: datagram is too short")
++	}
++	if datagram[2] != 0 {
++		return "", 0, nil, newTemporaryNetError(
++			"DecodeSocks5UDPDatagram: fragmented datagrams are not supported")
++	}
++
++	atype := datagram[3]
++	position := 4
++
++	var host string
++	switch atype {
++	case socksAtypeV4:
++		if len(datagram) < position+net.IPv4len+2 {
++			return "", 0, nil, newTemporaryNetError(
++				"DecodeSocks5UDPDatagram: truncated IPv4 address")
++		}
++		host = net.IP(datagram[position : position+net.IPv4len]).String()
++		position += net.IPv4len
++
++	case socksAtypeV6:
++		if len(datagram) < position+net.IPv6len+2 {
++			return "", 0, nil, newTemporaryNetError(
++				"DecodeSocks5UDPDatagram: truncated IPv6 address")
++		}
++		host = net.IP(datagram[position : position+net.IPv6len]).String()
++		position += net.IPv6len
++
++	case socksAtypeDomainName:
++		length := int(datagram[position])
++		position++
++		if length == 0 {
++			return "", 0, nil, newTemporaryNetError(
++				"DecodeSocks5UDPDatagram: domain name with 0 length")
++		}
++		if len(datagram) < position+length+2 {
++			return "", 0, nil, newTemporaryNetError(
++				"DecodeSocks5UDPDatagram: truncated domain name")
++		}
++		host = string(datagram[position : position+length])
++		position += length
++
++	default:
++		return "", 0, nil, newTemporaryNetError(
++			"DecodeSocks5UDPDatagram: unsupported address type 0x%02x", atype)
++	}
++
++	port := uint16(datagram[position])<<8 | uint16(datagram[position+1])
++	position += 2
++
++	return host, port, datagram[position:], nil
++}
++
++// EncodeSocks5UDPDatagram writes a SOCKS5 UDP response header for the given
++// source address followed by the payload. The returned slice is appended to
++// buffer, which may be nil.
++func EncodeSocks5UDPDatagram(
++	buffer []byte, ip net.IP, port uint16, payload []byte) ([]byte, error) {
++
++	encodedAddr, err := EncodeSocks5Address(ip, port)
++	if err != nil {
++		return nil, err
++	}
++
++	buffer = append(buffer, socksReserved, socksReserved, 0)
++	buffer = append(buffer, encodedAddr...)
++	buffer = append(buffer, payload...)
++
++	return buffer, nil
++}
++
+ // Send a SOCKS5 response with the provided failure reason.
+ func sendSocks5ResponseRejected(w io.Writer, reason byte) error {
+ 	return sendSocks5Response(w, reason)
+@@ -736,6 +893,7 @@
+ 		err = newTemporaryNetError("readSocks4aConnect: SOCKS header had command 0x%02x, not 0x%02x", cmdConnect, socksCmdConnect)
+ 		return
+ 	}
++	req.Command = socksCmdConnect
+ 
+ 	var rawPort []byte
+ 	if rawPort, err = socksReadBytes(r, 2); err != nil {
+--- a/psiphon/common/parameters/parameters.go
++++ b/psiphon/common/parameters/parameters.go
+@@ -336,6 +336,7 @@
+ 	FrontedMeekDialOverridesProbability                = "FrontedMeekDialOverridesProbability"
+ 	FrontedMeekCDNScanSpecParameter                    = "FrontedMeekCDNScanSpec"
+ 	FrontedMeekCDNScanUseBuiltInSpec                   = "FrontedMeekCDNScanUseBuiltInSpec"
++	FrontedMeekCDNScanBuiltInSets                      = "FrontedMeekCDNScanBuiltInSets"
+ 	HoldOffDirectTunnelMinDuration                     = "HoldOffDirectTunnelMinDuration"
+ 	HoldOffDirectTunnelMaxDuration                     = "HoldOffDirectTunnelMaxDuration"
+ 	HoldOffDirectTunnelProviderRegions                 = "HoldOffDirectTunnelProviderRegions"
+@@ -975,6 +976,7 @@
+ 	FrontedMeekDialOverridesProbability:          {value: 1.0, minimum: 0.0},
+ 	FrontedMeekCDNScanSpecParameter:              {value: FrontedMeekCDNScanSpec{}},
+ 	FrontedMeekCDNScanUseBuiltInSpec:             {value: false},
++	FrontedMeekCDNScanBuiltInSets:                {value: []string{}},
+ 
+ 	HoldOffDirectTunnelMinDuration:     {value: time.Duration(0), minimum: time.Duration(0)},
+ 	HoldOffDirectTunnelMaxDuration:     {value: time.Duration(0), minimum: time.Duration(0)},
+--- a/psiphon/common/parameters/frontingSpec_test.go
++++ b/psiphon/common/parameters/frontingSpec_test.go
+@@ -48,7 +48,7 @@
+ 	}
+ 
+ 	override, ok, err := overrides.SelectParameters(
+-		"FASTLY", "example.fastly.net", "front.example")
++		"FASTLY", []string{"example.fastly.net"}, "front.example")
+ 	if err != nil {
+ 		t.Fatalf("SelectParameters failed: %s", err)
+ 	}
+@@ -69,7 +69,7 @@
+ 	}
+ 
+ 	override, ok, err = overrides.SelectParameters(
+-		"AKAMAI", "example.fastly.net", "front.example")
++		"AKAMAI", []string{"example.fastly.net"}, "front.example")
+ 	if err != nil {
+ 		t.Fatalf("SelectParameters failed: %s", err)
+ 	}
+@@ -83,7 +83,7 @@
+ 
+ 	strictOverrides := FrontedMeekDialOverrideSpecs{overrides[0]}
+ 	_, ok, err = strictOverrides.SelectParameters(
+-		"AKAMAI", "example.fastly.net", "front.example")
++		"AKAMAI", []string{"example.fastly.net"}, "front.example")
+ 	if err != nil {
+ 		t.Fatalf("SelectParameters failed: %s", err)
+ 	}
+@@ -122,7 +122,7 @@
+ 
+ 	for _, expectedCandidate := range expected {
+ 		override, ok, err := overrides.SelectCandidateParameters(
+-			"CDN", "front.example", "host.example",
++			"CDN", []string{"front.example"}, "host.example",
+ 			expectedCandidate.candidateNumber)
+ 		if err != nil {
+ 			t.Fatalf("SelectCandidateParameters failed: %s", err)
+--- a/psiphon/common/parameters/frontingSpec.go
++++ b/psiphon/common/parameters/frontingSpec.go
+@@ -85,6 +85,7 @@
+ 	VerifyPins        []string `json:",omitempty"`
+ 	ALPNProtocols     []string `json:",omitempty"`
+ 	TLSProfile        string   `json:",omitempty"`
++	SkipCertVerify    bool     `json:",omitempty"`
+ }
+ 
+ // FrontedMeekDialOverrideParameters is the selected override state returned by
+@@ -97,6 +98,7 @@
+ 	VerifyPins        []string
+ 	ALPNProtocols     []string
+ 	TLSProfile        string
++	SkipCertVerify    bool
+ }
+ 
+ // FrontedMeekCDNScanSpec configures user-provided CDN edge scan candidates.
+@@ -231,10 +233,13 @@
+ }
+ 
+ // SelectParameters selects a fronted meek dial override matching the original
+-// fronting provider, dial address, and Host header. Match groups are ANDed;
+-// regexes within each group are ORed.
++// fronting provider, dial addresses, and Host header. Match groups are ANDed;
++// regexes within each group are ORed. MatchDialAddressRegexes is matched
++// against any of the dialAddresses values.
+ func (overrides FrontedMeekDialOverrideSpecs) SelectParameters(
+-	frontingProviderID, dialAddress, hostHeader string) (*FrontedMeekDialOverrideParameters, bool, error) {
++	frontingProviderID string,
++	dialAddresses []string,
++	hostHeader string) (*FrontedMeekDialOverrideParameters, bool, error) {
+ 
+ 	if len(overrides) == 0 {
+ 		return nil, false, nil
+@@ -244,7 +249,7 @@
+ 		if override == nil {
+ 			continue
+ 		}
+-		matches, err := override.matches(frontingProviderID, dialAddress, hostHeader)
++		matches, err := override.matches(frontingProviderID, dialAddresses, hostHeader)
+ 		if err != nil {
+ 			return nil, false, errors.Trace(err)
+ 		}
+@@ -273,11 +278,13 @@
+ 
+ // CandidateCount returns the number of matching override dial candidates.
+ func (overrides FrontedMeekDialOverrideSpecs) CandidateCount(
+-	frontingProviderID, dialAddress, hostHeader string) (int, error) {
++	frontingProviderID string,
++	dialAddresses []string,
++	hostHeader string) (int, error) {
+ 
+ 	candidates, err := overrides.matchingCandidates(
+ 		frontingProviderID,
+-		dialAddress,
++		dialAddresses,
+ 		hostHeader)
+ 	if err != nil {
+ 		return 0, errors.Trace(err)
+@@ -289,7 +296,9 @@
+ // addresses in config order. candidateNumber advances through that ordered
+ // candidate list, wrapping when all candidates have been tried.
+ func (overrides FrontedMeekDialOverrideSpecs) SelectCandidateParameters(
+-	frontingProviderID, dialAddress, hostHeader string,
++	frontingProviderID string,
++	dialAddresses []string,
++	hostHeader string,
+ 	candidateNumber int) (*FrontedMeekDialOverrideParameters, bool, error) {
+ 
+ 	if candidateNumber < 0 {
+@@ -298,7 +307,7 @@
+ 
+ 	candidates, err := overrides.matchingCandidates(
+ 		frontingProviderID,
+-		dialAddress,
++		dialAddresses,
+ 		hostHeader)
+ 	if err != nil {
+ 		return nil, false, errors.Trace(err)
+@@ -316,7 +325,9 @@
+ // SelectCandidateParametersNoWrap selects from all matching overrides and dial
+ // addresses in config order without wrapping candidateNumber.
+ func (overrides FrontedMeekDialOverrideSpecs) SelectCandidateParametersNoWrap(
+-	frontingProviderID, dialAddress, hostHeader string,
++	frontingProviderID string,
++	dialAddresses []string,
++	hostHeader string,
+ 	candidateNumber int) (*FrontedMeekDialOverrideParameters, bool, error) {
+ 
+ 	if candidateNumber < 0 {
+@@ -325,7 +336,7 @@
+ 
+ 	candidates, err := overrides.matchingCandidates(
+ 		frontingProviderID,
+-		dialAddress,
++		dialAddresses,
+ 		hostHeader)
+ 	if err != nil {
+ 		return nil, false, errors.Trace(err)
+@@ -341,7 +352,9 @@
+ }
+ 
+ func (overrides FrontedMeekDialOverrideSpecs) matchingCandidates(
+-	frontingProviderID, dialAddress, hostHeader string) (
++	frontingProviderID string,
++	dialAddresses []string,
++	hostHeader string) (
+ 	[]frontedMeekDialOverrideCandidate, error) {
+ 
+ 	if len(overrides) == 0 {
+@@ -354,7 +367,7 @@
+ 		if override == nil {
+ 			continue
+ 		}
+-		matches, err := override.matches(frontingProviderID, dialAddress, hostHeader)
++		matches, err := override.matches(frontingProviderID, dialAddresses, hostHeader)
+ 		if err != nil {
+ 			return nil, errors.Trace(err)
+ 		}
+@@ -397,6 +410,7 @@
+ 		VerifyPins:        copyStrings(override.VerifyPins),
+ 		ALPNProtocols:     copyStrings(override.ALPNProtocols),
+ 		TLSProfile:        override.TLSProfile,
++		SkipCertVerify:    override.SkipCertVerify,
+ 	}
+ }
+ 
+@@ -768,6 +782,9 @@
+ 		if len(override.VerifyPins) > 0 && len(override.VerifyServerNames) == 0 {
+ 			return errors.TraceNew("fronted meek dial override verify pins require verify server names")
+ 		}
++		if override.SkipCertVerify && len(override.VerifyPins) > 0 {
++			return errors.TraceNew("fronted meek dial override skip cert verify is incompatible with verify pins")
++		}
+ 		for _, pin := range override.VerifyPins {
+ 			if pin == "" {
+ 				return errors.TraceNew("empty fronted meek dial override verify pin")
+@@ -792,14 +809,16 @@
+ }
+ 
+ func (override *FrontedMeekDialOverride) matches(
+-	frontingProviderID, dialAddress, hostHeader string) (bool, error) {
++	frontingProviderID string,
++	dialAddresses []string,
++	hostHeader string) (bool, error) {
+ 
+ 	matches, err := matchesRegexes(override.MatchFrontingProviderIDRegexes, frontingProviderID)
+ 	if err != nil || !matches {
+ 		return matches, errors.Trace(err)
+ 	}
+ 
+-	matches, err = matchesRegexes(override.MatchDialAddressRegexes, dialAddress)
++	matches, err = matchesRegexesAny(override.MatchDialAddressRegexes, dialAddresses)
+ 	if err != nil || !matches {
+ 		return matches, errors.Trace(err)
+ 	}
+@@ -841,6 +860,22 @@
+ 	return false, nil
+ }
+ 
++func matchesRegexesAny(regexes []string, values []string) (bool, error) {
++	if len(regexes) == 0 {
++		return true, nil
++	}
++	for _, value := range values {
++		matches, err := matchesRegexes(regexes, value)
++		if err != nil {
++			return false, errors.Trace(err)
++		}
++		if matches {
++			return true, nil
++		}
++	}
++	return false, nil
++}
++
+ func copyStrings(values []string) []string {
+ 	if len(values) == 0 {
+ 		return nil

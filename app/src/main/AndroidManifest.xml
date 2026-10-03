@@ -61,6 +61,13 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter android:label="وارد کردن پروفایل در قاجار">
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -72,7 +79,6 @@
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:host="*" />
-                <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="application/x-grt" />
                 <data android:mimeType="application/x-openvpn-profile" />
             </intent-filter>
@@ -150,7 +156,6 @@
                 <data android:scheme="file" />
                 <data android:mimeType="application/json" />
                 <data android:mimeType="text/plain" />
-                <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter android:label="مرکز کانفیگ قاجار">
                 <action android:name="android.intent.action.VIEW" />
@@ -158,6 +163,11 @@
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:mimeType="*/*" />
+                <data android:host="*" />
+                <data android:pathPattern=".*\\.bpf" />
+                <data android:pathPattern=".*\\..*\\.bpf" />
+                <data android:pathPattern=".*\\..*\\.npvt" />
+                <data android:pathPattern=".*\\..*\\.npvs" />
                 <data android:pathPattern=".*\\.npvt" />
                 <data android:pathPattern=".*\\.npvs" />
                 <data android:pathPattern=".*\\.npvtsub" />

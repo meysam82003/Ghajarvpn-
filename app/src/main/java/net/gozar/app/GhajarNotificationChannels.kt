@@ -16,6 +16,8 @@ object GhajarNotificationChannels {
     private var lastErrorAt = -30_000L
     val settings = listOf(
         "gozarnet_vpn" to "سرویس VPN",
+        GhajarQuickControls.CHANNEL to "کنترل سریع قاجار",
+        "ghajar_app_updates" to "بروزرسانی قاجار",
         BrandConfig.NOTIFICATION_CHANNEL_CONNECTION to "رویداد اتصال",
         ERROR to "خطای اتصال",
         PLUGIN_SERVICE to "سرویس VPN افزونه",
@@ -27,6 +29,7 @@ object GhajarNotificationChannels {
     fun ensure(context: Context) {
         val manager = context.getSystemService(NotificationManager::class.java) ?: return
         val importance = mapOf("gozarnet_vpn" to NotificationManager.IMPORTANCE_LOW,
+            GhajarQuickControls.CHANNEL to NotificationManager.IMPORTANCE_LOW,
             PLUGIN_SERVICE to NotificationManager.IMPORTANCE_LOW,
             ERROR to NotificationManager.IMPORTANCE_HIGH,
             BrandConfig.NOTIFICATION_CHANNEL_SERVICE to NotificationManager.IMPORTANCE_HIGH,

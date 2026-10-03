@@ -140,5 +140,13 @@ class GhajarLogRedactionTest {
         GhajarLog.i("Regression", "password=synthetic-sensitive-value")
         assertFalse(GhajarLog.entries.value.last().message.contains("synthetic-sensitive-value"))
     }
+    @Test fun `vault keys and complete escaped secrets never reach diagnostics`() {
+        assertGone("one two", "{\"token_secret\":\"one two\"}")
+        assertGone("suffix", "{\"password\":\"prefix\\\" suffix\"}")
+        assertGone("x", "cookie=x")
+        assertGone("syntheticBase64Key+/=", "masterKey=syntheticBase64Key+/=")
+        assertGone("private-profile-host", "failure: {\"rawConfig\":{\"server\":\"private-profile-host\"}}")
+        assertGone("private-profile-host", "failed ProxyConfig(address=private-profile-host, extra={})")
+    }
 
 }

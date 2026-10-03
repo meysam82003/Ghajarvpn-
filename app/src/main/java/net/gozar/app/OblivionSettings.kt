@@ -39,7 +39,13 @@ fun OblivionSettings(raw: String, onChange: (String)->Unit) {
         OutlinedButton(onClick={expanded=!expanded},modifier=Modifier.fillMaxWidth()){Text(title+if(expanded)" ▴" else " ▾")}
         if(expanded)Column(verticalArrangement=Arrangement.spacedBy(10.dp)){content()}
     }
-    choice("هسته","core",listOf("psiphon" to "سایفون","aether" to "Aether","chain" to "Aether سپس سایفون"))
+    choice("هسته","core",listOf("psiphon" to "سایفون","aether" to "Aether","chain" to "Aether سپس سایفون", "tor-over-aether" to "برنامه ← Tor روی Aether"))
+    if(options.core in AetherTorPolicy.modes) {
+        Text("زنجیره فقط TCP و DNS روی TCP دارد؛ UDP/H3/WireGuard روی Tor ارائه نمی‌شود. Bridge ساده مجاز است؛ pluggable transport و bypass مستقیم تأیید نشده‌اند. آزمون Android هنوز لازم است.")
+        Text("جهت Aether H2 روی Tor به اصلاح DNS ثبت حساب در موتور و تأیید باینری نیاز دارد و فعلاً فعال نیست.")
+        field("کشور خروجی Tor (اختیاری)", "torCountry")
+        field("Bridge ساده (اختیاری، هر خط IP:port fingerprint)", "torBridges")
+    }
     if(options.core=="chain")Text("در این حالت ابتدا Aether و سپس تونل سایفون برقرار می‌شود؛ پروتکل‌های TCP استفاده می‌شوند.")
     if(options.aether)section("پروتکل و پیدا کردن سرور") {
         choice("پروتکل","protocol",listOf("masque" to "MASQUE","wg" to "WireGuard","gool" to "gool — WireGuard تو در تو", "mim" to "mim — MASQUE تو در تو"))

@@ -16,6 +16,7 @@ object PluginProfiles {
         require((p.optJSONObject("settings")?.toString()?.toByteArray()?.size ?: 0) <= 65536)
         val candidate = requireNotNull(PluginCatalog.candidate(p.getString("id")))
         require(p.getString("format") in candidate.formats)
+        if (candidate.id == "mihomo") net.gozar.plugin.api.MihomoFiles.decode(p.optJSONObject("settings") ?: JSONObject())
         return PluginProfile(p.getString("id"), p.getString("format"), p.getString("payload"), p.optString("version"), p.optJSONObject("settings") ?: JSONObject())
     }
     fun create(id: String, format: String, original: String, name: String = "", source: ConfigSource = ConfigSource.PERSONAL): ProxyConfig {

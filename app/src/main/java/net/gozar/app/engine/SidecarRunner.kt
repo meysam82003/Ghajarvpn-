@@ -179,6 +179,7 @@ object Sidecars {
     fun vaydnsArgs(spec: JSONObject, port: String): List<String> {
         val (flag, resolver) = resolverFlag(spec)
         val out = mutableListOf(flag, resolver, "-pubkey", pubkey(spec), "-domain", domain(spec), "-listen", "127.0.0.1:$port")
+        out += DnsTunnelTuning.args(spec)
         spec.optString("recordType").takeIf { it in setOf("txt", "null", "cname", "a", "aaaa", "mx", "ns", "srv", "caa") }
             ?.let { out += listOf("-record-type", it) }
         if (spec.optBoolean("dnsttCompat")) out += "-dnstt-compat"

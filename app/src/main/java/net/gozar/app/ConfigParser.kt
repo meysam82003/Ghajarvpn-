@@ -7,6 +7,9 @@ import java.net.URLDecoder
 
 object ConfigParser {
 
+    fun parseFile(bytes: ByteArray, name: String = "import"): List<ProxyConfig> =
+        net.gozar.app.configtoolkit.DecoderRegistry().decode(net.gozar.app.configtoolkit.ConfigInput(bytes, name)).profiles.map { it.toProxyConfig() }
+
     fun parseBundle(text: String, source: ConfigSource = ConfigSource.PERSONAL): List<ProxyConfig> {
         net.gozar.app.sharing.DirectShare.importPackage(text, source)?.let { return it }
         net.gozar.app.plugins.PluginProfiles.import(text, source)?.let { return listOf(it) }
@@ -153,7 +156,7 @@ object ConfigParser {
             "ws" -> {
                 val ws = stream.optJSONObject("wsSettings")
                 path = ws?.optString("path").orEmpty()
-                host = ws?.optJSONObject("headers")?.optString("Host").orEmpty()
+                host = ws?.optJSONObject("headers")?.optString("Host").orEmpty().ifBlank { ws?.optString("host").orEmpty() }
                 if (host.isEmpty()) host = ws?.optString("host").orEmpty()
             }
             "httpupgrade" -> {
@@ -649,6 +652,7 @@ object ConfigParser {
         val domain = uhp.substringAfterLast('@').trim().trim('/').trim('.')
         val user = if (uhp.contains('@')) uhp.substringBeforeLast('@') else ""
         val colon = user.indexOf(':')
+        require(p["transport"].isNullOrBlank() || p["transport"]!!.lowercase() in setOf("udp", "dot", "doh")) { "Unsupported DNS transport" }
         val transport = p["transport"].orEmpty().lowercase().let { if (it == "doh" || it == "dot") it else if (p["doh"] != null) "doh" else "udp" }
         val doh = p["doh"].orEmpty()
         val (rHost, rPort) = if (transport == "doh") {
@@ -657,6 +661,7 @@ object ConfigParser {
         } else splitHostPortOrDefault(p["resolver"].orEmpty(), if (transport == "dot") 853 else 53)
         // Engine options that have no field of their own (see Sidecars).
         val extra = org.json.JSONObject().apply {
+            net.gozar.app.engine.DnsTunnelTuning.fromQuery(protocol, p)?.let { put("tuning", it) }
             p["record"]?.let { put("recordType", it.lowercase()) }
             p["compat"]?.let { put("dnsttCompat", it == "1" || it.equals("true", true)) }
             p["qname"]?.toIntOrNull()?.let { put("maxQnameLen", it) }
@@ -846,6 +851,7 @@ object ConfigParser {
 
     fun parseWireguardConf(text: String, source: ConfigSource = ConfigSource.PERSONAL): ProxyConfig? {
         return try {
+            var peerNumber = 0
             var section = ""
             var privateKey = ""
             var address = ""
@@ -861,6 +867,7 @@ object ConfigParser {
                 if (line.isEmpty()) continue
                 if (line.startsWith("[") && line.endsWith("]")) {
                     section = line.lowercase()
+                    if (section == "[peer]") peerNumber++
                     continue
                 }
                 val eq = line.indexOf('=')
@@ -870,7 +877,7 @@ object ConfigParser {
                 if (section == "[interface]") {
                     when (key) {
                         "privatekey" -> privateKey = value
-                        "address" -> address = value
+                        "address" -> address = if (address.isBlank()) value else "$address,$value"
                         "mtu" -> mtu = value.toIntOrNull() ?: 0
                         "reserved" -> reserved = value
                         "name" -> label = value
@@ -880,7 +887,7 @@ object ConfigParser {
                         "jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5" ->
                             if (value.isNotBlank() && value != "0") amnezia = true
                     }
-                } else if (section == "[peer]") {
+                } else if (section == "[peer]" && peerNumber == 1) {
                     when (key) {
                         "publickey" -> publicKey = value
                         "presharedkey" -> preShared = value
@@ -930,12 +937,12 @@ object ConfigParser {
             if (q >= 0) {
                 for (part in main.substring(q + 1).split("&")) {
                     val i = part.indexOf('=')
-                    if (i > 0) params[dec(part.substring(0, i)).lowercase()] = dec(part.substring(i + 1))
+                    if (i > 0) params[dec(part.substring(0, i)).lowercase()] = pctDecode(part.substring(i + 1))
                 }
             }
             val at = core.lastIndexOf('@')
             if (at <= 0) return null
-            val key = dec(core.substring(0, at))
+            val key = pctDecode(core.substring(0, at))
             val hostPart = core.substring(at + 1)
             val colon = hostPart.lastIndexOf(':')
             if (colon <= 0) return null

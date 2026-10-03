@@ -99,9 +99,9 @@ class SharingTest {
     @Test fun sharingCapabilityExcludesUnprovenEnginePaths() {
         assertTrue(net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(profile()))
         assertFalse(net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(profile().copy(protocol="wireguard")))
-        assertFalse(net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(profile().copy(protocol="openconnect")))
+        assertTrue(net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(profile().copy(protocol="openconnect")))
         val hopping=EngineSettings.merge(profile().copy(protocol="hysteria2"),mapOf("server_ports" to "443:445"))
-        assertFalse(net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(hopping))
+        assertTrue(net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(hopping))
         val bundle=JSONObject(DirectShare.packageOf(profile(),emptyList()))
         assertEquals("XRAY",bundle.getString("coreRequirement"))
     }

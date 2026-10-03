@@ -9,31 +9,15 @@ import java.util.Base64
 import javax.crypto.Mac
 import javax.crypto.spec.SecretKeySpec
 
-/**
- * NPV Tunnel (NapsternetV) export containers: .npvs and the NPVO1 open export.
- *
- * Ported from Pantegnos (MIT, Copyright (c) 2026 FrontierTM,
- * https://github.com/FrontierTM/Pantegnos, internal/modules/impl/npvs*.go),
- * limited on purpose to what the person holding the file is entitled to open:
- *
- *  - NPVO1 open export: plain JSON, no key material at all.
- *  - NPVS v1 and v5 ("gen2") sealed with a **passphrase** the sharer gave the
- *    user: PBKDF2-HMAC-SHA256 + ChaCha20-Poly1305 (+ HKDF-SHA256 for v5).
- *
- * Deliberately NOT supported, and reported as protected instead:
- *
- *  - NPVS sealed with the vendor's embedded app key ("appKey", whitebox AES),
- *  - NPVS sealed to recipient public keys (needs the recipient's private key),
- *  - NPVT1 / NPVTSUB1 legacy sealed exports (whitebox AES with an app key).
- *
- * Those are locks the config's author chose; opening them would mean using a
- * key extracted from someone else's app, which this app does not do.
+/** NPV containers. Format reference: Pantegnos MIT v9.4.3 commit 09ae0699;
+ * current upstream HEAD has a different license. See docs/licenses/PANTEGNOS_NPV_MIT.txt.
+ * Authentication of every encrypted record is mandatory; publisher signature remains explicitly unverified.
  */
 object NpvContainer {
 
     sealed class Result {
         /** Share links / text lines, plus the author's message if there is one. */
-        data class Opened(val lines: List<String>, val creatorMessage: String) : Result()
+        data class Opened(val lines: List<String>, val creatorMessage: String, val decoded: NpvDecodedContainer? = null) : Result()
         object NeedsPassphrase : Result()
         object WrongPassphrase : Result()
         /** Sealed with a key the user does not hold; [why] is shown as is. */
@@ -46,7 +30,7 @@ object NpvContainer {
     private const val SENTINEL_ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=_-"
     private const val MAX_BYTES = 8 * 1024 * 1024
     private const val MIN_ITERS = 1
-    private const val MAX_ITERS = 10_000_000
+    private const val MAX_ITERS = 600_000 // bounded mobile CPU budget; larger work factors explicitly rejected
 
     // v5 compact envelope constants (npvs_gen2.go).
     private const val GEN2_VERSION = 5
@@ -73,8 +57,8 @@ object NpvContainer {
         val head = String(bytes.copyOfRange(0, minOf(bytes.size, 16)), Charsets.ISO_8859_1).trimStart()
         return when {
             head.startsWith(OPEN_MARKER) -> openExport(bytes)
-            head.startsWith("NPVTSUB1") || head.startsWith("NPVT1") ->
-                Result.Protected("این فایل NPVT قدیمی است که با کلید داخلی خود اپ NPV قفل شده؛ باز کردنش یعنی دور زدن قفل سازنده و پشتیبانی نمی‌شود. از سازنده لینک یا خروجی باز (NPVO1) بخواهید.")
+            head.startsWith("NPVT1") -> openLegacy(bytes)
+            head.startsWith("NPVTSUB1") -> Result.Invalid("نسل NPVTSUB1 هنوز با الگوریتم و fixture معتبر تطبیق نشده است؛ NPVT1 فرض نمی‌شود.")
             bytes.size >= 9 && bytes[0] == 'N'.code.toByte() && bytes[1] == 'P'.code.toByte() &&
                 bytes[2] == 'V'.code.toByte() && bytes[3] == 'S'.code.toByte() ->
                 if (bytes[4].toInt() == GEN2_VERSION) openGen2(bytes, passphrase) else openV1(bytes, passphrase)
@@ -82,86 +66,126 @@ object NpvContainer {
         }
     }
 
+    private fun openLegacy(bytes: ByteArray): Result = try {
+        val raw = bytes.toString(Charsets.UTF_8).trimStart()
+        require(raw.startsWith("NPVT1")) { "Invalid NPVT header" }
+        val body = raw.substring(5).filterNot(Char::isWhitespace)
+        val tokens = body.split(','); require(tokens.size == 3) { "Truncated NPVT container: expected 3 chunks" }
+        val chunks = tokens.map { token ->
+            require(token.length in 24..(MAX_BYTES * 4 / 3)) { "Truncated NPVT token" }
+            val b = try { Base64.getDecoder().decode(token) } catch (_: IllegalArgumentException) {
+                try { Base64.getUrlDecoder().decode(token) } catch (_: IllegalArgumentException) { throw IllegalArgumentException("Malformed Base64") }
+            }
+            NpvWhitebox.legacyCtr(b).let { plain -> try { strictUtf8(plain) } finally { plain.fill(0) } }
+        }
+        val version = chunks[0].trim().toIntOrNull() ?: throw IllegalArgumentException("Invalid NPVT version record")
+        val profileArray = BoundedJson.objectValue("{\"configs\":" + chunks[1] + "}").getJSONArray("configs")
+        val policy = BoundedJson.objectValue(chunks[2])
+        Result.Opened(emptyList(), "", NpvDecodedContainer("NPVT",version,"legacy-ctr",JSONObject().put("configs",profileArray),
+            metadata = JSONObject().put("policy",policy)))
+    } catch (e: Exception) { Result.Invalid(e.message?.takeIf { it in setOf("Invalid NPVT header", "Truncated NPVT container: expected 3 chunks", "Truncated NPVT token", "Malformed Base64", "Invalid NPVT version record") } ?: "NPVT decode failure: invalid decoded structure") }
+
     // ------------------------------------------------------------ NPVO1 open
 
-    private fun openExport(bytes: ByteArray): Result {
-        val body = String(bytes, Charsets.UTF_8).replace("$OPEN_MARKER\n", "").replace(OPEN_MARKER, "")
-        if (body.isBlank()) return Result.Invalid("فایل NPVO1 خالی است.")
-        val configs = runCatching { JSONObject(body).getJSONArray("configs") }.getOrNull()
-            ?: return Result.Invalid("محتوای NPVO1 فهرست کانفیگ نیست.")
-        if (configs.length() == 0) return Result.Invalid("فایل NPVO1 کانفیگی ندارد.")
-        val lines = (0 until configs.length()).map { link(decodeSentinels(configs.get(it))) }
-        return Result.Opened(lines.filter { it.isNotBlank() }, "")
-    }
+    private fun openExport(bytes: ByteArray): Result = try {
+        val text=strictUtf8(bytes).trimStart()
+        require(text.startsWith(OPEN_MARKER))
+        val root=BoundedJson.objectValue(text.substring(OPEN_MARKER.length).trim())
+        val decoded=decodeSentinels(root) as JSONObject
+        require((decoded.optJSONArray("configs")?.length() ?: 0) in 1..1024)
+        Result.Opened(emptyList(),"",NpvDecodedContainer("NPVO1",1,"open",decoded))
+    } catch (_: Exception) { Result.Invalid("Invalid NPVO1 profile JSON") }
 
     // ---------------------------------------------------------------- NPVS v1
 
     private fun openV1(b: ByteArray, passphrase: String?): Result {
         if (b.size < 89) return Result.Invalid("فایل NPVS ناقص است.")
-        if (b[5] > 1) return Result.Invalid("نسخهٔ این فایل NPVS پشتیبانی نمی‌شود.")
+        if (b[4].toInt() != 1) return Result.Invalid("نسخهٔ این فایل NPVS پشتیبانی نمی‌شود.")
         val hdrLen = ByteBuffer.wrap(b, 5, 4).int
-        if (hdrLen < 0 || 9 + hdrLen > b.size) return Result.Invalid("سرآیند NPVS خراب است.")
+        if (hdrLen < 0 || hdrLen > 1024 * 1024 || hdrLen > b.size - 9) return Result.Invalid("سرآیند NPVS خراب است.")
         val headerRaw = b.copyOfRange(9, 9 + hdrLen)
-        val hdr = runCatching { JSONObject(String(headerRaw, Charsets.UTF_8)) }.getOrNull()
+        val hdr = runCatching { BoundedJson.objectValue(strictUtf8(headerRaw)) }.getOrNull()
             ?: return Result.Invalid("سرآیند NPVS خوانده نشد.")
         var off = 9 + hdrLen
         if (off + 16 > b.size) return Result.Invalid("فایل NPVS ناقص است.")
         val nonce = b.copyOfRange(off, off + 12)
         val bodyLen = ByteBuffer.wrap(b, off + 12, 4).int
         off += 16
-        if (bodyLen < 16 || off + bodyLen + 64 > b.size) return Result.Invalid("بدنهٔ NPVS خراب است.")
+        if (bodyLen < 16 || bodyLen != b.size - off - 64) return Result.Invalid("بدنهٔ NPVS خراب است.")
         val body = b.copyOfRange(off, off + bodyLen)
         val message = creatorMessage(hdr.optJSONObject("policy"))
 
-        val pass = hdr.optJSONObject("passphrase")
-        if (hdr.optJSONObject("appKey") != null) return Result.Protected(appKeyWhy())
-        if (pass == null) {
-            return Result.Protected(if ((hdr.optJSONArray("recipients")?.length() ?: 0) > 0)
-                "این فایل برای گیرندهٔ مشخصی رمز شده و فقط با کلید خصوصی همان گیرنده باز می‌شود."
-            else "روش قفل این فایل شناخته نشد.")
+        val appKey=hdr.optJSONObject("appKey")
+        val pass=hdr.optJSONObject("passphrase")
+        val block=appKey ?: pass ?: return Result.Protected(
+            if ((hdr.optJSONArray("recipients")?.length() ?: 0)>0)
+                "این فایل فقط برای گیرندهٔ مشخص رمز شده و کلید خصوصی گیرنده لازم است."
+            else "روش بازکردن این نسل پشتیبانی نمی‌شود؛ فایل خراب فرض نشده است.")
+        if(appKey==null && passphrase.isNullOrEmpty())return Result.NeedsPassphrase
+        val salt=b64Url(block.optString("salt")) ?: return Result.Invalid("Invalid NPVS salt")
+        val wrap=b64Url(block.optString("wrap")) ?: return Result.Invalid("Invalid NPVS key wrap")
+        if(wrap.size!=60 || salt.size !in 16..64)return Result.Invalid("Invalid NPVS key block size")
+        val keys=if(appKey!=null) {
+            if(appKey.optString("kdf")!="wbaes-ctr-sha256" || appKey.opt("keyId")!=1 || salt.size!=16)
+                return Result.Invalid("Unsupported NPVS app-key KDF or generation")
+            NpvWhitebox.appV1Kdks(salt)
+        } else {
+            if(block.optString("kdf")!="pbkdf2-hmac-sha256")return Result.Invalid("Unsupported NPVS passphrase KDF")
+            val rounds=block.opt("iters")
+            if(rounds !is Int || rounds !in MIN_ITERS..MAX_ITERS)return Result.Invalid("NPVS KDF iteration limit")
+            listOf(pbkdf2(passphrase!!.toByteArray(Charsets.UTF_8),salt,rounds,32))
         }
-        if (passphrase.isNullOrEmpty()) return Result.NeedsPassphrase
-        if (pass.optString("kdf") != "pbkdf2-hmac-sha256") return Result.Invalid("روش رمز این فایل پشتیبانی نمی‌شود.")
-        val iters = pass.optInt("iters")
-        if (iters !in MIN_ITERS..MAX_ITERS) return Result.Invalid("تعداد تکرار رمز نامعتبر است.")
-        val salt = b64Url(pass.optString("salt")) ?: return Result.Invalid("salt نامعتبر است.")
-        val wrap = b64Url(pass.optString("wrap")) ?: return Result.Invalid("wrap نامعتبر است.")
-        if (wrap.size != 60) return Result.Invalid("wrap نامعتبر است.")
-        val kek = pbkdf2(passphrase.toByteArray(Charsets.UTF_8), salt, iters, 32)
-        val dek = ChaCha20Poly1305.open(kek, wrap.copyOfRange(0, 12), wrap.copyOfRange(12, wrap.size), salt)
-            ?: return Result.WrongPassphrase
-        val pt = ChaCha20Poly1305.open(dek, nonce, body, headerRaw)
-            ?: return Result.Invalid("محتوای فایل باز نشد (فایل دستکاری شده است).")
-        val text = decodeSentinels(String(pt, Charsets.UTF_8))
-        return Result.Opened(linesFromPayload(text), message)
+        var dek:ByteArray?=null
+        try {
+            for(key in keys) {
+                dek=ChaCha20Poly1305.open(key,wrap.copyOfRange(0,12),wrap.copyOfRange(12,wrap.size),salt)
+                if(dek!=null)break
+            }
+            val contentKey=dek ?: return if(appKey==null) Result.WrongPassphrase else Result.Invalid("Authentication/tag failure: app-key wrap")
+            val pt=ChaCha20Poly1305.open(contentKey,nonce,body,headerRaw)
+                ?: return Result.Invalid("Authentication/tag failure: body")
+            try {
+                val text=strictUtf8(pt).trim()
+                val root=BoundedJson.objectValue(if(text.startsWith('[')) "{\"configs\":"+text+"}" else text)
+                val decoded=decodeSentinels(root) as JSONObject
+                return Result.Opened(emptyList(),message,NpvDecodedContainer("NPVS",1,"v-envelope",decoded,
+                    metadata=hdr,creator=hdr.optJSONObject("creator")?.toString().orEmpty(),
+                    signature=Base64.getEncoder().encodeToString(b.copyOfRange(b.size-64,b.size))))
+            } catch (_: Exception) { return Result.Invalid("Invalid authenticated profile JSON") }
+            finally { pt.fill(0) }
+        } finally { dek?.fill(0);keys.forEach { it.fill(0) } }
     }
+
 
     // ------------------------------------------------------ NPVS v5 (gen2)
 
     private fun openGen2(b: ByteArray, passphrase: String?): Result {
         val hdrLen = ByteBuffer.wrap(b, 5, 4).int
-        if (hdrLen < GEN2_HEADER_FIXED || 9 + hdrLen > b.size) return Result.Invalid("سرآیند NPVS خراب است.")
+        if (hdrLen < GEN2_HEADER_FIXED || hdrLen > 1024 * 1024 || hdrLen > b.size - 9) return Result.Invalid("سرآیند NPVS خراب است.")
         val h = b.copyOfRange(9, 9 + hdrLen)
         if (h[0].toInt() != 1) return Result.Invalid("نسخهٔ سرآیند NPVS پشتیبانی نمی‌شود.")
         val method = h[50].toInt() and 0xFF
         val recipients = ByteBuffer.wrap(h, 51, 2).short.toInt() and 0xFFFF
         if (recipients > 0x400) return Result.Invalid("سرآیند NPVS خراب است.")
         when (method) {
-            METHOD_APPKEY -> return Result.Protected(appKeyWhy())
+            METHOD_APPKEY -> Unit
             METHOD_RECIPIENT -> return Result.Protected("این فایل برای گیرندهٔ مشخصی رمز شده و فقط با کلید خصوصی همان گیرنده باز می‌شود.")
             METHOD_PASS -> Unit
             else -> return Result.Invalid("روش قفل این فایل شناخته نشد.")
         }
         var off = GEN2_KEY_BLOCK_OFFSET + recipients * (GEN2_RECIPIENT_PK + GEN2_RECIPIENT_WRAP)
-        if (off + GEN2_PASS_BLOCK + 4 > h.size) return Result.Invalid("فایل NPVS ناقص است.")
-        val iters = ByteBuffer.wrap(h, off, 4).int
-        if (iters !in MIN_ITERS..MAX_ITERS) return Result.Invalid("تعداد تکرار رمز نامعتبر است.")
-        val salt = h.copyOfRange(off + 4, off + 20)
-        val wrap = h.copyOfRange(off + 20, off + GEN2_PASS_BLOCK)
-        off += GEN2_PASS_BLOCK
+        val blockSize = if (method == METHOD_APPKEY) GEN2_APPKEY_BLOCK else GEN2_PASS_BLOCK
+        if (off + blockSize + 4 > h.size) return Result.Invalid("فایل NPVS ناقص است.")
+        val iters = if (method == METHOD_PASS) ByteBuffer.wrap(h, off, 4).int else 0
+        if (method == METHOD_PASS && iters !in MIN_ITERS..MAX_ITERS) return Result.Invalid("KDF iteration budget exceeded")
+        if (method == METHOD_APPKEY && ByteBuffer.wrap(h, off, 2).short.toInt() != 2) return Result.Invalid("Unsupported app-key version")
+        val saltOffset = off + if (method == METHOD_PASS) 4 else 2
+        val salt = h.copyOfRange(saltOffset, saltOffset + 16)
+        val wrap = h.copyOfRange(saltOffset + 16, off + blockSize)
+        off += blockSize
         if (off + 4 > h.size) return Result.Invalid("فایل NPVS ناقص است.")
         val metaLen = ByteBuffer.wrap(h, off, 4).int
-        if (metaLen < 16 || off + 4 + metaLen > h.size) return Result.Invalid("فایل NPVS ناقص است.")
+        if (metaLen < 16 || metaLen != h.size - off - 4) return Result.Invalid("فایل NPVS ناقص است.")
         val prefix = h.copyOfRange(0, off)
         val metaBlob = h.copyOfRange(off + 4, off + 4 + metaLen)
 
@@ -170,13 +194,14 @@ object NpvContainer {
         val nonce = b.copyOfRange(boff, boff + 12)
         val bodyLen = ByteBuffer.wrap(b, boff + 12, 4).int
         boff += 16
-        if (bodyLen < 32 || boff + bodyLen + GEN2_SIG > b.size) return Result.Invalid("بدنهٔ NPVS خراب است.")
+        if (bodyLen < 32 || bodyLen != b.size - boff - GEN2_SIG) return Result.Invalid("بدنهٔ NPVS خراب است.")
         val body = b.copyOfRange(boff, boff + bodyLen)
 
-        if (passphrase.isNullOrEmpty()) return Result.NeedsPassphrase
-        val kdk = pbkdf2(passphrase.toByteArray(Charsets.UTF_8), salt, iters, 32)
+        if (method == METHOD_PASS && passphrase.isNullOrEmpty()) return Result.NeedsPassphrase
+        val kdk = if (method == METHOD_APPKEY) NpvWhitebox.gen2Kdk(salt, h.copyOfRange(1,17))
+            else pbkdf2(passphrase!!.toByteArray(Charsets.UTF_8), salt, iters, 32)
         val dek = ChaCha20Poly1305.open(kdk, wrap.copyOfRange(0, 12), wrap.copyOfRange(12, wrap.size), salt)
-            ?: return Result.WrongPassphrase
+            ?: return if (method == METHOD_PASS) Result.WrongPassphrase else Result.Invalid("Authentication/tag failure: app-key wrap")
         val metadata = ChaCha20Poly1305.open(hkdf(dek, nonce, "NPVS-v5/metadata"), nonce, metaBlob, prefix)
             ?: return Result.Invalid("محتوای فایل باز نشد (فایل دستکاری شده است).")
 
@@ -184,32 +209,44 @@ object NpvContainer {
         if (body.size < 66 || String(body, 0, 4, Charsets.ISO_8859_1) != "NPF\u0001") return Result.Invalid("بدنهٔ NPVS خراب است.")
         val contentId = body.copyOfRange(4, 36)
         val count = ByteBuffer.wrap(body, 36, 2).short.toInt() and 0xFFFF
+        if (count !in 1..4096) return Result.Invalid("Record count limit")
         var p = 38
         val fields = HashMap<Int, ByteArray>()
+        val recordHeaders = JSONArray()
         repeat(count) {
             if (p + 6 > body.size) return Result.Invalid("بدنهٔ NPVS ناقص است.")
             val seq = ByteBuffer.wrap(body, p, 2).short.toInt() and 0xFFFF
+            val flags = ByteBuffer.wrap(body, p + 2, 2).short.toInt() and 0xFFFF
             val len = ByteBuffer.wrap(body, p + 4, 2).short.toInt() and 0xFFFF
             if (p + 6 + len > body.size) return Result.Invalid("بدنهٔ NPVS ناقص است.")
             val blob = body.copyOfRange(p + 6, p + 6 + len)
             p += 6 + len
             val ptLen = blob.size - 16
-            if (ptLen < 0) return@repeat
+            if (ptLen < 0 || fields.containsKey(seq)) return Result.Invalid("Invalid or duplicate record")
             val key = hkdf(dek, contentId, "NPV-fields-v1/field/", be16(seq))
             val aad = "NPV-fields-v1/record/".toByteArray() + contentId + be16(seq) + be32(ptLen)
-            ChaCha20Poly1305.open(key, ByteArray(12), blob, aad)?.let { fields[seq] = it }
+            fields[seq] = ChaCha20Poly1305.open(key, ByteArray(12), blob, aad)
+                ?: return Result.Invalid("Authentication/tag failure: record")
+            // Keep ordering and uninterpreted flags. The record AEAD above does not authenticate flags.
+            recordHeaders.put(JSONObject().put("sequence",seq).put("flags",flags).put("cipherLength",len))
         }
+        if (body.size - p !in setOf(0, 32)) return Result.Invalid("Unsupported NPF trailer length")
+        val trailer = body.copyOfRange(p, body.size)
         val table = fields[GEN2_SENTINEL_SEQ] ?: return Result.Invalid("فهرست کانفیگ در فایل پیدا نشد.")
-        val configs = runCatching { JSONObject(String(table, Charsets.UTF_8)).getJSONArray("configs") }.getOrNull()
+        val configs = runCatching { BoundedJson.objectValue(strictUtf8(table)).getJSONArray("configs") }.getOrNull()
             ?: return Result.Invalid("فهرست کانفیگ در فایل خوانده نشد.")
-        val lines = (0 until configs.length()).map { link(substitute(configs.get(it), fields)) }
-        val meta = runCatching { JSONObject(String(metadata, Charsets.UTF_8)).optJSONObject("policy") }.getOrNull()
-        return Result.Opened(lines.filter { it.isNotBlank() }, creatorMessage(meta))
-    }
+        val root = JSONObject().put("configs", JSONArray().apply { for (i in 0 until configs.length()) put(substitute(configs.get(i), fields)) })
+        val meta = runCatching { BoundedJson.objectValue(strictUtf8(metadata)) }.getOrNull()
+            ?: return Result.Invalid("Invalid authenticated metadata JSON")
+        val records = JSONObject().apply { fields.forEach { (seq, value) -> put(seq.toString(), Base64.getEncoder().encodeToString(value)) } }
+        val decoded = NpvDecodedContainer("NPVS", 5, "compact-v1", root, metadata = meta,
+            creator = Base64.getEncoder().encodeToString(h.copyOfRange(17,50)),
+            signature = Base64.getEncoder().encodeToString(b.copyOfRange(b.size-64,b.size)), unknownFields = JSONObject().put("records", records)
+                .put("recordHeaders",recordHeaders).put("contentId",Base64.getEncoder().encodeToString(contentId))
+                .put("unverifiedTrailer", Base64.getEncoder().encodeToString(trailer)))
+        return Result.Opened(emptyList(), creatorMessage(meta.optJSONObject("policy")), decoded)
 
-    private fun appKeyWhy() =
-        "این فایل با کلید داخلی خود اپ NPV قفل شده و رمزی برای شما ندارد؛ باز کردنش یعنی دور زدن قفل سازنده و پشتیبانی نمی‌شود. " +
-            "از سازنده بخواهید خروجی با رمز عبور یا لینک مستقیم بدهد."
+    }
 
     private fun creatorMessage(policy: JSONObject?): String = listOfNotNull(
         policy?.optString("displayMessage"), policy?.optString("customServerMessage")
@@ -244,13 +281,13 @@ object NpvContainer {
         val port = int(p["serverPort"]).takeIf { it > 0 } ?: int(p["port"])
         return when (int(p["configType"])) {
             1 -> vmessLink(host, port, remarks, p)
-            5 -> "vless://${p["password"].orEmpty()}@$host:$port?" +
+            5 -> "vless://${p["password"].orEmpty()}@${bracket(host)}:$port?" +
                 query(streamQuery(p) + listOfNotNull("encryption" to or(p["method"], "none"), p["flow"]?.takeIf { it.isNotBlank() }?.let { "flow" to it })) +
                 "#" + esc(remarks)
-            6 -> "trojan://${esc(p["password"].orEmpty())}@$host:$port?" +
+            6 -> "trojan://${esc(p["password"].orEmpty())}@${bracket(host)}:$port?" +
                 query(streamQuery(p) + listOfNotNull(p["flow"]?.takeIf { it.isNotBlank() }?.let { "flow" to it })) + "#" + esc(remarks)
             3 -> "ss://" + Base64.getEncoder().encodeToString("${p["method"].orEmpty()}:${p["password"].orEmpty()}".toByteArray()) +
-                "@$host:$port#" + esc(remarks)
+                "@${bracket(host)}:$port#" + esc(remarks)
             else -> ""
         }
     }
@@ -365,14 +402,18 @@ object NpvContainer {
     // ------------------------------------------------------------- helpers
 
     private fun substitute(v: Any?, fields: Map<Int, ByteArray>): Any? = when (v) {
-        is Number -> decodeSentinels(fieldText(fields[v.toInt()]))
+        is Number -> { require(v.toDouble() == v.toInt().toDouble() && fields.containsKey(v.toInt())) { "Unknown field reference" }; decodeSentinels(fieldText(fields[v.toInt()])) }
         is JSONObject -> JSONObject().also { out -> v.keys().forEach { k -> out.put(k, substitute(v.opt(k), fields)) } }
         is JSONArray -> JSONArray().also { out -> for (i in 0 until v.length()) out.put(substitute(v.opt(i), fields)) }
         else -> v
     }
 
+    private fun strictUtf8(raw: ByteArray): String = Charsets.UTF_8.newDecoder()
+        .onMalformedInput(java.nio.charset.CodingErrorAction.REPORT).onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT)
+        .decode(ByteBuffer.wrap(raw)).toString()
+
     private fun fieldText(raw: ByteArray?): String {
-        val s = raw?.toString(Charsets.UTF_8)?.trim().orEmpty()
+        val s = raw?.let(::strictUtf8)?.trim().orEmpty()
         if (s.length >= 2 && s.first() == '"' && s.last() == '"') {
             return runCatching { JSONArray("[$s]").getString(0) }.getOrElse { s.substring(1, s.length - 1) }
         }

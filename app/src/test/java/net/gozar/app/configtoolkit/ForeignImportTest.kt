@@ -108,7 +108,7 @@ class ForeignImportTest {
           "endpoints":[{"type":"wireguard","tag":"wg","address":["10.0.0.2/32"],"private_key":"aGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8tMTI=",
              "peers":[{"address":"198.51.100.7","port":51820,"public_key":"d29ybGQtd29ybGQtd29ybGQtd29ybGQtd29ybGQtMTI="}]}]}
         """.trimIndent())
-        val list = ConfigParser.parseJsonOutbounds(sb.toString())
+        val list = net.gozar.app.ForeignImport.singBoxNodes(sb).configs
         val by = list.associateBy { it.name }
         assertEquals(setOf("v", "ss", "t", "wg"), by.keys)
         assertEquals("grpc", by.getValue("v").network); assertEquals("gs", by.getValue("v").serviceName)

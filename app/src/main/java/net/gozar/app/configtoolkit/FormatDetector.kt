@@ -26,6 +26,7 @@ object FormatDetector {
             return FormatDetection(format, (base + extensionBonus).coerceAtMost(100), evidence)
         }
 
+        if (BpfParser.looksLike(input.bytes)) return result(ConfigFormat.BPF, 95, "libbox-profile")
         if (text.startsWith("NPVTSUB1", true)) return result(ConfigFormat.NPVT, 90, "NPVTSUB1")
         if (text.startsWith("NPVT1", true)) return result(ConfigFormat.NPVT, 90, "NPVT1")
         if (text.startsWith("NPVO1", true)) return result(ConfigFormat.NPVS, 95, "NPVO1")

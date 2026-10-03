@@ -359,7 +359,18 @@ object ConfigBuilder {
         sharePass: String = "",
         shareListenAddress: String = "127.0.0.1"
     ): String {
+        net.gozar.app.engine.ChainPlan.validate(config, chainBase)
+        net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
+        if (net.gozar.app.engine.FullSingBoxProfile.isFull(config)) {
+            net.gozar.app.engine.FullSingBoxProfile.spec(config)
+            require(!splitRouting && !directOnly && !fakeDns && !encryptedDns && customDns.isBlank() && !youtubeDirect && !onionRouting && chainBase == null && torBase == null) { "تنظیمات مسیر میزبان با Full Config ترکیب نشده‌اند؛ آن‌ها را صریحاً غیرفعال کنید." }
+            return "{\"outbounds\":[{\"protocol\":\"blackhole\",\"tag\":\"proxy\"}]}"
+        }
         require(!net.gozar.app.plugins.PluginProfiles.isPlugin(config)) { "Full plugin configs require their own engine" }
+        val chainOptions = config.oblivionJson.takeIf { AetherTorPolicy.active(it) }?.let { OblivionOptions(it).also { it.validate() } }
+        if (chainOptions != null) require(!directOnly && !splitRouting && !youtubeDirect && !onionRouting && !fakeDns && chainBase == null && torBase == null) {
+            "زنجیره Aether/Tor با direct/split/onion/FakeDNS یا زنجیره دیگر قابل ترکیب نیست؛ تنظیمات را صریحاً تغییر دهید"
+        }
         val onion = onionRouting && config.protocol != "tor"
         val fake = fakeDns || onion
         val chosenDns = customDns.trim()
@@ -556,10 +567,15 @@ object ConfigBuilder {
             .put("outboundTag", "proxy"))
         root.put("routing", JSONObject().put("domainStrategy", "AsIs").put("rules", rules))
 
+        WireGuardProfile.applyDns(config, root)
+        if (chainOptions != null) AetherTorPolicy.constrain(root, chainOptions)
         return root.toString()
     }
 
     fun buildForTest(config: ProxyConfig, chainBase: ProxyConfig? = null): String {
+        net.gozar.app.engine.ChainPlan.validate(config, chainBase)
+        net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
+        require(!net.gozar.app.engine.FullSingBoxProfile.isFull(config)) { "Full sing-box config requires sing-box" }
         require(!net.gozar.app.plugins.PluginProfiles.isPlugin(config)) { "Plugin profiles cannot be probed through Xray" }
         val root = JSONObject()
         root.put("log", JSONObject().put("loglevel", "none"))
@@ -573,6 +589,7 @@ object ConfigBuilder {
             outbounds.put(buildOutbound(chainBase).put("tag", "chain"))
         }
         root.put("outbounds", outbounds)
+        WireGuardProfile.applyDns(config, root)
         return root.toString()
     }
 
@@ -718,33 +735,7 @@ object ConfigBuilder {
     }
 
     private fun buildWireguard(config: ProxyConfig): JSONObject {
-        val isWarpHost = config.address.equals("engage.cloudflareclient.com", ignoreCase = true)
-        val epAddress = if (isWarpHost) Warp.WARP_ENDPOINT_HOST else config.address
-        val epPort = if (isWarpHost) Warp.WARP_ENDPOINT_PORT else config.port
-
-        val peer = JSONObject()
-            .put("publicKey", config.publicKey)
-            .put("endpoint", "${if (epAddress.contains(':') && !epAddress.startsWith('[')) "[$epAddress]" else epAddress}:$epPort")
-            .put("allowedIPs", JSONArray().put("0.0.0.0/0").put("::/0"))
-
-        if (config.password.isNotEmpty()) peer.put("preSharedKey", config.password)
-
-        val addrs = JSONArray()
-        config.localAddress.split(",").map { it.trim() }.filter { it.isNotEmpty() }
-            .forEach { addrs.put(it) }
-
-        val settings = JSONObject()
-            .put("secretKey", config.privateKey)
-            .put("address", addrs)
-            .put("peers", JSONArray().put(peer))
-        if (config.mtu > 0) settings.put("mtu", config.mtu)
-
-        val reserved = config.reserved.split(",").map { it.trim() }.mapNotNull { it.toIntOrNull() }
-        if (reserved.size == 3) {
-            settings.put("reserved", JSONArray().apply { reserved.forEach { put(it) } })
-        }
-
-        return JSONObject().put("tag", "proxy").put("protocol", "wireguard").put("settings", settings)
+        return JSONObject().put("tag", "proxy").put("protocol", "wireguard").put("settings", WireGuardProfile.settings(config))
     }
 
     private fun normalizeNetwork(n: String): String = when (val v = n.trim().lowercase()) {

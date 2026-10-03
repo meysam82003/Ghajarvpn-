@@ -28,6 +28,7 @@ object CapabilityRegistry {
         EngineId.PLUGIN to CoreContract(ComponentKind.PLUGIN, CapabilityContract(), "Approved signed release capabilities required")
     )
     private val protocolOverrides = mapOf(
+        "http" to socket,
         "openconnect" to socket.copy(supportsUdp = true, supportsDns = true, supportsAdvancedAuth = true),
         "masque" to socket.copy(supportsUdp = true, supportsMasque = true),
         "anytls" to socket.copy(supportsEch = true),
@@ -37,16 +38,29 @@ object CapabilityRegistry {
         "hysteria" to socket.copy(supportsUdp = true)
     )
     fun forConfig(config: ProxyConfig): CapabilityContract {
+        if (FullSingBoxProfile.isFull(config)) return CapabilityContract() // Full text alone proves no runtime capability.
+        if (net.gozar.app.AetherTorPolicy.active(config.oblivionJson)) return socket.copy(supportsDns = true)
         if (PluginProfiles.isPlugin(config)) return CapabilityContract() // UI may show only an approved installed release's claims.
         return protocolOverrides[config.protocol] ?: cores.getValue(EngineRouting.engineFor(config)).capabilities.let { c ->
             c.copy(supportsReality = c.supportsReality && config.protocol == "vless",
                 supportsXhttp = c.supportsXhttp && config.protocol in setOf("vless", "vmess", "trojan"))
         }
     }
-    /** Source-proven remote destination name forwarding; runtime must also confirm Xray owns this session. */
-    fun supportsPhoneSharing(config: ProxyConfig): Boolean =
-        EngineRouting.engineFor(config) in setOf(EngineId.XRAY, EngineId.TOR) &&
-            config.protocol in setOf("vless", "vmess", "trojan", "shadowsocks", "hysteria", "hysteria2", "tor")
+    /** Eligibility only. Session owner publishes a probed, generation-bound backend. */
+    fun supportsPhoneSharing(config: ProxyConfig): Boolean = phoneSharingReason(config) == null
+    fun phoneSharingReason(config: ProxyConfig): String? = when (EngineRouting.engineFor(config)) {
+        EngineId.SINGBOX -> if (FullSingBoxProfile.isFull(config)) "Full Config ممکن است DIRECT داشته باشد؛ قرارداد اشتراک فقط از تونل ندارد." else if (config.protocol == "tailscale") "Tailscale ممکن است بدون exit node به شبکه مقصد route کند؛ Direct Share را به کلاینت همان شبکه بدهید." else null
+        EngineId.PSIPHON -> null // no split-tunnel setting in PsiphonConfig
+        EngineId.AETHER -> if (runCatching { net.gozar.app.OblivionOptions(config.oblivionJson).text("routeDirect").isBlank() }.getOrDefault(false)) null
+            else "Aether دارای route-direct است؛ برای اشتراک عبوری از تونل آن را صریحاً حذف کنید یا Direct Share بدهید."
+        EngineId.TOR -> null
+        EngineId.XRAY -> if (config.protocol in setOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2")) null
+            else "این مسیر backend با DNS تضمین‌شده داخل تونل ندارد؛ WireGuard را با فایل conf و بقیه را با Direct Share منتقل کنید."
+        EngineId.OPENVPN -> "OpenVPN مالک TUN مستقل است و SOCKS عبوری از همان نشست ندارد؛ فایل ovpn را با Direct Share منتقل کنید."
+        EngineId.IKEV2 -> "strongSwan مالک TUN مستقل است؛ relay این UID از VPN مستثناست و dial مستقیم امن نیست. از IKEv2 Direct Share استفاده کنید."
+        EngineId.PLUGIN -> "API 1 فقط SOCKS عمومی یا TUN را اعلام می‌کند؛ full-config ممکن است DIRECT داشته باشد. برای relay قرارداد tunnel-only لازم است؛ فعلاً Direct Share."
+        else -> "برای این موتور از Direct Share استفاده کنید."
+    }
     fun settingsFor(protocol: String) = net.gozar.app.EngineSettings.supported(protocol)
     fun candidate(id: String) = PluginCatalog.candidate(id)?.supported ?: CapabilityContract()
 }

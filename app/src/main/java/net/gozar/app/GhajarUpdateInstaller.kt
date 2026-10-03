@@ -25,7 +25,12 @@ import kotlin.coroutines.coroutineContext
 object GhajarUpdateFlow {
     private val _available = MutableStateFlow<UpdateChecker.Result.Available?>(null)
     val available = _available.asStateFlow()
+    private val _latest = MutableStateFlow<UpdateChecker.Result.Available?>(null)
+    val latest = _latest.asStateFlow()
+    fun found(result: UpdateChecker.Result.Available) { _latest.value = result }
     fun offer(result: UpdateChecker.Result.Available) { _available.value = result }
+    fun showLatest() { _available.value = _latest.value }
+    fun upToDate() { _latest.value = null }
     fun clear() { _available.value = null }
 }
 
@@ -59,6 +64,9 @@ object GhajarUpdateInstaller {
         asset: UpdateChecker.ReleaseAsset,
         onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
     ): DownloadResult = withContext(Dispatchers.IO) {
+        if (!UpdateChecker.releaseUrl(asset.url) || asset.name.contains('/') || asset.name.contains('\\') ||
+            !asset.name.endsWith(".apk",true) || asset.sizeBytes !in 1..(512L*1024*1024))
+            return@withContext DownloadResult.Failed("اطلاعات فایل انتشار معتبر نیست.")
         val dest = File(downloadsDir(context), asset.name)
         val tmp = File(dest.parentFile, dest.name + ".part")
         var connection: HttpURLConnection? = null
@@ -83,10 +91,12 @@ object GhajarUpdateInstaller {
                         if (n <= 0) break
                         output.write(buffer, 0, n)
                         read += n
+                        require(read <= asset.sizeBytes) { "Download size mismatch" }
                         onProgress(read, total)
                     }
                 }
             }
+            require(tmp.length() == asset.sizeBytes) { "Download size mismatch" }
             if (!tmp.renameTo(dest)) { dest.delete(); tmp.copyTo(dest, overwrite = true); tmp.delete() }
             DownloadResult.Success(dest)
         } catch (e: kotlinx.coroutines.CancellationException) {
@@ -94,7 +104,7 @@ object GhajarUpdateInstaller {
             throw e
         } catch (e: Exception) {
             tmp.delete()
-            DownloadResult.Failed(e.message ?: e.javaClass.simpleName)
+            DownloadResult.Failed("فایل دریافت نشد؛ اتصال اینترنت را بررسی کن و دوباره تلاش کن.")
         } finally {
             connection?.disconnect()
         }
@@ -130,6 +140,7 @@ object GhajarUpdateInstaller {
             ?: return VerifyResult.Unavailable("اطلاعات امضای نسخهٔ نصب‌شده در دسترس نیست.")
         val downloaded = runCatching { pm.getPackageArchiveInfo(apkFile.absolutePath, flags) }.getOrNull()
             ?: return VerifyResult.Unavailable("فایل دانلودشده یک بستهٔ اندروید معتبر نیست یا امضا ندارد.")
+        if (downloaded.packageName != context.packageName) return VerifyResult.SignatureMismatch("این بسته متعلق به قاجار نیست.")
         val installedCerts = certFingerprints(installed) ?: return VerifyResult.Unavailable("امضای نسخهٔ نصب‌شده قابل خواندن نیست.")
         val downloadedCerts = certFingerprints(downloaded) ?: return VerifyResult.Unavailable("امضای فایل دانلودشده قابل خواندن نیست.")
         return if (installedCerts == downloadedCerts) VerifyResult.Ok

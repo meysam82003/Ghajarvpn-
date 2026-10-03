@@ -179,6 +179,12 @@ object ForeignImport {
     }
 
     fun singBox(root: JSONObject, source: ConfigSource = ConfigSource.PERSONAL): Result {
+        val c = net.gozar.app.engine.FullSingBoxProfile.create(root.toString(), source = source)
+        return Result(listOf(c), listOfNotNull(net.gozar.app.engine.FullSingBoxProfile.blockReason(c)))
+    }
+
+    /** Explicit extraction only; default import preserves the full document. */
+    fun singBoxNodes(root: JSONObject, source: ConfigSource = ConfigSource.PERSONAL): Result {
         val all = mutableListOf<JSONObject>()
         listOf("outbounds", "endpoints").forEach { k ->
             root.optJSONArray(k)?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let(all::add) }

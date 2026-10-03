@@ -138,7 +138,7 @@ object AetherController {
         return out
     }
 
-    fun start(context: Context, spec: AetherSpec): Boolean {
+    fun start(context: Context, spec: AetherSpec, upstreamPort: Int? = null): Boolean {
         stop()
         stopping = false
         SOCKS_PORT = if (spec.oblivionJson.isBlank()) 1819 else OblivionOptions(spec.oblivionJson).aetherPort
@@ -150,7 +150,10 @@ object AetherController {
         }
 
         val dir = workDir(context)
-        val cmd = mutableListOf(bin.absolutePath).apply { addAll(args(spec)) }
+        val cmd = mutableListOf(bin.absolutePath).apply {
+            addAll(args(spec))
+            if (upstreamPort != null) { require(upstreamPort in 1024..65535); addAll(listOf("--upstream", "socks5://127.0.0.1:$upstreamPort")) }
+        }
         Log.i(TAG, "Starting Aether")
         lastOutput.clear()
 
@@ -158,7 +161,11 @@ object AetherController {
             ProcessBuilder(cmd)
                 .directory(dir)
                 .redirectErrorStream(true)
-                .apply { environment().putAll(env(spec, context)) }
+                .apply { environment().apply {
+                    // A chain must not inherit ambient upstream/routing overrides.
+                    if (AetherTorPolicy.active(spec.oblivionJson)) keys.filter { it.startsWith("AETHER_") }.toList().forEach { remove(it) }
+                    putAll(env(spec, context))
+                } }
                 .start()
         } catch (e: Exception) {
             GhajarLog.e(TAG, "spawn failed", e)
@@ -171,10 +178,10 @@ object AetherController {
                 BufferedReader(InputStreamReader(p.inputStream)).useLines { lines ->
                     lines.forEach {
                         synchronized(lastOutput) {
-                            lastOutput.addLast(it)
+                            lastOutput.addLast(GhajarLog.redact(it).take(2048))
                             while (lastOutput.size > 40) lastOutput.removeFirst()
                         }
-                        if (!stopping) Log.i(TAG, it)
+                        if (!stopping && process === p) GhajarLog.i(TAG, it)
                     }
                 }
             }.onFailure { GhajarLog.w(TAG, "log reader ended: " + it.message) }
@@ -232,10 +239,7 @@ object AetherController {
     fun stop() {
         stopping = true
         val p = process ?: return
+        terminateProcess(p, 2000)
         process = null
-        runCatching {
-            p.destroy()
-            if (!p.waitFor(2000, TimeUnit.MILLISECONDS)) p.destroyForcibly()
-        }
     }
 }

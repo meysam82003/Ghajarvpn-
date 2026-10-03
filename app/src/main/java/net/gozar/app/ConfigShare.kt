@@ -103,7 +103,8 @@ object ConfigShare {
                 if (c.mode == "doh") "doh" to c.path else "resolver" to (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port,
                 "upstream" to c.method.ifEmpty { "socks" })
             val x = c.extraJson()
-            val opts = listOfNotNull(
+            val tuning = x.optJSONObject("tuning")?.let { o -> net.gozar.app.engine.DnsTunnelTuning.flags.keys.filter { o.has(it) }.map { it to o.getString(it) } }.orEmpty()
+            val opts = tuning + listOfNotNull(
                 x.optString("recordType").takeIf { it.isNotEmpty() }?.let { "record" to it },
                 if (x.has("dnsttCompat")) "compat" to (if (x.optBoolean("dnsttCompat")) "1" else "0") else null,
                 x.optInt("maxQnameLen", 0).takeIf { it > 0 }?.let { "qname" to it.toString() },

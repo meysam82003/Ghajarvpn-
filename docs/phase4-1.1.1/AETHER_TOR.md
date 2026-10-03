@@ -1,4 +1,8 @@
-# Existing Aether + existing Tor: orchestration design, not an enabled feature
+# Aether + Tor — current review supersedes the original design status
+
+The phase-4 text below records the original design. The current implementation and limits are in [PHASE1_6_REMAINING_FA.md](../PHASE1_6_REMAINING_FA.md): Tor-over-Aether now has shared-session orchestration, while Aether-H2-over-Tor remains blocked by the pinned native API-front system-DNS path. Neither direction has Android device qualification in this work. Historical statements below about unwired controllers are not the current status.
+
+## Original phase-4 design (historical)
 
 No new Tor library or Aether build is required to express the TCP-compatible paths in the existing CLIs. This is a source-backed design; it has not been wired into the production controller. User-visible enabled choices must wait for lifecycle tests.
 

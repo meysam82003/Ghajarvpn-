@@ -10,14 +10,15 @@ class OblivionOptions(raw: String = "") {
     fun number(key: String): Int = text(key).toIntOrNull() ?: defaults[key]?.toIntOrNull() ?: 0
     fun changed(key: String, value: String): String = JSONObject(data.toString()).put(key,value).toString()
     val core get() = text("core")
-    val aether get() = core == "aether" || core == "chain"
-    val psiphon get() = core != "aether"
+    val aether get() = core == "aether" || core == "chain" || core in AetherTorPolicy.modes
+    val psiphon get() = core in setOf("psiphon", "chain")
     val proxyOnly get() = text("routingMode") == "proxy"
     val socksPort get() = number("socksPort")
     val aetherPort get() = if (core == "chain") socksPort + 10 else socksPort
     val bindHost get() = if (flag("allowLan") && core != "chain") "0.0.0.0" else "127.0.0.1"
     fun validate() {
-        require(core in listOf("psiphon","aether","chain")) { "روش اتصال نامعتبر است" }
+        AetherTorPolicy.validate(this)
+        require(core in listOf("psiphon","aether","chain") + AetherTorPolicy.modes) { "روش اتصال نامعتبر است" }
         require(text("protocol") in setOf("masque", "wg", "gool", "mim")) { "پروتکل Aether نامعتبر است" }
         require(text("transport") in setOf("h2", "h3")) { "انتقال MASQUE نامعتبر است" }
         require(text("exitLoc").isBlank() || Regex("!?[A-Za-z]{2}(,[A-Za-z]{2})*").matches(text("exitLoc"))) { "کشور خروجی را مثل DE,SE یا !IR وارد کنید" }

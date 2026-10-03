@@ -18,7 +18,8 @@ class ConfigCenterActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val uri: Uri? = intent?.data
         if (uri != null) {
-            startActivity(ConfigCenterRouter.quickConnectIntent(this, uri))
+            startActivity(android.content.Intent(this, MainActivity::class.java).setAction(android.content.Intent.ACTION_VIEW).setData(uri)
+                .addFlags(intent.flags and android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
         }
         finish()
     }

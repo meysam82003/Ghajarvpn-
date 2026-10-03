@@ -81,6 +81,31 @@ private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (
     var payload by remember { mutableStateOf("") }
     var editingId by remember { mutableStateOf<String?>(null) }
     var notice by remember { mutableStateOf("") }
+    var dependencyPath by rememberSaveable { mutableStateOf("") }
+    var pendingDependencyId by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingDependencyPath by rememberSaveable { mutableStateOf("") }
+    val dependencyPicker = androidx.activity.compose.rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        val targetId=pendingDependencyId; val targetPath=pendingDependencyPath
+        pendingDependencyId=null
+        if (uri != null && targetId != null) scope.launch {
+            runCatching {
+                val data = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    activity.contentResolver.openInputStream(uri)?.use { input ->
+                        val out = java.io.ByteArrayOutputStream(); val buffer = ByteArray(4096)
+                        while (true) { val n=input.read(buffer); if(n<0) break; require(out.size()+n <= net.gozar.plugin.api.MihomoFiles.MAX_BYTES); out.write(buffer,0,n) }
+                        out.toByteArray()
+                    } ?: error("File unavailable")
+                }
+                // Re-read the current profile after asynchronous IO; never resurrect a removed profile.
+                val latest = store.configs.value.firstOrNull { it.id == targetId } ?: error("Profile removed")
+                val extra = latest.extraJson(); val plugin = extra.getJSONObject("plugin")
+                require(plugin.getString("id") == "mihomo")
+                plugin.put("settings", net.gozar.plugin.api.MihomoFiles.put(plugin.optJSONObject("settings") ?: org.json.JSONObject(), targetPath, data))
+                store.update(latest.copy(extra=extra.toString()))
+            }.onSuccess { notice="فایل وابسته در پروفایل ذخیره شد؛ تغییر در اتصال بعدی اعمال می‌شود." }
+                .onFailure { notice="فایل پذیرفته نشد؛ مسیر نسبی و سقف مجموع ۳۲ KiB / ۱۶ فایل را بررسی کنید." }
+        }
+    }
     val requestedProfile = requested?.let { runCatching { PluginProfiles.read(it) }.getOrNull() }
     LaunchedEffect(revision, autoConnect) {
         if (autoConnect && requestedProfile != null && manager.active(requestedProfile.id) != null) {
@@ -93,6 +118,23 @@ private fun PluginScreen(activity: PluginActivity, configId: String?, connect: (
         Text("هسته‌های داخلی فعلی بدون نصب افزونه کار می‌کنند. فقط APK تأییدشده با رضایت شما در Android نصب می‌شود.")
         if (requested != null) {
             Text(if (requestedProfile != null && manager.active(requestedProfile.id) != null) "کانفیگ ذخیره‌شده آمادهٔ اتصال با افزونه است." else PluginProfiles.requirement(requested).orEmpty())
+            if (requestedProfile?.id == "mihomo") {
+                Text("فایل‌های provider/certificate: مسیر نسبی مطابق YAML؛ حداکثر ۱۶ فایل و مجموع ۳۲ KiB. فایل بزرگ‌تر فعلاً فقط قابل ذخیره در متن/URL کانفیگ است و import محلی ندارد.")
+                OutlinedTextField(dependencyPath, { dependencyPath=it }, label={Text("مثال: certs/client.pem")})
+                TextButton(enabled=!PluginRuntime.isUsing("mihomo"), onClick={
+                    runCatching { net.gozar.plugin.api.MihomoFiles.validPath(dependencyPath); pendingDependencyId=requested.id; pendingDependencyPath=dependencyPath; dependencyPicker.launch(arrayOf("*/*")) }
+                        .onFailure { notice="مسیر باید نسبی و بدون .. باشد." }
+                }) { Text("انتخاب فایل وابسته") }
+                val entries = requestedProfile.settings.optJSONArray("files")
+                for (i in 0 until (entries?.length() ?: 0)) {
+                    val name=entries!!.getJSONObject(i).getString("path")
+                    TextButton(enabled=!PluginRuntime.isUsing("mihomo"), onClick={
+                        val extra=requested.extraJson(); val settings=extra.getJSONObject("plugin").getJSONObject("settings")
+                        val kept=org.json.JSONArray(); for(j in 0 until entries.length()) if(j!=i) kept.put(entries.get(j))
+                        settings.put("files",kept); store.update(requested.copy(extra=extra.toString()))
+                    }) { Text("حذف وابستگی: $name") }
+                }
+            }
             TextButton(onClick = { requestedProfile?.let { editor = it.id; payload = it.payload; editingId = requested.id } }) { Text("ویرایش کانفیگ کامل") }
             Button(enabled = requestedProfile != null && (manager.latest(requestedProfile.id) != null || manager.active(requestedProfile.id) != null), onClick = {
                 requestedProfile?.let { p ->

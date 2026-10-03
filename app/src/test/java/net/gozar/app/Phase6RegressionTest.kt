@@ -18,11 +18,13 @@ class Phase6RegressionTest {
         assertEquals("/",ProxyConfig.fromJson(config.toJson().apply { remove("spiderX") }).spiderX)
     }
     @Test fun wireguardKeepsIpv6AndPresharedKey() {
-        val peer=outbound(base.copy(protocol="wireguard",address="2001:db8::1",port=51820,password="synthetic-psk"))
+        val key=java.util.Base64.getEncoder().encodeToString(ByteArray(32){it.toByte()})
+        val wg=base.copy(protocol="wireguard",privateKey=key,publicKey=key,localAddress="10.0.0.2/32")
+        val peer=outbound(wg.copy(address="2001:db8::1",port=51820,password=key))
             .getJSONObject("settings").getJSONArray("peers").getJSONObject(0)
         assertEquals("[2001:db8::1]:51820",peer.getString("endpoint"))
-        assertEquals("synthetic-psk",peer.getString("preSharedKey"))
-        assertFalse(outbound(base.copy(protocol="wireguard")).getJSONObject("settings").getJSONArray("peers").getJSONObject(0).has("preSharedKey"))
+        assertEquals(key,peer.getString("preSharedKey"))
+        assertFalse(outbound(wg).getJSONObject("settings").getJSONArray("peers").getJSONObject(0).has("preSharedKey"))
     }
     @Test fun mkcpMigratesWireSchemaWithoutResettingStoredProfile() {
         for (header in listOf("", "none", "srtp", "utp", "wechat", "dtls", "wireguard", "dns")) {

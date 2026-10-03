@@ -36,6 +36,8 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
     @Volatile private var process: Process? = null
     /** The helper engine in front of sing-box, when the profile has one; stopped with this runner. */
     private val sidecar = SidecarRunner("$TAG-sidecar", "$subdir-sidecar")
+    @Volatile var sharingPort = 0
+        private set
     @Volatile private var lastSpec: String? = null
     @Volatile private var sidecarName: String? = null
     @Volatile private var stopping = false
@@ -84,9 +86,11 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         stopping = false
         // Any failure after this point also tears down what did start
         // (dnstt in front of sing-box), so nothing is left running.
-        val failure = startInner(context, spec, port)
-        if (failure != null) stop()
-        return failure
+        try {
+            val failure = startInner(context, spec, port)
+            if (failure != null) stop()
+            return failure
+        } catch (e: Throwable) { stop(); throw e }
     }
 
     private fun startInner(context: Context, spec: String, port: Int): String? {
@@ -101,7 +105,7 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         sidecarName = side?.optString("kind")
         if (side != null) {
             val launch = runCatching { Sidecars.launch(side) }.getOrElse { return it.message ?: "incomplete profile" }
-            val sidePort = freePort() ?: return "no free local port"
+            val sidePort = freePortExcluding(chosen) ?: return "no free local port"
             val failure = sidecar.start(context, launch, sidePort)
             if (failure != null) return failure
             sidecar.onUnexpectedExit = { code -> if (!stopping) { stop(); onUnexpectedExit?.invoke(code) } }
@@ -110,7 +114,8 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
                 remove("sidecar")
             }.toString()
         }
-        val json = runCatching { SingBoxConfig.full(effective, chosen) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
+        sharingPort = if (org.json.JSONObject(spec).optBoolean("phoneSharing")) freePortExcluding(chosen) ?: return "no free sharing port" else 0
+        val json = runCatching { SingBoxConfig.full(effective, chosen, sharingPort = sharingPort) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
         file.writeText(json)
 
         // Validate first: a configuration error is reported as one, instead
@@ -118,10 +123,22 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         val check = runCatching {
             val p = ProcessBuilder(bin.absolutePath, "check", "-c", file.absolutePath, "-D", dir.absolutePath, "--disable-color")
                 .directory(dir).redirectErrorStream(true).start()
-            val out = p.inputStream.bufferedReader().readText()
-            if (!p.waitFor(15, TimeUnit.SECONDS)) { p.destroyForcibly(); return "sing-box check timed out" }
-            p.exitValue() to out
-        }.getOrElse { return "sing-box could not be started: ${it.javaClass.simpleName}" }
+            val output = StringBuilder()
+            val reader = thread(isDaemon = true, name = "singbox-check-log") {
+                runCatching { p.inputStream.reader().use { input ->
+                    val buffer = CharArray(2048)
+                    while (true) {
+                        val n = input.read(buffer); if (n < 0) break
+                        synchronized(output) { output.append(buffer, 0, n); if (output.length > 16384) output.delete(0, output.length - 16384) }
+                    }
+                } }
+            }
+            try {
+                if (!p.waitFor(15, TimeUnit.SECONDS)) return "sing-box check timed out"
+                reader.join(500)
+                p.exitValue() to synchronized(output) { output.toString() }
+            } finally { net.gozar.app.terminateProcess(p, 1000) }
+        }.getOrElse { if (it is InterruptedException) throw it; return "sing-box could not be started: ${it.javaClass.simpleName}" }
         if (check.first != 0) {
             val reason = GhajarLog.redact(check.second.lineSequence().lastOrNull { it.isNotBlank() }.orEmpty()).take(240)
             GhajarLog.e(TAG, "config rejected: $reason")
@@ -165,7 +182,7 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         }
         // The configuration holds credentials; sing-box has read it by the
         // time its inbound listens, so it does not stay on disk.
-        val ready = waitForPort(p, chosen)
+        val ready = waitForPort(p, chosen) && (sharingPort == 0 || waitForPort(p, sharingPort))
         file.delete()
         return if (ready) null else {
             val last = lastOutput().lastOrNull { it.isNotBlank() }.orEmpty().take(240)
@@ -193,14 +210,16 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
 
     fun stop() {
         stopping = true
+        sharingPort = 0
         sidecar.onUnexpectedExit = null
-        sidecar.stop()
-        val p = process ?: return
-        process = null
-        runCatching {
-            p.destroy()
-            if (!p.waitFor(2000, TimeUnit.MILLISECONDS)) p.destroyForcibly()
-        }
+        val p = process
+        try { if (p != null) net.gozar.app.terminateProcess(p, 2000); process = null }
+        finally { sidecar.stop() }
+    }
+
+    private fun freePortExcluding(excluded: Int): Int? {
+        repeat(16) { val candidate = freePort() ?: return null; if (candidate != excluded) return candidate }
+        return null
     }
 
     companion object {

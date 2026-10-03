@@ -105,7 +105,9 @@ fun SharingDialog(store: ConfigStore, initial: ProxyConfig? = null, legacyExport
                 Text("۱. VPN گوشی را وصل کنید. ۲. دستگاه دیگر را به هات‌اسپات یا همان شبکهٔ محلی وصل کنید. ۳. پراکسی را در برنامهٔ مقصد تنظیم کنید.")
                 Text("وضعیت: "+stateLabel(if(enabled && state.state==PhoneSharing.State.OFF) PhoneSharing.State.VPN_REQUIRED else state.state))
                 if(state.error.isNotBlank()) Text(state.error,color=MaterialTheme.colorScheme.error)
-                Text("فقط مسیرهای Xray که نام مقصد را از تونل عبور می‌دهند پشتیبانی شده‌اند. OpenVPN، IKEv2، افزونه‌ها و مسیرهای zeptun/sing-box فعلاً اشتراک محلی ندارند.",style=MaterialTheme.typography.bodySmall)
+                Text("مسیرهای Xray، sing-box، Psiphon و Aether فقط با backend آماده و عبوری از تونل عرضه می‌شوند؛ OpenVPN/IKEv2 و افزونه API 1 از Direct Share استفاده می‌کنند.",style=MaterialTheme.typography.bodySmall)
+                val activeProfile = configs.firstOrNull { it.id == VpnState.activeId.value }
+                activeProfile?.let { net.gozar.app.engine.CapabilityRegistry.phoneSharingReason(it) }?.let { Text(it, color=MaterialTheme.colorScheme.error) }
                 addresses.forEach { address -> TextButton(onClick={PhoneSharing.configure(store,enabled,address)}) { Text("انتخاب شبکه: $address") } }
                 Button(onClick={PhoneSharing.configure(store,!enabled)}) { Text(if(enabled) "توقف اشتراک‌گذاری" else "شروع اشتراک‌گذاری") }
                 if(state.state in setOf(PhoneSharing.State.ACTIVE,PhoneSharing.State.CLIENT_CONNECTED)) {

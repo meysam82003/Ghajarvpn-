@@ -9,7 +9,7 @@ import java.util.Locale
 
 class DecoderRegistry(
     private val decoders: List<ConfigDecoder> = listOf(
-        NpvtDecoder(), NpvsDecoder(), HappDecoder(), NetModDecoder(),
+        BpfDecoder(), NpvtDecoder(), NpvsDecoder(), HappDecoder(), NetModDecoder(),
         SlipNetDecoder(), EhiDecoder(), HatDecoder(), DarkDecoder(),
         GenericJsonDecoder(), TextLinkDecoder()
     )
@@ -74,6 +74,10 @@ open class GenericJsonDecoder(override val format: ConfigFormat = ConfigFormat.J
 
     internal fun parseJson(text: String, source: ConfigFormat): ParsedConfig {
         val clean = text.trim()
+        runCatching { BoundedJson.objectValue(clean) }.getOrNull()?.takeIf { net.gozar.app.ForeignImport.looksLikeSingBox(it) }?.let {
+            val c = net.gozar.app.engine.FullSingBoxProfile.create(text)
+            return ParsedConfig(source, listOf(NormalizedProfile.from(c, source, text)), text, warnings = listOfNotNull(net.gozar.app.engine.FullSingBoxProfile.blockReason(c)))
+        }
         val root = runCatching { JSONObject(clean) }.getOrNull()
         val array = if (root == null) runCatching { JSONArray(clean) }.getOrNull() else null
         if (root == null && array == null) throw ConfigToolkitException.InvalidConfig("ساختار JSON معتبر نیست.")
@@ -139,7 +143,7 @@ open class GenericJsonDecoder(override val format: ConfigFormat = ConfigFormat.J
                 when { reality.length() > 0 -> "reality"; tls != null -> "tls"; else -> "none" }
             },
             sni = first(o, "sni", "serverName").ifBlank { sec.optString("serverName") },
-            host = first(o, "host").ifBlank { ws.optJSONObject("headers")?.optString("Host").orEmpty() },
+            host = first(o, "host").ifBlank { ws.optJSONObject("headers")?.optString("Host").orEmpty().ifBlank { ws.optString("host") } },
             path = first(o, "path").ifBlank { ws.optString("path") },
             alpn = first(o, "alpn").ifBlank { jsonStrings(sec.optJSONArray("alpn")).joinToString(",") },
             fingerprint = first(o, "fingerprint", "fp").ifBlank { sec.optString("fingerprint", "chrome") },
@@ -202,7 +206,7 @@ class NpvtDecoder : GenericJsonDecoder(ConfigFormat.NPVT) {
     override fun decode(input: ConfigInput): ParsedConfig {
         val text = ReadablePayload.extract(input, "NPVT1")
             ?: ReadablePayload.extract(input, "NPVTSUB1")
-            ?: throw npvContainerFailure(input, format)
+            ?: return openNpvContainer(input, format)
         return convertReadableNpv(text, input, format, this)
     }
 }
@@ -269,19 +273,20 @@ internal fun npvLinesToConfigs(lines: List<String>): List<net.gozar.app.ProxyCon
 }
 
 /**
- * NPVO1 open exports and passphrase-sealed NPVS through [NpvContainer]; files
- * locked with the vendor's app key or to a recipient stay closed, with the
- * reason said plainly.
+ * NPVO1, authenticated app-key and passphrase NPVS through [NpvContainer].
+ * Recipient-protected files require the actual recipient private key.
+ * Publisher authenticity remains distinct from successful authenticated decryption.
  */
 internal fun openNpvContainer(input: ConfigInput, format: ConfigFormat): ParsedConfig {
     val pass = input.passkey?.let { String(it) }
     return when (val r = NpvContainer.open(input.bytes, pass)) {
         is NpvContainer.Result.Opened -> {
-            val configs = npvLinesToConfigs(r.lines)
+            val configs = r.decoded?.profiles() ?: npvLinesToConfigs(r.lines)
             if (configs.isEmpty()) throw ConfigToolkitException.InvalidConfig(
                 "فایل باز شد اما لینک قابل استفاده‌ای در آن نبود." +
                     (if (r.creatorMessage.isNotBlank()) "\n" + r.creatorMessage else ""))
-            ParsedConfig(format, configs.map { NormalizedProfile.from(it, format) })
+            ParsedConfig(format, configs.map { NormalizedProfile.from(it, format) }, r.decoded?.json()?.toString(), warnings =
+                listOf("رمزگشایی شد؛ اصالت ناشر تأیید نشده") + configs.mapNotNull(NpvPolicy::reason))
         }
         NpvContainer.Result.NeedsPassphrase -> throw ConfigToolkitException.PasskeyRequired()
         NpvContainer.Result.WrongPassphrase -> throw ConfigToolkitException.WrongPasskey()

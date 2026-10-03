@@ -1,0 +1,106 @@
+[
+  {
+    "path": "xray-versions/v26.3.27/client.go",
+    "sha256": "30be22b0952b49aee060b98143df683d77af5914a87890e434f67291fa11a053"
+  },
+  {
+    "path": "xray-versions/v26.3.27/config.go",
+    "sha256": "910fcc5596fa154f44076c2769265a0e1b012c67a4c108a70ade03729d751ea3"
+  },
+  {
+    "path": "xray-versions/v26.3.27/config.proto",
+    "sha256": "09eabdb6e200a5d401fce46e79155c42261f250c64e7786ba515a0f46c804301"
+  },
+  {
+    "path": "xray-versions/v26.3.27/server.go",
+    "sha256": "80fb6a682b9020b7d190c2fc45119de5bb3e94247d7efd599fa7f103de695cc6"
+  },
+  {
+    "path": "xray-versions/v26.7.28/client.go",
+    "sha256": "8942312e6a9e6153a0bf98544d47c906dc9a3d05764d5290b23f6900b4f93669"
+  },
+  {
+    "path": "xray-versions/v26.7.28/config.go",
+    "sha256": "c7ee673a9bc0c9db667cb9506f48b9bd96effcd79c37ee99765b564ee6ff2e54"
+  },
+  {
+    "path": "xray-versions/v26.7.28/config.proto",
+    "sha256": "59c6d11247c56740e5000e360e0a4a17f2cf8d0959649ec3f428470a69c0ecfa"
+  },
+  {
+    "path": "xray-versions/v26.7.28/record_transport.go",
+    "sha256": "0a7b9f8362dde2c756b15656b35d9eb3a443b9d85a7588eea599dc31fa6f096c"
+  },
+  {
+    "path": "xray-versions/v26.7.28/server.go",
+    "sha256": "db8804f73e0233fd613acb99f4c82e8da99dbc20762fc8d7040e01303a2439aa"
+  },
+  {
+    "path": "xray-versions/v26.9.30/client.go",
+    "sha256": "e877eae8fb21cb56d4d933e9524f7b7a201b093fe1864e0e3caf4338cfa37f54"
+  },
+  {
+    "path": "xray-versions/v26.9.30/config.go",
+    "sha256": "f708d58d3949c1e1f23761fcd88110153d25f69b8c07d3904431e1588b8e197f"
+  },
+  {
+    "path": "xray-versions/v26.9.30/config.proto",
+    "sha256": "5a3747e38f0f6a51bbd963d3431112ab56a5628646195064cc16779f780691d6"
+  },
+  {
+    "path": "xray-versions/v26.9.30/server.go",
+    "sha256": "c60ab3ccab0cf855888db416da915370c2fcf3b0248cd72b1d8c220d3ee91cd7"
+  },
+  {
+    "path": "singbox/protocol/openconnect/client.go",
+    "sha256": "f8c618e78d2c85eefaff12a9e67d80eb45c43df6b543b97b3cfdbda4d6d12cf8"
+  },
+  {
+    "path": "singbox/protocol/openconnect/dns_transport.go",
+    "sha256": "d9f33cceb37c59d7fc3459e4311e6f5f3b118a515bdecf2e42d7cc23498b57b4"
+  },
+  {
+    "path": "singbox/protocol/openconnect/endpoint.go",
+    "sha256": "487188bca3a9cbee95cf13272c79cc845153e5dfbb1f434b2075efb225c072e9"
+  },
+  {
+    "path": "singbox/protocol/openconnect/status.go",
+    "sha256": "80f0a9b92ddbd085ddef63be59cad3f903863bb633a8cd3ba2f5d0871b0139fe"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/client.go",
+    "sha256": "d56e955e7e70ec29ba3e62d5474a5c368abc9d2e280d0c66d804e4c4b4d111fc"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/config.go",
+    "sha256": "da83a863386b19956db3837a2093389b42e9814b28d3ffbb2a26615b07f29e53"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/config.pb.go",
+    "sha256": "46d95015b92257f1b5e8de10364d401747f95196de1cef701fa72a7fab5f8bb2"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/config.proto",
+    "sha256": "130102ee823283f98bcd2a9b5a1d2781bf923e4a9becc23272d76991eced8771"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/dns.go",
+    "sha256": "80e97654c219b60e301a3e7154f3a8c431af663c974a52434ca408cf7a0dce6b"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/dns_test.go",
+    "sha256": "325ec12e4cddb8b34a35cac88f9d6b4a7154d498abb5cb449d3ff85993152c20"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/record_transport.go",
+    "sha256": "0a7b9f8362dde2c756b15656b35d9eb3a443b9d85a7588eea599dc31fa6f096c"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/server.go",
+    "sha256": "2d8e7de322f9312df32a9dbdc99853c7af6ba2ea543edda1184347103b545222"
+  },
+  {
+    "path": "xdns/transport/internet/finalmask/xdns/spec.go",
+    "sha256": "d506a9e40c671b7c4ee23572480b80edd356bdc9105136d47237c8239dac4e1a"
+  }
+]

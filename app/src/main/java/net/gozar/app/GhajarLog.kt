@@ -230,6 +230,10 @@ object GhajarLog {
      * applied before storage and Logcat; export rechecks legacy log files.
      */
     internal val redactionPatterns: List<Pair<Regex, String>> = listOf(
+        // Consume the entire JSON string, including escaped quotes/spaces, before
+        // scalar patterns. A token containing a space must not leak its suffix.
+        Regex("(?i)(\"(?:password|passphrase|private[_-]?key|master[_-]?key|token[_-]?(?:secret|password|pin)|client[_-]?certificate|auth[_-]?cookie|cookie|kek|dek|cek)\"\\s*:\\s*)\"(?:\\\\.|[^\"\\\\])*\"") to "$1\"[REDACTED]\"",
+        Regex("(?i)((?:master[ _-]?key|token[ _-]?(?:secret|password|pin)|kek|dek|cek)\\s*[:=]\\s*)[^\\s,;}]+") to "$1[REDACTED]",
         Regex("(?i)(?:bearer|basic)\\s+[A-Za-z0-9+/=\\-_.]+") to "Authorization [REDACTED]",
         // Helper engines that print their own secrets: MasterDnsVPN/StormDNS
         // log "Active Encryption Key: …", and TOML/JSON engine configs carry
@@ -251,7 +255,7 @@ object GhajarLog {
         Regex("-----BEGIN [A-Z ]+-----[\\s\\S]*?-----END [A-Z ]+-----") to "[PEM REDACTED]",
         Regex("(?is)<(key|cert|ca|tls-auth|tls-crypt|tls-crypt-v2|secret)>.*?</\\1>") to "<$1>[REDACTED]</$1>",
         // An OpenConnect session cookie and an NPVS passphrase.
-        Regex("(?i)(\"?(?:webvpn|cookie|passphrase|passkey|preshared[_-]?key)\"?\\s*[:=]\\s*\"?)[^\"\\s,;}]{4,}") to "$1[REDACTED]",
+        Regex("(?i)(\"?(?:webvpn|cookie|passphrase|passkey|preshared[_-]?key)\"?\\s*[:=]\\s*\"?)[^\"\\s,;}]{1,}") to "$1[REDACTED]",
         // A bare vmess:// link is a base64 blob with no @ at all.
         Regex("(?i)\\b(?:vmess|ssr|ss)://[A-Za-z0-9+/_=-]{16,}") to "encoded-profile://[REDACTED]",
         // A VLESS/VMess uuid is that server's whole authentication.
@@ -269,6 +273,11 @@ object GhajarLog {
      * Internal rather than private so the pattern set is unit-tested. It is
      * applied at ingestion and again when exporting older on-device logs.
      */
-    internal fun redact(text: String): String =
-        redactionPatterns.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
+    internal fun redact(text: String): String {
+        // Nested profile blobs cannot be safely removed with a single scalar
+        // regex. Refuse the whole diagnostic, including crash-message variants.
+        if (Regex("(?i)(?:ProxyConfig|VaultEntry|NpvDecodedContainer)\\s*\\(|\"(?:rawConfig|fullConfig|rawDecodedProfile|payloadCipher|decryptedVault)\"\\s*:").containsMatchIn(text))
+            return "[SENSITIVE PROFILE REDACTED]"
+        return redactionPatterns.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
+    }
 }

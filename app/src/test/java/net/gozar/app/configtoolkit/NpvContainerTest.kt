@@ -22,7 +22,7 @@ class NpvContainerTest {
         assertEquals(listOf(
             "vless://11111111-2222-3333-4444-555555555555@9.9.9.9:443?encryption=none&path=%2Fws&security=tls&sni=ex.com&type=ws#Ghajar%20Test",
             "ss://Y2hhY2hhMjAtaWV0Zi1wb2x5MTMwNTpzc3B3@9.9.9.9:8388#Ghajar%20Test"
-        ), r.lines)
+        ), r.decoded!!.rawDecodedProfile.getJSONArray("configs").let { rows -> (0 until rows.length()).map { NpvContainer.link(rows.get(it)) } })
         assertEquals("Hello from test", r.creatorMessage)
     }
 
@@ -36,12 +36,12 @@ class NpvContainerTest {
             "\"server\":\"1.1.1.1\",\"serverPort\":443,\"password\":\"pw\",\"network\":\"tcp\",\"security\":\"reality\"," +
             "\"sni\":\"a.com\",\"publicKey\":\"PBK\",\"shortId\":\"ab\"}}]}"
         val r = NpvContainer.open(open.toByteArray(), null) as NpvContainer.Result.Opened
-        assertEquals(listOf("trojan://pw@1.1.1.1:443?pbk=PBK&security=reality&sid=ab&sni=a.com&type=tcp#Open"), r.lines)
+        assertEquals(listOf("trojan://pw@1.1.1.1:443?pbk=PBK&security=reality&sid=ab&sni=a.com&type=tcp#Open"), r.decoded!!.rawDecodedProfile.getJSONArray("configs").let { rows -> (0 until rows.length()).map { NpvContainer.link(rows.get(it)) } })
     }
 
-    @Test fun vendorLockedLegacyExportStaysClosed() {
-        assertTrue(NpvContainer.open("NPVT1abcdefgh".toByteArray(), null) is NpvContainer.Result.Protected)
-        assertTrue(NpvContainer.open("NPVTSUB1abcdefgh".toByteArray(), null) is NpvContainer.Result.Protected)
+    @Test fun malformedLegacyExportIsNotMislabelledProtected() {
+        assertTrue(NpvContainer.open("NPVT1abcdefgh".toByteArray(), null) is NpvContainer.Result.Invalid)
+        assertTrue(NpvContainer.open("NPVTSUB1abcdefgh".toByteArray(), null) is NpvContainer.Result.Invalid)
     }
 
     @Test fun chachaMatchesJdk() {

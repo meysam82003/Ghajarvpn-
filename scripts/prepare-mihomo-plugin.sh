@@ -10,9 +10,11 @@ git -C "$work" fetch origin "$pin"
 [ -z "$(git -C "$work" status --porcelain)" ] || { echo 'Refusing dirty upstream checkout' >&2; exit 1; }
 git -C "$work" checkout --detach "$pin"
 [ "$(git -C "$work" rev-parse HEAD)" = "$pin" ]
+git -C "$work" apply --check "$root/native/plugin-mihomo/patches/profile-sandbox.patch"
+git -C "$work" apply "$root/native/plugin-mihomo/patches/profile-sandbox.patch"
 core="$work/core/Clash.Meta"
 mkdir -p "$core/cmd/ghajar-plugin"
-trap 'rm -f "$core/cmd/ghajar-plugin/main.go" "$core/cmd/ghajar-plugin/path_policy.go"; rmdir "$core/cmd/ghajar-plugin" 2>/dev/null || true' EXIT
+trap 'git -C "$work" apply -R "$root/native/plugin-mihomo/patches/profile-sandbox.patch"; rm -f "$core/cmd/ghajar-plugin/main.go" "$core/cmd/ghajar-plugin/path_policy.go"; rmdir "$core/cmd/ghajar-plugin" 2>/dev/null || true' EXIT
 cp "$root/native/plugin-mihomo/main.go" "$root/native/plugin-mihomo/path_policy.go" "$core/cmd/ghajar-plugin/"
 for pair in 'arm64 arm64-v8a aarch64-linux-android' 'arm armeabi-v7a armv7a-linux-androideabi'; do
     set -- $pair

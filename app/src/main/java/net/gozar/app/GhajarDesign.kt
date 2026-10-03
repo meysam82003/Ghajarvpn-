@@ -336,8 +336,11 @@ fun ghajarPaletteFor(context: android.content.Context): GhajarPalette {
     val dark = (context.resources.configuration.uiMode and
         android.content.res.Configuration.UI_MODE_NIGHT_MASK) ==
         android.content.res.Configuration.UI_MODE_NIGHT_YES
-    return GhajarLookStore.load(context).value
-        .apply(ghajarPaletteFor(ConfigStore.get(context).uiTheme.value, dark), null)
+    val store = ConfigStore.get(context)
+    val base = ghajarPaletteFor(store.uiTheme.value, dark)
+    val dynamic = dynamicAccent(context)
+    val colors = if (store.dynamicAccent.value && dynamic != null) base.copy(primary = dynamic, highlight = dynamic) else base
+    return GhajarLookStore.load(context).value.apply(colors, dynamic)
 }
 
 /**

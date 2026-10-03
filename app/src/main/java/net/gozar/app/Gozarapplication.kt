@@ -54,8 +54,15 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
             VpnState.state.collect { current ->
                 GhajarNotificationChannels.transition(this@GozarApplication, previous, current)
                 previous = current
+                if (current != Connection.CONNECTED) LocationFetcher.clearTunnelLocation()
                 GhajarWidget.refresh(this@GozarApplication)
+                GhajarQuickControls.refresh(this@GozarApplication)
             }
+        }
+
+        if (processName == packageName) scope.launch {
+            ConfigStore.get(this@GozarApplication).awaitReady()
+            LocationFetcher.tunnelLocation.collect { GhajarQuickControls.refresh(this@GozarApplication) }
         }
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {

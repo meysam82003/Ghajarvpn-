@@ -11,6 +11,54 @@ class Phase4SettingsTest {
     private fun parsed(link: String) = requireNotNull(ConfigParser.parse(link))
     private fun out(c: ProxyConfig) = JSONObject(SingBoxConfig.spec(c)!!).let { it.optJSONObject("outbound") ?: it.getJSONObject("endpoint") }
     private fun rejected(block: () -> Unit) { assertTrue(runCatching(block).isFailure) }
+    @Test fun openConnectPublicOptionsReachEndpointAndSecretsStayLocal() {
+        val privateValues = mapOf("token_mode" to "stoken", "token_secret" to "fixture-token", "token_pin" to "1234", "token_password" to "fixture-password", "token_device_id" to "fixture-device", "form_entries" to """[{"form_id":"login","name":"realm","value":"fixture-realm","promote":true}]""")
+        val publicValues = mapOf("dpd_interval" to "30", "trojan_interval" to "60", "base_mtu" to "1400", "queue_length" to "64", "tcp_keep_alive_enabled" to "true", "compression_mode" to "stateless", "xml_post_disabled" to "true", "client_version" to "1.2.3", "pfs" to "true")
+        for (flavor in listOf("anyconnect", "gp", "fortinet", "f5", "pulse", "nc")) {
+            val c = EngineSettings.merge(parsed("openconnect://u:p@example.org?flavor=$flavor"), privateValues + publicValues)
+            val o = out(c)
+            assertEquals(flavor, o.getString("flavor")); assertEquals(1400, o.getInt("base_mtu")); assertEquals("30s", o.getString("dpd_interval"))
+            assertEquals("1234", o.getJSONObject("token").getString("pin")); assertTrue(o.getBoolean("pfs"))
+            assertEquals("fixture-realm", o.getJSONArray("form_entries").getJSONObject(0).getString("value"))
+            val link = ConfigShare.toLink(c)
+            assertFalse(link.contains("fixture")); assertFalse(link.contains("1234"))
+            assertEquals(publicValues, EngineSettings.read(parsed(link)))
+        }
+        val c = parsed("openconnect://u:p@example.org")
+        assertEquals("oidc", out(EngineSettings.merge(c, mapOf("token_mode" to "oidc", "token_secret" to "fixture"))).getJSONObject("token").getString("mode"))
+        rejected { EngineSettings.merge(c, mapOf("token_mode" to "hotp", "token_secret" to "fixture")) }
+        rejected { EngineSettings.merge(c, mapOf("base_mtu" to "1")) }
+        rejected { EngineSettings.merge(c, mapOf("form_entries" to "[{hook:'run'}]")) }
+        rejected { out(c.copy(mode = "array")) }
+    }
+    @Test fun strictExtendedJsonRejectsJavascriptButRetainsComments() {
+        for (bad in listOf("{\"x\":1,\"x\":2}", "{\"x\":1,\"\\u0078\":2}", "{,}", "{\"a\":[,]}", "{\"a\":,}", "{unquoted:1}", "{\"n\":01}", "{\"n\":NaN}", "{\"n\":+1}", "{\"n\":'text'}"))
+            rejected { net.gozar.app.configtoolkit.BoundedJson.objectValue(bad) }
+        assertEquals(1, net.gozar.app.configtoolkit.BoundedJson.objectValue("{/**/\"n\":1,}").getInt("n"))
+    }
+    @Test fun chainNeverFallsBackWhenCarrierMissingOrRecursive() {
+        val exit=parsed("vless://00000000-0000-0000-0000-000000000001@example.org:443")
+        val carrier=parsed("trojan://fixture@carrier.example:443")
+        val linked=exit.copy(chainId=carrier.id)
+        rejected { ConfigBuilder.buildForTest(linked) }
+        rejected { net.gozar.app.engine.ChainPlan.validate(exit,exit) }
+        rejected { net.gozar.app.engine.ChainPlan.validate(linked,carrier.copy(chainId=exit.id)) }
+        val http=parsed("http://carrier.example:8080")
+        rejected { net.gozar.app.engine.ChainPlan.validate(exit.copy(network="kcp",chainId=http.id),http) }
+        val restored=ProxyConfig.fromJson(linked.toJson())!!
+        val plan=net.gozar.app.engine.ChainPlan.resolve(restored,listOf(carrier,restored))!!
+        assertEquals(carrier.id,plan.carrierId);assertEquals(restored.id,plan.exitId)
+        assertEquals("chain",JSONObject(ConfigBuilder.buildForTest(restored,carrier)).getJSONArray("outbounds").getJSONObject(0).getJSONObject("streamSettings").getJSONObject("sockopt").getString("dialerProxy"))
+    }
+    @Test fun vayTuningFlowsFromFormToSpecAndRealCliNames() {
+        val c=ProtocolForms.build("dnstt",mapOf("variant" to "vaydns","domain" to "t.example","pubkey" to "aa".repeat(32),"resolver" to "1.1.1.1:53","rps" to "12.5","idle_timeout" to "30s","keepalive" to "2s","resolver_timeout" to "500ms","max_labels" to "4")).getOrThrow()
+        val side=JSONObject(SingBoxConfig.spec(c)!!).getJSONObject("sidecar")
+        assertEquals(listOf("-rps","12.5","-idle-timeout","30s","-keepalive","2s","-udp-timeout","500ms","-max-num-labels","4").toSet(),net.gozar.app.engine.DnsTunnelTuning.args(side).toSet())
+        val again=parsed(ConfigShare.toLink(c));assertEquals(side.getJSONObject("tuning").toString(),JSONObject(SingBoxConfig.spec(again)!!).getJSONObject("sidecar").getJSONObject("tuning").toString())
+        assertNull(ConfigParser.parse("dnstt://t.example?pubkey=${"aa".repeat(32)}&transport=tcp&resolver=1.1.1.1"))
+        rejected { net.gozar.app.engine.DnsTunnelTuning.validate(mapOf("rps" to "NaN")) }
+        rejected { net.gozar.app.engine.DnsTunnelTuning.validate(mapOf("idle_timeout" to "1s","keepalive" to "2s")) }
+    }
     @Test fun legacyHysteriaKeepsXrayAndHoppingUsesExistingSingBox() {
         val old = parsed("hysteria2://pw@example.org:443?sni=example.org")
         assertFalse(SingBoxConfig.handles(old))
@@ -43,10 +91,10 @@ class Phase4SettingsTest {
     }
     @Test fun upstreamJsonKeepsAdvancedFieldsAndRejectsUnrepresentablePrecision() {
         val json = JSONObject("""{"outbounds":[{"type":"anytls","server":"example.org","server_port":443,"password":"pw","idle_session_timeout":"2m","min_idle_session":3}]}""")
-        val c = ForeignImport.singBox(json, ConfigSource.PERSONAL).configs.single()
+        val c = ForeignImport.singBoxNodes(json, ConfigSource.PERSONAL).configs.single()
         assertEquals("120s", out(c).getString("idle_session_timeout"))
         json.getJSONArray("outbounds").getJSONObject(0).put("idle_session_timeout", "500ms")
-        val invalid = ForeignImport.singBox(json, ConfigSource.PERSONAL)
+        val invalid = ForeignImport.singBoxNodes(json, ConfigSource.PERSONAL)
         assertTrue(invalid.configs.isEmpty()); assertTrue(invalid.warnings.isNotEmpty())
     }
     @Test fun sourceChoicesDoNotCreateImplicitTrustedSources() {

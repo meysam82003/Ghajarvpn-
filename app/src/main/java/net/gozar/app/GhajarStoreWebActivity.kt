@@ -106,6 +106,21 @@ class GhajarStoreWebActivity : Activity() {
                     } catch (_: Exception) { null }
                 }
 
+                private fun showFailure(view: WebView?) {
+                    progress.visibility = View.GONE
+                    view?.stopLoading()
+                    view?.loadDataWithBaseURL(null, "<html dir='rtl'><meta charset='utf-8'><body style='background:#101b24;color:white;padding:32px;font-family:sans-serif'>اتصال به فروشگاه برقرار نشد. اینترنت را بررسی کن و دوباره صفحه را باز کن.</body></html>", "text/html", "UTF-8", null)
+                }
+                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
+                    if (request?.isForMainFrame == true) showFailure(view)
+                }
+                override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, response: android.webkit.WebResourceResponse?) {
+                    if (request?.isForMainFrame == true) showFailure(view)
+                }
+                override fun onReceivedSslError(view: WebView?, handler: android.webkit.SslErrorHandler?, error: android.net.http.SslError?) {
+                    handler?.cancel(); showFailure(view)
+                }
+
                 override fun onPageStarted(view: WebView?, u: String?, favicon: android.graphics.Bitmap?) {
                     progress.visibility = View.VISIBLE
                 }

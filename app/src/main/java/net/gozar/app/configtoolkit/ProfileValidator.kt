@@ -27,6 +27,14 @@ object ProfileValidator {
     fun validate(profile: NormalizedProfile): ValidationResult {
         val issues = mutableListOf<ValidationIssue>()
         val protocol = profile.protocol.lowercase()
+        if (protocol == net.gozar.app.engine.FullSingBoxProfile.PROTOCOL) {
+            val ok = runCatching { net.gozar.app.engine.FullSingBoxProfile.root(profile.toProxyConfig()) }.isSuccess
+            return ValidationResult(if (ok) emptyList() else listOf(ValidationIssue("fullConfig", "JSON کامل نامعتبر است.")))
+        }
+        if (protocol in setOf("xray-full", "npv-preserved")) {
+            val ok = runCatching { org.json.JSONObject(profile.toProxyConfig().extra) }.isSuccess
+            return ValidationResult(if (ok) emptyList() else listOf(ValidationIssue("container", "ساختار نگه‌داری پروفایل نامعتبر است.")))
+        }
         if (protocol == "plugin") {
             val valid = runCatching { net.gozar.app.plugins.PluginProfiles.read(profile.toProxyConfig()) != null }.getOrDefault(false)
             return ValidationResult(if (valid) emptyList() else listOf(ValidationIssue("plugin", "ساختار کانفیگ افزونه نامعتبر است.")))

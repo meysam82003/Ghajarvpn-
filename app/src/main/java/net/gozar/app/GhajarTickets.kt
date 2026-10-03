@@ -47,7 +47,7 @@ fun GhajarTickets(api: GhajarStoreApi) {
         scope.launch {
             try { block() }
             catch (e: CancellationException) { throw e }
-            catch (e: Exception) { error = e.message ?: "دریافت پشتیبانی ناموفق بود" }
+            catch (e: Exception) { error = StorePublicError.message(e, "دریافت پشتیبانی ناموفق بود") }
             finally { busy = false }
         }
     }
@@ -55,7 +55,7 @@ fun GhajarTickets(api: GhajarStoreApi) {
         busy = true
         try { reload() }
         catch (e: CancellationException) { throw e }
-        catch (e: Exception) { error = e.message }
+        catch (e: Exception) { error = StorePublicError.message(e) }
         finally { busy = false }
     }
     // No verticalScroll here. This screen is rendered inside one item of the
