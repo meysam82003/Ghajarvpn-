@@ -55,6 +55,8 @@ object NpvPolicy {
             if(container.optJSONObject("rawDecodedProfile")?.toString()?.contains("npvs1:")==true)
                 return "Unknown NPVS field encoding: محتوای اصلی حفظ شده؛ تبدیل معتبر این فیلد هنوز پشتیبانی نمی‌شود."
             val policies = mutableListOf<JSONObject>()
+            container.optJSONObject("rawDecodedProfile")?.optJSONObject("lockConfig")?.let(policies::add)
+            container.optJSONObject("rawDecodedProfile")?.optJSONObject("policy")?.let(policies::add)
             container.optJSONObject("metadata")?.optJSONObject("policy")?.let(policies::add)
             container.optJSONObject("rawDecodedProfile")?.optJSONArray("configs")?.optJSONObject(extra.optInt("npvProfileIndex"))?.optJSONObject("lockConfig")?.let(policies::add)
             for (p in policies) {
@@ -73,7 +75,7 @@ object NpvPolicy {
             }
         }
         if(c.protocol == "npv-preserved") return "Decoded but not connectable: نوع یا semantics پروفایل هنوز نگاشت معتبر ندارد."
-        if(c.protocol == "xray-full") return "کانفیگ کامل Xray حفظ شده؛ قرارداد اجرای inbounds و سیاست‌های آن هنوز به مسیر میزبان متصل نشده است."
+        if(c.protocol == "xray-full") return net.gozar.app.engine.FullXrayProfile.blockReason(c)
         return null
     }
     fun requireConnectable(c: ProxyConfig) { val r=reason(c); require(r==null) { r.orEmpty() } }

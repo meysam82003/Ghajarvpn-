@@ -82,7 +82,7 @@ object EngineSettings {
                 Type.PROXY -> runCatching { val u = java.net.URI(raw); u.scheme in setOf("http", "https") && !u.host.isNullOrBlank() && u.port in -1..65535 && u.port != 0 && (u.path.isNullOrBlank() || u.path == "/") && u.query == null && u.fragment == null }.getOrDefault(false)
                 Type.DNS -> raw.split(',').all { ip -> val v = ip.trim(); (Regex("[0-9.]+").matches(v) || Regex("[0-9a-fA-F:]+").matches(v)) && runCatching { java.net.InetAddress.getByName(v) }.isSuccess }
                 Type.TLS_MIN -> raw in setOf("1.2", "1.3")
-                Type.TOKEN -> raw in setOf("totp", "stoken", "oidc") // HOTP requires durable engine counter callbacks.
+                Type.TOKEN -> raw in setOf("totp", "stoken") // HOTP requires durable engine counter callbacks.
                 Type.MTU -> raw.toIntOrNull() in 576..9000
                 Type.COMPRESSION -> raw in setOf("stateless", "all")
                 Type.FORM_ENTRIES -> runCatching { formEntries(raw) }.isSuccess

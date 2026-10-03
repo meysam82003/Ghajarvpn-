@@ -84,7 +84,8 @@ class VaultRuntimeTest {
         rejected { VaultRuntime.issue(entry(policy=VaultPolicy(requireLocalAuthentication=true)),ledger,1000) }
         rejected { VaultRuntime.issue(entry(policy=VaultPolicy(allowConnect=false)),ledger,1000) }
         rejected { VaultRuntime.issue(entry(protocol="ikev2"),ledger,1000) }
-        rejected { VaultRuntime.issue(entry(VaultQuota(QuotaMode.LOCAL,100),protocol="openconnect"),ledger,1000) }
+        val metered=VaultRuntime.issue(entry(VaultQuota(QuotaMode.LOCAL,100),protocol="openconnect"),ledger,1000)
+        assertTrue(VaultRuntime.isReference(metered.id))
     }
     @Test fun policyDeniesTestAndReconnectEvenInActiveSession() = ledger { ledger,_ ->
         val cfg=VaultRuntime.issue(entry(policy=VaultPolicy(allowTest=false,allowReconnect=false)),ledger,1000)
@@ -96,10 +97,13 @@ class VaultRuntimeTest {
     }
     @Test fun ioFailureDoesNotAdvanceCountersOrAuthorizeStart() = ledger { ledger,dir ->
         val e=entry();val s=VaultMeteredSession(e,ledger,1000)
-        File(dir,"usage.json").mkdir()
+        val original=File(dir,"usage.json").readBytes()
+        check(File(dir,"usage.json").delete())
+        check(File(dir,"usage.json").mkdir())
         rejected { s.sample(10,20,1001) }
         rejected { VaultRuntime.issue(e,ledger,1001) }
         File(dir,"usage.json").delete()
+        File(dir,"usage.json").writeBytes(original)
         assertEquals(30L,s.sample(10,20,1002).usedBytes)
     }
     @Test fun keepBothAndReplaceKeepConsumptionIdentityAndReopenIt() = ledger { ledger,dir ->

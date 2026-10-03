@@ -25,7 +25,7 @@ class Phase4SettingsTest {
             assertEquals(publicValues, EngineSettings.read(parsed(link)))
         }
         val c = parsed("openconnect://u:p@example.org")
-        assertEquals("oidc", out(EngineSettings.merge(c, mapOf("token_mode" to "oidc", "token_secret" to "fixture"))).getJSONObject("token").getString("mode"))
+        rejected { EngineSettings.merge(c, mapOf("token_mode" to "oidc", "token_secret" to "fixture")) }
         rejected { EngineSettings.merge(c, mapOf("token_mode" to "hotp", "token_secret" to "fixture")) }
         rejected { EngineSettings.merge(c, mapOf("base_mtu" to "1")) }
         rejected { EngineSettings.merge(c, mapOf("form_entries" to "[{hook:'run'}]")) }

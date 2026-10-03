@@ -24,11 +24,9 @@ object VaultRuntime {
         require(entry.policy.allowConnect) { "اتصال طبق سیاست فایل مجاز نیست." }
         require(!entry.policy.requireLocalAuthentication) { "این فایل به احراز هویت محلی نیاز دارد؛ اتصال آن تا تکمیل مسیر Biometric مجاز نیست." }
         require(config.chainId.isBlank() && config.torBaseId.isBlank()) { "وابستگی زنجیره هنوز داخل نشست صندوق بسته‌بندی نشده است." }
+        require(config.protocol !in setOf("xray-full","singbox-full","tailscale")) { "قرارداد سهمیه و منع مسیر مستقیم برای Full Config یا Tailscale هنوز مستقل است؛ نشست صندوق مجاز نیست." }
         val engine = EngineRouting.engineFor(config)
         require(engine in setOf(EngineId.XRAY, EngineId.SINGBOX)) { "این موتور هنوز قرارداد نشست صندوق را ندارد." }
-        // Zeptun counts TUN traffic, but sing-box's local SOCKS probes bypass that TUN.
-        // Do not advertise complete byte accounting until its outbound counters are available.
-        require(entry.quota.quotaBytes == null || engine == EngineId.XRAY) { "شمارش کامل حجم صندوق برای این موتور هنوز آماده نیست؛ محدودیت زمانی قابل استفاده است." }
         val usage = ledger.record(entry.usageId, 0, 0, now, imported = true)
         requireAllowed(VaultQuotaPolicy.local(entry, usage, now))
         grants.entries.removeAll { it.value.session == null }
@@ -79,7 +77,7 @@ object VaultRuntime {
         require(decision.connectable) { when (decision.status) {
             EntitlementStatus.QUOTA_EXHAUSTED -> "حجم این دسترسی به پایان رسیده است."
             EntitlementStatus.EXPIRED -> "زمان این دسترسی به پایان رسیده است."
-            else -> "وضعیت دسترسی سمت سرور قابل تأیید نیست؛ اتصال مجاز نیست."
+            else -> "وضعیت دسترسی یا آخرین ثبت مصرف قابل تأیید نیست؛ اتصال قفل است."
         } }
     }
 }
@@ -91,28 +89,32 @@ object VaultRuntime {
 class VaultMeteredSession(private val entry: VaultEntry, private val ledger: VaultUsageLedger, now: Long, private val monotonicMillis: () -> Long = { System.nanoTime()/1_000_000 }) {
     private val startWall = now
     private val startMonotonic = monotonicMillis()
+    private var lastGeneration: String? = null
     private var lastUpload = 0L
     private var lastDownload = 0L
     private var lastClock = now
     @Volatile var active = true
         private set
-    init { VaultRuntime.requireAllowed(check(now)) }
+    private var accountingVerified = true
+    init { VaultRuntime.requireAllowed(check(now));ledger.begin(entry.usageId) }
+    @Synchronized fun invalidate() { accountingVerified=false }
     @Synchronized fun check(now: Long): VaultQuotaPolicy.Decision {
         check(active) { "نشست صندوق بسته شده است." }
         // A backwards wall-clock change in this session must not extend its lifetime.
         lastClock = maxOf(now, lastClock, VaultQuotaPolicy.saturatedAdd(startWall,(monotonicMillis()-startMonotonic).coerceAtLeast(0)))
         return VaultQuotaPolicy.local(entry, ledger.read(entry.usageId), lastClock)
     }
-    @Synchronized fun sample(upload: Long, download: Long, now: Long, successful: Boolean = false): VaultQuotaPolicy.Decision {
+    @Synchronized fun sample(upload: Long, download: Long, now: Long, successful: Boolean = false, generation: String? = null): VaultQuotaPolicy.Decision {
         check(active) { "نشست صندوق بسته شده است." }
         require(upload >= 0 && download >= 0)
         lastClock = maxOf(now, lastClock, VaultQuotaPolicy.saturatedAdd(startWall,(monotonicMillis()-startMonotonic).coerceAtLeast(0)))
+        if (generation != lastGeneration) { lastUpload = 0; lastDownload = 0 }
         val up = if (upload >= lastUpload) upload - lastUpload else upload
         val down = if (download >= lastDownload) download - lastDownload else download
         // Persist first. On I/O failure the caller must stop the engine, never advance counters.
         val usage = ledger.record(entry.usageId, up, down, lastClock, connected = successful)
-        lastUpload = upload; lastDownload = download
+        lastUpload = upload; lastDownload = download; lastGeneration = generation
         return VaultQuotaPolicy.local(entry, usage, lastClock)
     }
-    @Synchronized fun close() { active = false }
+    @Synchronized fun close() { if(!active)return;active=false;ledger.finish(entry.usageId,accountingVerified) }
 }

@@ -126,7 +126,7 @@ class GhajarWidget : AppWidgetProvider() {
                 .putExtra(GhajarWidgetConnectActivity.EXTRA_STOP, stop)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_NO_ANIMATION)
 
-        private fun build(context: Context): RemoteViews {
+        internal fun build(context: Context): RemoteViews {
             val app = context.applicationContext
             val store = runCatching { ConfigStore.get(app) }.getOrNull()
             val lang = store?.lang?.value ?: Lang.FA
@@ -500,7 +500,7 @@ class GhajarWidgetSmall : AppWidgetProvider() {
             }.onFailure { GhajarLog.e(TAG, "refresh failed: ${it.javaClass.simpleName}") }
         }
 
-        private fun build(context: Context): RemoteViews {
+        internal fun build(context: Context): RemoteViews {
             val app = context.applicationContext
             val views = RemoteViews(app.packageName, R.layout.widget_ghajar_small)
             GhajarRemoteTheme.widget(app, views, small = true)

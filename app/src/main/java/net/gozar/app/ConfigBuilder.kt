@@ -362,6 +362,10 @@ object ConfigBuilder {
         net.gozar.app.security.vault.VaultRuntime.check(config)
         net.gozar.app.engine.ChainPlan.validate(config, chainBase)
         net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
+        if(config.protocol=="xray-full") {
+            require(!splitRouting && !directOnly && !fakeDns && !encryptedDns && customDns.isBlank() && !youtubeDirect && !onionRouting && chainBase==null && torBase==null && !shareOnLan && !fragment && !mux) { "تنظیمات مسیر میزبان نباید Full Xray را تغییر دهند؛ آن‌ها را خاموش کنید." }
+            return net.gozar.app.engine.FullXrayProfile.runtime(config)
+        }
         if (net.gozar.app.engine.FullSingBoxProfile.isFull(config)) {
             net.gozar.app.engine.FullSingBoxProfile.spec(config)
             require(!splitRouting && !directOnly && !fakeDns && !encryptedDns && customDns.isBlank() && !youtubeDirect && !onionRouting && chainBase == null && torBase == null) { "تنظیمات مسیر میزبان با Full Config ترکیب نشده‌اند؛ آن‌ها را صریحاً غیرفعال کنید." }
@@ -577,6 +581,7 @@ object ConfigBuilder {
         require(!net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) { "Vault tests require the metered active session" }
         net.gozar.app.engine.ChainPlan.validate(config, chainBase)
         net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
+        require(config.protocol!="xray-full") { "آزمون جداگانهٔ Full Xray قرارداد inbound ندارد؛ از نشست اصلی استفاده کنید." }
         require(!net.gozar.app.engine.FullSingBoxProfile.isFull(config)) { "Full sing-box config requires sing-box" }
         require(!net.gozar.app.plugins.PluginProfiles.isPlugin(config)) { "Plugin profiles cannot be probed through Xray" }
         val root = JSONObject()

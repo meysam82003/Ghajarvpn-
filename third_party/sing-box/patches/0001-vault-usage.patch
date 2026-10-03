@@ -1,0 +1,189 @@
+diff --git a/common/trafficcontrol/manager.go b/common/trafficcontrol/manager.go
+index 176c55e0..c2ddca40 100644
+--- a/common/trafficcontrol/manager.go
++++ b/common/trafficcontrol/manager.go
+@@ -2,6 +2,7 @@ package trafficcontrol
+ 
+ import (
+ 	"sync"
++	"sync/atomic"
+ 	"time"
+ 
+ 	"github.com/sagernet/sing-box/adapter"
+@@ -35,6 +36,11 @@ var (
+ )
+ 
+ type Manager struct {
++	ghajarGate              sync.Mutex
++	ghajarFrozen            bool
++	ghajarIO                sync.WaitGroup
++	ghajarUpload            atomic.Int64
++	ghajarDownload          atomic.Int64
+ 	connections             compatible.Map[uuid.UUID, Tracker]
+ 	closedConnectionsAccess sync.Mutex
+ 	closedConnections       list.List[TrackerMetadata]
+@@ -187,3 +193,35 @@ func (m *Manager) Clear() {
+ 	}
+ 	m.closedConnections.Init()
+ }
++
++// GhajarUsage counts payload crossing routed TCP/UDP connections, including closed
++// connections. Counters do not depend on the UI connection history or its eviction.
++func (m *Manager) GhajarUsage() (int64, int64) {
++	return m.ghajarUpload.Load(), m.ghajarDownload.Load()
++}
++func (m *Manager) ghajarCounters(inbound string, up, down *atomic.Int64) ([]*atomic.Int64, []*atomic.Int64) {
++	if inbound == "ghajar-vault-probe" {
++		return []*atomic.Int64{up}, []*atomic.Int64{down}
++	}
++	return []*atomic.Int64{up, &m.ghajarUpload}, []*atomic.Int64{down, &m.ghajarDownload}
++}
++
++// Freeze denies new I/O, closes all routed sockets and waits for in-flight counter
++// updates. The returned totals are final and cannot race a reconnect/stop snapshot.
++func (m *Manager) GhajarFreeze() (int64, int64) {
++	m.ghajarGate.Lock()
++	m.ghajarFrozen = true
++	m.ghajarGate.Unlock()
++	m.connections.Range(func(_ uuid.UUID, tracker Tracker) bool { tracker.Close(); return true })
++	m.ghajarIO.Wait()
++	return m.GhajarUsage()
++}
++func (m *Manager) ghajarBeginIO() bool {
++	m.ghajarGate.Lock()
++	defer m.ghajarGate.Unlock()
++	if m.ghajarFrozen {
++		return false
++	}
++	m.ghajarIO.Add(1)
++	return true
++}
+diff --git a/common/trafficcontrol/tracker.go b/common/trafficcontrol/tracker.go
+index 1a38908b..ba009070 100644
+--- a/common/trafficcontrol/tracker.go
++++ b/common/trafficcontrol/tracker.go
+@@ -10,7 +10,9 @@ import (
+ 	"github.com/sagernet/sing-box/adapter"
+ 	"github.com/sagernet/sing-tun"
+ 	"github.com/sagernet/sing/common"
++	"github.com/sagernet/sing/common/buf"
+ 	"github.com/sagernet/sing/common/bufio"
++	M "github.com/sagernet/sing/common/metadata"
+ 	N "github.com/sagernet/sing/common/network"
+ 
+ 	"github.com/gofrs/uuid/v5"
+@@ -37,25 +39,27 @@ type Tracker interface {
+ func (m *Manager) RoutedConnection(ctx context.Context, conn net.Conn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) net.Conn {
+ 	upload := new(atomic.Int64)
+ 	download := new(atomic.Int64)
++	ups, downs := m.ghajarCounters(metadata.Inbound, upload, download)
+ 	tracker := &connTracker{
+-		ExtendedConn: bufio.NewInt64CounterConn(conn, []*atomic.Int64{upload}, []*atomic.Int64{download}),
++		ExtendedConn: bufio.NewInt64CounterConn(conn, ups, downs),
+ 		metadata:     m.newTrackerMetadata(metadata, matchedRule, matchOutbound, upload, download),
+ 		manager:      m,
+ 	}
+ 	m.join(tracker)
+-	return tracker
++	return &ghajarConn{Conn: tracker, manager: m}
+ }
+ 
+ func (m *Manager) RoutedPacketConnection(ctx context.Context, conn N.PacketConn, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) N.PacketConn {
+ 	upload := new(atomic.Int64)
+ 	download := new(atomic.Int64)
++	ups, downs := m.ghajarCounters(metadata.Inbound, upload, download)
+ 	tracker := &packetConnTracker{
+-		PacketConn: bufio.NewInt64CounterPacketConn(conn, []*atomic.Int64{upload}, nil, []*atomic.Int64{download}, nil),
++		PacketConn: bufio.NewInt64CounterPacketConn(conn, ups, nil, downs, nil),
+ 		metadata:   m.newTrackerMetadata(metadata, matchedRule, matchOutbound, upload, download),
+ 		manager:    m,
+ 	}
+ 	m.join(tracker)
+-	return tracker
++	return &ghajarPacketConn{PacketConn: tracker, manager: m}
+ }
+ 
+ func (m *Manager) RoutedFlow(ctx context.Context, metadata adapter.InboundContext, matchedRule adapter.Rule, matchOutbound adapter.Outbound) tun.FlowTracker {
+@@ -132,10 +136,16 @@ func (t *flowTracker) AttachFlow(handle tun.FlowHandle) {
+ 
+ func (t *flowTracker) CountForward(n int) {
+ 	t.metadata.Upload.Add(int64(n))
++	if t.metadata.Metadata.Inbound != "ghajar-vault-probe" {
++		t.manager.ghajarUpload.Add(int64(n))
++	}
+ }
+ 
+ func (t *flowTracker) CountReverse(n int) {
+ 	t.metadata.Download.Add(int64(n))
++	if t.metadata.Metadata.Inbound != "ghajar-vault-probe" {
++		t.manager.ghajarDownload.Add(int64(n))
++	}
+ }
+ 
+ func (t *flowTracker) FlowEstablished() {
+@@ -181,3 +191,46 @@ func (t *packetConnTracker) ReaderReplaceable() bool {
+ func (t *packetConnTracker) WriterReplaceable() bool {
+ 	return true
+ }
++
++// Deliberately do not expose Upstream/ReaderReplaceable: optimized copy must
++// still pass the freeze barrier, even when it unwraps the inner counter conn.
++type ghajarConn struct {
++	net.Conn
++	manager *Manager
++}
++
++func (c *ghajarConn) Read(p []byte) (int, error) {
++	if !c.manager.ghajarBeginIO() {
++		return 0, net.ErrClosed
++	}
++	defer c.manager.ghajarIO.Done()
++	return c.Conn.Read(p)
++}
++func (c *ghajarConn) Write(p []byte) (int, error) {
++	if !c.manager.ghajarBeginIO() {
++		return 0, net.ErrClosed
++	}
++	defer c.manager.ghajarIO.Done()
++	return c.Conn.Write(p)
++}
++
++type ghajarPacketConn struct {
++	N.PacketConn
++	manager *Manager
++}
++
++func (c *ghajarPacketConn) ReadPacket(b *buf.Buffer) (M.Socksaddr, error) {
++	if !c.manager.ghajarBeginIO() {
++		return M.Socksaddr{}, net.ErrClosed
++	}
++	defer c.manager.ghajarIO.Done()
++	return c.PacketConn.ReadPacket(b)
++}
++func (c *ghajarPacketConn) WritePacket(b *buf.Buffer, d M.Socksaddr) error {
++	if !c.manager.ghajarBeginIO() {
++		b.Release()
++		return net.ErrClosed
++	}
++	defer c.manager.ghajarIO.Done()
++	return c.PacketConn.WritePacket(b, d)
++}
+diff --git a/experimental/clashapi/server.go b/experimental/clashapi/server.go
+index b9222ad5..c01923bd 100644
+--- a/experimental/clashapi/server.go
++++ b/experimental/clashapi/server.go
+@@ -116,6 +116,14 @@ func NewServer(ctx context.Context, logFactory log.ObservableFactory, options op
+ 		r.Get("/logs", getLogs(s.ctx, logFactory))
+ 		r.Get("/traffic", traffic(s.ctx, trafficManager))
+ 		r.Get("/version", version)
++		r.Post("/ghajar/freeze", func(w http.ResponseWriter, req *http.Request) {
++			up, down := trafficManager.GhajarFreeze()
++			render.JSON(w, req, render.M{"version": 1, "upload": up, "download": down})
++		})
++		r.Get("/ghajar/usage", func(w http.ResponseWriter, req *http.Request) {
++			up, down := trafficManager.GhajarUsage()
++			render.JSON(w, req, render.M{"version": 1, "upload": up, "download": down})
++		})
+ 		r.Mount("/configs", configRouter(s, logFactory))
+ 		r.Mount("/proxies", proxyRouter(s, s.router))
+ 		r.Mount("/rules", ruleRouter(s.router))

@@ -121,6 +121,7 @@ class GhajarNotificationJob : JobService() {
     override fun onStartJob(params: JobParameters): Boolean {
         job = scope.launch {
             GhajarUpdateMonitor.refresh(applicationContext)
+            BpfRefresh.refresh(applicationContext)
             val success = GhajarNotificationMonitor.refresh(applicationContext)
             jobFinished(params, !success)
         }

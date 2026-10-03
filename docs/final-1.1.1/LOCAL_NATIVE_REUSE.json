@@ -1,0 +1,158 @@
+[
+  {
+    "abi": "arm64-v8a",
+    "file": "libzeptun.so",
+    "sha256": "cc7b1240a5a89e1313cc4bdcf8fc1a3628f0d58429369f1ee43b6df921b225b7",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libzeptun-jni.so",
+    "sha256": "c1950e58c203b95641187619a8b6ead2f4f3ba4b72c10dc6a984962fd2df3445",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libdnstt.so",
+    "sha256": "bf872b3cf509a471013daccee760148ae428b5bf6f356dec272b3e7f43061be9",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libvaydns.so",
+    "sha256": "9cc770a001b77da9c6cf29ed1201641982cbd01ce7e7a9bf3a982c5cadf2e850",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libnoizdns.so",
+    "sha256": "ba1c1f78bf40ee1d6f769d3c7a57f1ff0ab3e99ca794d0c97aca1e522780de56",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libmasterdns.so",
+    "sha256": "02038c5cc72c058f19ee2e3548064121651fbf8e216dbe783180419978b6d2df",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libstormdns.so",
+    "sha256": "e3424f91cbf42782785f82eabd20f7395a61442ab4f526b92403872e16e68723",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libcottendns.so",
+    "sha256": "5f4caf10e8622206ff283f4a08885cc979c3021526230755939894eed50b9ded",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libslipstream.so",
+    "sha256": "e2ba783ea86df91d02145f57fbeacb846447568d2fd1f91a364643280b229a54",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "liblyrebird.so",
+    "sha256": "1e6f33a4251bfd51196dcfb7efd2f88429c4ba146b676e7df8b0e03c2367f0e0",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libaether.so",
+    "sha256": "b245aa54ce1ffca183c7201e29ea2ce0a353647a294418095d1e9fc8360f7f94",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libjuicity.so",
+    "sha256": "0434aaa7e8982150d17706f8735ab7986b8d43911f20802119135b43f298b14e",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "arm64-v8a",
+    "file": "libndpiclassify.so",
+    "sha256": "36e3921f11a12508850a2d4170be900b09f13242b36ac116033279d4bfb06c19",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libzeptun.so",
+    "sha256": "a6836d58b5ff9e10f9b6768be9d2c1db57ea43e61d1359d0433269aad210c444",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libzeptun-jni.so",
+    "sha256": "7bc067e71d4dd2428221b4f42258a453194271b178d07fef95239493c3710cdd",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libdnstt.so",
+    "sha256": "a40513627e98ef74e4a581ae3f4687e916da505f2fe9c1f5381320bf8ef875c5",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libvaydns.so",
+    "sha256": "c76f1cdc5de3b463beaf000034fcaac58ed3e0a800f359f84ad2b521052b2600",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libnoizdns.so",
+    "sha256": "873ef4b13f4baf851e7db1f1755ad25ff066a0a83c2f803bac1569660000e882",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libmasterdns.so",
+    "sha256": "fc27413c9eaf0f914e1360c73dc63a4a3d17c4d00e0c3a0730a68991af94dd44",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libstormdns.so",
+    "sha256": "feb523eb94f80f99470a1a4f58a6d3106b70627aeae388a338b4ea65626aca88",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libcottendns.so",
+    "sha256": "b71da8c002e540cddb0f47c2eeb015f04f0ed2ff46a5a344766a8206a35e2e31",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libslipstream.so",
+    "sha256": "3ac496118ba88b4c29b405e9a7b9ce806ba9c09671e5ad079b0c1d58ed30d155",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "liblyrebird.so",
+    "sha256": "e38eb0d12baddaf929e755f02909d54654f589c1bb3fe0501c74f6f3a202e81c",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libaether.so",
+    "sha256": "7c61c0c5a0ee73f4676bd46814b7074260424519ac7164cc293d0a0beef56638",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libjuicity.so",
+    "sha256": "b31ebc64a7334a2c68d00afb3253f13095dcfef62e69273a20202fb05c793973",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  },
+  {
+    "abi": "armeabi-v7a",
+    "file": "libndpiclassify.so",
+    "sha256": "2c127451a3c142ae4748cf3036bb590d9a8c4f15e40b611621958baec442fa09",
+    "origin": "official signed 1.0.10; unchanged pinned native inputs"
+  }
+]

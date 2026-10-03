@@ -304,7 +304,7 @@ class GozarVpnService : VpnService() {
                         return@launch
                     }
                     val failure = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
-                        SingBoxController.start(applicationContext, singbox)
+                        SingBoxController.start(applicationContext, singbox, meter = vaultSession != null)
                     }
                     if (failure != null) {
                         SingBoxController.stop()
@@ -428,7 +428,7 @@ class GozarVpnService : VpnService() {
                     val session = vaultSession
                     vaultProbe = scope.launch {
                         while (isActive && enginesReady && !tearingDown && vaultSession === session) {
-                            val response = runCatching { kotlinx.coroutines.runInterruptible(Dispatchers.IO) { net.gozar.plugin.api.SocksProbe.test(if (singboxSpec != null) SingBoxController.socksPort else MixedPort.value) } }.getOrNull()
+                            val response = runCatching { kotlinx.coroutines.runInterruptible(Dispatchers.IO) { if (singboxSpec != null) SingBoxController.probe() else net.gozar.plugin.api.SocksProbe.test(MixedPort.value) } }.getOrNull()
                             if (response != null && enginesReady && !tearingDown && vaultSession === session) {
                                 vaultSuccessful = true
                                 break
@@ -593,7 +593,7 @@ class GozarVpnService : VpnService() {
             val session = vaultSession
             scope.launch {
                 try {
-                    val reply = runCatching { kotlinx.coroutines.runInterruptible(Dispatchers.IO) { net.gozar.plugin.api.SocksProbe.test(if (singboxSpec != null) SingBoxController.socksPort else MixedPort.value) } }.getOrNull()
+                    val reply = runCatching { kotlinx.coroutines.runInterruptible(Dispatchers.IO) { if (singboxSpec != null) SingBoxController.probe() else net.gozar.plugin.api.SocksProbe.test(MixedPort.value) } }.getOrNull()
                     if (vaultSession === session && enginesReady && !tearingDown) {
                         lastPingMs = reply?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
                         GhajarWidget.lastPingMs = lastPingMs
@@ -688,7 +688,10 @@ class GozarVpnService : VpnService() {
 
                 if (vaultSession != null) {
                     try {
-                        val decision = vaultSession!!.sample(up, down, System.currentTimeMillis(), vaultSuccessful)
+                        val decision = engineLock.withLock {
+                            val meter = if (singboxSpec != null) SingBoxController.usage() else null
+                            vaultSession!!.sample(meter?.upload ?: up, meter?.download ?: down, System.currentTimeMillis(), vaultSuccessful, meter?.generation)
+                        }
                         if (!decision.connectable) {
                             die(when (decision.status) {
                                 net.gozar.app.security.vault.EntitlementStatus.QUOTA_EXHAUSTED -> "حجم این دسترسی به پایان رسیده است."
@@ -698,6 +701,7 @@ class GozarVpnService : VpnService() {
                             return@launch
                         }
                     } catch (_: Exception) {
+                        vaultSession?.invalidate()
                         die("ثبت امن مصرف صندوق انجام نشد؛ اتصال متوقف شد.")
                         return@launch
                     }
@@ -734,9 +738,10 @@ class GozarVpnService : VpnService() {
             val z = if (zeptunOwnsTun) ZeptunEngine.counters() else null
             val up = z?.rxBytes ?: if (singboxSpec == null) Gozarcore.queryUplink() else 0L
             val down = z?.txBytes ?: if (singboxSpec == null) Gozarcore.queryDownlink() else 0L
-            if (session.active) session.sample(up, down, System.currentTimeMillis(), vaultSuccessful)
-        }.onFailure { GhajarLog.e(TAG, "vault final accounting failed; unlock required") }
-        net.gozar.app.security.vault.VaultRuntime.forget(vaultRef)
+            val meter = if (singboxSpec != null) SingBoxController.freezeUsage() else null
+            if (session.active) session.sample(meter?.upload ?: up, meter?.download ?: down, System.currentTimeMillis(), vaultSuccessful, meter?.generation)
+        }.onFailure { session.invalidate();GhajarLog.e(TAG, "vault final accounting failed; entitlement locked") }
+        runCatching { net.gozar.app.security.vault.VaultRuntime.forget(vaultRef) }
         vaultSession = null
     }
 
@@ -860,7 +865,14 @@ class GozarVpnService : VpnService() {
                     engineLock.withLock {
                         net.gozar.app.sharing.PhoneSharing.invalidate()
                         sharingBackendPort = 0
-                        val failure = kotlinx.coroutines.runInterruptible(Dispatchers.IO) { SingBoxController.reconnect(applicationContext) }
+                        val failure = try { kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+                            if (vaultSession != null) {
+                                val sample = SingBoxController.freezeUsage()
+                                val decision = vaultSession!!.sample(sample.upload, sample.download, System.currentTimeMillis(), vaultSuccessful, sample.generation)
+                                net.gozar.app.security.vault.VaultRuntime.requireAllowed(decision)
+                            }
+                            SingBoxController.reconnect(applicationContext)
+                        } } catch(e: CancellationException) { throw e } catch(_: Exception) { "accounting or reconnect unavailable" }
                         if (failure != null && !tearingDown) die("reconnect after network change failed: $failure")
                         else if (!tearingDown && sharingInboundEnabled) {
                             try {

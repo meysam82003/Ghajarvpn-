@@ -31,7 +31,7 @@ class VaultRepository(private val file: File) {
     fun export(entries: List<VaultEntry>,password: CharArray): ByteArray {
         if(entries.any { !it.policy.allowReExport }) throw VaultException(VaultException.Kind.POLICY)
         entries.forEach(::config)
-        return VaultCrypto.seal(entries,password).also { require(VaultCrypto.open(it,password).map { e->e.id }==entries.map { e->e.id }) }
+        return VaultCrypto.seal(entries,password).also { require(VaultCrypto.open(it,password).map { e->e.id to VaultFormat.canonical(e.plain()) }==entries.map { e->e.id to VaultFormat.canonical(e.plain()) }) }
     }
     fun merge(existing: List<VaultEntry>,incoming: List<VaultEntry>,choose:(VaultEntry,VaultEntry)->DuplicateChoice): List<VaultEntry> {
         val result=existing.toMutableList()

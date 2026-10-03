@@ -2,7 +2,7 @@ package net.gozar.app.security.vault
 
 /** Pure decision layer; runtime must persist activation/usage before reporting success. */
 object VaultQuotaPolicy {
-    data class Usage(val upload: Long = 0, val download: Long = 0, val firstImportAt: Long? = null, val firstConnectAt: Long? = null) {
+    data class Usage(val upload: Long = 0, val download: Long = 0, val firstImportAt: Long? = null, val firstConnectAt: Long? = null, val uncertain: Boolean = false) {
         init { require(upload >= 0 && download >= 0) }
         fun bytes(mode: Accounting): Long = when(mode) {
             Accounting.UPLOAD -> upload
@@ -26,6 +26,7 @@ object VaultQuotaPolicy {
         val expiry=listOfNotNull(entry.expiresAt,relative).minOrNull()
         val remaining=quota.quotaBytes?.let { (it-used).coerceAtLeast(0) }
         val status=when {
+            usage.uncertain -> EntitlementStatus.UNKNOWN
             quota.mode==QuotaMode.SERVER -> EntitlementStatus.UNKNOWN // never authorize server mode using local counters
             expiry!=null && now>=expiry -> EntitlementStatus.EXPIRED
             quota.mode==QuotaMode.LOCAL && remaining==0L -> EntitlementStatus.QUOTA_EXHAUSTED

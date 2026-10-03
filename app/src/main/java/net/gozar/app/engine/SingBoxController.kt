@@ -42,6 +42,16 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
     @Volatile private var lastSpec: String? = null
     @Volatile private var sidecarName: String? = null
     @Volatile private var stopping = false
+    @Volatile private var metered = false
+    @Volatile private var statsPort = 0
+    @Volatile private var statsSecret = ""
+    @Volatile private var generation = ""
+    @Volatile var probePort = 0
+        private set
+    @Volatile private var probeSecret = ""
+    fun usage(): SingBoxUsage.Sample = SingBoxUsage.read(statsPort, statsSecret, generation)
+    fun freezeUsage(): SingBoxUsage.Sample = SingBoxUsage.read(statsPort, statsSecret, generation, freeze = true)
+    fun probe(): Long = net.gozar.plugin.api.SocksProbe.test(probePort, "vault", probeSecret)
     private val tail = ArrayDeque<String>()
 
     /** Called once when the process exits without [stop] having asked it to. */
@@ -68,7 +78,8 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         val spec = lastSpec ?: return "nothing to reconnect"
         val port = socksPort.takeIf { it > 0 } ?: return "nothing to reconnect"
         val keep = onUnexpectedExit
-        val failure = start(context, spec, port)
+        val useMeter = metered
+        val failure = start(context, spec, port, useMeter)
         onUnexpectedExit = keep
         return failure
     }
@@ -82,8 +93,9 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
      * Starts sing-box for [spec] (from [SingBoxConfig.spec]).
      * Returns null on success, or a short reason that is safe to show and log.
      */
-    fun start(context: Context, spec: String, port: Int = 0): String? {
+    fun start(context: Context, spec: String, port: Int = 0, meter: Boolean = false): String? {
         stop()
+        metered = meter
         stopping = false
         // Any failure after this point also tears down what did start
         // (dnstt in front of sing-box), so nothing is left running.
@@ -122,7 +134,28 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
             }.toString()
         }
         sharingPort = if (org.json.JSONObject(spec).optBoolean("phoneSharing")) freePortExcluding(chosen) ?: return "no free sharing port" else 0
-        val json = runCatching { SingBoxConfig.full(effective, chosen, sharingPort = sharingPort) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
+        var json = runCatching { SingBoxConfig.full(effective, chosen, sharingPort = sharingPort) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
+        if (metered) {
+            val root = org.json.JSONObject(json)
+            check(sharingPort == 0) { "Metered sharing is unsupported" }
+            statsPort = freePortExcluding(chosen) ?: return "no accounting port"
+            probePort = freePortExcluding(chosen) ?: return "no probe port"
+            while (probePort == statsPort) probePort = freePortExcluding(chosen) ?: return "no probe port"
+            statsSecret = java.util.UUID.randomUUID().toString() + java.util.UUID.randomUUID()
+            probeSecret = java.util.UUID.randomUUID().toString()
+            generation = java.util.UUID.randomUUID().toString()
+            val inbounds = root.getJSONArray("inbounds")
+            check(inbounds.length() == 1 && inbounds.getJSONObject(0).optString("tag") != "ghajar-vault-probe")
+            // Same inbound routing tag for data is preserved. Probe has separate authenticated ingress.
+            inbounds.put(org.json.JSONObject().put("type", "socks").put("tag", "ghajar-vault-probe")
+                .put("listen", "127.0.0.1").put("listen_port", probePort)
+                .put("users", org.json.JSONArray().put(org.json.JSONObject().put("username", "vault").put("password", probeSecret))))
+            val experimental = root.optJSONObject("experimental") ?: org.json.JSONObject().also { root.put("experimental", it) }
+            check(!experimental.has("clash_api")) { "Existing controller has incompatible ownership" }
+            experimental.put("clash_api", org.json.JSONObject().put("external_controller", "127.0.0.1:$statsPort").put("secret", statsSecret)
+                .put("access_control_allow_origin", org.json.JSONArray().put("http://localhost")))
+            json = root.toString()
+        }
         file.writeText(json)
 
         // Validate first: a configuration error is reported as one, instead
@@ -191,6 +224,7 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         // time its inbound listens, so it does not stay on disk.
         val ready = waitForPort(p, chosen) && (sharingPort == 0 || waitForPort(p, sharingPort))
         file.delete()
+        if (ready && metered) usage() // missing/old native bridge fails closed before forwarding starts
         return if (ready) null else {
             val last = lastOutput().lastOrNull { it.isNotBlank() }.orEmpty().take(240)
             stop()
@@ -220,6 +254,7 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         lastSpec = null
         configFile?.delete(); configFile = null
         sharingPort = 0
+        metered = false; statsPort = 0; statsSecret = ""; probePort = 0; probeSecret = ""; generation = ""
         sidecar.onUnexpectedExit = null
         val p = process
         try { if (p != null) net.gozar.app.terminateProcess(p, 2000); process = null }

@@ -138,7 +138,7 @@ object ProtocolForms {
             EngineSettings.Type.TOKEN, EngineSettings.Type.COMPRESSION -> Kind.SELECT
             else -> Kind.TEXT
         }, advanced = true, hint = setting.hint, options = when(setting.type) {
-            EngineSettings.Type.TOKEN -> listOf("", "totp", "stoken", "oidc")
+            EngineSettings.Type.TOKEN -> listOf("", "totp", "stoken")
             EngineSettings.Type.COMPRESSION -> listOf("", "stateless", "all")
             else -> emptyList()
         })

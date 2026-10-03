@@ -1,6 +1,8 @@
 package net.gozar.app
 
 import net.gozar.app.security.vault.*
+import org.json.JSONObject
+import androidx.compose.runtime.produceState
 import android.app.Activity
 import android.content.Context
 import android.widget.Toast
@@ -526,6 +528,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if(savedInstanceState==null) lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) { GhajarUpdateInstaller.recover(applicationContext) }
         GhajarLog.i("Startup", "phase: main activity onCreate begin")
         ConfigQuickConnectBridge.activity = this
         store = ConfigStore.get(applicationContext)
@@ -1455,6 +1458,7 @@ private fun GozarApp(
         store.removeLegacyDefaultAetherSeed()
         while (true) {
             SubscriptionRefresher.refreshStale(store)
+            BpfRefresh.refresh(updateCtx)
             delay(30 * 60 * 1000L)
         }
     }
@@ -1469,6 +1473,25 @@ private fun GozarApp(
     var importPassword by remember { mutableStateOf("") }
     var importError by remember { mutableStateOf("") }
     var importBusy by remember { mutableStateOf(false) }
+    var fullImportChoice by remember { mutableStateOf<List<ProxyConfig>?>(null) }
+    fullImportChoice?.let { full ->
+        val extraction=remember(full) { runCatching { net.gozar.app.configtoolkit.FullImportChoice.extract(full) } }
+        GlassDialog(onDismiss={fullImportChoice=null;ImportBus.clear()},title="روش ورود کانفیگ",confirmLabel="ورود کامل",dismissLabel="لغو",onConfirm={
+            val n=store.addImported(full);fullImportChoice=null;ImportBus.clear()
+            android.widget.Toast.makeText(importContext,t("import_success").format(n),android.widget.Toast.LENGTH_SHORT).show()
+        }) {
+            Text("ورود کامل DNS، مسیرها و سیاست سازنده را حفظ می‌کند. استخراج سرورها این تنظیمات شبکه را منتقل نمی‌کند؛ سیاست قفل و انقضا حفظ می‌شود.")
+            full.forEach { c ->
+                val reason=if(c.protocol=="singbox-full") net.gozar.app.engine.FullSingBoxProfile.blockReason(c) else net.gozar.app.configtoolkit.NpvPolicy.reason(c)
+                reason?.let { Text(it) }
+            }
+            TextButton(enabled=extraction.isSuccess,onClick={
+                val n=store.addImported(extraction.getOrThrow());fullImportChoice=null;ImportBus.clear()
+                android.widget.Toast.makeText(importContext,t("import_success").format(n),android.widget.Toast.LENGTH_SHORT).show()
+            }) { Text("استخراج سرورها") }
+            if(extraction.isFailure) Text("این ساختار استخراج قابل اتکا ندارد؛ محتوای کامل را نگه دارید.")
+        }
+    }
 
     LaunchedEffect(pendingImport) {
         val bytes = pendingImport ?: return@LaunchedEffect
@@ -1514,6 +1537,7 @@ private fun GozarApp(
             }
             when (outcome) {
                 is net.gozar.app.configtoolkit.ImportRouter.Outcome.Imported -> {
+                    if(net.gozar.app.configtoolkit.FullImportChoice.hasFull(outcome.configs)) { fullImportChoice=outcome.configs;return@LaunchedEffect }
                     val n = store.addImported(outcome.configs)
                     android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
                     ImportBus.clear()
@@ -1566,6 +1590,9 @@ private fun GozarApp(
                         importBusy = false
                         when (outcome) {
                             is net.gozar.app.configtoolkit.ImportRouter.Outcome.Imported -> {
+                                if(net.gozar.app.configtoolkit.FullImportChoice.hasFull(outcome.configs)) {
+                                    fullImportChoice=outcome.configs;importNeedsPassword=false;importPassword="";return@launch
+                                }
                                 val n = store.addImported(outcome.configs)
                                 android.widget.Toast.makeText(importContext, t("import_success").format(n), android.widget.Toast.LENGTH_SHORT).show()
                                 ImportBus.clear()
@@ -5074,7 +5101,7 @@ private fun InfoBox(
 }
 
 @Composable
-private fun GlassDialog(
+internal fun GlassDialog(
     onDismiss: () -> Unit,
     title: String,
     confirmLabel: String,
@@ -5083,6 +5110,7 @@ private fun GlassDialog(
     destructive: Boolean = false,
     accentOverride: Color? = null,
     dismissible: Boolean = true,
+    confirmEnabled: Boolean = true,
     body: @Composable ColumnScope.() -> Unit
 ) {
     // Every dialog in the app comes through here, so it is the skin's sheet:
@@ -5122,6 +5150,7 @@ private fun GlassDialog(
                 body()
                 PillButton(
                     text = confirmLabel,
+                    enabled = confirmEnabled,
                     onClick = onConfirm,
                     accent = accent
                 )
@@ -5276,9 +5305,9 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
         }
     }
 
-    GlassDialog(
-        onDismiss = { if (stage !in 1..2) onDismiss() },
-        dismissible = stage !in 1..2,
+    UpdateStageModal(
+        stage=stage,
+        onDismiss=onDismiss,
         title = when (stage) {
             1 -> "در حال دانلود نسخهٔ ${upd.version}"
             2 -> "در حال بررسی فایل"
@@ -5293,7 +5322,6 @@ private fun UpdateFlowDialog(upd: UpdateChecker.Result.Available, onDismiss: () 
             4 -> "تلاش دوباره"
             else -> "دانلود"
         },
-        dismissLabel = if (stage == 0) "بعداً" else if (stage in 1..2) null else "بستن",
         onConfirm = {
             when (stage) {
                 0 -> startDownload()
@@ -6881,6 +6909,7 @@ private fun BackupRow(store: ConfigStore) {
     var needsPassword by remember { mutableStateOf(false) }
     var backupPassword by remember { mutableStateOf("") }
     var backupPasswordError by remember { mutableStateOf("") }
+    var restoreVaultPassword by remember { mutableStateOf("") }
 
     // The password the *export* is sealed with, kept apart from the one an
     // import is unlocked with. Sharing one field between the two meant the
@@ -6913,7 +6942,9 @@ private fun BackupRow(store: ConfigStore) {
                             store.settingsSnapshot(),
                             password
                         )
-                        context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
+                        context.contentResolver.openOutputStream(uri)?.use { it.write(data) } ?: error("No output stream")
+                        val written=context.contentResolver.openInputStream(uri)?.use { net.gozar.app.configtoolkit.BoundedInput.read(it,64L*1024*1024) } ?: error("No readback stream")
+                        check(written.contentEquals(data))
                         true
                     }.getOrDefault(false)
                 }
@@ -7118,19 +7149,29 @@ private fun BackupRow(store: ConfigStore) {
                     if (backupPassword.isNotEmpty()) { backupPasswordError = ""; passwordSubmitted = true }
                 } else {
                     val result = preview
-                    pending = null
-                    needsPassword = false
-                    if (result != null) {
-                        store.restoreBackup(result.configs, result.subs, result.settings)
-                        GhajarOpenVpnSettings.restore(context, result.openVpnSettings)
-                        NetworkRules.restore(context, result.networkRules)
-                        val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, result.openVpnProfiles, merge = false)
-                        status = localizeDigits(
-                            t("backup_restored").format(result.configs.size, result.subs.size) +
-                                if (result.openVpnProfiles.isNotEmpty()) " + ${ovpnOutcome.added} پروفایل OpenVPN" else "",
-                            store.lang.value
-                        )
-                    } else status = t("import_bad_file")
+                    if (result != null && !busy) {
+                        if(result.vault!=null && VpnState.state.value != Connection.DISCONNECTED) {
+                            status="پیش از بازیابی صندوق، اتصال را قطع کنید."
+                        } else {
+                            busy=true
+                            val vaultChars=restoreVaultPassword.toCharArray()
+                            scope.launch {
+                                val outcome=withContext(Dispatchers.IO) { runCatching {
+                                    result.vault?.let { snapshot ->
+                                        VaultBackup.restore(snapshot,vaultChars,java.io.File(context.filesDir,"safebox.gsb"),VaultUsageLedger(java.io.File(context.noBackupFilesDir,"vault-usage.json")))
+                                        context.getSharedPreferences("ghajar_vault",0).edit().putBoolean("secure_screen",snapshot.optBoolean("secureScreen",true)).commit()
+                                    }
+                                    store.restoreBackup(result.configs,result.subs,result.settings)
+                                    GhajarOpenVpnSettings.restore(context,result.openVpnSettings)
+                                    NetworkRules.restore(context,result.networkRules)
+                                    GhajarOpenVpnBridge.importProfiles(context,result.openVpnProfiles,merge=false)
+                                } }
+                                vaultChars.fill('\u0000');restoreVaultPassword="";busy=false
+                                if(outcome.isSuccess) { pending=null;needsPassword=false;status=t("backup_restored").format(result.configs.size,result.subs.size) }
+                                else { status="بازیابی تأیید نشد؛ رمز صندوق و سلامت فایل را بررسی کنید." }
+                            }
+                        }
+                    } else status=t("import_bad_file")
                 }
             }
         ) {
@@ -7157,6 +7198,10 @@ private fun BackupRow(store: ConfigStore) {
                     }
                     else -> {
                         val p = preview!!
+                        if(p.vault!=null) {
+                            Text("شامل صندوق رمزگذاری‌شده و سابقهٔ مصرف؛ رمز خود صندوق برای تأیید پیش از جایگزینی لازم است.")
+                            OutlinedTextField(restoreVaultPassword,{restoreVaultPassword=it},label={Text("رمز صندوق در فایل بکاپ")},visualTransformation=PasswordVisualTransformation(),singleLine=true,modifier=Modifier.fillMaxWidth())
+                        }
                         Text(
                             "این فایل شامل ${p.configs.size} کانفیگ و ${p.subs.size} اشتراک است.",
                             style = MaterialTheme.typography.bodyMedium
@@ -7178,6 +7223,7 @@ private fun BackupRow(store: ConfigStore) {
                         HorizontalDivider(color = ghajarColors.border)
                         BounceOutlinedButton(
                             onClick = {
+                                if(p.vault!=null) { status="برای حفظ صندوق و مصرف، گزینهٔ جایگزینی کامل را انتخاب کنید.";return@BounceOutlinedButton }
                                 pending = null
                                 val report = store.mergeBackup(p.configs, p.subs)
                                 val ovpnOutcome = GhajarOpenVpnBridge.importProfiles(context, p.openVpnProfiles, merge = true)
@@ -14703,6 +14749,14 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     val repository = remember { VaultRepository(java.io.File(context.filesDir, "safebox.gsb")) }
     val ledger = remember { VaultUsageLedger(java.io.File(context.noBackupFilesDir, "vault-usage.json")) }
     var quotaMb by remember { mutableStateOf("") }
+    var quotaUnit by remember { mutableStateOf("Unlimited") }
+    var durationUnit by remember { mutableStateOf("Unlimited") }
+    var customExpiry by remember { mutableStateOf("") }
+    var vaultName by remember { mutableStateOf("") }
+    var allowReconnect by remember { mutableStateOf(true) }
+    var separateExportPassword by remember { mutableStateOf("") }
+    var separateExportConfirm by remember { mutableStateOf("") }
+    val exportSelection = remember { mutableStateMapOf<String, Boolean>() }
     var validityDays by remember { mutableStateOf("") }
     var activation by remember { mutableStateOf(ActivationMode.FIRST_CONNECT) }
     var readOnly by remember { mutableStateOf(true) }
@@ -14725,7 +14779,7 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var unlockEpoch by remember { mutableStateOf(0L) }
-    fun lockVault() { VaultRuntime.lock(); unlockEpoch++; vault=null; password=""; confirm=""; importPassword="" }
+    fun lockVault() { VaultRuntime.lock(); unlockEpoch++; vault=null; password=""; confirm=""; importPassword=""; separateExportPassword=""; separateExportConfirm=""; exportSelection.clear() }
     var legacy by remember { mutableStateOf(runCatching { Safebox.raw(context)?.let { !net.gozar.app.security.vault.VaultFormat.isV2(it) } == true }.getOrDefault(false)) }
     var protectScreen by remember { mutableStateOf(context.getSharedPreferences("ghajar_vault",0).getBoolean("secure_screen",true)) }
     val vaultActivity = context as? android.app.Activity
@@ -14766,6 +14820,8 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                 runCatching {
                     val bytes=pendingExport ?: error("No authorized export")
                     context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("no stream")
+                    val written = context.contentResolver.openInputStream(uri)?.use { net.gozar.app.configtoolkit.BoundedInput.read(it, net.gozar.app.security.vault.VaultFormat.MAX_FILE.toLong()) } ?: error("no verification stream")
+                    check(written.contentEquals(bytes)) { "Export readback mismatch" }
                 }.isSuccess
             }
             message = if (ok) t("safebox_exported") else t("safebox_io_error")
@@ -14877,7 +14933,10 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
             StatStrip(listOf(StatCell(t("safebox_count"), localizeDigits("${open.size}", LocalLang.current), c.primary)))
             if (open.isEmpty()) Text(t("safebox_empty"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
             open.forEach { entry ->
-                val decision = remember(entry, usageVersion) { runCatching { VaultQuotaPolicy.local(entry,ledger.read(entry.usageId),System.currentTimeMillis()) }.getOrNull() }
+                val measuredUsage by produceState<VaultQuotaPolicy.Usage?>(null,entry,usageVersion) {
+                    value=withContext(Dispatchers.IO) { runCatching { ledger.read(entry.usageId) }.getOrNull() }
+                }
+                val decision=remember(entry,measuredUsage,usageVersion) { measuredUsage?.let { VaultQuotaPolicy.local(entry,it,System.currentTimeMillis()) } }
                 val ref = VaultRuntime.activeReference(entry.id) ?: activeReferences[entry.id]
                 val running = ref != null && activeVaultId == ref && vaultConnectionState in setOf(Connection.CONNECTING,Connection.CONNECTED)
                 Slab {
@@ -14888,14 +14947,23 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                         EntitlementStatus.ACTIVE -> if(running) "نشست فعال" else "فعال"
                         EntitlementStatus.QUOTA_EXHAUSTED -> "حجم این دسترسی به پایان رسیده است."
                         EntitlementStatus.EXPIRED -> "زمان این دسترسی به پایان رسیده است."
-                        else -> "وضعیت دسترسی نامشخص است؛ اتصال مجاز نیست."
+                        else -> "قفل (Locked)؛ وضعیت یا ثبت مصرف قابل تأیید نیست."
                     }
                     Text(stateText,color=if(decision?.connectable==true)c.good else c.error)
                     if(entry.quota.mode==QuotaMode.LOCAL) {
                         Text("محدودیت روی همین دستگاه · Device-local limit",style=MaterialTheme.typography.labelSmall)
-                        Text("${decision?.usedBytes ?: 0} / ${entry.quota.quotaBytes ?: 0} B · باقی‌مانده ${decision?.remainingBytes ?: 0} B")
+                        Text("مصرف: ${net.gozar.app.security.vault.VaultInputs.size(decision?.usedBytes ?: 0)} · باقی‌مانده: ${decision?.remainingBytes?.let { net.gozar.app.security.vault.VaultInputs.size(it) } ?: "نامحدود"}")
+                        if(entry.quota.quotaBytes!=null && decision!=null) Text("${((decision.usedBytes.toDouble()/entry.quota.quotaBytes)*100).coerceIn(0.0,100.0).toInt()}٪")
                         if(entry.quota.quotaBytes!=null && decision!=null) LinearProgressIndicator(progress={ (decision.usedBytes.toDouble()/entry.quota.quotaBytes).coerceIn(0.0,1.0).toFloat() },modifier=Modifier.fillMaxWidth(),color=c.primary)
                     }
+                    val activationTime = entry.quota.activatedAt ?: when(entry.quota.activationMode) {
+                        ActivationMode.CREATED -> entry.createdAt
+                        ActivationMode.IMPORTED -> measuredUsage?.firstImportAt
+                        ActivationMode.FIRST_CONNECT -> measuredUsage?.firstConnectAt
+                    }
+                    Text("شروع: "+(activationTime?.let { java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)) } ?: "هنوز فعال نشده"))
+                    Text("زمان باقی‌مانده: "+(decision?.expiresAt?.let { "${((it-System.currentTimeMillis()).coerceAtLeast(0)/60000)} دقیقه" } ?: "نامحدود / شروع‌نشده"))
+                    if(entry.policy.allowReExport) SlabRow(title="انتخاب برای خروجی",trailing={SkinSwitch(checked=exportSelection[entry.id]==true,onCheckedChange={exportSelection[entry.id]=it})})
                     decision?.expiresAt?.let { Text("انقضا: "+java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)),style=MaterialTheme.typography.bodySmall) }
                     if(entry.quota.activationMode==ActivationMode.FIRST_CONNECT && decision?.expiresAt==null && entry.quota.validityMillis!=null) Text("زمان پس از نخستین پاسخ موفق از تونل شروع می‌شود.")
                     Row(horizontalArrangement=Arrangement.spacedBy(GhajarSpacing.sm)) {
@@ -14942,8 +15010,18 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                         )
                     }
                 }
-                SkinField(value=quotaMb,onValueChange={quotaMb=it},label="سهمیهٔ محلی به MB؛ خالی = نامحدود",keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
-                SkinField(value=validityDays,onValueChange={validityDays=it},label="مدت اعتبار به روز؛ خالی = نامحدود",keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
+                SkinField(value=vaultName,onValueChange={vaultName=it.take(512)},label="نام دسترسی؛ خالی = نام پروفایل")
+                Row(horizontalArrangement=Arrangement.spacedBy(4.dp)) {
+                    net.gozar.app.security.vault.VaultInputs.volumeUnits.forEach { unit ->
+                        TextButton(onClick={quotaUnit=unit}) { Text((if(quotaUnit==unit)"✓ " else "")+unit) }
+                    }
+                }
+                if(quotaUnit!="Unlimited") SkinField(value=quotaMb,onValueChange={quotaMb=it},label="حجم ($quotaUnit؛ واحد باینری)",keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
+                net.gozar.app.security.vault.VaultInputs.timeUnits.chunked(3).forEach { units ->
+                    Row { units.forEach { unit -> TextButton(onClick={durationUnit=unit}) { Text((if(durationUnit==unit)"✓ " else "")+unit) } } }
+                }
+                if(durationUnit !in listOf("Unlimited","Custom date/time")) SkinField(value=validityDays,onValueChange={validityDays=it},label="مدت ($durationUnit؛ هر ماه = ۳۰ روز)",keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
+                if(durationUnit=="Custom date/time") SkinField(value=customExpiry,onValueChange={customExpiry=it},label="تاریخ میلادی و ساعت محلی: yyyy-MM-dd HH:mm")
                 SkinField(value=note,onValueChange={note=it.take(16384)},label="یادداشت")
                 Row {
                     listOf(ActivationMode.CREATED to "ساخت",ActivationMode.IMPORTED to "ورود",ActivationMode.FIRST_CONNECT to "اولین اتصال").forEach { (mode,label) ->
@@ -14953,9 +15031,10 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                 SlabRow(title="فقط خواندنی",trailing={SkinSwitch(checked=readOnly,onCheckedChange={readOnly=it})})
                 SlabRow(title="پنهان‌کردن metadata در فایل",trailing={SkinSwitch(checked=privateMetadata,onCheckedChange={privateMetadata=it})})
                 SlabRow(title="اجازهٔ تست نشست",trailing={SkinSwitch(checked=allowTest,onCheckedChange={allowTest=it})})
+                SlabRow(title="اجازهٔ اتصال مجدد",trailing={SkinSwitch(checked=allowReconnect,onCheckedChange={allowReconnect=it})})
                 SlabRow(title="اجازهٔ خروجی مجدد",trailing={SkinSwitch(checked=allowReExport,onCheckedChange={allowReExport=it})})
                 SlabRow(title="حذف اصل فقط بعد از ذخیره و بازخوانی موفق",trailing={SkinSwitch(checked=deleteOriginals,onCheckedChange={deleteOriginals=it})})
-                InfoBox("حجم، محدودیت محلی و قابل بازنشانی با پاک‌کردن دادهٔ برنامه است؛ محدودیت واقعی سرور یا تعداد دستگاه ایجاد نمی‌کند. سهمیهٔ حجمی فعلاً فقط برای مسیر Xray قابل اجراست.")
+                InfoBox("حجم، محدودیت محلی و قابل بازنشانی با پاک‌کردن دادهٔ برنامه است؛ محدودیت واقعی سرور یا تعداد دستگاه ایجاد نمی‌کند. شمارش محتوای TCP/UDP با نمونه‌برداری است؛ سربار شبکه و probe داخلی sing-box جزو مصرف نیست. قطع ممکن است تا بازهٔ بعدی نمونه‌برداری تأخیر داشته باشد.")
                 PillButton(
                     text = "ذخیرهٔ امن انتخاب‌شده‌ها",
                     icon = Icons.Filled.Lock,
@@ -14964,13 +15043,13 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                         val moving = configs.filter { chosen[it.id] == true }
                         if(deleteOriginals && moving.any { it.id==VpnState.activeId.value }) { message="پیش از حذف اصل پروفایل فعال، اتصال را قطع کنید.";return@PillButton }
                         val next=runCatching {
-                            val bytes=quotaMb.trim().takeIf { it.isNotEmpty() }?.let { Math.multiplyExact(it.toLong(),1048576L) }
-                            val duration=validityDays.trim().takeIf { it.isNotEmpty() }?.let { Math.multiplyExact(it.toLong(),86400000L) }
+                            val bytes=net.gozar.app.security.vault.VaultInputs.bytes(quotaMb,quotaUnit)
+                            val duration=net.gozar.app.security.vault.VaultInputs.duration(validityDays,durationUnit)
                             val quota=VaultQuota(mode=if(bytes!=null)QuotaMode.LOCAL else QuotaMode.NONE,quotaBytes=bytes,validityMillis=duration,activationMode=activation)
                             val now=System.currentTimeMillis()
-                            val entries=moving.map { cfg -> VaultEntry(displayName=cfg.name,protocol=cfg.protocol,payload=cfg.toJson().toString(),createdAt=now,note=note,
+                            val entries=moving.map { cfg -> VaultEntry(displayName=vaultName.ifBlank { cfg.name },protocol=cfg.protocol,payload=cfg.toJson().toString(),createdAt=now,expiresAt=net.gozar.app.security.vault.VaultInputs.expiry(customExpiry,durationUnit,now),note=note,
                                 privacy=if(privateMetadata)MetadataPrivacy.PRIVATE else MetadataPrivacy.STANDARD,
-                                policy=VaultPolicy(readOnly=readOnly,allowTest=allowTest,allowReExport=allowReExport),quota=quota) }
+                                policy=VaultPolicy(readOnly=readOnly,allowTest=allowTest,allowReExport=allowReExport,allowReconnect=allowReconnect),quota=quota) }
                             val fingerprints=entries.map { VaultFingerprint.of(VaultRepository.config(it)) }
                             if(fingerprints.distinct().size!=entries.size || open.any { VaultFingerprint.of(VaultRepository.config(it)) in fingerprints }) throw VaultException(VaultException.Kind.DUPLICATE)
                             open+entries
@@ -14994,16 +15073,21 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
             } else {
                 PillButton(text = t("safebox_add"), icon = Icons.Filled.Add, onClick = { picking = true })
             }
-            GhostPill(text = t("safebox_export"), icon = Icons.Filled.Share, enabled=!busy, onClick = {
-                val entries=open.toList();val chars=password.toCharArray();val epoch=unlockEpoch;busy=true
-                scope.launch(start=kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                    try {
-                        val result=withContext(Dispatchers.IO) { runCatching { repository.export(entries,chars) } }
-                        if(epoch==unlockEpoch)result.onSuccess { pendingExport=it;exporter.launch("ghajar-safebox.gsb") }
-                            .onFailure { message=net.gozar.app.security.vault.VaultMessages.describe(it) }
-                    } finally { chars.fill('\u0000');busy=false }
-                }
-            })
+            SkinField(value=separateExportPassword,onValueChange={separateExportPassword=it},label="رمز مستقل فایل خروجی (حداقل ۸ نویسه)",visualTransformation=PasswordVisualTransformation())
+            SkinField(value=separateExportConfirm,onValueChange={separateExportConfirm=it},label="تکرار رمز خروجی",visualTransformation=PasswordVisualTransformation())
+            listOf(false to "خروجی تمام صندوق",true to "خروجی موارد انتخاب‌شده").forEach { (selectedOnly,label) ->
+                GhostPill(text=label,icon=Icons.Filled.Share,enabled=!busy && separateExportPassword.length>=8 && separateExportPassword==separateExportConfirm && (!selectedOnly || exportSelection.values.any { it }),onClick={
+                    val entries=open.filter { !selectedOnly || exportSelection[it.id]==true }
+                    val chars=separateExportPassword.toCharArray();val epoch=unlockEpoch;busy=true
+                    scope.launch(start=kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                        try {
+                            val result=withContext(Dispatchers.IO) { runCatching { repository.export(entries,chars) } }
+                            if(epoch==unlockEpoch)result.onSuccess { pendingExport=it;exporter.launch("ghajar-safebox.gsb") }
+                                .onFailure { message=VaultMessages.describe(it) }
+                        } finally { chars.fill('\u0000');separateExportPassword="";separateExportConfirm="";busy=false }
+                    }
+                })
+            }
             GhostPill(text = t("safebox_import"), icon = Icons.Filled.Download, onClick = { importer.launch(arrayOf("*/*")) })
             GhostPill(text = t("safebox_lock"), accent = c.textSecondary, onClick = { lockVault() })
         }
@@ -15066,6 +15150,10 @@ private fun ServerDetailsDialog(
         ) {
             if (net.gozar.app.engine.FullSingBoxProfile.isFull(config)) {
                 Text(net.gozar.app.engine.FullSingBoxProfile.details(config))
+                val updateContext=LocalContext.current
+                Text("به‌روزرسانی Remote BPF: "+when(updateContext.getSharedPreferences("ghajar_bpf_updates",0).getString(config.id,"idle")) {
+                    "updated" -> "به‌روز"; "stale" -> "قدیمی / در انتظار دریافت"; "error" -> "دریافت ناموفق؛ نسخهٔ قبلی حفظ شده";else -> "هنوز دریافت نشده یا به‌روزرسانی خودکار غیرفعال است"
+                })
             }
             if (runCatching { JSONObject(config.extra).has("npvContainer") }.getOrDefault(false)) {
                 Text("رمزگشایی شد؛ اصالت ناشر تأیید نشده")

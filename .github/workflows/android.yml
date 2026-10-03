@@ -2,7 +2,7 @@ name: Android CI
 
 on:
   push:
-    branches: [main]
+    branches: [main, work/1.1.1-phase1]
     tags: ['v*', '1.0.0']
   pull_request:
     branches: [main]
@@ -112,7 +112,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/src/main/jniLibs
-          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**', 'third_party/sing-box/patches/**') }}
           restore-keys: |
             ghajar-native-v1-${{ runner.os }}-
 
@@ -121,7 +121,9 @@ jobs:
         shell: bash
         run: |
           set -e
-          ready=true
+          # A prefix cache is only a download accelerator, never evidence that
+          # changed source/patches were rebuilt.
+          ready=${{ steps.native-cache.outputs.cache-hit == 'true' }}
           for abi in arm64-v8a armeabi-v7a; do
             for lib in libzeptun.so libzeptun-jni.so libsingbox.so libdnstt.so libvaydns.so libnoizdns.so libmasterdns.so libstormdns.so libcottendns.so libslipstream.so libghajarhelper.so liblyrebird.so libaether.so libjuicity.so libndpiclassify.so; do
               [ -s "app/src/main/jniLibs/$abi/$lib" ] || ready=false
@@ -184,7 +186,6 @@ jobs:
       # Built rather than vendored for the same reason as zeptun: a committed
       # 100 MB binary nobody can reproduce is worse than a build step.
       - uses: actions/setup-go@v5
-        if: steps.native-ready.outputs.ready != 'true'
         with:
           go-version: '1.26.8'
           cache: false
@@ -246,7 +247,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: app/src/main/jniLibs
-          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**', 'third_party/sing-box/patches/**') }}
 
       - name: Report 16 KB page alignment of native files
         run: sh scripts/check-16kb.sh
@@ -255,10 +256,37 @@ jobs:
         run: chmod +x gradlew
 
       - name: Build debug APK
-        run: ./gradlew --no-daemon --stacktrace :app:assembleDebug -Pghajar.emulator=true
+        run: ./gradlew --no-daemon --stacktrace clean :app:assembleDebug -Pghajar.emulator=true
 
-      - name: Run unit tests
-        run: ./gradlew --no-daemon --stacktrace test
+      - name: Run unit tests and release-critical lint
+        run: ./gradlew --no-daemon --stacktrace test :app:lintRelease
+
+      - name: Run Go module tests
+        run: |
+          go test .
+          (cd native/ghajar-helper && go test ./...)
+          sh scripts/validation/plugin_go_tests.sh
+
+      - name: Test sing-box accounting through TCP and UDP proxy sockets
+        run: |
+          if [ ! -d /tmp/sing-box/.git ]; then
+            git clone https://github.com/SagerNet/sing-box /tmp/sing-box
+            git -C /tmp/sing-box checkout 132b38e9caaba1a1959354d518e54d2d08419afe
+            git -C /tmp/sing-box apply "$GITHUB_WORKSPACE/third_party/sing-box/patches/0001-vault-usage.patch"
+          fi
+          cp third_party/sing-box/patches/ghajar_test.go.txt /tmp/sing-box/common/trafficcontrol/ghajar_test.go
+          (cd /tmp/sing-box && go test -race ./common/trafficcontrol && go build -tags with_clash_api -o /tmp/sing-box-host ./cmd/sing-box)
+          python3 scripts/validation/singbox_meter_loopback.py /tmp/sing-box-host
+
+      - name: Build instrumentation APK
+        run: ./gradlew --no-daemon :app:assembleDebugAndroidTest -Pghajar.emulator=true
+
+      - name: Upload instrumentation APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-Android-tests
+          path: app/build/outputs/apk/androidTest/debug/*.apk
+          if-no-files-found: error
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -272,6 +300,24 @@ jobs:
       # times slower and is only for the tests.
       - name: Build preview APK
         run: ./gradlew --no-daemon --stacktrace :app:assemblePreview
+
+      - name: Audit complete APK native payloads
+        run: python3 scripts/validation/audit_apks.py app/build/outputs/apk/preview/*.apk
+
+      - name: Record resolved dependencies
+        run: ./gradlew :app:dependencies --configuration releaseRuntimeClasspath > app/build/reports/release-dependencies.txt
+
+      - name: Upload validation reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ghajarvpn-build-reports
+          path: |
+            apk-audit.json
+            **/build/test-results/**/*.xml
+            app/build/reports/lint-results-release.*
+            app/build/reports/release-dependencies.txt
+            app/build/outputs/logs/manifest-merger-*-report.txt
 
       - name: Upload preview APK
         uses: actions/upload-artifact@v4
@@ -312,6 +358,14 @@ jobs:
           run-id: ${{ needs.prepare.outputs.reuse-run-id || github.run_id }}
           github-token: ${{ github.token }}
 
+      - uses: actions/download-artifact@v4
+        if: needs.prepare.outputs.reuse-crash-run-id == ''
+        with:
+          name: Ghajarvpn-Android-tests
+          path: test-apk
+          run-id: ${{ needs.prepare.outputs.reuse-run-id || github.run_id }}
+          github-token: ${{ github.token }}
+
       - name: Enable KVM
         if: needs.prepare.outputs.reuse-crash-run-id == ''
         run: |
@@ -332,7 +386,9 @@ jobs:
           # Use the current software renderer with Vulkan disabled for the
           # headless emulator's repeated activity and window transitions.
           emulator-options: -no-window -gpu swiftshader -feature -Vulkan -noaudio -no-boot-anim -no-snapshot
-          script: python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"
+          script: |
+            bash scripts/validation/emulator_gates.sh
+            python3 scripts/crash_crawl.py "$(find apk -name '*x86_64*.apk' | head -n1)"
 
       - name: Upload crash-hunt logs
         if: always() && needs.prepare.outputs.reuse-crash-run-id == ''
@@ -361,7 +417,7 @@ jobs:
       needs.crash-hunt.result == 'success' &&
       (needs.build.result == 'success' || needs.prepare.outputs.reuse-run-id != '') &&
       (startsWith(github.ref, 'refs/tags/v') ||
-      github.ref == 'refs/tags/1.0.0' ||
+      github.ref == 'refs/tags/1.0.0' || github.ref == 'refs/heads/work/1.1.1-phase1' ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 110
@@ -464,7 +520,7 @@ jobs:
       - name: Decide the release tag
         id: tag
         run: |
-          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ]; then
+          if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$GITHUB_REF" = "refs/heads/work/1.1.1-phase1" ]; then
             echo "tag=${{ steps.version.outputs.name }}" >> "$GITHUB_OUTPUT"
             echo "Manual run: publishing under ${{ steps.version.outputs.name }}"
           else
@@ -572,6 +628,7 @@ jobs:
       # could never offer. This publishes them as release assets, which is
       # what UpdateChecker actually looks at.
       - name: Publish the GitHub release
+        if: github.ref != 'refs/heads/work/1.1.1-phase1'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |

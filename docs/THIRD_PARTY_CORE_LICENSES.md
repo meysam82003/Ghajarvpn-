@@ -64,3 +64,7 @@ the module with an OpenVPN implementation under compatible terms (the sing-box
 - **CC0**: vaydns, dnstt. No obligation.
 
 No copyright or licence notice has been removed from any vendored project.
+
+## Remote profile updater HTTP client (1.1.1)
+
+OkHttp 4.12.0 and Okio JVM 3.6.0 (Square, Apache-2.0) are used for validated DNS-to-socket binding on Remote BPF downloads. Notices are packaged under `licenses/OKHTTP_APACHE_2.txt` and `licenses/OKIO_APACHE_2.txt`. No engine or private configuration is sent to an analytics service.

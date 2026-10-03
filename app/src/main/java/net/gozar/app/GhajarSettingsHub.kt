@@ -324,4 +324,5 @@ private fun coreIcon(id: EngineId): ImageVector = when (id) {
     EngineId.ZEPTUN_TUN -> androidx.compose.material.icons.Icons.Filled.Memory
     EngineId.DNS_TUNNEL -> androidx.compose.material.icons.Icons.Filled.Dns
     EngineId.SINGBOX -> androidx.compose.material.icons.Icons.Filled.Layers
+    EngineId.PLUGIN -> androidx.compose.material.icons.Icons.Filled.Layers
 }

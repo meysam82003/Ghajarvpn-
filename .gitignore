@@ -59,3 +59,8 @@ build/ndpi/
 # Signed on-demand APK payloads are prepared only in the deferred release phase.
 plugins/*/src/main/jniLibs/
 plugins/*/build/
+
+# Generated native build outputs and Python bytecode.
+app/src/main/jniLibs/*/libzeptun.so
+app/src/main/jniLibs/*/libzeptun-jni.so
+__pycache__/
