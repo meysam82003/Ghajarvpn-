@@ -2418,7 +2418,7 @@ private fun ConnectionScreen(
                         // that was not carrying a single byte.
                         val routeSubtitle = when {
                             onOpenVpn -> ovpnProfile?.let { p ->
-                                "OPENVPN · ⁦${p.host}:${p.port}⁩"
+                                "OPENVPN · " + androidx.core.text.BidiFormatter.getInstance().unicodeWrap("${p.host}:${p.port}",androidx.core.text.TextDirectionHeuristicsCompat.LTR)
                             } ?: "OPENVPN"
                             else -> selectedConfig?.let { cfg ->
                                 val engine = cfg.protocol.uppercase(java.util.Locale.ROOT) +
@@ -2426,7 +2426,7 @@ private fun ConnectionScreen(
                                 val endpoint = when {
                                     cfg.locked -> t("locked_endpoint")
                                     cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
-                                    else -> "⁦${cfg.address}:${cfg.port}⁩"
+                                    else -> androidx.core.text.BidiFormatter.getInstance().unicodeWrap("${cfg.address}:${cfg.port}",androidx.core.text.TextDirectionHeuristicsCompat.LTR)
                                 }
                                 "$engine · $endpoint"
                             }
@@ -2479,9 +2479,9 @@ private fun ConnectionScreen(
                     val downParts = formatBytesParts(downSpeed, lang)
                     val upParts = formatBytesParts(upSpeed, lang)
                     TrafficTiles(
-                        downValue = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
+                        downValue = androidx.core.text.BidiFormatter.getInstance().unicodeWrap(downParts.first,androidx.core.text.TextDirectionHeuristicsCompat.LTR) + " ${downParts.second}${t("unit_per_sec")}",
                         downTotal = t("home_total").format(formatBytes(totalDown, lang)),
-                        upValue = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
+                        upValue = androidx.core.text.BidiFormatter.getInstance().unicodeWrap(upParts.first,androidx.core.text.TextDirectionHeuristicsCompat.LTR) + " ${upParts.second}${t("unit_per_sec")}",
                         upTotal = t("home_total").format(formatBytes(totalUp, lang)),
                         size = homeSize("traffic")
                     )
@@ -7001,13 +7001,15 @@ private fun BackupRow(store: ConfigStore) {
     // primary action to write one, a ghost action to read one back, and the
     // outcome as a proper state rather than a grey caption.
     val c = ghajarColors
-    val lang = store.lang.value
+    val lang by store.lang.collectAsState()
     // What a written file actually carries, counted from live state so the
     // numbers are never a guess. The OpenVPN count is read here rather than
     // assumed: a backup that silently carried no profiles used to be
     // indistinguishable from one that carried them all.
-    val configCount = store.configs.value.size
-    val subCount = store.subscriptions.value.size
+    val backupConfigs by store.configs.collectAsState()
+    val backupSubscriptions by store.subscriptions.collectAsState()
+    val configCount = backupConfigs.size
+    val subCount = backupSubscriptions.size
     val ovpnCount = remember { runCatching { GhajarOpenVpnBridge.exportProfiles(context).size }.getOrDefault(0) }
 
     Slab(spacing = GhajarSpacing.md) {
@@ -14950,9 +14952,11 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                         else -> "قفل (Locked)؛ وضعیت یا ثبت مصرف قابل تأیید نیست."
                     }
                     Text(stateText,color=if(decision?.connectable==true)c.good else c.error)
-                    if(entry.quota.mode==QuotaMode.LOCAL) {
-                        Text("محدودیت روی همین دستگاه · Device-local limit",style=MaterialTheme.typography.labelSmall)
-                        Text("مصرف: ${net.gozar.app.security.vault.VaultInputs.size(decision?.usedBytes ?: 0)} · باقی‌مانده: ${decision?.remainingBytes?.let { net.gozar.app.security.vault.VaultInputs.size(it) } ?: "نامحدود"}")
+                    run {
+                        if(entry.quota.mode==QuotaMode.LOCAL) Text("محدودیت روی همین دستگاه · Device-local limit",style=MaterialTheme.typography.labelSmall)
+                        val usedLabel=decision?.usedBytes?.let { net.gozar.app.security.vault.VaultInputs.size(it) } ?: "نامشخص"
+                        val remainingLabel=when { decision==null -> "نامشخص";decision.remainingBytes==null -> "نامحدود";else -> net.gozar.app.security.vault.VaultInputs.size(decision.remainingBytes) }
+                        Text("مصرف: $usedLabel · باقی‌مانده: $remainingLabel")
                         if(entry.quota.quotaBytes!=null && decision!=null) Text("${((decision.usedBytes.toDouble()/entry.quota.quotaBytes)*100).coerceIn(0.0,100.0).toInt()}٪")
                         if(entry.quota.quotaBytes!=null && decision!=null) LinearProgressIndicator(progress={ (decision.usedBytes.toDouble()/entry.quota.quotaBytes).coerceIn(0.0,1.0).toFloat() },modifier=Modifier.fillMaxWidth(),color=c.primary)
                     }

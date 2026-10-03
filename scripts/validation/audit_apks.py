@@ -3,9 +3,21 @@
 import argparse, collections, json, os, re, subprocess, tempfile, zipfile
 from pathlib import Path
 REQUIRED=set('libsingbox.so libtor.so libgojni.so libzeptun.so libzeptun-jni.so libdnstt.so libvaydns.so libnoizdns.so libmasterdns.so libstormdns.so libcottendns.so libslipstream.so libghajarhelper.so liblyrebird.so libaether.so libjuicity.so libndpiclassify.so'.split())
+REQUIRED.update('libandroidbridge.so libcharon.so libimcv.so libipsec.so libopenvpn.so libosslspeedtest.so libosslutil.so libovpn3.so libovpnexec.so libovpnutil.so libstrongswan.so libtnccs.so libtncif.so libtpmtss.so'.split())
 SYSTEM=set('libc.so libm.so libdl.so liblog.so libandroid.so libz.so libjnigraphics.so libOpenSLES.so libEGL.so libGLESv2.so libvulkan.so libmediandk.so'.split())
-def audit(apk, full=True):
-    failures=[];libraries=[]
+def audit(apk, full=True, sdk=None):
+    failures=[];libraries=[];metadata={}
+    if sdk:
+        tool=Path(sdk)/'build-tools/36.0.0'
+        badging=subprocess.check_output([str(tool/'aapt2'),'dump','badging',str(apk)],text=True)
+        source=Path('app/build.gradle.kts').read_text()
+        version=re.search(r'versionName\s*=\s*"([^"]+)"',source).group(1)
+        code=re.search(r'versionCode\s*=\s*(\d+)',source).group(1)
+        expected=f"name='com.ghajarvpn.app' versionCode='{code}' versionName='{version}'"
+        if expected not in badging:failures.append('Package/version metadata differs from sources')
+        if not re.search(r"(?:minSdkVersion|sdkVersion):'26'",badging):failures.append('Expected minSdk 26')
+        subprocess.run([str(tool/'zipalign'),'-c','-P','16','4',str(apk)],check=True)
+        metadata={'version':version,'versionCode':int(code),'minSdk':26,'zipalign':'PASS'}
     with zipfile.ZipFile(apk) as z, tempfile.TemporaryDirectory() as temp:
         duplicates=[n for n,count in collections.Counter(z.namelist()).items() if count>1]
         if duplicates:failures.append('Duplicate ZIP entries: '+str(duplicates))
@@ -29,9 +41,9 @@ def audit(apk, full=True):
             if unresolved:failures.append(n+': unresolved dependencies '+str(sorted(unresolved)))
             libraries.append(dict(path=n,machine=machine,alignment=alignment,needed=needed))
         if 'AndroidManifest.xml' not in z.namelist() or 'resources.arsc' not in z.namelist():failures.append('Missing packaged manifest/resources')
-    return dict(apk=str(apk),libraries=libraries,failures=failures)
+    return dict(apk=str(apk),metadata=metadata,libraries=libraries,failures=failures)
 if __name__=='__main__':
-    p=argparse.ArgumentParser();p.add_argument('apk',nargs='+');p.add_argument('--partial',action='store_true');p.add_argument('--report',default='apk-audit.json');a=p.parse_args()
-    reports=[audit(Path(x),not a.partial) for x in a.apk];Path(a.report).write_text(json.dumps(reports,indent=2))
+    p=argparse.ArgumentParser();p.add_argument('apk',nargs='+');p.add_argument('--partial',action='store_true');p.add_argument('--report',default='apk-audit.json');p.add_argument('--sdk',default=os.environ.get('ANDROID_SDK_ROOT') or os.environ.get('ANDROID_HOME'));a=p.parse_args()
+    reports=[audit(Path(x),not a.partial,a.sdk) for x in a.apk];Path(a.report).write_text(json.dumps(reports,indent=2))
     for r in reports:print(r['apk'],len(r['libraries']),'ELFs',r['failures'])
     raise SystemExit(1 if any(r['failures'] for r in reports) else 0)

@@ -23,13 +23,18 @@ object GhajarQuickControls {
     fun refresh(context: Context) {
         val manager=NotificationManagerCompat.from(context)
         if(!enabled(context)){manager.cancel(ID);return}
+        if(Build.VERSION.SDK_INT>=33 && androidx.core.content.ContextCompat.checkSelfPermission(context,android.Manifest.permission.POST_NOTIFICATIONS)!=android.content.pm.PackageManager.PERMISSION_GRANTED)return
         if(!manager.areNotificationsEnabled())return
         val app=context.applicationContext;val store=ConfigStore.get(app);val state=VpnState.state.value
         val id=VpnState.activeId.value?:store.selectedId.value
         val config=store.configs.value.firstOrNull{it.id==id}
         val title=when(state){Connection.CONNECTED->"متصل";Connection.CONNECTING->"در حال اتصال";Connection.DISCONNECTING->"در حال قطع";Connection.ERROR->"اتصال ناموفق";else->"آمادهٔ اتصال"}
-        val server=config?.name?.let(BrandConfig::sanitizePublicText)?.take(80) ?: if(id?.startsWith("ovpn:")==true)"OpenVPN" else "سروری انتخاب نشده"
-        val location=LocationFetcher.tunnelLocation.value?.country?.take(40) ?: "نامشخص"
+        val server=config?.name?.let(BrandConfig::sanitizePublicText)?.take(80) ?: when {
+            id?.startsWith(net.gozar.app.security.vault.VaultRuntime.PREFIX)==true -> "صندوق امن (محرمانه)"
+            id?.startsWith("ovpn:")==true -> "OpenVPN"
+            else -> "سروری انتخاب نشده"
+        }
+        val location=LocationFetcher.tunnelLocation.value?.takeIf { state==Connection.CONNECTED }?.country?.takeIf { it.isNotBlank() }?.take(40) ?: "نامشخص"
         val palette=ghajarPaletteFor(app)
         val view=RemoteViews(app.packageName,R.layout.notification_quick_controls)
         view.setTextViewText(R.id.quick_state,"قاجار VPN · $title")

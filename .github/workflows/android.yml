@@ -3,7 +3,7 @@ name: Android CI
 on:
   push:
     branches: [main, work/1.1.1-phase1]
-    tags: ['v*', '1.0.0']
+    tags: ['v*', '1.0.0', '1.1.1']
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -344,6 +344,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'build-tools;36.0.0'
+
+
       - name: Reuse the passed crash-hunt for the identical source tree
         if: needs.prepare.outputs.reuse-crash-run-id != ''
         env:
@@ -417,7 +422,7 @@ jobs:
       needs.crash-hunt.result == 'success' &&
       (needs.build.result == 'success' || needs.prepare.outputs.reuse-run-id != '') &&
       (startsWith(github.ref, 'refs/tags/v') ||
-      github.ref == 'refs/tags/1.0.0' || github.ref == 'refs/heads/work/1.1.1-phase1' ||
+      github.ref == 'refs/tags/1.0.0' || github.ref == 'refs/tags/1.1.1' || github.ref == 'refs/heads/work/1.1.1-phase1' ||
       (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
     runs-on: ubuntu-latest
     timeout-minutes: 110
@@ -522,7 +527,7 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = "workflow_dispatch" ] || [ "$GITHUB_REF" = "refs/heads/work/1.1.1-phase1" ]; then
             echo "tag=${{ steps.version.outputs.name }}" >> "$GITHUB_OUTPUT"
-            echo "Manual run: publishing under ${{ steps.version.outputs.name }}"
+            echo "Artifact version: ${{ steps.version.outputs.name }}; publication is controlled by the publish gate."
           else
             TAG="${GITHUB_REF_NAME#v}"
             if [ "$TAG" != "${{ steps.version.outputs.name }}" ]; then

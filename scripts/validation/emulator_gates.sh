@@ -4,7 +4,7 @@ mkdir -p crash-hunt
 apk=$(find apk -name '*x86_64*.apk' | head -n1)
 testapk=$(find test-apk -name '*.apk' | head -n1)
 adb install -r "$apk"
-adb install -r "$testapk"
+adb install -r -t "$testapk"
 adb shell pm grant com.ghajarvpn.app android.permission.POST_NOTIFICATIONS
 # Real wrong-signer fixture. This ephemeral test key never signs an RC artifact.
 tools="$ANDROID_SDK_ROOT/build-tools/36.0.0"

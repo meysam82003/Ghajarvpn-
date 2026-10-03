@@ -30,7 +30,7 @@ object ForeignImport {
     // ---------------------------------------------------------------- Clash
 
     fun looksLikeClash(text: String): Boolean {
-        val t = text.trimStart('﻿', ' ', '\n', '\r', '\t')
+        val t = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
         return !t.startsWith("{") && !t.startsWith("[") && Regex("(?m)^\\s*proxies\\s*:").containsMatchIn(t)
     }
 

@@ -114,6 +114,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val store = remember { ConfigStore.get(context.applicationContext) }
+    val shopLang by store.lang.collectAsState()
     val api = remember { GhajarStoreApi(context) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -688,8 +689,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         } else if (linked) {
             item(key = "shop-header") {
                 ScreenHeader(
-                    title = Strings.get(store.lang.value, "shop"),
-                    context = Strings.get(store.lang.value, "shop_header_sub")
+                    title = Strings.get(shopLang, "shop"),
+                    context = Strings.get(shopLang, "shop_header_sub")
                 ) {
                     // Sign out of the shop.
                     //
@@ -720,7 +721,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             if (section == 4) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
-            if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, store.lang.value) }
+            if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, shopLang) }
             // An unfinished payment, shown on every section rather than only on
             // the two it used to hide behind.
             //
@@ -738,7 +739,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                             local.amount, local.expiresAt, "pending"))
                 }
                 items(entries, key = { "pending:${it.orderId}" }) { item ->
-                    GhajarPendingPaymentCard(item, checkoutBusy, store.lang.value,
+                    GhajarPendingPaymentCard(item, checkoutBusy, shopLang,
                         onResume = { checkoutModel.resumePayment(item); inGhajar = true; section = 0 },
                         onCancel = { checkoutModel.cancelPayment(item.orderId) })
                 }
@@ -1696,7 +1697,7 @@ internal fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit,
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(service.productName, fontWeight = FontWeight.Bold, color = c.textPrimary)
-                    Text("⁦${service.username}⁩", style = MaterialTheme.typography.bodySmall,
+                    Text(androidx.core.text.BidiFormatter.getInstance().unicodeWrap(service.username,androidx.core.text.TextDirectionHeuristicsCompat.LTR), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(service.location, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)

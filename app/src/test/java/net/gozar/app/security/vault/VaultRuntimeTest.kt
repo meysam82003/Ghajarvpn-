@@ -39,13 +39,13 @@ class VaultRuntimeTest {
         assertEquals(15L,ledger.read(e.usageId).upload)
         assertEquals(27L,ledger.read(e.usageId).download)
         session.close();rejected { session.sample(99,99,1005,true) }
-        assertNull(ledger.read(e.usageId).firstConnectAt)
+        assertEquals(1001L,ledger.read(e.usageId).firstConnectAt)
     }
     @Test fun firstConnectRequiresSuccessfulDataAndDoesNotResetOnReconnect() = ledger { ledger,_ ->
         val e=entry(VaultQuota(validityMillis=1000,activationMode=ActivationMode.FIRST_CONNECT))
         val s=VaultMeteredSession(e,ledger,1000)
-        assertNull(s.sample(1,0,1100).expiresAt)
-        assertEquals(2200L,s.sample(5,5,1200,true).expiresAt)
+        assertNull(s.sample(0,0,1100).expiresAt)
+        assertEquals(2200L,s.sample(5,5,1200,false).expiresAt)
         s.close()
         val next=VaultMeteredSession(e,ledger,1500)
         assertEquals(2200L,next.sample(0,0,1600,true).expiresAt)

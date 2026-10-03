@@ -259,7 +259,7 @@ class GozarVpnService : VpnService() {
             zeptunOwnsTun = wantZeptun && pfd != null
             tunFd = pfd
             if (pfd != null) { runCatching { blockFd?.close() }; blockFd = null }
-            if (pfd != null) trackUnderlyingNetwork()
+            if (pfd != null) { trackUnderlyingNetwork() }
 
                 setupGeoAssets()
                 val spec = aetherSpec
@@ -700,6 +700,10 @@ class GozarVpnService : VpnService() {
                             })
                             return@launch
                         }
+                    } catch (cancelled: CancellationException) {
+                        // Teardown owns the final freeze/flush. Cancelling the polling
+                        // job is not a failed meter and must not lock a clean session.
+                        throw cancelled
                     } catch (_: Exception) {
                         vaultSession?.invalidate()
                         die("ثبت امن مصرف صندوق انجام نشد؛ اتصال متوقف شد.")

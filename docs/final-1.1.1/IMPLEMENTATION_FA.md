@@ -6,7 +6,7 @@
 
 پین `132b38e9caaba1a1959354d518e54d2d08419afe` با patch قابل بازتولید در `third_party/sing-box/patches` ساخته می‌شود. byte counterهای اتمیک روی TCP/UDP data path هستند؛ اتصال‌های بسته‌شده یا پاک‌شدن history شمارنده را صفر نمی‌کنند. endpoint فقط loopback، دارای secret تصادفی هر process و احراز هویت Clash است. probe روی inbound جدا با SOCKS5 authentication اجرا و از quota حذف می‌شود. این secret در فایل موقت خصوصی 0600 موتور قرار می‌گیرد و بعد از startup حذف می‌شود؛ export/backup رمز plaintext موتور را نمی‌نویسد.
 
-`POST /ghajar/freeze` I/O تازه را رد، socketهای جاری را می‌بندد، پایان عملیات شمارشِ در حال اجرا را صبر و snapshot نهایی می‌دهد. Android پیش از stop/reconnect آن را ثبت می‌کند. generation مستقل مانع اشتباه بین processهاست. reset و جمع Long بدون overflow منفی مدیریت می‌شوند. quota از ledger پاک نمی‌شود. علامت session durable پیش از شروع نوشته می‌شود؛ پس از process death یا خطای final flush، entitlement به‌جای مصرف رایگان قفل می‌ماند. این حالت به اعتبار تازهٔ صادرکننده نیاز دارد، نه کلید «صفر کردن مصرف».
+`POST /ghajar/freeze` I/O تازه را رد، socketهای جاری را می‌بندد، پایان عملیات شمارشِ در حال اجرا را صبر و snapshot نهایی می‌دهد. Android پیش از stop/reconnect آن را ثبت می‌کند. generation مستقل مانع اشتباه بین processهاست. FIRST_CONNECT با نخستین payload واقعیِ مسیر اندازه‌گیری‌شده یا پاسخ probe تأییدشده آغاز می‌شود؛ مسدود بودن endpoint تست نمی‌تواند مصرف واقعی را بدون شروع زمان نگه دارد. reset و جمع Long بدون overflow منفی مدیریت می‌شوند. quota از ledger پاک نمی‌شود. علامت session durable پیش از شروع نوشته می‌شود؛ پس از process death یا خطای final flush، entitlement به‌جای مصرف رایگان قفل می‌ماند. این حالت به اعتبار تازهٔ صادرکننده نیاز دارد، نه کلید «صفر کردن مصرف».
 
 حجم، payload عبوری TCP/UDP است؛ سربار IP/TLS/DNS outer tunnel و صورتحساب سرور نیست. نمونه‌برداری هر یک ثانیه است و scheduling/timeout API می‌تواند overshoot ایجاد کند. قطع دقیق روی همان byte ادعا نمی‌شود. بعد از تشخیص quota/time، forwarding متوقف و مسیر blocking حفظ می‌شود. profile کامل یا Tailscale و adapterهای فاقد قرارداد quota در صندوق فعال نیستند؛ مسیرهای عادی آن‌ها حذف نشده‌اند.
 
@@ -33,3 +33,11 @@ Biometric بدون qualification دستگاه فعال نشده؛ password مس�
 Instrumentation واقعی برای modal download/verify، APK خراب/هش/بسته/امضای اشتباه، notification toggle و RemoteViews، palette/actionهای دو widget و migration/backup/quota روی storage Android اضافه شده است. CI روی شاخهٔ phase1 باید آن‌ها و crawl/offline Store را اجرا کند؛ صرف وجود تست به معنی PASS نیست. signed artifact شاخه فقط candidate است؛ publish step برای این شاخه اجرا نمی‌شود.
 
 نمونه‌های خصوصی BPF/NPV در این checkout موجود نیستند؛ synthetic/reference fixtures جایگزین ادعای آزمون دوبارهٔ نمونهٔ خصوصی نمی‌شوند. آمار نهایی و نتایج اجرا جدا ثبت می‌شوند.
+
+## یافته‌های Build/lint و اصلاحات بعدی
+
+خطاهای API 28 در DNS-only، permission اعلان Android 13، callback قدیمی Back در دو WebView، StateFlow غیرواکنشی و کاراکترهای کنترل جهت متن اصلاح شدند. خطاهای lint اکنون Build را fail می‌کنند. تنها استثنای موضعی TileService برای API 26–33 است که واقعاً overload PendingIntent ندارد؛ مسیر API34+ از PendingIntent استفاده می‌کند.
+
+دانلود subscription قبلاً گواهی و hostname را بدون گزینهٔ صریح کاربر نادیده می‌گرفت؛ این مسیر حذف شد. TLS پیش‌فرض Android و منع redirect از HTTPS به HTTP برقرار است. تست مستقل با گواهی self-signed این رفتار را می‌سنجد. TrustManagerهای باقی‌مانده در ابزار مشاهدهٔ گواهی/handshake و pin inspector، تأیید امن اتصال فروشگاه یا دانلود subscription محسوب نمی‌شوند؛ خروجی lint آن‌ها همچنان قابل مشاهده است.
+
+هم‌ترازی OpenVPN/strongSwan روی ARMv7 از4KiB به16KiB تغییر کرد. در artifact محلی هر دو ABI دارای34 ELF بودند؛ معماری، dependencyهای native، alignment و metadata/zipalign پاس شدند. این بررسی SIGILL یا اتصال دستگاه را ثابت نمی‌کند.

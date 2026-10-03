@@ -10,6 +10,17 @@ import java.time.ZoneId
 
 class VaultCompletionTest {
     private fun entry()=VaultEntry(displayName="test",protocol="socks",payload=ProxyConfig(name="test",protocol="socks",address="192.0.2.1",port=1080).toJson().toString(),createdAt=1000,quota=VaultQuota(QuotaMode.LOCAL,10000))
+    @Test fun reconnectPolicyAlsoAppliesToManualNewGrants() {
+        val d=Files.createTempDirectory("vault-reconnect").toFile()
+        try {
+            val original=entry()
+            val e=VaultEntry(displayName=original.displayName,protocol=original.protocol,payload=original.payload,createdAt=1000,quota=original.quota,policy=VaultPolicy(allowReconnect=false))
+            val ledger=VaultUsageLedger(File(d,"usage"))
+            val first=VaultRuntime.issue(e,ledger,1000);VaultRuntime.forget(first.id)
+            ledger.record(e.usageId,1,1,1001,connected=true)
+            assertTrue(runCatching { VaultRuntime.issue(e,ledger,1002) }.isFailure)
+        } finally { d.deleteRecursively() }
+    }
     @Test fun uncleanProcessDeathLocksInsteadOfResettingQuota() {
         val d=Files.createTempDirectory("vault-recovery").toFile()
         try {

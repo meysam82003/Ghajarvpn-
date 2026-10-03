@@ -28,6 +28,7 @@ object VaultRuntime {
         val engine = EngineRouting.engineFor(config)
         require(engine in setOf(EngineId.XRAY, EngineId.SINGBOX)) { "این موتور هنوز قرارداد نشست صندوق را ندارد." }
         val usage = ledger.record(entry.usageId, 0, 0, now, imported = true)
+        require(entry.policy.allowReconnect || usage.firstConnectAt == null) { "اتصال دوباره طبق سیاست این دسترسی مجاز نیست." }
         requireAllowed(VaultQuotaPolicy.local(entry, usage, now))
         grants.entries.removeAll { it.value.session == null }
         val ref = PREFIX + UUID.randomUUID()
@@ -112,7 +113,9 @@ class VaultMeteredSession(private val entry: VaultEntry, private val ledger: Vau
         val up = if (upload >= lastUpload) upload - lastUpload else upload
         val down = if (download >= lastDownload) download - lastDownload else download
         // Persist first. On I/O failure the caller must stop the engine, never advance counters.
-        val usage = ledger.record(entry.usageId, up, down, lastClock, connected = successful)
+        // A verified probe OR actual routed payload starts validity. Otherwise a
+        // blocked probe endpoint could leave a working data path unmetered in time.
+        val usage = ledger.record(entry.usageId, up, down, lastClock, connected = successful || up > 0 || down > 0)
         lastUpload = upload; lastDownload = download; lastGeneration = generation
         return VaultQuotaPolicy.local(entry, usage, lastClock)
     }

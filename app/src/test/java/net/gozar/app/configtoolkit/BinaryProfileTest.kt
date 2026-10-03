@@ -127,7 +127,8 @@ class BinaryProfileTest {
     }
     /** Private user fixtures are optional external inputs; never committed or printed. */
     @Test fun privateRegressionFixtures() {
-        val dir=System.getenv("GHAJAR_PRIVATE_FIXTURES") ?: return
+        val dir=System.getenv("GHAJAR_PRIVATE_FIXTURES")
+        org.junit.Assume.assumeTrue("Private fixtures were not supplied", !dir.isNullOrBlank())
         val files=Files.list(Paths.get(dir)).use{it.toList()}.filter{it.toString().endsWith(".npvt")||it.toString().endsWith(".npvs")||it.toString().endsWith(".bpf")}
         assertEquals(4,files.size)
         for(file in files){val bytes=Files.readAllBytes(file)

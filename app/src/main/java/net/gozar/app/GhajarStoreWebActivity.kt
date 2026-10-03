@@ -26,7 +26,7 @@ import androidx.core.net.toUri
  * Replaces the old :browser module's embedded store mode, which this project
  * no longer ships.
  */
-class GhajarStoreWebActivity : Activity() {
+class GhajarStoreWebActivity : androidx.activity.ComponentActivity() {
 
     /** The active theme's canvas, resolved once in onCreate. */
     private var chrome: Int = Color.BLACK
@@ -41,6 +41,11 @@ class GhajarStoreWebActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else finish()
+            }
+        })
         // This window is Views, not Compose, so it resolves the stored theme
         // directly; it used to be painted in the old fixed navy.
         val palette = ghajarPaletteFor(this)
@@ -180,10 +185,7 @@ class GhajarStoreWebActivity : Activity() {
         webView.loadUrl(url.toString())
     }
 
-    @Deprecated("Deprecated in Android")
-    override fun onBackPressed() {
-        if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed()
-    }
+
 
     @Deprecated("Deprecated in Android")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {
