@@ -20,6 +20,7 @@ object GhajarLog {
 }
 ''')
 kotlin('chain-runtime.jar',[b/x for x in ['ChainSession.kt','ProcessCleanup.kt','AetherTorPolicy.kt','AetherTorRuntime.kt','Aethercontroller.kt','Torcontroller.kt','engine/SingBoxController.kt','engine/DnsTunnelTuning.kt','engine/SidecarRunner.kt','engine/DnsTunnelPrefs.kt']]+[stub],':'+str(k/'phase3-tests.jar'))
+kotlin('vault-launch.jar',[b/'VaultConnection.kt',*[r/'scripts/validation/host-fixtures'/name for name in ['vault-launch-stubs.kt','vault-launch-engine-stubs.kt','vault-launch-android-stubs.kt']]],':'+str(k/'phase3-tests.jar'))
 # Parse every changed Kotlin file, including Compose/service wiring. This is syntax only.
 java=work/'Syntax.java';java.write_text('''import java.nio.file.*; import org.jetbrains.kotlin.cli.jvm.compiler.*; import org.jetbrains.kotlin.config.*; import org.jetbrains.kotlin.com.intellij.openapi.util.Disposer; import org.jetbrains.kotlin.com.intellij.psi.*; import org.jetbrains.kotlin.com.intellij.psi.util.PsiTreeUtil; import org.jetbrains.kotlin.psi.*;
 public class Syntax { public static void main(String[] args) throws Exception { var d=Disposer.newDisposable(); try { var env=KotlinCoreEnvironment.createForProduction(d,new CompilerConfiguration(),EnvironmentConfigFiles.JVM_CONFIG_FILES); var factory=new KtPsiFactory(env.getProject(),false); for(String p:args){var file=factory.createFile(Path.of(p).getFileName().toString(),Files.readString(Path.of(p)));var errors=PsiTreeUtil.collectElementsOfType(file,PsiErrorElement.class);if(!errors.isEmpty())throw new Exception(p+errors.toString());}System.out.println("Kotlin syntax accepted: "+args.length); }finally{Disposer.dispose(d);} } }
@@ -27,4 +28,4 @@ public class Syntax { public static void main(String[] args) throws Exception { 
 call(['java','--add-modules','jdk.compiler','-m','jdk.compiler/com.sun.tools.javac.Main','-cp',':'.join(map(str,k.glob('*.jar'))),'-d',work,java])
 files=subprocess.check_output(['git','ls-files','-m','-o','--exclude-standard'],cwd=r,text=True).splitlines();files=[r/f for f in files if f.endswith('.kt')]
 call(['java','-cp',str(work)+':'+str(k/'*'),'Syntax',*files])
-print('API + Mihomo Java, chain controller/runtime Kotlin type checks passed; no APK produced.')
+print('API + Mihomo Java, chain controller/runtime + vault launch Kotlin type checks passed; no APK produced.')

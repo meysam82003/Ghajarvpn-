@@ -629,6 +629,7 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun add(config: ProxyConfig) {
+        require(!net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) { "Vault runtime profiles cannot be persisted" }
         _configs.value = _configs.value + config
         persistConfigs()
     }
@@ -1069,6 +1070,7 @@ class ConfigStore private constructor(context: Context) {
     // reference copy of an immutable list) stays on the caller's thread.
     private fun persistConfigs() {
         val snapshot = _configs.value
+        require(snapshot.none { net.gozar.app.security.vault.VaultRuntime.isReference(it.id) }) { "Vault runtime profiles cannot be persisted" }
         scope.launch(writeDispatcher) {
             val arr = JSONArray()
             snapshot.forEach { arr.put(it.toJson()) }

@@ -44,9 +44,10 @@ class VaultEntry(val id: String = UUID.randomUUID().toString(), val displayName:
     val payload: String, val createdAt: Long, val updatedAt: Long = createdAt, val expiresAt: Long? = null,
     val note: String = "", val tags: List<String> = emptyList(), val favorite: Boolean = false,
     val sourceType: String = "personal", val privacy: MetadataPrivacy = MetadataPrivacy.PRIVATE,
-    val policy: VaultPolicy = VaultPolicy(), val quota: VaultQuota = VaultQuota()) {
+    val policy: VaultPolicy = VaultPolicy(), val quota: VaultQuota = VaultQuota(), val usageId: String = id) {
     init {
         require(runCatching { UUID.fromString(id).toString() == id }.getOrDefault(false))
+        require(runCatching { UUID.fromString(usageId).toString() == usageId }.getOrDefault(false))
         require(displayName.length <= 512 && protocol.length <= 64 && note.length <= 16384 && tags.size <= 64 && tags.all { it.length <= 128 })
         require(createdAt >= 0 && updatedAt >= createdAt && (expiresAt == null || expiresAt >= 0))
         require(payload.toByteArray(Charsets.UTF_8).size <= 1024 * 1024)
@@ -54,12 +55,12 @@ class VaultEntry(val id: String = UUID.randomUUID().toString(), val displayName:
     override fun toString() = "VaultEntry(redacted)"
     fun metadata() = JSONObject().put("name",displayName).put("protocol",protocol).put("createdAt",createdAt)
         .put("updatedAt",updatedAt).put("expiresAt",expiresAt).put("note",note).put("tags",JSONArray(tags))
-        .put("favorite",favorite).put("source",sourceType).put("policy",policy.toJson()).put("quota",quota.toJson())
+        .put("favorite",favorite).put("source",sourceType).put("policy",policy.toJson()).put("quota",quota.toJson()).put("usageId",usageId)
     internal fun plain() = JSONObject().put("metadata",metadata()).put("payload",payload)
     companion object {
         fun read(id: String, privacy: MetadataPrivacy, o: JSONObject): VaultEntry {
             val m=o.getJSONObject("metadata"); val tags=m.getJSONArray("tags")
-            return VaultEntry(id,m.getString("name"),m.getString("protocol"),o.getString("payload"),m.exactLong("createdAt"),m.exactLong("updatedAt"),m.longOrNull("expiresAt"),m.getString("note"),(0 until tags.length()).map { tags.getString(it) },m.getBoolean("favorite"),m.getString("source"),privacy,VaultPolicy.fromJson(m.getJSONObject("policy")),VaultQuota.fromJson(m.getJSONObject("quota")))
+            return VaultEntry(id,m.getString("name"),m.getString("protocol"),o.getString("payload"),m.exactLong("createdAt"),m.exactLong("updatedAt"),m.longOrNull("expiresAt"),m.getString("note"),(0 until tags.length()).map { tags.getString(it) },m.getBoolean("favorite"),m.getString("source"),privacy,VaultPolicy.fromJson(m.getJSONObject("policy")),VaultQuota.fromJson(m.getJSONObject("quota")),m.optString("usageId",id))
         }
     }
 }

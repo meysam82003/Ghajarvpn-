@@ -168,6 +168,8 @@ object CoreManager {
      * configuration. Returns null when ready, or the reason it is not.
      */
     fun prepare(context: Context, config: net.gozar.app.ProxyConfig): String? {
+        try { net.gozar.app.security.vault.VaultRuntime.check(config) }
+        catch (_: Exception) { return "دسترسی صندوق قفل، منقضی یا فاقد سهمیه است." }
         val id = engineFor(config)
         if (id == EngineId.PLUGIN) {
             val profile = runCatching { net.gozar.app.plugins.PluginProfiles.read(config) }.getOrNull()

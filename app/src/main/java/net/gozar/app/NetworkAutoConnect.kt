@@ -90,6 +90,7 @@ object NetworkAutoConnect {
 
         val store = ConfigStore.get(app)
         store.awaitReady()
+        if (net.gozar.app.security.vault.VaultRuntime.isReference(VpnState.activeId.value ?: store.selectedId.value)) return
 
         val config = when (action) {
             NetRuleAction.FASTEST -> AutoSelector(app, store).pickFastest()

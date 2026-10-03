@@ -1,5 +1,6 @@
 package net.gozar.app
 
+import net.gozar.app.security.vault.*
 import android.app.Activity
 import android.content.Context
 import android.widget.Toast
@@ -939,7 +940,7 @@ class MainActivity : ComponentActivity() {
             return
         }
         VpnCommandCoordinator.onConnectRequested(config.id, if (config.protocol == "psiphon") { when (OblivionOptions(config.oblivionJson).core) { "chain" -> 290_000L; "aether" -> 200_000L; else -> 100_000L } } else if (config.protocol == "aether") 200_000L else 45_000L) {
-            if (config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
+            if (!net.gozar.app.security.vault.VaultRuntime.isReference(config.id) && config.allowInsecure && !CertPin.isValid(config.pinnedCertSha256) &&
                 config.security.trim().lowercase() == "tls"
             ) {
                 lifecycleScope.launch {
@@ -967,6 +968,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun connectTo(config: ProxyConfig) {
+        if (net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) {
+            try { net.gozar.app.security.vault.VaultRuntime.check(config) }
+            catch (_: Exception) { VpnState.setError("دسترسی صندوق آماده نیست؛ صندوق را باز و وضعیت سهمیه را بررسی کنید."); return }
+        }
         if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) {
             val profile = runCatching { net.gozar.app.plugins.PluginProfiles.read(config) }.getOrNull()
             if (profile == null || net.gozar.app.plugins.PluginManager.get(this).active(profile.id) == null) {
@@ -994,7 +999,7 @@ class MainActivity : ComponentActivity() {
             ConnectAction.CONNECT -> Unit
         }
 
-        if (!store.autoSelect.value || net.gozar.app.plugins.PluginProfiles.isPlugin(config)) {
+        if (net.gozar.app.security.vault.VaultRuntime.isReference(config.id) || !store.autoSelect.value || net.gozar.app.plugins.PluginProfiles.isPlugin(config)) {
             launchConnect(config)
             return
         }
@@ -1078,7 +1083,7 @@ class MainActivity : ComponentActivity() {
                 if (activeId == null) {
                     android.util.Log.d(tag, "skip: no active config id"); continue
                 }
-                if (activeId.startsWith("ovpn:")) {
+                if (activeId.startsWith("ovpn:") || net.gozar.app.security.vault.VaultRuntime.isReference(activeId)) {
                     android.util.Log.d(tag, "skip: OpenVPN owns the active tunnel"); continue
                 }
                 val activeCfg = store.configs.value.find { it.id == activeId }
@@ -1151,6 +1156,13 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun proceedConnectChecked(config: ProxyConfig) {
+        if (net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) {
+            val start = { VaultConnection.start(this, store, config) }
+            val consent = VpnService.prepare(this)
+            if (consent != null) { afterPermission = { guardedConnect(start) }; vpnPermission.launch(consent) }
+            else start()
+            return
+        }
         if (VpnState.state.value == Connection.CONNECTED) return
         if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) {
             val start: () -> Unit = { lifecycleScope.launch { net.gozar.app.plugins.PluginRuntime.launch(applicationContext, config) }; Unit }
@@ -14688,16 +14700,32 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     val scope = rememberCoroutineScope()
     val c = ghajarColors
     val configs by store.configs.collectAsState()
+    val repository = remember { VaultRepository(java.io.File(context.filesDir, "safebox.gsb")) }
+    val ledger = remember { VaultUsageLedger(java.io.File(context.noBackupFilesDir, "vault-usage.json")) }
+    var quotaMb by remember { mutableStateOf("") }
+    var validityDays by remember { mutableStateOf("") }
+    var activation by remember { mutableStateOf(ActivationMode.FIRST_CONNECT) }
+    var readOnly by remember { mutableStateOf(true) }
+    var privateMetadata by remember { mutableStateOf(true) }
+    var deleteOriginals by remember { mutableStateOf(false) }
+    var allowReExport by remember { mutableStateOf(true) }
+    var allowTest by remember { mutableStateOf(true) }
+    var note by remember { mutableStateOf("") }
+    var usageVersion by remember { mutableStateOf(0) }
+    val activeVaultId by VpnState.activeId.collectAsState()
+    val vaultConnectionState by VpnState.state.collectAsState()
+    val activeReferences = remember { mutableStateMapOf<String, String>() }
+    LaunchedEffect(Unit) { while (true) { delay(2000); usageVersion++ } }
     var exists by remember { mutableStateOf(Safebox.exists(context)) }
     // The password lives only in this page's memory while it is open.
     var password by remember { mutableStateOf("") }
     var importPassword by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
-    var vault by remember { mutableStateOf<List<ProxyConfig>?>(null) }
+    var vault by remember { mutableStateOf<List<VaultEntry>?>(null) }
     var message by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var unlockEpoch by remember { mutableStateOf(0L) }
-    fun lockVault() { unlockEpoch++; vault=null; password=""; confirm=""; importPassword="" }
+    fun lockVault() { VaultRuntime.lock(); unlockEpoch++; vault=null; password=""; confirm=""; importPassword="" }
     var legacy by remember { mutableStateOf(runCatching { Safebox.raw(context)?.let { !net.gozar.app.security.vault.VaultFormat.isV2(it) } == true }.getOrDefault(false)) }
     var protectScreen by remember { mutableStateOf(context.getSharedPreferences("ghajar_vault",0).getBoolean("secure_screen",true)) }
     val vaultActivity = context as? android.app.Activity
@@ -14721,12 +14749,12 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     var picking by remember { mutableStateOf(false) }
     val chosen = remember { mutableStateMapOf<String, Boolean>() }
 
-    fun persist(list: List<ProxyConfig>) {
+    fun persist(list: List<VaultEntry>) {
         val epoch=unlockEpoch; val chars=password.toCharArray()
         busy = true
         scope.launch(start=kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             try {
-                val ok = withContext(Dispatchers.IO) { runCatching { Safebox.save(context,list,chars) }.isSuccess }
+                val ok = withContext(Dispatchers.IO) { runCatching { repository.save(list,chars) }.isSuccess }
                 if (ok) { if(epoch==unlockEpoch)vault = list; exists = true } else message = t("safebox_io_error")
             } finally { chars.fill('\u0000');busy = false }
         }
@@ -14788,8 +14816,8 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                     scope.launch(start=kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                         try {
                             val result = withContext(Dispatchers.IO) { runCatching {
-                                val list=Safebox.loadChecked(context,chars)
-                                if(!Safebox.exists(context))Safebox.save(context,list,chars)
+                                val list=repository.open(chars)
+                                if(!Safebox.exists(context))repository.save(list,chars)
                                 list
                             } }
                             if(epoch==unlockEpoch)result.onSuccess { vault=it;exists=true }
@@ -14806,7 +14834,7 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                 val chars=password.toCharArray();busy=true
                 scope.launch(start=kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                     try {
-                        val result=withContext(Dispatchers.IO){runCatching { Safebox.migrate(context,chars) }}
+                        val result=withContext(Dispatchers.IO){runCatching { repository.migrate(chars) }}
                         result.onSuccess { legacy=false;message="صندوق به GSB2 تبدیل و دوباره بازخوانی شد." }
                             .onFailure { message=net.gozar.app.security.vault.VaultMessages.describe(it) }
                     } finally { chars.fill('\u0000');busy=false }
@@ -14829,17 +14857,16 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                     scope.launch(start=kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                         try {
                         val result=withContext(Dispatchers.IO) { runCatching {
-                            val incoming=Safebox.openChecked(input,importChars)
-                            val merged=existing.toMutableList()
-                            incoming.forEach { cfg ->
-                                val fp=net.gozar.app.security.vault.VaultFingerprint.of(cfg)
-                                val index=merged.indexOfFirst { net.gozar.app.security.vault.VaultFingerprint.of(it)==fp }
-                                if(index<0)merged+=cfg else when(mode) {
-                                    "replace"->merged[index]=cfg
-                                    "both"->merged+=cfg.copy(id=java.util.UUID.randomUUID().toString())
-                                }
+                            val incoming=repository.decode(input,importChars)
+                            incoming.forEach { ledger.record(it.usageId,0,0,System.currentTimeMillis(),imported=true) }
+                            val choice=when(mode) {
+                                "replace" -> VaultRepository.DuplicateChoice.REPLACE
+                                "both" -> VaultRepository.DuplicateChoice.KEEP_BOTH
+                                else -> VaultRepository.DuplicateChoice.KEEP_EXISTING
                             }
-                            Safebox.save(context,merged,destinationChars);merged.toList()
+                            val merged=repository.merge(existing,incoming) { _,_ -> choice }
+                            repository.save(merged,destinationChars);merged
+
                         } }
                         result.onSuccess { if(epoch==unlockEpoch)vault=it;pendingImport=null;importPassword="";legacy=false;exists=true;message=t("safebox_imported") }
                             .onFailure { message=net.gozar.app.security.vault.VaultMessages.describe(it) }
@@ -14849,20 +14876,58 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
             }
             StatStrip(listOf(StatCell(t("safebox_count"), localizeDigits("${open.size}", LocalLang.current), c.primary)))
             if (open.isEmpty()) Text(t("safebox_empty"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-            Slab(spacing = 0.dp) {
-                open.forEachIndexed { i, cfg ->
-                    if (i > 0) SlabDivider()
-                    SlabRow(
-                        title = cfg.name,
-                        subtitle = cfg.protocol.uppercase(),
-                        icon = Icons.Filled.Lock,
-                        trailing = {
-                            TextButton(onClick = {
-                                store.add(cfg)
-                                persist(open.filterNot { it.id == cfg.id })
-                            }) { Text(t("safebox_take_out")) }
-                        }
-                    )
+            open.forEach { entry ->
+                val decision = remember(entry, usageVersion) { runCatching { VaultQuotaPolicy.local(entry,ledger.read(entry.usageId),System.currentTimeMillis()) }.getOrNull() }
+                val ref = VaultRuntime.activeReference(entry.id) ?: activeReferences[entry.id]
+                val running = ref != null && activeVaultId == ref && vaultConnectionState in setOf(Connection.CONNECTING,Connection.CONNECTED)
+                Slab {
+                    Text(entry.displayName,style=MaterialTheme.typography.titleMedium,color=c.textPrimary)
+                    Text(entry.protocol.uppercase()+if(entry.policy.readOnly) " · فقط خواندنی" else "",color=c.textSecondary)
+                    if(entry.note.isNotBlank()) Text(entry.note,style=MaterialTheme.typography.bodySmall)
+                    val stateText=when(decision?.status) {
+                        EntitlementStatus.ACTIVE -> if(running) "نشست فعال" else "فعال"
+                        EntitlementStatus.QUOTA_EXHAUSTED -> "حجم این دسترسی به پایان رسیده است."
+                        EntitlementStatus.EXPIRED -> "زمان این دسترسی به پایان رسیده است."
+                        else -> "وضعیت دسترسی نامشخص است؛ اتصال مجاز نیست."
+                    }
+                    Text(stateText,color=if(decision?.connectable==true)c.good else c.error)
+                    if(entry.quota.mode==QuotaMode.LOCAL) {
+                        Text("محدودیت روی همین دستگاه · Device-local limit",style=MaterialTheme.typography.labelSmall)
+                        Text("${decision?.usedBytes ?: 0} / ${entry.quota.quotaBytes ?: 0} B · باقی‌مانده ${decision?.remainingBytes ?: 0} B")
+                        if(entry.quota.quotaBytes!=null && decision!=null) LinearProgressIndicator(progress={ (decision.usedBytes.toDouble()/entry.quota.quotaBytes).coerceIn(0.0,1.0).toFloat() },modifier=Modifier.fillMaxWidth(),color=c.primary)
+                    }
+                    decision?.expiresAt?.let { Text("انقضا: "+java.text.DateFormat.getDateTimeInstance().format(java.util.Date(it)),style=MaterialTheme.typography.bodySmall) }
+                    if(entry.quota.activationMode==ActivationMode.FIRST_CONNECT && decision?.expiresAt==null && entry.quota.validityMillis!=null) Text("زمان پس از نخستین پاسخ موفق از تونل شروع می‌شود.")
+                    Row(horizontalArrangement=Arrangement.spacedBy(GhajarSpacing.sm)) {
+                        TextButton(enabled=!busy && (running || (entry.policy.allowConnect && decision?.connectable==true)),onClick={
+                            if(running) net.gozar.app.engine.CoreManager.stop(context)
+                            else {
+                                val epoch=unlockEpoch;busy=true
+                                scope.launch {
+                                    try {
+                                        val result=withContext(Dispatchers.IO) { runCatching { VaultRuntime.issue(entry,ledger,System.currentTimeMillis()) } }
+                                        if(epoch==unlockEpoch) result.onSuccess { cfg ->
+                                            activeReferences[entry.id]=cfg.id
+                                            (context as? MainActivity)?.quickConnect(cfg)
+                                        }.onFailure { message=if(it is IllegalArgumentException) it.message.orEmpty() else VaultMessages.describe(it) }
+                                        else VaultRuntime.lock()
+                                    } finally { busy=false }
+                                }
+                            }
+                        }) { Text(if(running) "قطع اتصال" else "اتصال") }
+                        if(entry.policy.allowTest) TextButton(enabled=running && vaultConnectionState==Connection.CONNECTED && ref!=null && VaultRuntime.testAllowed(ref),onClick={
+                            context.startService(Intent(context,GozarVpnService::class.java).setAction(GozarVpnService.ACTION_PING))
+                            message="تست از همان موتور و نشست فعال اجرا می‌شود؛ نتیجهٔ پینگ در صفحهٔ اتصال نمایش داده می‌شود."
+                        }) { Text("تست نشست") }
+                        TextButton(onClick={usageVersion++}) { Text("تازه‌سازی مصرف محلی") }
+                    }
+                    if(!entry.policy.readOnly && entry.policy.allowReExport && entry.quota==VaultQuota() && entry.expiresAt==null && entry.policy==VaultPolicy()) {
+                        TextButton(enabled=!busy,onClick={
+                            store.add(VaultRepository.config(entry))
+                            persist(open.filterNot { it.id==entry.id })
+                        }) { Text(t("safebox_take_out")) }
+                    }
+                    TextButton(enabled=!busy&&!running,onClick={persist(open.filterNot { it.id==entry.id })}) { Text("حذف از صندوق") }
                 }
             }
             if (picking) {
@@ -14877,22 +14942,49 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                         )
                     }
                 }
+                SkinField(value=quotaMb,onValueChange={quotaMb=it},label="سهمیهٔ محلی به MB؛ خالی = نامحدود",keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
+                SkinField(value=validityDays,onValueChange={validityDays=it},label="مدت اعتبار به روز؛ خالی = نامحدود",keyboardOptions=KeyboardOptions(keyboardType=KeyboardType.Number))
+                SkinField(value=note,onValueChange={note=it.take(16384)},label="یادداشت")
+                Row {
+                    listOf(ActivationMode.CREATED to "ساخت",ActivationMode.IMPORTED to "ورود",ActivationMode.FIRST_CONNECT to "اولین اتصال").forEach { (mode,label) ->
+                        TextButton(onClick={activation=mode}) { Text((if(activation==mode)"✓ " else "")+label) }
+                    }
+                }
+                SlabRow(title="فقط خواندنی",trailing={SkinSwitch(checked=readOnly,onCheckedChange={readOnly=it})})
+                SlabRow(title="پنهان‌کردن metadata در فایل",trailing={SkinSwitch(checked=privateMetadata,onCheckedChange={privateMetadata=it})})
+                SlabRow(title="اجازهٔ تست نشست",trailing={SkinSwitch(checked=allowTest,onCheckedChange={allowTest=it})})
+                SlabRow(title="اجازهٔ خروجی مجدد",trailing={SkinSwitch(checked=allowReExport,onCheckedChange={allowReExport=it})})
+                SlabRow(title="حذف اصل فقط بعد از ذخیره و بازخوانی موفق",trailing={SkinSwitch(checked=deleteOriginals,onCheckedChange={deleteOriginals=it})})
+                InfoBox("حجم، محدودیت محلی و قابل بازنشانی با پاک‌کردن دادهٔ برنامه است؛ محدودیت واقعی سرور یا تعداد دستگاه ایجاد نمی‌کند. سهمیهٔ حجمی فعلاً فقط برای مسیر Xray قابل اجراست.")
                 PillButton(
-                    text = t("safebox_move_in"),
+                    text = "ذخیرهٔ امن انتخاب‌شده‌ها",
                     icon = Icons.Filled.Lock,
                     enabled = !busy && chosen.values.any { it },
                     onClick = {
                         val moving = configs.filter { chosen[it.id] == true }
-                        val next = (open + moving).distinctBy { it.id }
+                        if(deleteOriginals && moving.any { it.id==VpnState.activeId.value }) { message="پیش از حذف اصل پروفایل فعال، اتصال را قطع کنید.";return@PillButton }
+                        val next=runCatching {
+                            val bytes=quotaMb.trim().takeIf { it.isNotEmpty() }?.let { Math.multiplyExact(it.toLong(),1048576L) }
+                            val duration=validityDays.trim().takeIf { it.isNotEmpty() }?.let { Math.multiplyExact(it.toLong(),86400000L) }
+                            val quota=VaultQuota(mode=if(bytes!=null)QuotaMode.LOCAL else QuotaMode.NONE,quotaBytes=bytes,validityMillis=duration,activationMode=activation)
+                            val now=System.currentTimeMillis()
+                            val entries=moving.map { cfg -> VaultEntry(displayName=cfg.name,protocol=cfg.protocol,payload=cfg.toJson().toString(),createdAt=now,note=note,
+                                privacy=if(privateMetadata)MetadataPrivacy.PRIVATE else MetadataPrivacy.STANDARD,
+                                policy=VaultPolicy(readOnly=readOnly,allowTest=allowTest,allowReExport=allowReExport),quota=quota) }
+                            val fingerprints=entries.map { VaultFingerprint.of(VaultRepository.config(it)) }
+                            if(fingerprints.distinct().size!=entries.size || open.any { VaultFingerprint.of(VaultRepository.config(it)) in fingerprints }) throw VaultException(VaultException.Kind.DUPLICATE)
+                            open+entries
+                        }.getOrElse { message=if(it is VaultException)VaultMessages.describe(it) else "حجم و مدت باید عدد صحیح مثبت در محدودهٔ مجاز باشند.";return@PillButton }
+                        val removeSources=deleteOriginals
                         val epoch=unlockEpoch;val chars=password.toCharArray();busy = true
                         scope.launch(start=kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                             try {
                             // Removed from the list only once the vault holding
                             // them is on disk.
                             val ok = withContext(Dispatchers.IO) {
-                                runCatching { Safebox.save(context,next,chars) }.isSuccess
+                                runCatching { repository.save(next,chars);next.forEach { ledger.record(it.usageId,0,0,System.currentTimeMillis(),imported=true) } }.isSuccess
                             }
-                            if (ok) { store.deleteConfigsByIds(moving.map { it.id }.toSet()); if(epoch==unlockEpoch)vault = next; exists = true }
+                            if (ok) { if(removeSources)store.deleteConfigsByIds(moving.map { it.id }.toSet()); if(epoch==unlockEpoch)vault = next; exists = true }
                             else message = t("safebox_io_error")
                             chosen.clear(); picking = false
                             } finally { chars.fill('\u0000');busy=false }
@@ -14906,7 +14998,7 @@ private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                 val entries=open.toList();val chars=password.toCharArray();val epoch=unlockEpoch;busy=true
                 scope.launch(start=kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                     try {
-                        val result=withContext(Dispatchers.IO) { runCatching { Safebox.seal(entries,chars) } }
+                        val result=withContext(Dispatchers.IO) { runCatching { repository.export(entries,chars) } }
                         if(epoch==unlockEpoch)result.onSuccess { pendingExport=it;exporter.launch("ghajar-safebox.gsb") }
                             .onFailure { message=net.gozar.app.security.vault.VaultMessages.describe(it) }
                     } finally { chars.fill('\u0000');busy=false }

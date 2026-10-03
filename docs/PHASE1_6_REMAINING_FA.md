@@ -8,6 +8,10 @@
 
 **هیچ Gradle/product APK/native Android build، CI، Tag یا Release اجرا نشده است.** کامپایل مستقل JVM/Java و آزمون Go میزبان انجام شد؛ این‌ها خروجی قابل نصب Android نیستند. هیچ فاز۷ خودکار شروع نشده است.
 
+## ادامهٔ نشست صندوق — پس از checkpoint bbd8177c
+
+جزئیات تغییر، فایل‌ها و محدودیت‌ها در [VAULT_RUNTIME_FA](remaining-1.1.1/VAULT_RUNTIME_FA.md) ثبت شده است. این نوبت ۱۴۳ تست app، ۲۲ log/browser و ۱۷ renewal پاس شدند؛ پنج انتقال WireGuard نیز دوباره پاس شدند. grant یک‌بارمصرف، کنترل runtime سهمیه/زمان، جلوگیری از fallback خودکار، UI مبتنی بر VaultEntry و فایل موقت امن‌تر sing-box اضافه شدند. سهمیهٔ حجمی sing-box و Server mode تا داشتن منبع حسابداری واقعی فعال نشده‌اند. رابط/سرویس Android اجرا یا full typecheck نشده‌اند؛ کارهای توسعه‌ای صریحاً در گزارش باقی‌اند.
+
 ## ادامهٔ ۲۰۲۶-۱۰-۰۳ — وضعیت جاری
 
 مرجع جدید remote `f293b163` شامل ممیزی ZedSecure دریافت و با کار محلی ادغام شد؛ مرجع اولیه reset نشد. عبارت «store دست‌نخورده» در گزارش اولیه مربوط به دامنهٔ همان مرحله بود؛ در ادامه فقط اصلاحات UI/خطای فروشگاهِ صریحاً خواسته‌شده انجام شد. Backend/ربات/Mini App و AAR مشترک تغییر نکرده‌اند.
@@ -24,7 +28,7 @@
 | OpenConnect | گسترش گزینه‌های عمومی pin واقعی در فرم/parser/share/generator، secretها خارج Share عمومی | پیاده‌سازی ناقص: SSO مرورگر و شمارندهٔ HOTP نیازمند کانال API موتور؛ اتصال شش gateway روی دستگاه باقی است |
 | DNS | تنظیمات واقعی VayDNS با validation تا CLI، رد transport ناشناخته | پیاده‌سازی ناقص: resolver pool/fanout مستقل؛ TCP گزینهٔ جعلی ندارد |
 | Chain | Carrier→Exit و reject self/cycle/missing/UDP mismatch؛ pass-through chain در relaunch/switch | مسیرهای پشتیبانی‌شده تست مستقل دارند؛ cross-engine عمومی ناقص است |
-| GSB2 | Argon2id، master wrapping، رمزگذاری entry، migration اتمیک، merge/export repository، حفاظت UI و log | پیاده‌سازی ناقص: UI policy-aware و اتصال locked/runtime، biometric، backup سراسری |
+| GSB2 | crypto/repository، UI مبتنی بر VaultEntry، grant حافظه‌ای و اتصال Xray/sing-box، کنترل زمان و سهمیهٔ محلی Xray در سرویس | پیاده‌سازی ناقص: biometric، wizard/backup کامل، سایر adapterها و حسابداری کامل sing-box/server؛ Android تأیید نشده |
 | Quota | Long boundaries، ledger اتمیک، امضای snapshot، قرارداد provider/parent reservation | پیاده‌سازی ناقص: hook نشست زنده و UI؛ server enforcement علاوه بر کد به API/کلید/پنل واقعی نیاز دارد |
 | Desktop | بررسی reference و تصمیم فاز مستقل | فقط طراحی‌شده؛ shared migration و تست سه OS انجام نشده‌اند |
 

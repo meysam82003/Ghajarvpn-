@@ -45,6 +45,7 @@ object VpnLauncher {
      * returns immediately.
      */
     suspend fun relaunch(appContext: Context, store: ConfigStore, config: ProxyConfig): LaunchOutcome {
+        if (net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) return LaunchOutcome.REFUSED
         if (VpnService.prepare(appContext) != null) return LaunchOutcome.NO_PERMISSION
         if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) return net.gozar.app.plugins.PluginRuntime.launch(appContext, config)
 

@@ -38,6 +38,7 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
     private val sidecar = SidecarRunner("$TAG-sidecar", "$subdir-sidecar")
     @Volatile var sharingPort = 0
         private set
+    @Volatile private var configFile: File? = null
     @Volatile private var lastSpec: String? = null
     @Volatile private var sidecarName: String? = null
     @Volatile private var stopping = false
@@ -91,6 +92,7 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
             if (failure != null) stop()
             return failure
         } catch (e: Throwable) { stop(); throw e }
+        finally { configFile?.delete(); configFile = null }
     }
 
     private fun startInner(context: Context, spec: String, port: Int): String? {
@@ -98,7 +100,12 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         if (!bin.exists()) return "sing-box is not in this build"
         val chosen = if (port > 0) port else freePort() ?: return "no free local port"
         val dir = workDir(context)
-        val file = File(dir, "config.json")
+        // Clean only files owned by this runner, including the pre-random-name format.
+        dir.listFiles()?.filter { it.name == "config.json" || (it.name.startsWith("session-") && it.name.endsWith(".json")) }
+            ?.forEach { check(it.delete()) { "Cannot remove stale private configuration" } }
+        val file = File.createTempFile("session-", ".json", dir)
+        configFile = file
+        java.nio.file.Files.setPosixFilePermissions(file.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"))
         lastSpec = spec
         var effective = spec
         val side = runCatching { org.json.JSONObject(spec).optJSONObject("sidecar") }.getOrNull()
@@ -210,6 +217,8 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
 
     fun stop() {
         stopping = true
+        lastSpec = null
+        configFile?.delete(); configFile = null
         sharingPort = 0
         sidecar.onUnexpectedExit = null
         val p = process

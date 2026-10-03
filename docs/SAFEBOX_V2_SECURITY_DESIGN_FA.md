@@ -3,6 +3,14 @@
 این سند قرارداد پیاده‌سازی فعلی است، نه گواهی امنیت مستقل یا ادعای تکمیل UI/اتصال همهٔ موتور‌ها.
 کد مستقل است؛ ZSX متعلق به ZedSecure با مجوز AGPL فقط Reference only بود و کپی نشده است.
 
+## ادامهٔ runtime — ۲۰۲۶-۱۰-۰۳
+
+[گزارش کامل نشست صندوق](remaining-1.1.1/VAULT_RUNTIME_FA.md) مرجع وضعیت جدید است. UI اکنون VaultEntry را نگه می‌دارد و اتصال Xray/sing-box با grant یک‌بارمصرف حافظه‌ای و Intent بدون payload به سرویس رسیده است. سهمیهٔ محلی Xray، زمان، final flush و blocking پس از failure در سرویس نوشته شده‌اند؛ این اثبات runtime روی Android نیست. UI کامل، biometric، تمام engine adapterها و Server enforced هنوز تکمیل نیستند.
+
+`usageId` فیلد اختیاری افزوده در metadata authenticated است؛ برای فایل‌های قدیمی مقدار پیش‌فرض entry ID است. Keep both/Replace، usageId موجود را حفظ می‌کنند تا ساخت ID ذخیره‌سازی جدید، مصرف را صفر نکند. تغییر backward-compatible است و نیازمند دستکاری envelope version نیست.
+
+آزمون این ادامه: ۱۴۳ app (شامل ۱۰ VaultRuntimeTest جدید)، ۲۲ log/browser و ۱۷ renewal پاس؛ typecheck مستقل VaultConnection/کنترلرها و syntax-check Compose/service. نتایج checkpoint پایین، تاریخی‌اند. زمان FIRST_CONNECT از پاسخ معتبر HTTPS/SOCKS آغاز می‌شود؛ local polling یک‌ثانیه‌ای hard cap سرور نیست و overshoot/آخرین flush هنگام مرگ process محدودیت شناخته‌شده است.
+
 ## Threat model
 
 هدف: رمزگذاری در حالت ذخیره، حفاظت فایل گم‌شده/Export، تشخیص تغییر داده و پنهان‌ماندن payload در UI عادی.
@@ -68,4 +76,4 @@ ParentAllowance قرارداد hard reservation با reserved و consumed غیر
 
 اجرای مستقل checkpoint ۲۰۲۶-۱۰-۰۳: ۱۳۳ تست app (شامل ۱۵ تست VaultV2Test و تست Safebox قدیمی) و ۲۲ تست log/browser پاس شدند. ۱۷ تست renewal و typecheckهای مستقل قرارداد/کنترلر نیز پاس‌اند؛ سورس Compose فقط syntax-check شده است. خروجی دقیق در remaining-1.1.1/test-results ذخیره شده است.
 آزمون‌های پایه شامل GSB1، wrong-password، tamper، migration شکست‌خورده، atomic replacement، metadata privacy، nonce/salt، AAD/key isolation، quota/time boundary/overflow، ledger restart، parent allocation و signature/replay/device binding بود.
-این‌ها اثبات اتصال locked Xray/sing-box/OpenConnect/DNS، قطع session در quota، پنل واقعی، Device registration، UI، biometric یا Android نیستند. این ادغام‌ها هنوز کار توسعه‌ای دارند؛ فقط «منتظر تست فاز ۷» نامیده نمی‌شوند.
+این آزمون‌های checkpoint اثبات اتصال locked Xray/sing-box/OpenConnect/DNS، قطع session واقعی Android، پنل، Device registration یا biometric نیستند. ادامهٔ runtime در بخش بالای سند ثبت شده است؛ باقی‌ماندهٔ توسعه با آزمون دستگاه فاز ۷ یکی نیست.

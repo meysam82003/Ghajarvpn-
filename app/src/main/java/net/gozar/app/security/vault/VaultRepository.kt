@@ -42,9 +42,9 @@ class VaultRepository(private val file: File) {
                 DuplicateChoice.KEEP_EXISTING -> Unit
                 DuplicateChoice.REPLACE -> {
                     require(!result[idx].policy.readOnly) { "Read-only entry cannot be replaced" }
-                    result[idx]=entry
+                    result[idx]=copyIdentity(entry,entry.id,result[idx].usageId)
                 }
-                DuplicateChoice.KEEP_BOTH -> result+=copyIdentity(entry,UUID.randomUUID().toString())
+                DuplicateChoice.KEEP_BOTH -> result+=copyIdentity(entry,UUID.randomUUID().toString(),result[idx].usageId)
             }
         }
         require(result.size<=VaultFormat.MAX_ENTRIES)
@@ -57,6 +57,6 @@ class VaultRepository(private val file: File) {
             ProxyConfig.fromJson(net.gozar.app.configtoolkit.BoundedJson.objectValue(entry.payload))
                 ?: throw VaultException(VaultException.Kind.INVALID_CONFIG)
         } catch(e: VaultException) { throw e } catch(_:Exception) { throw VaultException(VaultException.Kind.INVALID_CONFIG) }
-        private fun copyIdentity(e: VaultEntry,id: String)=VaultEntry(id,e.displayName,e.protocol,e.payload,e.createdAt,e.updatedAt,e.expiresAt,e.note,e.tags,e.favorite,e.sourceType,e.privacy,e.policy,e.quota)
+        private fun copyIdentity(e: VaultEntry,id: String, usageId: String=e.usageId)=VaultEntry(id,e.displayName,e.protocol,e.payload,e.createdAt,e.updatedAt,e.expiresAt,e.note,e.tags,e.favorite,e.sourceType,e.privacy,e.policy,e.quota,usageId)
     }
 }

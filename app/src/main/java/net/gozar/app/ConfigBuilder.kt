@@ -359,6 +359,7 @@ object ConfigBuilder {
         sharePass: String = "",
         shareListenAddress: String = "127.0.0.1"
     ): String {
+        net.gozar.app.security.vault.VaultRuntime.check(config)
         net.gozar.app.engine.ChainPlan.validate(config, chainBase)
         net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
         if (net.gozar.app.engine.FullSingBoxProfile.isFull(config)) {
@@ -573,6 +574,7 @@ object ConfigBuilder {
     }
 
     fun buildForTest(config: ProxyConfig, chainBase: ProxyConfig? = null): String {
+        require(!net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) { "Vault tests require the metered active session" }
         net.gozar.app.engine.ChainPlan.validate(config, chainBase)
         net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
         require(!net.gozar.app.engine.FullSingBoxProfile.isFull(config)) { "Full sing-box config requires sing-box" }
