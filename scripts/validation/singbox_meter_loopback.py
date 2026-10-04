@@ -44,7 +44,9 @@ def main(binary):
   s.sendall(bytes([5,command,0,1])+socket.inet_aton('127.0.0.1')+struct.pack('!H',target_port))
   h=recv(s,4);assert h[:3]==b'\x05\x00\x00'
   addr=recv(s,4 if h[3]==1 else 16);p=struct.unpack('!H',recv(s,2))[0]
-  return s,(socket.inet_ntop(socket.AF_INET if h[3]==1 else socket.AF_INET6,addr),p)
+  host=socket.inet_ntop(socket.AF_INET if h[3]==1 else socket.AF_INET6,addr)
+  if host in ('0.0.0.0','::'):host='127.0.0.1'
+  return s,(host,p)
  cfg={'log':{'level':'error'},'inbounds':[{'type':'socks','tag':'data','listen':'127.0.0.1','listen_port':data},{'type':'socks','tag':'ghajar-vault-probe','listen':'127.0.0.1','listen_port':probe,'users':[{'username':'vault','password':'secret'}]}], 'outbounds':[{'type':'direct','tag':'test-loopback-only'}], 'experimental':{'clash_api':{'external_controller':f'127.0.0.1:{api}','secret':'test-secret-012345678901234567890'}}}
  with tempfile.TemporaryDirectory() as d:
   f=Path(d)/'config.json';f.write_text(json.dumps(cfg));f.chmod(0o600)
@@ -68,10 +70,16 @@ def main(binary):
     with s:s.sendall(payload);assert recv(s,len(payload))==payload
     time.sleep(.05);assert usage()==first
     print('PASS authenticated internal probe excluded')
-    s,relay=socks(data,command=3,target_port=0)
-    with s,socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as client:
-     client.settimeout(3);client.sendto(b'\x00\x00\x00\x01'+socket.inet_aton('127.0.0.1')+struct.pack('!H',udp_port)+b'u'*333,relay)
-     packet,_=client.recvfrom(65536);assert packet.endswith(b'u'*333)
+    with socket.socket(socket.AF_INET,socket.SOCK_DGRAM) as client:
+     # RFC 1928 UDP ASSOCIATE carries the endpoint the client will actually
+     # send from. Bind first and advertise that real source port; advertising
+     # 127.0.0.1:0 lets a compliant server pin the association to port zero
+     # and drop the later datagram from the OS-assigned ephemeral port.
+     client.bind(('127.0.0.1',0));client.settimeout(3)
+     s,relay=socks(data,command=3,target_port=client.getsockname()[1])
+     with s:
+      client.sendto(b'\x00\x00\x00\x01'+socket.inet_aton('127.0.0.1')+struct.pack('!H',udp_port)+b'u'*333,relay)
+      packet,_=client.recvfrom(65536);assert packet.endswith(b'u'*333)
     time.sleep(.05);final=usage();assert final['upload']==4429 and final['download']==4429,final
     print('PASS UDP exact payload')
     frozen=usage(freeze=True);assert frozen==final
