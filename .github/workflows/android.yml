@@ -411,19 +411,16 @@ jobs:
     # all. The tag to publish under is derived from versionName in that case,
     # so a dispatch cannot invent a version the build does not carry.
     #
-    # A dispatch only publishes from the release branch. It used to publish
-    # from whichever ref it was fired on, which meant dispatching this
-    # workflow on a feature branch - the ordinary way to get a compile check -
-    # rebuilt and overwrote the published release's APKs with a build of
-    # unfinished work. Every CI run on a branch is a build; only main is a
-    # release.
+    # Publication is allowed from main (push or manual dispatch) and release
+    # tags. The work branch may still enter this job to produce a signed
+    # candidate artifact, but its publish step remains disabled below.
     if: >-
       always() && needs.prepare.result == 'success' &&
       needs.crash-hunt.result == 'success' &&
       (needs.build.result == 'success' || needs.prepare.outputs.reuse-run-id != '') &&
       (startsWith(github.ref, 'refs/tags/v') ||
-      github.ref == 'refs/tags/1.0.0' || github.ref == 'refs/tags/1.1.1' || github.ref == 'refs/heads/work/1.1.1-phase1' ||
-      (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'))
+      github.ref == 'refs/tags/1.0.0' || github.ref == 'refs/tags/1.1.1' ||
+      github.ref == 'refs/heads/main' || github.ref == 'refs/heads/work/1.1.1-phase1')
     runs-on: ubuntu-latest
     timeout-minutes: 110
     steps:
