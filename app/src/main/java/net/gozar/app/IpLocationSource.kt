@@ -35,7 +35,13 @@ object LocationFetcher {
     private val _lastIp = MutableStateFlow("")
     val lastIp: StateFlow<String> = _lastIp.asStateFlow()
 
+    private val _tunnelLocation = MutableStateFlow<IpLocation?>(null)
+    val tunnelLocation: StateFlow<IpLocation?> = _tunnelLocation.asStateFlow()
+    fun clearTunnelLocation() { _tunnelLocation.value = null }
+
     suspend fun fetch(throughProxy: Boolean): IpLocation? = withContext(Dispatchers.IO) {
+        val generation = VpnState.connectedAt.value
+        val active = VpnState.activeId.value
         val proxy = if (throughProxy)
             java.net.Proxy(java.net.Proxy.Type.SOCKS, java.net.InetSocketAddress("127.0.0.1", MixedPort.value))
         else java.net.Proxy.NO_PROXY
@@ -44,25 +50,19 @@ object LocationFetcher {
         val ip = fetchPlainIp(proxy, "https://api4.ipify.org")
             ?: fetchPlainIp(proxy, "https://api6.ipify.org")
         if (ip == null) {
-            android.util.Log.w(GEO_TAG, "ipify returned nothing")
+            net.gozar.app.GhajarLog.w(GEO_TAG, "ipify returned nothing")
         } else {
             android.util.Log.d(GEO_TAG, "ipify -> " + ip)
         }
         var out = fromIpWhoIs(proxy, ip)
             ?: fromFreeIpApi(proxy, ip)
             ?: fromIpApiCo(proxy, ip)
-        if (out == null && ip != null && throughProxy) {
-            android.util.Log.d(GEO_TAG, "proxied lookup refused, retrying direct for " + ip)
-            val direct = java.net.Proxy.NO_PROXY
-            out = fromIpWhoIs(direct, ip)
-                ?: fromFreeIpApi(direct, ip)
-                        ?: fromIpApiCo(direct, ip)
-        }
-        if (out == null) android.util.Log.w(GEO_TAG, "all geo providers failed for " + ip)
+        if (out == null) net.gozar.app.GhajarLog.w(GEO_TAG, "all geo providers failed for " + ip)
         else android.util.Log.d(GEO_TAG,
             "geo -> " + out.ip + " " + out.city + ", " + out.country +
                     " (" + out.lat + "," + out.lon + ")")
         out?.ip?.takeIf { it.isNotBlank() && it != "\u2014" }?.let { _lastIp.value = it }
+        if (throughProxy && VpnState.state.value == Connection.CONNECTED && generation == VpnState.connectedAt.value && active == VpnState.activeId.value) _tunnelLocation.value = out
         out
     }
 
@@ -83,13 +83,13 @@ object LocationFetcher {
             val body = httpGet(proxy, url, 8000) ?: return null
             val o = JSONObject(body)
             if (!o.optBoolean("success", true)) {
-                android.util.Log.w(GEO_TAG, "ipwho.is: " + o.optString("message", "failed"))
+                net.gozar.app.GhajarLog.w(GEO_TAG, "ipwho.is: " + o.optString("message", "failed"))
                 return null
             }
             val lat = o.optDouble("latitude", Double.NaN)
             val lon = o.optDouble("longitude", Double.NaN)
             if (lat.isNaN() || lon.isNaN()) {
-                android.util.Log.w(GEO_TAG, "ipwho.is: no coordinates in response")
+                net.gozar.app.GhajarLog.w(GEO_TAG, "ipwho.is: no coordinates in response")
                 return null
             }
             IpLocation(

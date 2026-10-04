@@ -1,0 +1,93 @@
+[
+  {
+    "auditIds": "F003,F008,F009,F011,F013",
+    "auditDecision": "MERGE_FEATURE",
+    "feature": "Settings",
+    "phase4Status": "SOURCE_IMPLEMENTED_UNIT_CHECKED",
+    "reason": "Real schema at existing sing-box pin; device tests deferred"
+  },
+  {
+    "auditIds": "F006",
+    "auditDecision": "ON_DEMAND_PLUGIN",
+    "feature": "ShadowQUIC",
+    "phase4Status": "SOURCE_IMPLEMENTED_UNQUALIFIED",
+    "reason": "No signed production artifact or device/server qualification"
+  },
+  {
+    "auditIds": "F015",
+    "auditDecision": "ON_DEMAND_PLUGIN",
+    "feature": "Mihomo",
+    "phase4Status": "SOURCE_IMPLEMENTED_UNQUALIFIED",
+    "reason": "Full payload preserved; native compilation and device corpus pending; unsupported API 1 policies explicitly rejected"
+  },
+  {
+    "auditIds": "F016",
+    "auditDecision": "SKIP",
+    "feature": "new standalone MIPStack/TUN engine",
+    "phase4Status": "SKIP",
+    "reason": "No zeptun replacement"
+  },
+  {
+    "auditIds": "F028,F029",
+    "auditDecision": "BUILT_IN",
+    "feature": "Aether mim/exit-loc",
+    "phase4Status": "MAPPING_IMPLEMENTED",
+    "reason": "Current binary/source pin unchanged"
+  },
+  {
+    "auditIds": "F030",
+    "auditDecision": "MERGE_FEATURE",
+    "feature": "Aether/Tor",
+    "phase4Status": "DESIGN_ONLY",
+    "reason": "Both CLI directions exist for TCP; two-controller lifecycle not enabled"
+  },
+  {
+    "auditIds": "F032,F033",
+    "auditDecision": "MERGE_FEATURE",
+    "feature": "SSTP CONNECT/TLS/DNS",
+    "phase4Status": "SOURCE_IMPLEMENTED_PARTIAL_UNIT_CHECKED",
+    "reason": "No helper native build or Android verification"
+  },
+  {
+    "auditIds": "F035",
+    "auditDecision": "SKIP",
+    "feature": "Conduit / INPROXY",
+    "phase4Status": "UNAVAILABLE",
+    "reason": "Legitimate Ghajar server-entry signing prerequisite missing"
+  },
+  {
+    "auditIds": "F037",
+    "auditDecision": "MERGE_FEATURE",
+    "feature": "xDNS",
+    "phase4Status": "BLOCKED_NOT_INTEGRATED",
+    "reason": "New source evidence: framing/MTU and cancellation/error propagation gates"
+  },
+  {
+    "auditIds": "F038",
+    "auditDecision": "SKIP",
+    "feature": "Xray globalTunnel dnstt adapter",
+    "phase4Status": "SKIP",
+    "reason": "Existing sidecars preserved"
+  },
+  {
+    "auditIds": "F046",
+    "auditDecision": "MERGE_FEATURE",
+    "feature": "Free sources",
+    "phase4Status": "SOURCE_IMPLEMENTED",
+    "reason": "Existing sources retained; user controls and labels added"
+  },
+  {
+    "auditIds": "F052",
+    "auditDecision": "UPDATE_EXISTING",
+    "feature": "Psiphon provenance/settings",
+    "phase4Status": "PARTIAL",
+    "reason": "Artifact hash retained; exact binary source provenance still unresolved"
+  },
+  {
+    "auditIds": "F053",
+    "auditDecision": "UPDATE_EXISTING (future)",
+    "feature": "Xray",
+    "phase4Status": "DEFERRED_UNCHANGED",
+    "reason": "26.3.27 remains pinned; no prerelease patches"
+  }
+]

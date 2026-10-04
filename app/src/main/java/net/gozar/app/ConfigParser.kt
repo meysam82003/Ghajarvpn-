@@ -7,7 +7,12 @@ import java.net.URLDecoder
 
 object ConfigParser {
 
+    fun parseFile(bytes: ByteArray, name: String = "import"): List<ProxyConfig> =
+        net.gozar.app.configtoolkit.DecoderRegistry().decode(net.gozar.app.configtoolkit.ConfigInput(bytes, name)).profiles.map { it.toProxyConfig() }
+
     fun parseBundle(text: String, source: ConfigSource = ConfigSource.PERSONAL): List<ProxyConfig> {
+        net.gozar.app.sharing.DirectShare.importPackage(text, source)?.let { return it }
+        net.gozar.app.plugins.PluginProfiles.import(text, source)?.let { return listOf(it) }
         val trimmed = text.trim()
         if (trimmed.isEmpty()) return emptyList()
         val lower = trimmed.lowercase()
@@ -139,11 +144,19 @@ object ConfigParser {
                 val kcp = stream.optJSONObject("kcpSettings")
                 headerType = normalizeHeaderType(kcp?.optJSONObject("header")?.optString("type"))
                 path = kcp?.optString("seed").orEmpty()
+                val masks = stream.optJSONObject("finalmask")?.optJSONArray("udp")
+                if (masks != null) for (i in 0 until masks.length()) {
+                    val mask = masks.optJSONObject(i) ?: continue
+                    when (val type = mask.optString("type")) {
+                        "mkcp-aes128gcm" -> path = mask.optJSONObject("settings")?.optString("password").orEmpty()
+                        "header-dns", "header-dtls", "header-srtp", "header-utp", "header-wechat", "header-wireguard" -> headerType = type.removePrefix("header-")
+                    }
+                }
             }
             "ws" -> {
                 val ws = stream.optJSONObject("wsSettings")
                 path = ws?.optString("path").orEmpty()
-                host = ws?.optJSONObject("headers")?.optString("Host").orEmpty()
+                host = ws?.optJSONObject("headers")?.optString("Host").orEmpty().ifBlank { ws?.optString("host").orEmpty() }
                 if (host.isEmpty()) host = ws?.optString("host").orEmpty()
             }
             "httpupgrade" -> {
@@ -199,12 +212,14 @@ object ConfigParser {
             fingerprint = sec?.optString("fingerprint").orEmpty().ifEmpty { "chrome" },
             publicKey = reality?.optString("publicKey").orEmpty(),
             shortId = reality?.optString("shortId").orEmpty(),
+            spiderX = reality?.optString("spiderX", "/") ?: "/",
             allowInsecure = sec?.optBoolean("allowInsecure", false) ?: false,
             source = source
         )
     }
 
     fun parse(uri: String, source: ConfigSource = ConfigSource.PERSONAL): ProxyConfig? {
+        net.gozar.app.plugins.PluginProfiles.import(uri, source)?.let { return it }
         val trimmed = uri.trim()
         val lower = trimmed.lowercase()
         return when {
@@ -288,6 +303,7 @@ object ConfigParser {
             encryption = p["encryption"].orEmpty().ifEmpty { "none" }, flow = p["flow"] ?: "",
             network = network, security = p["security"].orEmpty().ifEmpty { "none" },
             sni = p["sni"] ?: "", publicKey = p["pbk"] ?: "", shortId = p["sid"] ?: "",
+            spiderX = p["spx"] ?: "/",
             fingerprint = p["fp"].orEmpty().ifEmpty { "chrome" },
             allowInsecure = (p["allowInsecure"] ?: p["insecure"] ?: "") in setOf("1", "true"),
             path = p["path"].orEmpty().ifEmpty { p["seed"].orEmpty() }, host = p["host"] ?: "",
@@ -314,6 +330,7 @@ object ConfigParser {
             password = pctDecode(password), flow = p["flow"] ?: "",
             network = network, security = p["security"].orEmpty().ifEmpty { "tls" },
             sni = p["sni"] ?: "", publicKey = p["pbk"] ?: "", shortId = p["sid"] ?: "",
+            spiderX = p["spx"] ?: "/",
             fingerprint = p["fp"].orEmpty().ifEmpty { "chrome" },
             allowInsecure = (p["allowInsecure"] ?: p["insecure"] ?: "") in setOf("1", "true"),
             path = p["path"].orEmpty().ifEmpty { p["seed"].orEmpty() }, host = p["host"] ?: "",
@@ -347,7 +364,7 @@ object ConfigParser {
             method = (p["congestion_control"] ?: p["congestion"] ?: "").lowercase(),
             mode = (p["udp_relay_mode"] ?: "").lowercase(),
             allowInsecure = insecure(p), source = source
-        ).takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+        ).let { EngineSettings.merge(it, p) }.takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
 
     /** hysteria://host:port?auth=&peer=&insecure=&upmbps=&downmbps=&alpn=&obfs=xplus&obfsParam=#name (Hysteria v1). */
@@ -375,7 +392,7 @@ object ConfigParser {
             password = pctDecode(password), sni = p["sni"].orEmpty().ifEmpty { p["peer"].orEmpty() },
             alpn = p["alpn"].orEmpty(), security = "tls",
             fingerprint = p["fp"].orEmpty(), allowInsecure = insecure(p), source = source
-        ).takeIf { it.password.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+        ).let { EngineSettings.merge(it, p) }.takeIf { it.password.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
 
     /**
@@ -541,7 +558,7 @@ object ConfigParser {
             uuid = pctDecode(if (colon >= 0) user.substring(0, colon) else user), password = pctDecode(if (colon >= 0) user.substring(colon + 1) else ""),
             sni = p["sni"].orEmpty(), method = auth, allowInsecure = insecure(p), pinnedCertSha256 = p["pin"].orEmpty(),
             security = "tls", mtu = p["mtu"]?.toIntOrNull()?.takeIf { it in 576..1500 } ?: 0,
-            source = source).takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
+            source = source).let { EngineSettings.merge(it, p) }.takeIf { it.uuid.isNotBlank() && it.address.isNotBlank() && it.port in 1..65535 }
     } catch (e: Exception) { null }
 
     /**
@@ -620,7 +637,7 @@ object ConfigParser {
                 if (p["nodtls"] == "1") put("noUdp", true)
                 if (p["noipv6"] == "1") put("ipv6Off", true)
             }.let { if (it.length() == 0) "" else it.toString() }
-        ).takeIf { it.address.isNotBlank() }
+        ).let { EngineSettings.merge(it, p) }.takeIf { it.address.isNotBlank() }
     } catch (e: Exception) { null }
 
     /**
@@ -635,6 +652,7 @@ object ConfigParser {
         val domain = uhp.substringAfterLast('@').trim().trim('/').trim('.')
         val user = if (uhp.contains('@')) uhp.substringBeforeLast('@') else ""
         val colon = user.indexOf(':')
+        require(p["transport"].isNullOrBlank() || p["transport"]!!.lowercase() in setOf("udp", "dot", "doh")) { "Unsupported DNS transport" }
         val transport = p["transport"].orEmpty().lowercase().let { if (it == "doh" || it == "dot") it else if (p["doh"] != null) "doh" else "udp" }
         val doh = p["doh"].orEmpty()
         val (rHost, rPort) = if (transport == "doh") {
@@ -643,6 +661,7 @@ object ConfigParser {
         } else splitHostPortOrDefault(p["resolver"].orEmpty(), if (transport == "dot") 853 else 53)
         // Engine options that have no field of their own (see Sidecars).
         val extra = org.json.JSONObject().apply {
+            net.gozar.app.engine.DnsTunnelTuning.fromQuery(protocol, p)?.let { put("tuning", it) }
             p["record"]?.let { put("recordType", it.lowercase()) }
             p["compat"]?.let { put("dnsttCompat", it == "1" || it.equals("true", true)) }
             p["qname"]?.toIntOrNull()?.let { put("maxQnameLen", it) }
@@ -692,7 +711,18 @@ object ConfigParser {
 
     private fun parseHysteria2(body: String, source: ConfigSource): ProxyConfig? = try {
         val (name, userHostPort, p) = splitUserUri(body, "Hysteria2")
-        val (password, address, port) = splitUserHostPort(userHostPort)
+        val options = p.toMutableMap()
+        val rawPort = userHostPort.substringAfterLast(':')
+        var authority = userHostPort
+        if (rawPort.contains(',') || rawPort.contains('-')) {
+            val ports = EngineSettings.ports(rawPort)
+            options["server_ports"] = rawPort
+            authority = userHostPort.substringBeforeLast(':') + ":" + ports.first().substringBefore(':')
+        }
+        p["mport"]?.let { options["server_ports"] = it }
+        p["hopInterval"]?.let { options["hop_interval"] = it.removeSuffix("s") }
+        options["hop_interval"]?.let { options["hop_interval"] = it.removeSuffix("s") }
+        val (password, address, port) = splitUserHostPort(authority)
         ProxyConfig(
             name = name, protocol = "hysteria2", address = address, port = port,
             password = pctDecode(password),
@@ -706,7 +736,7 @@ object ConfigParser {
             hyDownMbps = (p["downmbps"] ?: p["down"] ?: "").toIntOrNull() ?: 0,
             allowInsecure = (p["insecure"] ?: p["allowInsecure"] ?: "") in setOf("1", "true"),
             source = source
-        )
+        ).let { EngineSettings.merge(it, options) }
     } catch (e: Exception) { null }
 
     private fun parseVmess(body: String, source: ConfigSource): ProxyConfig? = try {
@@ -821,6 +851,7 @@ object ConfigParser {
 
     fun parseWireguardConf(text: String, source: ConfigSource = ConfigSource.PERSONAL): ProxyConfig? {
         return try {
+            var peerNumber = 0
             var section = ""
             var privateKey = ""
             var address = ""
@@ -836,6 +867,7 @@ object ConfigParser {
                 if (line.isEmpty()) continue
                 if (line.startsWith("[") && line.endsWith("]")) {
                     section = line.lowercase()
+                    if (section == "[peer]") peerNumber++
                     continue
                 }
                 val eq = line.indexOf('=')
@@ -845,7 +877,7 @@ object ConfigParser {
                 if (section == "[interface]") {
                     when (key) {
                         "privatekey" -> privateKey = value
-                        "address" -> address = value
+                        "address" -> address = if (address.isBlank()) value else "$address,$value"
                         "mtu" -> mtu = value.toIntOrNull() ?: 0
                         "reserved" -> reserved = value
                         "name" -> label = value
@@ -855,7 +887,7 @@ object ConfigParser {
                         "jc", "jmin", "jmax", "s1", "s2", "s3", "s4", "h1", "h2", "h3", "h4", "i1", "i2", "i3", "i4", "i5" ->
                             if (value.isNotBlank() && value != "0") amnezia = true
                     }
-                } else if (section == "[peer]") {
+                } else if (section == "[peer]" && peerNumber == 1) {
                     when (key) {
                         "publickey" -> publicKey = value
                         "presharedkey" -> preShared = value
@@ -886,6 +918,7 @@ object ConfigParser {
                 localAddress = address,
                 mtu = mtu,
                 reserved = reserved,
+                extra = JSONObject().put("wireguardOriginal", text.trim()).toString(),
                 source = source
             )
         } catch (e: Exception) {
@@ -904,12 +937,12 @@ object ConfigParser {
             if (q >= 0) {
                 for (part in main.substring(q + 1).split("&")) {
                     val i = part.indexOf('=')
-                    if (i > 0) params[dec(part.substring(0, i)).lowercase()] = dec(part.substring(i + 1))
+                    if (i > 0) params[dec(part.substring(0, i)).lowercase()] = pctDecode(part.substring(i + 1))
                 }
             }
             val at = core.lastIndexOf('@')
             if (at <= 0) return null
-            val key = dec(core.substring(0, at))
+            val key = pctDecode(core.substring(0, at))
             val hostPart = core.substring(at + 1)
             val colon = hostPart.lastIndexOf(':')
             if (colon <= 0) return null

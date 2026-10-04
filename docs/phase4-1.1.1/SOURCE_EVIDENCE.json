@@ -1,0 +1,113 @@
+[
+  {
+    "feature": "AnyTLS / TUIC / Hysteria2 / ECH / OpenConnect settings",
+    "repository": "https://github.com/SagerNet/sing-box",
+    "commit": "132b38e9caaba1a1959354d518e54d2d08419afe",
+    "files": [
+      "option/anytls.go",
+      "option/tuic.go",
+      "option/http.go",
+      "option/hysteria2.go",
+      "option/openconnect.go",
+      "option/tls.go",
+      "common/tls/ech.go",
+      "protocol/tuic/outbound.go"
+    ],
+    "finding": "Typed real options; server-only AnyTLS padding excluded; TUIC udp_over_stream conflicts with udp_relay_mode; ECH config requires PEM ECH CONFIGS. Existing pin retained.",
+    "status": "SOURCE_IMPLEMENTED_UNIT_CHECKED"
+  },
+  {
+    "feature": "ShadowQUIC",
+    "repository": "https://github.com/spongebob888/shadowquic",
+    "commit": "5540e3a32ca73c85af125723e4262e02cf28ebcd",
+    "files": [
+      "Cargo.toml",
+      "Cargo.lock",
+      "shadowquic/Cargo.toml",
+      "shadowquic/src/main.rs",
+      "shadowquic/src/config/mod.rs",
+      "shadowquic/src/config/shadowquic.rs",
+      "shadowquic/src/config/router.rs"
+    ],
+    "finding": "0.4.0 MIT client; quinn-jls/quinn-proto-jls 0.3.8 and rustls-jls 1.3.7. CLI readiness line is emitted after build_manager succeeds. Android service source targets private APK nativeLibraryDir executable and loopback SOCKS. No upstream Android binary is treated as a Ghajar signed plugin.",
+    "status": "SOURCE_IMPLEMENTED_UNQUALIFIED"
+  },
+  {
+    "feature": "Mihomo full config",
+    "repository": "https://github.com/appshubcc/Bettbox",
+    "commit": "3189346611caeba73aa87feaf708e4fd65115d16",
+    "files": [
+      "core/Clash.Meta/config/config.go",
+      "core/Clash.Meta/hub/executor/executor.go",
+      "core/Clash.Meta/listener/listener.go",
+      "core/Clash.Meta/listener/sing_tun/server.go",
+      "core/Clash.Meta/listener/config/tun.go",
+      "core/Clash.Meta/constant/path.go",
+      "core/Clash.Meta/constant/tun.go",
+      "core/Clash.Meta/LICENSE",
+      "setup.dart"
+    ],
+    "finding": "ApplyConfig omits listener/TUN activation. Native runner must activate listeners explicitly. FileDescriptor supports owned Android FD. Android Path.IsSafePath bypass requires adapter confinement. Default TunMips is not enabled by this adapter; gvisor requires with_gvisor tag. Unrepresentable API 1 TUN and server/controller policies fail closed.",
+    "status": "SOURCE_IMPLEMENTED_UNQUALIFIED"
+  },
+  {
+    "feature": "xDNS",
+    "repository": "https://github.com/GFW-knocker/Xray-core",
+    "commit": "bdc6f0e7767882daecb4e3c0eb3862fb4e2918e2",
+    "files": [
+      "transport/internet/finalmask/xdns/client.go",
+      "transport/internet/finalmask/xdns/record_transport.go"
+    ],
+    "finding": "encode rejects len >=224; WriteTo returns (0,nil) for encoding/queue failures; closed flag not synchronized consistently; ReadFrom waits on channel while deadline belongs to underlying PacketConn. No activation or source copy. Requires compatible authenticated framing, MTU budget and client/server cancellation corpus.",
+    "status": "BLOCKED_NOT_INTEGRATED"
+  },
+  {
+    "feature": "Psiphon provenance",
+    "repository": "current Ghajar workspace",
+    "commit": "50617926fab3982c172a4c3c173625976bb1339a",
+    "files": [
+      "app/libs/ca.psiphon.aar",
+      "native/Psiphon/psiphon/config.go",
+      "app/src/main/java/net/gozar/app/PsiphonConfig.kt"
+    ],
+    "sha256": "213ce36cf9faa2f9149c568541ed178b987f83b5576719ff61b49fc8ad8805a1",
+    "finding": "AAR unchanged; current source supports EstablishTunnelTimeoutSeconds and existing protocol whitelist. Exact compiled source provenance remains unproven. No ServerEntrySignaturePublicKey for Ghajar; INPROXY stays excluded.",
+    "status": "BUNDLED_PRESERVED_SETTINGS_EXTENDED"
+  },
+  {
+    "feature": "Aether mapping and Tor orchestration",
+    "repository": "current Ghajar workspace",
+    "commit": "50617926fab3982c172a4c3c173625976bb1339a",
+    "files": [
+      "native/Aether/aether/src/cli.rs",
+      "app/src/main/java/net/gozar/app/Aethercontroller.kt",
+      "app/src/main/java/net/gozar/app/Torcontroller.kt"
+    ],
+    "finding": "Existing CLI accepts --mim, --mim-outer, --mim-inner, --mim-scan, --exit-loc, --upstream. Existing Tor uses Socks5Proxy only through a fixed bridge port. Mapping implemented; simultaneous-controller chain needs a session owner and TCP-only guard and remains design-only.",
+    "status": "MAPPING_IMPLEMENTED_CHAIN_DESIGN_ONLY"
+  },
+  {
+    "feature": "SSTP",
+    "repository": "current Ghajar workspace",
+    "commit": "50617926fab3982c172a4c3c173625976bb1339a",
+    "files": [
+      "native/ghajar-helper/sstp.go",
+      "native/ghajar-helper/ppp.go",
+      "app/src/main/java/net/gozar/app/engine/SidecarRunner.kt"
+    ],
+    "finding": "Existing PPP DNS already prioritizes negotiated DNS over fallback. New CONNECT transport preserves distinct proxy/server TLS identities. No ZedPass core copied. Helper native rebuild is deferred.",
+    "status": "SOURCE_IMPLEMENTED_PARTIAL_UNIT_CHECKED"
+  },
+  {
+    "feature": "OpenVPN",
+    "repository": "current Ghajar workspace",
+    "commit": "50617926fab3982c172a4c3c173625976bb1339a",
+    "files": [
+      "app/src/main/java/net/gozar/app/GhajarOpenVpnSettings.kt",
+      "openvpn/src/main/java/de/blinkt/openvpn/VpnProfile.java",
+      "openvpn/src/main/java/de/blinkt/openvpn/core/ConfigParser.java"
+    ],
+    "finding": "Dedicated path already has real preference keys and inline/tls-crypt-v2/retry/certificate checks; preserved without replacement.",
+    "status": "PRESERVED"
+  }
+]

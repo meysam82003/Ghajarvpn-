@@ -83,10 +83,9 @@ object NetworkWatcher {
     private val callback = object : ConnectivityManager.NetworkCallback() {
 
         override fun onAvailable(network: Network) {
-            // Capabilities arrive in their own callback; this only records that
-            // a network exists, so a listener is not told about a kind that has
-            // not been read yet.
-            current = network
+            // Wait for capabilities. Updating current here hid Wi-Fi -> Wi-Fi
+            // changes from onCapabilitiesChanged (same kind and "same" network).
+            // The next capabilities callback publishes both values atomically.
         }
 
         override fun onCapabilitiesChanged(network: Network, caps: NetworkCapabilities) {

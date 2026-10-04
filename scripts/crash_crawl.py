@@ -531,6 +531,46 @@ def collect():
             f.write(f"==== {p}\n" + adb("shell", "cat", p) + "\n")
 
 
+def store_offline_gate():
+    """Inspect actual UI text while Android has no Wi-Fi or mobile data."""
+    adb("shell", "svc", "wifi", "disable")
+    adb("shell", "svc", "data", "disable")
+    try:
+        adb("shell", "am", "force-stop", PKG)
+        launch()
+        if not wait_resumed(30):
+            raise RuntimeError("Offline startup did not resume")
+        time.sleep(2)
+        nodes = dict(dump())
+        label = next((x for x in nodes if CHROME.match(x) and x.split(" ")[0] in ("Shop", "فروشگاه")), None)
+        if label is None:
+            raise RuntimeError("Store tab not reachable for offline gate")
+        adb("shell", "input", "tap", *map(str, nodes[label]))
+        time.sleep(18)
+        raw = hierarchy()
+        start = raw.find("<?xml")
+        if start < 0:
+            raise RuntimeError("No fresh Store hierarchy")
+        root = ET.fromstring(raw[start:])
+        visible = " ".join(n.get("text", "") + " " + n.get("content-desc", "") for n in root.iter("node"))
+        # Backend domains are extracted locally, never printed to the report.
+        from pathlib import Path
+        brand = Path("app/src/main/java/net/gozar/app/BrandConfig.kt").read_text()
+        domains = re.findall(r'https?://([^/"\s]+)', brand)
+        forbidden = ["http://", "https://", "Unable to resolve host", "Throwable.message", "javax.net", "java.net"] + domains
+        if any(x.lower() in visible.lower() for x in forbidden):
+            raise RuntimeError("Store offline UI exposed transport/backend details")
+        log("PASS Store offline UI: no URL, backend hostname or raw exception text")
+        # Configuration recreation and process recreation retain reachable UI.
+        adb("shell", "settings", "put", "system", "accelerometer_rotation", "0")
+        for rotation in (1, 0):
+            adb("shell", "settings", "put", "system", "user_rotation", str(rotation))
+            time.sleep(1)
+            if not pid(): raise RuntimeError("Process lost during rotation")
+    finally:
+        adb("shell", "svc", "wifi", "enable")
+        adb("shell", "svc", "data", "enable")
+
 def main():
     apk = sys.argv[1] if len(sys.argv) > 1 else ""
     if not os.path.isfile(apk):
@@ -578,6 +618,7 @@ def main():
     time.sleep(4)
     # First-run screens (intro, permission prompts) are part of the crawl.
     explore([], 0)
+    store_offline_gate()
     seed()
     for tab in (["Home", "خانه"], ["Shop", "فروشگاه"], ["Settings", "تنظیمات"]):
         if time.time() - started > TIME_BUDGET:

@@ -6,6 +6,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 enum class ConfigFormat(val extensions: Set<String>) {
+    BPF(setOf("bpf")),
     NPVT(setOf("npvt")),
     NPVS(setOf("npvs")),
     HAPP(setOf("happ")),
@@ -59,7 +60,7 @@ data class NormalizedProfile(
     val flow: String = "",
     val publicKey: String = "",
     val shortId: String = "",
-    val spiderX: String = "",
+    val spiderX: String = "/",
     val grpcServiceName: String = "",
     val authority: String = "",
     val allowInsecure: Boolean = false,
@@ -87,7 +88,8 @@ data class NormalizedProfile(
         security = security,
         sni = sni,
         host = authority.ifBlank { host },
-        path = path.ifBlank { spiderX },
+        path = path,
+        spiderX = spiderX,
         alpn = alpn,
         fingerprint = fingerprint,
         flow = flow,
@@ -120,6 +122,7 @@ data class NormalizedProfile(
             flow = config.flow,
             publicKey = config.publicKey,
             shortId = config.shortId,
+            spiderX = config.spiderX,
             grpcServiceName = config.serviceName,
             authority = if (config.network.equals("grpc", true)) config.host else "",
             allowInsecure = config.allowInsecure,

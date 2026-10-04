@@ -28,8 +28,8 @@ android {
         // lower app minSdk fails the manifest merge regardless of the demo flag.
         minSdk = 26
         targetSdk = 36
-        versionCode = 30025
-        versionName = "1.0.10"
+        versionCode = 30026
+        versionName = "1.1.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
@@ -131,12 +131,16 @@ android {
     }
 
     lint {
-        checkReleaseBuilds = false
-        abortOnError = false
+        checkReleaseBuilds = true
+        abortOnError = true
     }
 }
 
 dependencies {
+    // Argon2id lightweight API; pinned MIT-licensed public upstream, no global provider replacement.
+    implementation("org.bouncycastle:bcprov-jdk18on:1.83")
+    implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation(project(":plugin-api"))
     implementation(project(":strongswan"))
     implementation(project(":openvpn"))
     implementation(project(":browser"))

@@ -31,7 +31,7 @@ import org.json.JSONObject
  * Checkout WebView with a strict host policy. Card-to-card never enters this
  * activity; it is handled by the native shop screen and Android photo picker.
  */
-class SecurePaymentActivity : Activity() {
+class SecurePaymentActivity : androidx.activity.ComponentActivity() {
     private lateinit var webView: WebView
     private lateinit var webContainer: FrameLayout
     private lateinit var progress: ProgressBar
@@ -47,6 +47,11 @@ class SecurePaymentActivity : Activity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else finish()
+            }
+        })
         // Views, not Compose, so the stored theme is resolved directly here;
         // this window used to be painted in the old fixed navy.
         val palette = ghajarPaletteFor(this)
@@ -261,10 +266,7 @@ class SecurePaymentActivity : Activity() {
         return true
     }
 
-    @Deprecated("Deprecated in Android")
-    override fun onBackPressed() {
-        if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed()
-    }
+
 
     override fun onDestroy() {
         if (::webView.isInitialized && webView.parent != null) {

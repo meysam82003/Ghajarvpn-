@@ -86,7 +86,7 @@ object RoundTripVerifier {
         { it.protocol.lowercase() }, { it.server.removePrefix("[").removeSuffix("]").lowercase() }, { it.port },
         { it.uuid }, { it.password }, { it.method }, { it.network.lowercase() },
         { it.security.lowercase() }, { it.sni }, { it.host.ifBlank { it.authority } },
-        { it.path.ifBlank { it.grpcServiceName } }, { it.flow }, { it.publicKey }, { it.shortId }
+        { it.path.ifBlank { it.grpcServiceName } }, { it.flow }, { it.publicKey }, { it.shortId }, { it.spiderX }
     )
 
     fun verify(profile: NormalizedProfile): Result<String> = runCatching {

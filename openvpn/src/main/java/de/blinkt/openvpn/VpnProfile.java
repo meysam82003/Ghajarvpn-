@@ -128,6 +128,8 @@ public class VpnProfile implements Serializable, Cloneable {
     public boolean mExpectTLSCert = false;
     public String mRemoteCN = "";
     public String mPassword = "";
+    /** Original portable import; absent on legacy serialized profiles. Never used to start the engine. */
+    public String mGhajarOriginalConfig = null;
     public String mUsername = "";
     public boolean mRoutenopull = false;
     public boolean mUseRandomHostname = false;

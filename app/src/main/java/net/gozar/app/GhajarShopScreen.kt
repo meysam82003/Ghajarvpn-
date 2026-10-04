@@ -114,6 +114,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
     val store = remember { ConfigStore.get(context.applicationContext) }
+    val shopLang by store.lang.collectAsState()
     val api = remember { GhajarStoreApi(context) }
     val scope = rememberCoroutineScope()
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -363,7 +364,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull()
                 ownedNoticesDeferred.await()
             }
-        }.onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در دریافت فروشگاه") }
+        }.onFailure { error = BrandConfig.sanitizePublicText(StorePublicError.message(it, "خطا در دریافت فروشگاه")) }
         busy = false
     }
 
@@ -619,7 +620,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                                 // what actually failed.
                                 error = GhajarCommerceRules.publicMessage(failure)
                             } catch (failure: Exception) {
-                                error = failure.message ?: "ساخت کد اتصال انجام نشد؛ دوباره تلاش کن."
+                                error = StorePublicError.message(failure, "ساخت کد اتصال انجام نشد؛ دوباره تلاش کن.")
                             } finally { busy = false }
                         }
                     },
@@ -688,8 +689,8 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         } else if (linked) {
             item(key = "shop-header") {
                 ScreenHeader(
-                    title = Strings.get(store.lang.value, "shop"),
-                    context = Strings.get(store.lang.value, "shop_header_sub")
+                    title = Strings.get(shopLang, "shop"),
+                    context = Strings.get(shopLang, "shop_header_sub")
                 ) {
                     // Sign out of the shop.
                     //
@@ -720,7 +721,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
             if (section == 4) {
                 item(key = "shop-block-6") { sectionState.SaveableStateProvider("tickets") { GhajarTickets(api) } }
             }
-            if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, store.lang.value) }
+            if (section == 5) item(key = "shop-block-7") { GhajarTransactionHistory(api, refreshKey + deliveryRevision, shopLang) }
             // An unfinished payment, shown on every section rather than only on
             // the two it used to hide behind.
             //
@@ -738,7 +739,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                             local.amount, local.expiresAt, "pending"))
                 }
                 items(entries, key = { "pending:${it.orderId}" }) { item ->
-                    GhajarPendingPaymentCard(item, checkoutBusy, store.lang.value,
+                    GhajarPendingPaymentCard(item, checkoutBusy, shopLang,
                         onResume = { checkoutModel.resumePayment(item); inGhajar = true; section = 0 },
                         onCancel = { checkoutModel.cancelPayment(item.orderId) })
                 }
@@ -838,7 +839,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                             busy = true
                             storeResult { api.trialOptions() }
                                 .onSuccess { trialOptions = it }
-                                .onFailure { error = it.message }
+                                .onFailure { error = StorePublicError.message(it) }
                             busy = false
                         }
                     },
@@ -943,7 +944,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                                     api.customQuote(panel.id, requestedTraffic.toIntOrNull() ?: 0, requestedDays.toIntOrNull() ?: 0)
                                 }.onSuccess {
                                     if (customTraffic == requestedTraffic && customDays == requestedDays && selectedPanel?.id == panel.id) customQuote = it
-                                }.onFailure { error = it.message }
+                                }.onFailure { error = StorePublicError.message(it) }
                                 busy = false
                             }
                         }
@@ -1440,6 +1441,19 @@ private fun RenewServiceDialog(
     var customVolume by remember(username) { mutableStateOf("") }
     var customTime by remember(username) { mutableStateOf("") }
 
+    var acceptedQuote by remember(username) { mutableStateOf<GhajarRenewQuote?>(null) }
+    val selection = if (useCustom) GhajarRenewSelection(
+        volumeGb = customVolume.toIntOrNull(),
+        timeDays = options?.custom?.let { if (it.maxTimeDays <= it.minTimeDays) it.minTimeDays else customTime.toIntOrNull() }
+    ) else GhajarRenewSelection(productCode = selectedCode)
+    val displayedQuote = acceptedQuote?.takeIf { it.selection == selection }
+        ?: options?.let { runCatching { it.quote(selection) }.getOrNull() }
+
+    LaunchedEffect(selection) {
+        acceptedQuote = null
+        actionError = null
+    }
+
     // What the service currently is, alongside what it can be renewed to. The
     // dialog used to open on a bare username and a price list, which is the
     // one place a user needs to be told what they are renewing: how big the
@@ -1452,10 +1466,11 @@ private fun RenewServiceDialog(
         runCatching { api.renewOptions(username) }
             .onSuccess { result ->
                 options = result
-                selectedCode = result.currentPlanCode ?: result.products.firstOrNull()?.code
+                selectedCode = result.currentPlanCode?.takeIf { code -> result.products.any { it.code == code } }
+                    ?: result.products.firstOrNull()?.code
                 useCustom = result.custom.forced || (result.products.isEmpty() && result.custom.enabled)
             }
-            .onFailure { loadError = it.message ?: "دریافت گزینه‌های تمدید ناموفق بود" }
+            .onFailure { loadError = StorePublicError.message(it, "دریافت گزینه‌های تمدید ناموفق بود") }
         loading = false
     }
 
@@ -1486,11 +1501,11 @@ private fun RenewServiceDialog(
                         val opt = options!!
                         opt.products.forEach { product ->
                             Row(
-                                Modifier.fillMaxWidth().clickable { useCustom = false; selectedCode = product.code },
+                                Modifier.fillMaxWidth().clickable(enabled = !busy && !opt.custom.forced) { useCustom = false; selectedCode = product.code },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 RadioButton(selected = !useCustom && selectedCode == product.code,
-                                    onClick = { useCustom = false; selectedCode = product.code })
+                                    onClick = { useCustom = false; selectedCode = product.code }, enabled = !busy && !opt.custom.forced)
                                 Column(Modifier.weight(1f)) {
                                     Text(product.name, fontWeight = FontWeight.Bold)
                                     Text(
@@ -1510,10 +1525,10 @@ private fun RenewServiceDialog(
                         }
                         if (opt.custom.enabled) {
                             Row(
-                                Modifier.fillMaxWidth().clickable { useCustom = true },
+                                Modifier.fillMaxWidth().clickable(enabled = !busy) { useCustom = true },
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                RadioButton(selected = useCustom, onClick = { useCustom = true })
+                                RadioButton(selected = useCustom, onClick = { useCustom = true }, enabled = !busy)
                                 Text("حجم/زمان دلخواه", fontWeight = FontWeight.Bold)
                             }
                             if (useCustom) {
@@ -1521,14 +1536,14 @@ private fun RenewServiceDialog(
                                     customVolume, { customVolume = asciiDigits(it).filter(Char::isDigit).take(6) },
                                     label = { Text("حجم (گیگابایت) بین ${opt.custom.minVolumeGb} و ${opt.custom.maxVolumeGb}") },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    singleLine = true, modifier = Modifier.fillMaxWidth()
+                                    enabled = !busy, singleLine = true, modifier = Modifier.fillMaxWidth()
                                 )
                                 if (opt.custom.maxTimeDays > opt.custom.minTimeDays) {
                                     OutlinedTextField(
                                         customTime, { customTime = asciiDigits(it).filter(Char::isDigit).take(4) },
                                         label = { Text("زمان (روز) بین ${opt.custom.minTimeDays} و ${opt.custom.maxTimeDays}") },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                        singleLine = true, modifier = Modifier.fillMaxWidth()
+                                        enabled = !busy, singleLine = true, modifier = Modifier.fillMaxWidth()
                                     )
                                 }
                             }
@@ -1539,29 +1554,40 @@ private fun RenewServiceDialog(
                         Text("موجودی کیف پول: ${formatPrice(opt.balance)} تومان", style = MaterialTheme.typography.bodySmall)
                     }
                 }
+                displayedQuote?.takeIf { it.showPrice }?.let {
+                    Text("مبلغ تمدید: ${formatPrice(it.price)} تومان", fontWeight = FontWeight.Bold)
+                }
                 actionError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
-            val opt = options
-            val customVolumeInt = customVolume.toIntOrNull()
-            val customValid = opt != null && customVolumeInt != null &&
-                customVolumeInt in opt.custom.minVolumeGb..opt.custom.maxVolumeGb &&
-                (opt.custom.maxTimeDays <= opt.custom.minTimeDays || (customTime.toIntOrNull() ?: -1) in opt.custom.minTimeDays..opt.custom.maxTimeDays)
-            val canConfirm = !busy && !loading && opt != null &&
-                (if (useCustom) customValid else selectedCode != null)
+            val canConfirm = !busy && !loading && displayedQuote != null
             Button(enabled = canConfirm, onClick = click@{
-                opt ?: return@click
+                if (busy) return@click
+                val chosen = displayedQuote ?: return@click
                 busy = true; actionError = null
                 scope.launch {
-                    runCatching {
-                        if (useCustom) api.confirmRenew(
-                            username, customVolumeGb = customVolumeInt,
-                            customTimeDays = customTime.toIntOrNull()
-                        ) else api.confirmRenew(username, productCode = selectedCode)
-                    }.onSuccess { result ->
-                        busy = false
-                        if (result.requiresPayment) {
+                    try {
+                        val attempt = checkedRenewal(
+                            displayed = chosen,
+                            latest = { api.renewOptions(username).also { options = it } },
+                            confirm = { quote ->
+                                api.confirmRenew(
+                                    username,
+                                    productCode = quote.selection.productCode,
+                                    customVolumeGb = quote.selection.volumeGb,
+                                    customTimeDays = quote.selection.timeDays,
+                                    fxQuote = quote.fxQuote
+                                )
+                            }
+                        )
+                        options = attempt.options
+                        acceptedQuote = attempt.quote
+                        val result = attempt.result
+                        if (result == null) {
+                            actionError = "قیمت تمدید از زمان انتخاب شما تغییر کرده است؛ مبلغ جدید را بررسی و تأیید کنید."
+                        } else if (result.requiresPayment) {
+                            options = attempt.options.copy(balance = result.balance)
                             actionError = "موجودی کیف پول کافی نیست؛ ${formatPrice(result.amountDue)} تومان کسری دارید. " +
                                 "ابتدا از تب «کیف پول» شارژ کن، سپس دوباره تمدید کن."
                         } else if (result.completed) {
@@ -1569,13 +1595,17 @@ private fun RenewServiceDialog(
                         } else {
                             actionError = "تمدید تأیید نشد؛ دوباره تلاش کن."
                         }
-                    }.onFailure {
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        actionError = if (e is java.io.IOException)
+                            "پاسخ تمدید دریافت نشد؛ پیش از تلاش دوباره، وضعیت سرویس و کیف پول را بررسی کنید."
+                        else StorePublicError.message(e, "تمدید ناموفق بود")
+                    } finally {
                         busy = false
-                        actionError = it.message ?: "تمدید ناموفق بود"
                     }
-                    Unit
                 }
-            }) { Text(if (busy) "در حال تمدید…" else "تأیید تمدید") }
+            }) { Text(if (busy) "در حال بررسی و تمدید…" else "تأیید تمدید") }
         },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("بازگشت") } }
     )
@@ -1667,7 +1697,7 @@ internal fun OwnedServiceCard(service: GhajarOwnedService, onImport: () -> Unit,
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text(service.productName, fontWeight = FontWeight.Bold, color = c.textPrimary)
-                    Text("⁦${service.username}⁩", style = MaterialTheme.typography.bodySmall,
+                    Text(androidx.core.text.BidiFormatter.getInstance().unicodeWrap(service.username,androidx.core.text.TextDirectionHeuristicsCompat.LTR), style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(service.location, style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)

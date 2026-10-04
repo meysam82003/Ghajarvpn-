@@ -120,6 +120,8 @@ class GhajarNotificationJob : JobService() {
 
     override fun onStartJob(params: JobParameters): Boolean {
         job = scope.launch {
+            GhajarUpdateMonitor.refresh(applicationContext)
+            BpfRefresh.refresh(applicationContext)
             val success = GhajarNotificationMonitor.refresh(applicationContext)
             jobFinished(params, !success)
         }
@@ -139,6 +141,7 @@ class GhajarNotificationJob : JobService() {
 
 class GhajarNotificationBootReceiver : android.content.BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
+        if(intent.action !in setOf(Intent.ACTION_BOOT_COMPLETED,Intent.ACTION_MY_PACKAGE_REPLACED))return
         GhajarNotificationMonitor.initialize(context.applicationContext)
     }
 }
@@ -316,7 +319,7 @@ object GhajarNotificationMonitor {
             .setContentTitle(notice.title)
             .setContentText(notice.message)
             .setStyle(NotificationCompat.BigTextStyle().bigText(notice.message))
-            .setPriority(if (notice.important) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
+            .setPriority(if (notice.important || notice.serviceAlert) NotificationCompat.PRIORITY_HIGH else NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(open)
         GhajarShopOpenRequest.fromNotice(notice.action, notice.actionRef)?.let { target ->

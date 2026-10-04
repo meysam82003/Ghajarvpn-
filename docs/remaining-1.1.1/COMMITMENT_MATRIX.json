@@ -1,0 +1,656 @@
+[
+  {
+    "id": "F001",
+    "feature": "Verified on-demand Android plugin host",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "قرارداد امضا/API/ABI/slot میزبان پیاده است؛ APK production و publisher واقعی هنوز لازم‌اند.",
+    "newTests": [
+      "PluginContractsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/CoreManager.kt",
+      "app/src/main/java/net/gozar/app/plugins/PluginTrust.kt"
+    ]
+  },
+  {
+    "id": "F002",
+    "feature": "sing-box registry extension architecture",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "scripts/build-singbox.sh"
+    ]
+  },
+  {
+    "id": "F003",
+    "feature": "Hysteria2 port hopping",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt",
+      "app/src/main/java/net/gozar/app/ProxyConfig.kt"
+    ]
+  },
+  {
+    "id": "F004",
+    "feature": "Juicity",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      ".github/workflows/android.yml",
+      "scripts/build-juicity.sh"
+    ]
+  },
+  {
+    "id": "F005",
+    "feature": "Mieru",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "native/ghajar-helper/go.mod"
+    ]
+  },
+  {
+    "id": "F006",
+    "feature": "ShadowQUIC",
+    "auditDecision": "ON_DEMAND_PLUGIN",
+    "status": "مسدود به پیش‌نیاز خارجی",
+    "currentAssessment": "adapter و pin/lock بررسی شده؛ APK امضاشده، هویت ناشر و qualification سرور هنوز نداریم.",
+    "newTests": [
+      "PluginContractsTest",
+      "test_plugin_manifest.py"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt"
+    ]
+  },
+  {
+    "id": "F007",
+    "feature": "NaiveProxy",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "scripts/build-singbox.sh",
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt"
+    ]
+  },
+  {
+    "id": "F008",
+    "feature": "AnyTLS session settings",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt"
+    ]
+  },
+  {
+    "id": "F009",
+    "feature": "TUIC advanced settings",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt"
+    ]
+  },
+  {
+    "id": "F010",
+    "feature": "MASQUE CONNECT-IP",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt"
+    ]
+  },
+  {
+    "id": "F011",
+    "feature": "ECH options per protocol",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt",
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt"
+    ]
+  },
+  {
+    "id": "F012",
+    "feature": "uTLS fingerprint",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt"
+    ]
+  },
+  {
+    "id": "F013",
+    "feature": "OpenConnect enterprise authentication",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی ناقص",
+    "currentAssessment": "user/pass/TOTP/certificate/MCA حفظ و تنظیمات تست شدند؛ SSO IPC/callback و HOTP durable هنوز کد جدید و سرویس آزمایش می‌خواهند.",
+    "newTests": [
+      "Phase4SettingsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt",
+      "docs/remaining-1.1.1/NATIVE_BLOCKERS_FA.md"
+    ]
+  },
+  {
+    "id": "F014",
+    "feature": "OpenVPN import/auth settings",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "openvpn/src/main/cpp/openvpn/version.m4",
+      "app/src/main/java/net/gozar/app/engine/CoreManager.kt"
+    ]
+  },
+  {
+    "id": "F015",
+    "feature": "Full Mihomo providers/rules/config engine",
+    "auditDecision": "ON_DEMAND_PLUGIN",
+    "status": "پیاده‌سازی ناقص",
+    "currentAssessment": "full config و فایل‌های محدود خصوصی، sandbox، selector ثابت و TCP واقعی آزموده شدند؛ interactive controller اضافه نشده، policyهای خارج API 1 صریحاً رد می‌شوند.",
+    "newTests": [
+      "RemainingWorkTest",
+      "native/plugin-mihomo/prepare_test.go",
+      "native/plugin-mihomo/transfer_test.go"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/SingBoxConfig.kt"
+    ]
+  },
+  {
+    "id": "F016",
+    "feature": "Mihomo TUN / MIPStack",
+    "auditDecision": "SKIP",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: Do not start two VPN/TUN owners. Optional Mihomo can use local SOCKS or an explicitly exclusive TUN adapter. main and release 1.19.3 differ in auto stack selection.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ZeptunEngine.kt"
+    ]
+  },
+  {
+    "id": "F017",
+    "feature": "Mihomo OpenVPN outbound",
+    "auditDecision": "SKIP",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: Real implementation exists in vendored adapter/transport; useful inside optional full Mihomo configs, no separate additional VPN menu item.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/CoreManager.kt"
+    ]
+  },
+  {
+    "id": "F018",
+    "feature": "Flutter platform plugins",
+    "auditDecision": "NOT_APPLICABLE",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: Bettbox Flutter plugins are platform bridges, not proof of Husi-style externally installable protocol plugins.",
+    "newTests": [],
+    "evidenceFiles": []
+  },
+  {
+    "id": "F019",
+    "feature": "TCP + UDP through SOCKS5",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ZeptunEngine.kt"
+    ]
+  },
+  {
+    "id": "F020",
+    "feature": "ICMP forwarding vs local handling",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ZeptunEngine.kt"
+    ]
+  },
+  {
+    "id": "F021",
+    "feature": "Fake-IP and DNS hijack",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ZeptunEngine.kt"
+    ]
+  },
+  {
+    "id": "F022",
+    "feature": "Android package routing / protected sockets",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/GozarVpnService.kt"
+    ]
+  },
+  {
+    "id": "F023",
+    "feature": "Performance/memory/size",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ZeptunEngine.kt"
+    ]
+  },
+  {
+    "id": "F024",
+    "feature": "MASQUE HTTP/3",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/Aethercontroller.kt",
+      "app/src/main/java/net/gozar/app/OblivionOptions.kt"
+    ]
+  },
+  {
+    "id": "F025",
+    "feature": "MASQUE HTTP/2",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/Aethercontroller.kt",
+      "app/src/main/java/net/gozar/app/OblivionOptions.kt"
+    ]
+  },
+  {
+    "id": "F026",
+    "feature": "WireGuard",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/Aethercontroller.kt",
+      "app/src/main/java/net/gozar/app/OblivionOptions.kt"
+    ]
+  },
+  {
+    "id": "F027",
+    "feature": "WARP-in-WARP",
+    "auditDecision": "BUILT_IN",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/Aethercontroller.kt",
+      "app/src/main/java/net/gozar/app/OblivionOptions.kt"
+    ]
+  },
+  {
+    "id": "F028",
+    "feature": "MASQUE-in-MASQUE",
+    "auditDecision": "BUILT_IN",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/Aethercontroller.kt",
+      "app/src/main/java/net/gozar/app/OblivionOptions.kt"
+    ]
+  },
+  {
+    "id": "F029",
+    "feature": "Route discovery",
+    "auditDecision": "BUILT_IN",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/Aethercontroller.kt",
+      "app/src/main/java/net/gozar/app/OblivionOptions.kt"
+    ]
+  },
+  {
+    "id": "F030",
+    "feature": "Tor-only / WARP→Tor / Tor→WARP",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی ناقص",
+    "currentAssessment": "Tor روی Aether وارد service شد و lifecycle/fixture انتقال آزموده شد؛ H2 Aether روی Tor به‌علت DNS native مسدود و اتصال واقعی Android آزموده‌نشده است.",
+    "newTests": [
+      "RemainingWorkTest"
+    ],
+    "evidenceFiles": [
+      "scripts/build-aether.sh",
+      "app/src/main/java/net/gozar/app/Torcontroller.kt",
+      "app/src/main/java/net/gozar/app/AetherTorRuntime.kt"
+    ]
+  },
+  {
+    "id": "F031",
+    "feature": "Certificate verification and TLS options",
+    "auditDecision": "SKIP",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: Do not copy upstream false verification defaults or plaintext preference passwords. TLS-version option changes must preserve certificate/hostname validation.",
+    "newTests": [],
+    "evidenceFiles": [
+      "native/ghajar-helper/sstp.go"
+    ]
+  },
+  {
+    "id": "F032",
+    "feature": "SSTP HTTP proxy",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "پیشنهاد اولیه مشروط بود؛ فاز۴ SSTP CONNECT/TLS/DNS را در helper تکمیل کرده است. دوباره ناقص طراحی محسوب نمی‌شود؛ آزمون دستگاه باقی است.",
+    "newTests": [],
+    "evidenceFiles": [
+      "native/ghajar-helper/sstp.go"
+    ]
+  },
+  {
+    "id": "F033",
+    "feature": "SSTP custom DNS",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "native/ghajar-helper/sstp.go"
+    ]
+  },
+  {
+    "id": "F034",
+    "feature": "Mahsa closed config/auth distribution",
+    "auditDecision": "SKIP",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: README declares config encryption and Mahsa authentication closed. No service credentials, closed source or release binaries copied. NikaNG does not establish parity with current releases.",
+    "newTests": [],
+    "evidenceFiles": []
+  },
+  {
+    "id": "F035",
+    "feature": "Conduit / INPROXY",
+    "auditDecision": "SKIP",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: Public Mahsa code selects INPROXY protocol names. Do not invent a separate core or enable it without legitimate prerequisites and a compatible verified Psiphon build.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/PsiphonConfig.kt"
+    ]
+  },
+  {
+    "id": "F036",
+    "feature": "Psiphon CDN fronting and chaining",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/PsiphonConfig.kt"
+    ]
+  },
+  {
+    "id": "F037",
+    "feature": "xDNS finalmask",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "مسدود به پیش‌نیاز خارجی",
+    "currentAssessment": "xDNS ادغام نشده؛ wire contract/سرور هدف و patch موتور مشترک لازم است. SHA/source comparison جدید موجود؛ client/server xDNS اجرا نشده.",
+    "newTests": [],
+    "evidenceFiles": [
+      "docs/remaining-1.1.1/NATIVE_BLOCKERS_FA.md"
+    ]
+  },
+  {
+    "id": "F038",
+    "feature": "dnstt inside Xray",
+    "auditDecision": "SKIP",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: dialer.go uses unsynchronized package-level globalTunnel with no per-profile ownership visible. Avoid copying adapter; keep isolated existing sidecar.",
+    "newTests": [],
+    "evidenceFiles": [
+      "scripts/build-dnstt.sh"
+    ]
+  },
+  {
+    "id": "F039",
+    "feature": "DNS scanner",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "فقط طراحی‌شده",
+    "currentAssessment": "پیشنهاد Audit مشروط به تعیین رفتار است؛ تعهد مصوب پیاده‌سازی scanner کامل در فازهای بعدی یافت نشد.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/engine/DnsTunnelPrefs.kt"
+    ]
+  },
+  {
+    "id": "F040",
+    "feature": "XHTTP / SplitHTTP",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt"
+    ]
+  },
+  {
+    "id": "F041",
+    "feature": "QUIC",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "صرفاً منتظر Build یا تست دستگاه در فاز ۷",
+    "currentAssessment": "مسیر موجود حفظ شد؛ از روی سورس دوباره قابلیت حذف یا تکرار نشد. این ردیف ادعای تست عملی تازه ندارد؛ qualification Android یا سرور وابسته در فاز۷.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt"
+    ]
+  },
+  {
+    "id": "F042",
+    "feature": "WireGuard + UDP Noise",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt"
+    ]
+  },
+  {
+    "id": "F043",
+    "feature": "Hysteria2",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt"
+    ]
+  },
+  {
+    "id": "F044",
+    "feature": "DoH",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt"
+    ]
+  },
+  {
+    "id": "F045",
+    "feature": "Fragmentation / fake host",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt"
+    ]
+  },
+  {
+    "id": "F046",
+    "feature": "Free config systems",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/ProxyConfig.kt"
+    ]
+  },
+  {
+    "id": "F047",
+    "feature": "Wrong-sequence packet injection",
+    "auditDecision": "NOT_APPLICABLE",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: pydivert and WinDivert require Windows packet interception; ordinary rootless Android VPN cannot simply call this implementation.",
+    "newTests": [],
+    "evidenceFiles": []
+  },
+  {
+    "id": "F048",
+    "feature": "Direct fragment presets",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی‌شده؛ با ذکر تست انجام‌شده",
+    "currentAssessment": "سورس فعلی و تصمیم فازهای بعدی ملاک است؛ تست JVM تنظیمات/parser/generator شاهد اتصال واقعی نیست.",
+    "newTests": [
+      "Phase4SettingsTest",
+      "ProtocolFormsTest"
+    ],
+    "evidenceFiles": []
+  },
+  {
+    "id": "F049",
+    "feature": "Tor/Psiphon/WARP chain controller",
+    "auditDecision": "MERGE_FEATURE",
+    "status": "پیاده‌سازی ناقص",
+    "currentAssessment": "Tor روی Aether وارد service شد و lifecycle/fixture انتقال آزموده شد؛ H2 Aether روی Tor به‌علت DNS native مسدود و اتصال واقعی Android آزموده‌نشده است.",
+    "newTests": [
+      "RemainingWorkTest"
+    ],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/OblivionOptions.kt",
+      "app/src/main/java/net/gozar/app/AetherTorRuntime.kt"
+    ]
+  },
+  {
+    "id": "F050",
+    "feature": "Additional WARP executable",
+    "auditDecision": "SKIP",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: Do not add another WARP binary just to increase option count; only specific non-overlapping fixes merit a merge.",
+    "newTests": [],
+    "evidenceFiles": [
+      "app/src/main/java/net/gozar/app/Aethercontroller.kt"
+    ]
+  },
+  {
+    "id": "F051",
+    "feature": "smartSNI DNS substitution",
+    "auditDecision": "SKIP",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: Source serves DNS/TLS; missing root license plus pooled-buffer response lifetime and loose substring matching make verbatim adoption unsuitable.",
+    "newTests": [],
+    "evidenceFiles": []
+  },
+  {
+    "id": "F052",
+    "feature": "Psiphon binary/source reproducibility",
+    "auditDecision": "UPDATE_EXISTING",
+    "status": "پیاده‌سازی ناقص",
+    "currentAssessment": "hash و snapshot و patchهای فعلی ثبت شدند؛ source/merged module و toolchain دقیق سازنده AAR از مالک لازم است.",
+    "newTests": [
+      "source_provenance.py"
+    ],
+    "evidenceFiles": [
+      "native/Psiphon/go.mod",
+      "app/libs/ca.psiphon.aar",
+      "docs/remaining-1.1.1/CURRENT_SOURCE_AND_AAR.json"
+    ]
+  },
+  {
+    "id": "F053",
+    "feature": "Xray prerelease migration assessment",
+    "auditDecision": "UPDATE_EXISTING",
+    "status": "تصمیم مصوب برای عدم افزودن",
+    "currentAssessment": "تصمیم عدم افزودن/عدم ارتقا/نامرتبط قبلی حفظ شد: Candidate only: gate schema migration, XHTTP/finalmask/ECH/QUIC behavior, gomobile APIs and protocol regression tests. No update performed and no stable downgrade/revert.",
+    "newTests": [],
+    "evidenceFiles": [
+      "go.mod",
+      "app/src/main/java/net/gozar/app/ConfigBuilder.kt"
+    ]
+  }
+]

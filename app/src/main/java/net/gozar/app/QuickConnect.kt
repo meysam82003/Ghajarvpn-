@@ -39,6 +39,10 @@ object QuickConnect {
     fun start(context: Context): QuickConnectResult {
         val store = ConfigStore.get(context.applicationContext)
         val selectedId = store.selectedId.value
+        if (net.gozar.app.security.vault.VaultRuntime.isReference(selectedId)) {
+            VpnState.setError("برای اتصال دوباره، صندوق را باز و سهمیه را بررسی کنید.")
+            return QuickConnectResult.NO_CONFIG
+        }
         val config = store.configs.value.firstOrNull { it.id == selectedId }
             ?: store.configs.value.firstOrNull()
             ?: return QuickConnectResult.NO_CONFIG

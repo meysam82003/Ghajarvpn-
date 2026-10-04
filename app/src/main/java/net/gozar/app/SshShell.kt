@@ -83,7 +83,7 @@ class SshShell(private val hostId: String) : ShellSession {
                 }
             }.onFailure {
                 _running.value = false
-                android.util.Log.w(TAG, "open failed", it)
+                net.gozar.app.GhajarLog.w(TAG, "open failed", it)
                 append(it.message ?: "could not open shell", ShellLineKind.ERROR)
             }
             opening = false
@@ -156,7 +156,7 @@ class SshShell(private val hostId: String) : ShellSession {
                     }
                 }
             }
-        }.onFailure { android.util.Log.w(TAG, "pump ended", it) }
+        }.onFailure { net.gozar.app.GhajarLog.w(TAG, "pump ended", it) }
         if (errBuf.isNotEmpty()) append(errBuf.toString(), kind)
     }
 

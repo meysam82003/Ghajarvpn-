@@ -1,0 +1,62 @@
+{
+  "repository": "https://github.com/FrontierTM/Pantegnos",
+  "commit": "09ae0699f7d18717f1900643b703021344f6a9fe",
+  "tag": "v9.4.3",
+  "license": "MIT at this commit; current HEAD is AGPL-3.0",
+  "assets": [
+    {
+      "file": "gen2_tables.bin.z",
+      "sha256": "3c297858ae146c3fcee5402dbcad19da8ac79eb0cde6a3bdb4c3bc35c2090389",
+      "bytes": 434981
+    },
+    {
+      "file": "tyboxes.bin",
+      "sha256": "eef608f1764a5a5dc7fe27d115dbf6f18315e0cbf4da4c18a7ca0e8186661037",
+      "bytes": 16384
+    },
+    {
+      "file": "mbl.bin",
+      "sha256": "ce47fc525ac2ee90fe9b6665db77fc96efdadb9aaad137287c6d5e5cd01b97d7",
+      "bytes": 16384
+    },
+    {
+      "file": "xor.bin",
+      "sha256": "964137fb81c87ec8d13e126c247f9158f04db187eea526386cc357f27ee3ad7d",
+      "bytes": 24576
+    },
+    {
+      "file": "tboxes_last.bin",
+      "sha256": "aa2bf6c91cf89508782bccdbc9cd89af748ed217746cad50c0d5ba42c4bd1683",
+      "bytes": 4096
+    },
+    {
+      "file": "tboxes_last_v2.bin",
+      "sha256": "6e61f062c93e2abcc803d8fb77724baf6baa461d27d6e265fb547efc2b1c2c9d",
+      "bytes": 4096
+    },
+    {
+      "file": "npvt-tyBoxes.bin",
+      "sha256": "eef608f1764a5a5dc7fe27d115dbf6f18315e0cbf4da4c18a7ca0e8186661037",
+      "bytes": 16384,
+      "extractedFrom": "npvt.go tyBoxes"
+    },
+    {
+      "file": "npvt-mbl.bin",
+      "sha256": "ce47fc525ac2ee90fe9b6665db77fc96efdadb9aaad137287c6d5e5cd01b97d7",
+      "bytes": 16384,
+      "extractedFrom": "npvt.go mbl"
+    },
+    {
+      "file": "npvt-tboxesLast.bin",
+      "sha256": "6e61f062c93e2abcc803d8fb77724baf6baa461d27d6e265fb547efc2b1c2c9d",
+      "bytes": 4096,
+      "extractedFrom": "npvt.go tboxesLast"
+    },
+    {
+      "file": "npvt-xorTable.bin",
+      "sha256": "964137fb81c87ec8d13e126c247f9158f04db187eea526386cc357f27ee3ad7d",
+      "bytes": 24576,
+      "extractedFrom": "npvt.go xorTable"
+    }
+  ]
+}

@@ -14,7 +14,7 @@ enum class SitePermissionState { ASK, ALLOW, BLOCK }
  */
 class SitePermissionsStore(private val document: BrowserDocumentStore) {
 
-    fun state(origin: String, resource: SitePermission): SitePermissionState = runCatching {
+    fun state(origin: String, resource: SitePermission): SitePermissionState = if (!supported(resource)) SitePermissionState.BLOCK else runCatching {
         val root = JSONObject(document.load(KEY) ?: "{}")
         val site = root.optJSONObject(origin) ?: return SitePermissionState.ASK
         SitePermissionState.valueOf(site.optString(resource.name.lowercase(), "ASK"))
@@ -44,7 +44,7 @@ class SitePermissionsStore(private val document: BrowserDocumentStore) {
             val entries = site.keys().asSequence().mapNotNull { res ->
                 val resource = runCatching { SitePermission.valueOf(res.uppercase()) }.getOrNull() ?: return@mapNotNull null
                 val state = runCatching { SitePermissionState.valueOf(site.optString(res)) }.getOrNull() ?: return@mapNotNull null
-                if (state == SitePermissionState.ASK) null else resource to state
+                if (state == SitePermissionState.ASK) null else resource to if (supported(resource)) state else SitePermissionState.BLOCK
             }.toMap()
             if (entries.isEmpty()) null else origin to entries
         }.toMap()
@@ -60,16 +60,16 @@ class SitePermissionsStore(private val document: BrowserDocumentStore) {
     companion object {
         private const val KEY = "site_permissions"
 
+        fun supported(resource: SitePermission): Boolean = resource == SitePermission.CAMERA
+
         fun osPermissionFor(resource: SitePermission): String? = when (resource) {
             SitePermission.CAMERA -> ManifestCompat.CAMERA
-            SitePermission.MICROPHONE -> ManifestCompat.RECORD_AUDIO
-            SitePermission.GEOLOCATION -> ManifestCompat.ACCESS_FINE_LOCATION
+            SitePermission.MICROPHONE -> null
+            SitePermission.GEOLOCATION -> null
         }
     }
 
     private object ManifestCompat {
         const val CAMERA = android.Manifest.permission.CAMERA
-        const val RECORD_AUDIO = android.Manifest.permission.RECORD_AUDIO
-        const val ACCESS_FINE_LOCATION = android.Manifest.permission.ACCESS_FINE_LOCATION
     }
 }

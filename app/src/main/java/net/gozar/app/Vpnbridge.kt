@@ -69,6 +69,10 @@ object VpnBridge {
     }
 
     private fun handle(state: String?, error: String?, tup: Long, tdown: Long, dup: Long, ddown: Long) {
+        if (net.gozar.app.plugins.PluginRuntime.running) {
+            if (state == S_DISCONNECTED) { _counters.value = VpnCounters(); UsageStore.flush() }
+            return // Plugin service confirms its own lifecycle; old-core teardown is not its disconnect.
+        }
         // Rapid connect/disconnect: stale engine reports must never
         // overwrite the state the user's latest intent established.
         val reported = when (state) {

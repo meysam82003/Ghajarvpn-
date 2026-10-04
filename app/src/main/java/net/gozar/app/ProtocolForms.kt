@@ -67,7 +67,7 @@ object ProtocolForms {
             Field("jmax", "Jmax", Kind.NUMBER, advanced = true), Field("s1", "S1", Kind.NUMBER, advanced = true),
             Field("s2", "S2", Kind.NUMBER, advanced = true), Field("h1", "H1", advanced = true), Field("h2", "H2", advanced = true),
             Field("h3", "H3", advanced = true), Field("h4", "H4", advanced = true))),
-        Form("ssh", "SSH", "tunnel", listOf(
+        Form("ssh", "SSH", "proxy", listOf(
             NAME, server(), port("22"), USER.copy(required = true), PASS,
             Field("mode", "f_ssh_mode", Kind.SELECT, default = "direct", options = listOf("direct", "payload", "tls", "payload-tls", "ws", "wss", "http-proxy", "https-proxy")),
             Field("sni", "f_sni"), Field("payload", "f_payload", Kind.MULTILINE, default = "CONNECT [host_port] [protocol][crlf]Host: [host][crlf][crlf]"),
@@ -78,6 +78,11 @@ object ProtocolForms {
             Field("domain", "f_dns_domain", required = true), Field("pubkey", "f_dns_pubkey", hint = "64 hex"),
             Field("transport", "f_dns_transport", Kind.SELECT, default = "udp", options = listOf("udp", "dot", "doh")),
             Field("resolver", "f_dns_resolver", default = "8.8.8.8:53", hint = "host:port / https://…/dns-query"),
+            Field("rps", "حداکثر query در ثانیه (VayDNS)", advanced = true),
+            Field("idle_timeout", "Idle timeout (VayDNS)", advanced = true, hint = "30s"),
+            Field("keepalive", "Keepalive (VayDNS)", advanced = true, hint = "2s"),
+            Field("resolver_timeout", "مهلت resolver (VayDNS)", advanced = true, hint = "500ms"),
+            Field("max_labels", "حداکثر label (VayDNS)", Kind.NUMBER, advanced = true),
             Field("upstream", "f_dns_upstream", Kind.SELECT, advanced = true, default = "socks", options = listOf("socks", "ssh")),
             Field("user", "f_user", advanced = true), Field("pass", "f_password", Kind.PASSWORD, advanced = true))),
         Form("masterdns", "MasterDNS / StormDNS / CottenDNS", "dns", listOf(
@@ -85,6 +90,11 @@ object ProtocolForms {
             Field("domain", "f_dns_domain", required = true), Field("key", "f_dns_key", Kind.PASSWORD, required = true),
             Field("resolvers", "f_dns_resolvers", Kind.MULTILINE, required = true, hint = "8.8.8.8:53"),
             Field("enc", "f_dns_enc", Kind.NUMBER, advanced = true, default = "1"))),
+        Form("shadowquic", "ShadowQUIC · نیازمند افزونه", "proxy", listOf(NAME, server(), port("443"),
+            USER.copy(required = true), PASS.copy(required = true), SNI.copy(required = true, advanced = false),
+            Field("udpMode", "حالت UDP", Kind.SELECT, options = listOf("datagram", "stream"), default = "datagram", advanced = true),
+            Field("congestion", "کنترل ازدحام", Kind.SELECT, options = listOf("bbr", "cubic", "new-reno"), default = "bbr", advanced = true),
+            Field("mtu", "MTU", Kind.NUMBER, default = "1280", advanced = true), Field("alpn", "ALPN", default = "h3", advanced = true))),
         Form("tuic", "TUIC v5", "proxy", listOf(NAME, server(), port("443"), Field("uuid", "UUID", required = true), PASS,
             Field("cc", "f_cc", Kind.SELECT, advanced = true, default = "bbr", options = listOf("bbr", "cubic", "new_reno")),
             Field("alpn", "ALPN", advanced = true, default = "h3"), SNI, INSECURE)),
@@ -116,9 +126,23 @@ object ProtocolForms {
             Field("quic", "f_naive_quic", Kind.SWITCH, advanced = true))),
         Form("mieru", "Mieru", "proxy", listOf(NAME, server(), Field("port", "f_port", Kind.NUMBER, required = true), USER.copy(required = true),
             PASS.copy(required = true), Field("transport", "f_transport", Kind.SELECT, default = "TCP", options = listOf("TCP", "UDP")))),
-        Form("tor", "Tor bridges", "tunnel", listOf(NAME,
+        Form("tor", "Tor bridges", "core", listOf(NAME,
             Field("bridges", "f_tor_bridges", Kind.MULTILINE, required = true, hint = "obfs4 1.2.3.4:443 FINGERPRINT cert=… iat-mode=0")))
-    )
+    ).map { form -> form.copy(fields = form.fields + EngineSettings.supported(form.id).map { setting ->
+        Field(setting.key, setting.label, when (setting.type) {
+            EngineSettings.Type.BOOL -> Kind.SWITCH
+            EngineSettings.Type.SECONDS, EngineSettings.Type.COUNT, EngineSettings.Type.MTU -> Kind.NUMBER
+            EngineSettings.Type.SECRET, EngineSettings.Type.PROXY -> Kind.PASSWORD
+            EngineSettings.Type.PEM -> Kind.PEM
+            EngineSettings.Type.FORM_ENTRIES -> Kind.MULTILINE
+            EngineSettings.Type.TOKEN, EngineSettings.Type.COMPRESSION -> Kind.SELECT
+            else -> Kind.TEXT
+        }, advanced = true, hint = setting.hint, options = when(setting.type) {
+            EngineSettings.Type.TOKEN -> listOf("", "totp", "stoken")
+            EngineSettings.Type.COMPRESSION -> listOf("", "stateless", "all")
+            else -> emptyList()
+        })
+    }) }
 
     /** Add-server sections, in display order. A form shows only those it has fields in. */
     val SECTIONS = listOf("basic", "auth", "transport", "tls", "network", "dns", "routing", "advanced")
@@ -126,9 +150,9 @@ object ProtocolForms {
     /** Which section a field belongs to, by what it configures (not by protocol). */
     fun sectionOf(f: Field): String = when (f.key) {
         "name", "server", "port", "variant", "flavor", "domain", "hub", "bridges", "version" -> "basic"
-        "user", "pass", "uuid", "key", "privkey", "psk", "pubkey", "authgroup", "auth", "pk", "hostkey", "plain", "disco" -> "auth"
-        "mode", "transport", "wspath", "wshost", "payload", "proxy", "cc", "quic", "path", "upstream", "enc" -> "transport"
-        "sni", "pin", "insecure", "alpn", "fp", "cert", "nodtls", "os", "ua" -> "tls"
+        "cookie", "token_mode", "token_secret", "key_password", "mca_key_password", "user", "pass", "uuid", "key", "privkey", "psk", "pubkey", "authgroup", "auth", "pk", "hostkey", "plain", "disco" -> "auth"
+        "server_ports", "hop_interval", "udp_over_stream", "mode", "transport", "wspath", "wshost", "payload", "proxy", "cc", "quic", "path", "upstream", "enc" -> "transport"
+        "ech_config", "ca", "mca_cert", "mca_key", "tls_min", "sni", "pin", "insecure", "alpn", "fp", "cert", "nodtls", "os", "ua" -> "tls"
         "mtu", "ip", "gw", "address", "endpoint", "reconnect", "noipv6", "peerkey", "control", "hostname", "derp", "region", "ephemeral" -> "network"
         "dns", "resolver", "resolvers" -> "dns"
         "allowed", "exit", "routes", "lan" -> "routing"
@@ -161,6 +185,19 @@ object ProtocolForms {
         f.fields.firstOrNull { it.required && v[it.key].isNullOrBlank() }?.let {
             return Result.failure(IllegalArgumentException(it.label))
         }
+        if (f.fields.any { it.key == "port" } && v["port"]?.toIntOrNull() !in 1..65535)
+            return Result.failure(IllegalArgumentException("پورت باید بین ۱ تا ۶۵۵۳۵ باشد"))
+        if (id == "openconnect") {
+            val cert = v["cert"].orEmpty(); val key = v["key"].orEmpty()
+            if ((cert.isNotBlank() && !cert.contains("BEGIN CERTIFICATE")) || (key.isNotBlank() && !key.contains("PRIVATE KEY")))
+                return Result.failure(IllegalArgumentException("قالب گواهی یا کلید خصوصی معتبر نیست"))
+        }
+        if (id == "shadowquic") return runCatching {
+            val p = org.json.JSONObject().put("server", v["server"]).put("port", v["port"]?.toInt() ?: 443)
+                .put("username", v["user"]).put("password", v["pass"]).put("sni", v["sni"])
+                .put("udpMode", v["udpMode"]).put("congestion", v["congestion"]).put("mtu", v["mtu"]?.toInt() ?: 1280).put("alpn", v["alpn"])
+            net.gozar.app.plugins.PluginProfiles.create("shadowquic", "shadowquic-json", p.toString(), v["name"].orEmpty())
+        }
         val name = v["name"].orEmpty().ifBlank { f.title }
         fun on(k: String) = v[k] == "true" || v[k] == "1"
         val tail = "#" + enc(name)
@@ -191,7 +228,9 @@ object ProtocolForms {
                 (v["variant"] ?: "dnstt") + "://" + userInfo(v["user"], v["pass"]) + v["domain"]!!.trim() + query(
                     "pubkey" to v["pubkey"], "transport" to v["transport"],
                     "resolver" to v["resolver"].takeIf { !doh }, "doh" to v["resolver"].takeIf { doh },
-                    "upstream" to v["upstream"]?.takeIf { it == "ssh" }) + tail
+                    "upstream" to v["upstream"]?.takeIf { it == "ssh" },
+                    "rps" to v["rps"], "idle_timeout" to v["idle_timeout"], "keepalive" to v["keepalive"],
+                    "resolver_timeout" to v["resolver_timeout"], "max_labels" to v["max_labels"]) + tail
             }
             "masterdns" -> {
                 val resolvers = v["resolvers"]!!.split('\n', ',', ' ').map { it.trim() }.filter { it.isNotEmpty() }
@@ -227,7 +266,8 @@ object ProtocolForms {
                 ?: Result.failure(IllegalArgumentException("f_tor_bridges"))
             else -> return Result.failure(IllegalArgumentException(id))
         }
-        val c = ConfigParser.parse(link) ?: return Result.failure(IllegalArgumentException("f_invalid"))
+        val parsed = ConfigParser.parse(link) ?: return Result.failure(IllegalArgumentException("f_invalid"))
+        val c = runCatching { EngineSettings.merge(parsed, v) }.getOrElse { return Result.failure(it) }
         if (id == "openconnect" && (!v["cert"].isNullOrBlank() || !v["key"].isNullOrBlank())) {
             val x = c.extraJson()
             v["cert"]?.takeIf { it.contains("BEGIN CERTIFICATE") }?.let { x.put("clientCert", it.trim()) }

@@ -25,7 +25,12 @@ import kotlin.coroutines.coroutineContext
 object GhajarUpdateFlow {
     private val _available = MutableStateFlow<UpdateChecker.Result.Available?>(null)
     val available = _available.asStateFlow()
+    private val _latest = MutableStateFlow<UpdateChecker.Result.Available?>(null)
+    val latest = _latest.asStateFlow()
+    fun found(result: UpdateChecker.Result.Available) { _latest.value = result }
     fun offer(result: UpdateChecker.Result.Available) { _available.value = result }
+    fun showLatest() { _available.value = _latest.value }
+    fun upToDate() { _latest.value = null }
     fun clear() { _available.value = null }
 }
 
@@ -52,15 +57,20 @@ object GhajarUpdateInstaller {
     }
 
     private fun downloadsDir(context: Context): File =
-        File(context.getExternalFilesDir(null), "updates").apply { mkdirs() }
+        File(context.filesDir, "updates").apply { mkdirs() }
 
     suspend fun download(
         context: Context,
         asset: UpdateChecker.ReleaseAsset,
         onProgress: (bytesRead: Long, totalBytes: Long) -> Unit
-    ): DownloadResult = withContext(Dispatchers.IO) {
-        val dest = File(downloadsDir(context), asset.name)
-        val tmp = File(dest.parentFile, dest.name + ".part")
+    ): DownloadResult {
+      var completed: File?=null
+      return try { withContext(Dispatchers.IO) {
+        if (!UpdateChecker.releaseUrl(asset.url) || asset.name.contains('/') || asset.name.contains('\\') ||
+            !asset.name.endsWith(".apk",true) || asset.sizeBytes !in 1..(512L*1024*1024))
+            return@withContext DownloadResult.Failed("اطلاعات فایل انتشار معتبر نیست.")
+        recover(context)
+        val directory=downloadsDir(context)
         var connection: HttpURLConnection? = null
         try {
             connection = (URL(asset.url).openConnection() as HttpURLConnection).apply {
@@ -69,39 +79,27 @@ object GhajarUpdateInstaller {
                 instanceFollowRedirects = true
                 setRequestProperty("User-Agent", "Ghajar VPN")
             }
-            val total = connection.contentLengthLong.takeIf { it > 0 } ?: asset.sizeBytes
-            connection.inputStream.use { input ->
-                tmp.outputStream().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var read: Long = 0
-                    while (true) {
-                        if (!coroutineContext.isActive) {
-                            tmp.delete()
-                            return@withContext DownloadResult.Cancelled
-                        }
-                        val n = input.read(buffer)
-                        if (n <= 0) break
-                        output.write(buffer, 0, n)
-                        read += n
-                        onProgress(read, total)
-                    }
-                }
-            }
-            if (!tmp.renameTo(dest)) { dest.delete(); tmp.copyTo(dest, overwrite = true); tmp.delete() }
-            DownloadResult.Success(dest)
+            val file=connection.inputStream.use { UpdateFiles.receive(directory,it,asset.sizeBytes,onProgress) }
+            completed=file
+            DownloadResult.Success(file)
         } catch (e: kotlinx.coroutines.CancellationException) {
-            tmp.delete()
+            completed?.delete()
             throw e
         } catch (e: Exception) {
-            tmp.delete()
-            DownloadResult.Failed(e.message ?: e.javaClass.simpleName)
+            completed?.delete()
+            DownloadResult.Failed("فایل دریافت نشد؛ اتصال اینترنت را بررسی کن و دوباره تلاش کن.")
         } finally {
             connection?.disconnect()
         }
+      } } catch(e:kotlinx.coroutines.CancellationException) { completed?.delete();throw e }
+    }
+    private var recovered=false
+    @Synchronized fun recover(context: Context) {
+        if(!recovered) { UpdateFiles.recover(downloadsDir(context));recovered=true }
     }
 
     fun verifySha256(file: File, expectedHex: String?): VerifyResult {
-        if (expectedHex.isNullOrBlank()) {
+        if (expectedHex==null || !expectedHex.matches(Regex("[0-9a-fA-F]{64}"))) {
             return VerifyResult.Unavailable("این نسخه فایل SHA256SUMS.txt منتشر نکرده؛ صحت فایل قابل تأیید نیست.")
         }
         val digest = MessageDigest.getInstance("SHA-256")
@@ -130,6 +128,7 @@ object GhajarUpdateInstaller {
             ?: return VerifyResult.Unavailable("اطلاعات امضای نسخهٔ نصب‌شده در دسترس نیست.")
         val downloaded = runCatching { pm.getPackageArchiveInfo(apkFile.absolutePath, flags) }.getOrNull()
             ?: return VerifyResult.Unavailable("فایل دانلودشده یک بستهٔ اندروید معتبر نیست یا امضا ندارد.")
+        if (downloaded.packageName != context.packageName) return VerifyResult.SignatureMismatch("این بسته متعلق به قاجار نیست.")
         val installedCerts = certFingerprints(installed) ?: return VerifyResult.Unavailable("امضای نسخهٔ نصب‌شده قابل خواندن نیست.")
         val downloadedCerts = certFingerprints(downloaded) ?: return VerifyResult.Unavailable("امضای فایل دانلودشده قابل خواندن نیست.")
         return if (installedCerts == downloadedCerts) VerifyResult.Ok

@@ -1,0 +1,2444 @@
+{
+  "repository": "CluvexStudio/ZedSecure",
+  "commit": "2c01da26bed98b883503850df1b7f793d28f7f54",
+  "licence": "AGPL-3.0",
+  "use": "Reference only",
+  "note": "Hash inventory is not a claim that every line was manually reviewed or that tests ran. No Zed application code copied.",
+  "files": [
+    {
+      "path": ".github/workflows/android-natives.yml",
+      "bytes": 5363,
+      "sha256": "8f3f5db81cf7b06d1f97a622fef5bab566a8068993969befcefdf270b261ca1e"
+    },
+    {
+      "path": ".github/workflows/android-release.yml",
+      "bytes": 7243,
+      "sha256": "7b903832cf29eb34eeaa673ce816197fa2703765e8ffc718baf71a8a10e8c7bd"
+    },
+    {
+      "path": ".github/workflows/desktop-natives.yml",
+      "bytes": 7942,
+      "sha256": "f3590c871bafa3445a9304393c10fdc2f4264a0acbf58535a8b84ad0adfbc0ff"
+    },
+    {
+      "path": ".github/workflows/desktop-release.yml",
+      "bytes": 13261,
+      "sha256": "307fb54de84f3c4d1cb2f462bf1f6b578e3b2f88e3a5b6e195b00e9524adafa0"
+    },
+    {
+      "path": ".github/workflows/openconnect-native.yml",
+      "bytes": 3520,
+      "sha256": "4f44470ebf8ebf3180215e3d611aa743dc53986bc626a5950ec78b4c454fd919"
+    },
+    {
+      "path": "app/build.gradle.kts",
+      "bytes": 5586,
+      "sha256": "4f3516beec0d8220d83b8114bae41163953faff0a50bdbdcaec2dc83aacd1f8a"
+    },
+    {
+      "path": "app/src/main/AndroidManifest.xml",
+      "bytes": 8183,
+      "sha256": "f214c1d22d2ee0543d96fad61b59c7baa9e8147ea3196e021f55d2e61607f5ab"
+    },
+    {
+      "path": "app/src/main/java/dev/amirzr/flutter_v2ray_client/v2ray/core/HevTunCore.kt",
+      "bytes": 4016,
+      "sha256": "4a5d6a8053cba51beafd8757c1cefa87d49462df481848d759a055b6694a29d9"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/MainActivity.kt",
+      "bytes": 19884,
+      "sha256": "c6c9484b57b9da9ea28355fe0d26cd4655c9c40edc52dc7eab039fc4ef13de96"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/ZedSecureApp.kt",
+      "bytes": 1269,
+      "sha256": "7aa026035d30b9acaefd808f00a54f3dff58c566df613090f3a942dd0bb6eb9d"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/ai/AndroidAiBridge.kt",
+      "bytes": 4682,
+      "sha256": "e2114db1e7d0462987ec720adacd7575965607b8d8c4536c70ea056977173b33"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/AndroidVpn.kt",
+      "bytes": 1634,
+      "sha256": "7f069b5936fb28614ea65bbe58615d5e01b8a904c4ae15759cea1f7bbed436d7"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/AppLog.kt",
+      "bytes": 1540,
+      "sha256": "abd4e8fba8d8f36180a21e89f2e1e4d5814cd504fe454b18773114b08de74ad0"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/BidiText.kt",
+      "bytes": 450,
+      "sha256": "6788fae290b978c18c23c85be01d2683d0fa702af214006111594a57b0934755"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/BootReceiver.kt",
+      "bytes": 1562,
+      "sha256": "d7dc7d1bade6c798d7708b6643628560e9def08288a248d6728578f69dffac8a"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/CertImportAndroid.kt",
+      "bytes": 3113,
+      "sha256": "4850b68c7b47646f768026042d84450cada0f36482be4f21eca3f86bbadeb30b"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/CoreCrashLog.kt",
+      "bytes": 1099,
+      "sha256": "3455caa5630496ba09962650e5208ef9131a3f0c013a3712bad5a5f33f465e9b"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/DnsProbe.kt",
+      "bytes": 3594,
+      "sha256": "56a0b688a9645c6d930dcd524435230956ec9412b5f1a4d79c9316ff834aca9e"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/DnsTunnelController.kt",
+      "bytes": 4327,
+      "sha256": "38e7b464e83c1c6af895718074f545153bcabdc7f72a86f52b5efdc4dcdf0765"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/Ikev2CertBridgeAndroid.kt",
+      "bytes": 2291,
+      "sha256": "62823baa6488610566d5c6ecc9bd9e3a875f2239f00e82475f890dd3b19faad1"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/Ikev2Controller.kt",
+      "bytes": 18083,
+      "sha256": "ba0431af9de6cf6de7467e75413d9d60fcddef73b348beba9d8de99fa429b6f1"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/Ikev2EventReceiver.kt",
+      "bytes": 2419,
+      "sha256": "74a712aacd148e8a3e07400613824fd4057fa980e22d763e0ee8733ce3cd7f6d"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/Ikev2Proposals.kt",
+      "bytes": 7177,
+      "sha256": "328e8dc3f556cf9ecd2107e944dc902adea33db782df6c67c9799b5fbc3bd2d4"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/LogcatTail.kt",
+      "bytes": 2286,
+      "sha256": "8291ad3aa44494956056914b7c45e802295452ada36f0628fdec58de07d521d3"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/MasterDnsController.kt",
+      "bytes": 12911,
+      "sha256": "555eac1e3f2e3d52f63633d39c8222f1397985eac0ff8bad77ed3c22a9097242"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/OpenConnectController.kt",
+      "bytes": 24313,
+      "sha256": "97566d2c973c81592a9a415db745a6a6e1929fa328c6b0bf6bca652296bd8d79"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/PsiphonController.kt",
+      "bytes": 2912,
+      "sha256": "e9a9dfad6b1a0844880a27556677f8128ffbf000b5e332d26249e7cbfce43dc4"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/RouteSplit.kt",
+      "bytes": 1239,
+      "sha256": "e8a8e1987b837a2ac74a9c140212b351b802f125bc0ed681403b54b4848c4a9e"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/SingBoxEngine.kt",
+      "bytes": 19925,
+      "sha256": "83c9b6d65f4c9053d3f3b099ce8ed29063f04d0f115b90487bf44e8072b43167"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/SniSpoofController.kt",
+      "bytes": 6497,
+      "sha256": "ee6cf0feba3077895f48d3736e904473a6d6dc1a93cdd79a0113ef1c2c5d609c"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/StartPlanner.kt",
+      "bytes": 14211,
+      "sha256": "72fbd75bd033b16b758813cbf36786f96903837179ab802070bb85dced1132e0"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/SubscriptionUpdateJob.kt",
+      "bytes": 3091,
+      "sha256": "076634fa38ac8e25ece32e69f956aa64eb5c898a5661d040f2196930f728e855"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/TunnelReadiness.kt",
+      "bytes": 3112,
+      "sha256": "4a4a336c9c7c919fa674348d552bfdbf5fe5742566f4d4035065e9038680eee3"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/VpnNotifications.kt",
+      "bytes": 9872,
+      "sha256": "ad002cc366f5327538a029c8456912f03d74ac375fc9a41de17d0ab7c78fbd0f"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/XrayController.kt",
+      "bytes": 4477,
+      "sha256": "26ed21b61c23714b3b4ebe090d59bd414a5054ac210b078bdac3ccebe7dbc12a"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/ZedTileService.kt",
+      "bytes": 4798,
+      "sha256": "c314317fa2847b6db4c8294ee6c0764893f6dd261a7f2a2c43ad4eab5ec2d08e"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/ZedVpnService.kt",
+      "bytes": 66778,
+      "sha256": "571496af3154eab00fbcdca24c8a874b5ddeb864a708ed2f0d7dad80d9afaf16"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/ZedWidgetProvider.kt",
+      "bytes": 7476,
+      "sha256": "6c2cb9a1fddda70a0a81bbf0d14ca7976094ce9d269638673984dd4c6baa8724"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/ZepTunCore.kt",
+      "bytes": 4996,
+      "sha256": "43c57fc744de3db4467cb769396d952d7760c08c85ef99ccba77c43b4f79e95a"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/platform/LocaleManager.kt",
+      "bytes": 1299,
+      "sha256": "60a3e8f1c56f1d28b3f71898926400d19c8ac33e4fa310da42f20acc84b04586"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/platform/ZsxSharing.kt",
+      "bytes": 2395,
+      "sha256": "9e5526be8d467082647b912367a05058ad5bf597608544ec210891102c12bb02"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/core/tor/TorController.kt",
+      "bytes": 4269,
+      "sha256": "5fa2fb33a7cafd23f5d609c20758b1f1735e7e45b8440e93a5dbb7baa3567b31"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/data/assets/GeoAssetsRepository.kt",
+      "bytes": 6104,
+      "sha256": "400bbb9d91c6620be63a12e6dc5d938587e7c155594e8d3f331c89ff9492da44"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/data/net/AndroidMtuProbe.kt",
+      "bytes": 2748,
+      "sha256": "a3d050416a2968702a74423097d282376ff5a343dbcce2cac12f5f9e924c40e2"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/data/settings/SettingsRepository.kt",
+      "bytes": 28392,
+      "sha256": "d62d699562cee4ad7c27d1082e9ec934ebf9463651e417f296dc8e0233c9d2ab"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/di/AppContainer.kt",
+      "bytes": 6332,
+      "sha256": "1a2beda78908ce827a0a3df22b0b41ad1a88f7f749fa4a5943763a5cc1a7a268"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/platform/AndroidKeyValueStore.kt",
+      "bytes": 2503,
+      "sha256": "9a381c282dec9d585ca2fcfd00aa4e2ea5082ee6e1111e0383990d1e9ffd9f0b"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/platform/AndroidPlatform.kt",
+      "bytes": 11971,
+      "sha256": "8a820cd1ab52e575b7f600399177ca814fb279cf95e37a8f06578c6d4f51d7fb"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/qr/QrImageDecoder.kt",
+      "bytes": 1488,
+      "sha256": "9806a8319f330aa91dc75e6e4630e23a0585f33b910b5385529fe605cd837812"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/qr/QrScanActivity.kt",
+      "bytes": 7029,
+      "sha256": "3b2098e8a5859793b5eb388e614574fd2c4b78eb57073e99260f60616e0780be"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/ui/OpenConnectAuthDialog.kt",
+      "bytes": 9142,
+      "sha256": "23b121df15cf497f9e259d7dec40b12e0febbefbefdd2997d431cfa845ca6323"
+    },
+    {
+      "path": "app/src/main/java/dev/cluvex/zedsecure/ui/OpenConnectSsoDialog.kt",
+      "bytes": 3589,
+      "sha256": "99fbd2c07a9e7b8738f52762db956dcb4f948e0e864d82e607f143ea13281313"
+    },
+    {
+      "path": "app/src/main/java/dev/zeptun/Zeptun.kt",
+      "bytes": 295,
+      "sha256": "153a0a3f281f04ab3d9dd8c60cd094fc61f3bed9249582861d818b905f375495"
+    },
+    {
+      "path": "app/src/main/java/hev/htproxy/TProxyService.kt",
+      "bytes": 445,
+      "sha256": "59b9c3d95da36068872205c84b99a8d9e1c7a07cabd85d9ebe0f12b8e3705088"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_bolt.xml",
+      "bytes": 527,
+      "sha256": "bcff20f4b8c03b849fb3d787e5bc1d968865f3b0a9f2fa08286f7a873e09bb47"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_close.xml",
+      "bytes": 504,
+      "sha256": "f9617762c1343caa2b73e6fabfd5c031505332dab3574ceb65aed89d727ba9d8"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_download.xml",
+      "bytes": 826,
+      "sha256": "b32ae3ba1e0e544290d78b1cd18b57bcef563b3869f34a0daa4e46a6da992714"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_home.xml",
+      "bytes": 769,
+      "sha256": "b44188f466b93885a1b4a6212226472482c7b65084cebf3f19d0e3ac9772e878"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_launcher_background.xml",
+      "bytes": 330,
+      "sha256": "d0c6693ed04839226198d86bdfbeb160b2bee5a9b49cc3bbf68427e20b5a643d"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_launcher_foreground.xml",
+      "bytes": 551,
+      "sha256": "adeaaea5b857bd640756596f8dff87b8164b031e02a3b0d1b833e2ac2e09ff78"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_launcher_monochrome.xml",
+      "bytes": 551,
+      "sha256": "b0076b243339e5698a9d3f5813379ebf87ca58246b9c89fe10cec1390de91143"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_lock.xml",
+      "bytes": 850,
+      "sha256": "8113c48c4af74751fb6803b9d1ee769916195a535cbc65ae892ba3192945b20d"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_lock_open.xml",
+      "bytes": 858,
+      "sha256": "b4ff9e3219872316396518b3452ce9a410f9cf62b298f187045ff4891240d1d4"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_public.xml",
+      "bytes": 768,
+      "sha256": "034b4a2832dc6ef0f92be10c8a7c75a1d23120d0dfa93e9ca360256bf341c732"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_sync.xml",
+      "bytes": 581,
+      "sha256": "fc5f48073a009d5311119a4339394d3f2105eb30ae619e663a69a08f9dfdcf28"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_tile_zed.xml",
+      "bytes": 460,
+      "sha256": "09b4cd223f9519906e7cc838a78b01968ac7535909e351e81677133e13937215"
+    },
+    {
+      "path": "app/src/main/res/drawable/ic_upload.xml",
+      "bytes": 809,
+      "sha256": "46eb0e929ce038171db11d4bb4f9917afa9eae4e278b4f521c29af92d8b1ba05"
+    },
+    {
+      "path": "app/src/main/res/drawable/widget_background.xml",
+      "bytes": 246,
+      "sha256": "1a66f15cc8133c2920f87fdaacc53631539a99ccd6030f7d7940e091b3b2278c"
+    },
+    {
+      "path": "app/src/main/res/drawable/widget_button_off.xml",
+      "bytes": 256,
+      "sha256": "7302f345a9f3d47dc939538575f66598794bbe262f13a9e2bca09b08caf9e3e3"
+    },
+    {
+      "path": "app/src/main/res/drawable/widget_button_on.xml",
+      "bytes": 260,
+      "sha256": "6c8f698dbb13487bd14c38c7d11843bc23a53b0cf0a24a3844976fde61246333"
+    },
+    {
+      "path": "app/src/main/res/drawable/widget_chip.xml",
+      "bytes": 257,
+      "sha256": "7a1fd70453644fd2766a12e59ee03e6741bd2c891bcb551642f53cd1e528b1b6"
+    },
+    {
+      "path": "app/src/main/res/drawable/widget_dot.xml",
+      "bytes": 236,
+      "sha256": "6d33842d938616fa6d29e008c748459932bce06635bd97da6006cd07ccefe347"
+    },
+    {
+      "path": "app/src/main/res/layout/widget_zed.xml",
+      "bytes": 5293,
+      "sha256": "70dd61d5204565e6a957676d592e4b48c8127c400ac35184527d6adf940d02d2"
+    },
+    {
+      "path": "app/src/main/res/layout/widget_zed_compact.xml",
+      "bytes": 2349,
+      "sha256": "3c1e8db0f76ed83d3994a163b7426a9c12477e11b6fce3363c8fe7e8d3db86f9"
+    },
+    {
+      "path": "app/src/main/res/layout/widget_zed_preview.xml",
+      "bytes": 5130,
+      "sha256": "1473a4a007d90f53e511eba73a12f64cb3e231514b43acd12b1d626b511f9cc2"
+    },
+    {
+      "path": "app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "bytes": 344,
+      "sha256": "ada31da9e23f4520f3753e71ca23799a107431473daa3774b6cecac26847260c"
+    },
+    {
+      "path": "app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml",
+      "bytes": 344,
+      "sha256": "ada31da9e23f4520f3753e71ca23799a107431473daa3774b6cecac26847260c"
+    },
+    {
+      "path": "app/src/main/res/values/arrays.xml",
+      "bytes": 7437,
+      "sha256": "514b0a68cb13ebd3998f9986731f5435b0e84f3055ee23a2a3afdc841e139d13"
+    },
+    {
+      "path": "app/src/main/res/values/colors.xml",
+      "bytes": 112,
+      "sha256": "8b99cc0a76f10e287725b2123aafadbc7e1d990c8fb7635fd6e6f70bc9d64512"
+    },
+    {
+      "path": "app/src/main/res/values/strings.xml",
+      "bytes": 47237,
+      "sha256": "e2bf6f184a1895dc949fecc0612784fe0045c77776754f18c6895cce82dac8c5"
+    },
+    {
+      "path": "app/src/main/res/values/themes.xml",
+      "bytes": 475,
+      "sha256": "9d2e7d7c804a30835acfd3efca61670036eebbbb3c145e25062ce5bdbb8c4f2e"
+    },
+    {
+      "path": "app/src/main/res/values/widget.xml",
+      "bytes": 591,
+      "sha256": "8dd3527a82a796ad2dcb893ff4114a243d2d5b7bea255172ac23ae5f75ad9b41"
+    },
+    {
+      "path": "app/src/main/res/values-fa/strings.xml",
+      "bytes": 58107,
+      "sha256": "7c4dff2f756efdefcca3b92ca4e57503f29075db5164000c6b135383d3d0c172"
+    },
+    {
+      "path": "app/src/main/res/values-night/colors.xml",
+      "bytes": 112,
+      "sha256": "617f0cb9cb01b04e3a9d3309ce90a00b9a746ffb26e64b924200df8902e29936"
+    },
+    {
+      "path": "app/src/main/res/values-night/themes.xml",
+      "bytes": 469,
+      "sha256": "75ef87bfbeb0445ebadb88f271e474cbd4a94ed1b8614a52349fd77b447a3045"
+    },
+    {
+      "path": "app/src/main/res/values-night/widget.xml",
+      "bytes": 494,
+      "sha256": "706bdd0955b0c1e3de127ef4a5175b2de82bddd139f7466afdd655c8dee7568e"
+    },
+    {
+      "path": "app/src/main/res/values-night-v31/widget.xml",
+      "bytes": 705,
+      "sha256": "1946101028b929879fcba427555d14e1d643c04bb3546cf8011944a6a45069c5"
+    },
+    {
+      "path": "app/src/main/res/values-ru/strings.xml",
+      "bytes": 15330,
+      "sha256": "f98a7d8df31026b27a5fe73d1f2d0651a177eb3e80a8cc9d263c1d8d8148b81d"
+    },
+    {
+      "path": "app/src/main/res/values-v31/widget.xml",
+      "bytes": 885,
+      "sha256": "0cda7030ea8aeade8459e924f9b9a4b2c45b2db34dcdaa2e599d795a3af16562"
+    },
+    {
+      "path": "app/src/main/res/values-zh/strings.xml",
+      "bytes": 11214,
+      "sha256": "bbf9da1a8186de94f88f8ae88d9be57869bac7602891c71783f1e6ff7bdd7c1e"
+    },
+    {
+      "path": "app/src/main/res/xml/appwidget_zed.xml",
+      "bytes": 663,
+      "sha256": "ae501dc9941383104dc2cc84011d2a4aadbfbb25a39df32e8bc458b4a4d7f4cc"
+    },
+    {
+      "path": "app/src/main/res/xml/backup_rules.xml",
+      "bytes": 83,
+      "sha256": "8aaaa0f301986dc731ffa9960fabfc252dd49c3ee1d0047b958d7d38c2c34d9c"
+    },
+    {
+      "path": "app/src/main/res/xml/data_extraction_rules.xml",
+      "bytes": 126,
+      "sha256": "ec0fdce4facec425ba2073a5a35810f8c6b5d7a21c71cba439972662961ec019"
+    },
+    {
+      "path": "app/src/main/res/xml/file_paths.xml",
+      "bytes": 104,
+      "sha256": "a847e372b6f5b3295bd9cfad4ffa73502281e14ef2badca81f5483269055cce6"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/AutoSelectStatusTest.kt",
+      "bytes": 3032,
+      "sha256": "3ded62db31f4a11b7d7a4794e8e30d6b611bc7d71b3bac7b96edb053923b4770"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/BidiTextTest.kt",
+      "bytes": 1206,
+      "sha256": "009d31a0cd69ac2de6d406b04dc1a1324207c3a438ed4bc4afc1daee8fbdcb57"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/ConnectionFaultTest.kt",
+      "bytes": 2869,
+      "sha256": "7c515cb17e33dd4f32c032c26afe98d61ef465d40192692bebdbd518d25fa60f"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/HevPipelineTest.kt",
+      "bytes": 2356,
+      "sha256": "e959b81b2865c4df3eb24d36c0ad2c75bd2f1acee6095c07c77f5de31e0a223b"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/HevTunSettingsTest.kt",
+      "bytes": 1843,
+      "sha256": "4393133b2cc419361e89379164a37733a4de1ac9088d8ef0fd10c177bfd0f8eb"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/Ikev2ProposalBuildTest.kt",
+      "bytes": 4890,
+      "sha256": "c7fd738e988e546650f906cbac0d82c742c6688fb5df4e31b9c307fc7543ee35"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/Ikev2ProposalTest.kt",
+      "bytes": 3455,
+      "sha256": "ba3c26f7518d1da2592198861b3cd221f6fc47f573bf8c24ce6208994bc4c56c"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/RouteSplitTest.kt",
+      "bytes": 1882,
+      "sha256": "539a3870c83ed2d1df0434f09d6c67c36fe555c79c7db23b51e747d5ba995f27"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/ZepTunConfigTest.kt",
+      "bytes": 3553,
+      "sha256": "cacdd9d21eab691a236250841ecf6582292df6172fed26438879a939eb450e87"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/core/tor/TorUpstreamProxyTest.kt",
+      "bytes": 1775,
+      "sha256": "98c59ac3f733c934c8f0084841165ab472808f66ac18b5619630ba582de04e75"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/crypto/SealedSecretsTest.kt",
+      "bytes": 1468,
+      "sha256": "a3bc900c582e519c9af9fb07de3c31d6ff2c00adbfd256772985043339336726"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/crypto/ZsxCryptoTest.kt",
+      "bytes": 4103,
+      "sha256": "64e78fa8a18888d2b47d4e64132b6f42ee91abaf25f609291be033d844c2ccbb"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/crypto/ZsxFileNameTest.kt",
+      "bytes": 674,
+      "sha256": "2a9783d9fcdee46ae817be0deaf32bae155c2c4d66457d17941d0dacfac5eb5c"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/AutoSelectRepositoryTest.kt",
+      "bytes": 3580,
+      "sha256": "91c7289a22c419ead24b63b1c9fc2054ad6d5157bc3b12a16ff6cad9736189ef"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/GroupsAndBulkActionsTest.kt",
+      "bytes": 3109,
+      "sha256": "6b36b42b6c80e4c31fc6979fea67c4f15926442d49e261acfcc1a5c9e9df83c6"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/ImportOrderAndDuplicatesTest.kt",
+      "bytes": 3672,
+      "sha256": "59189f8da9cb3bbd27e4ac689c5df5bb22479dfee7610f1f17150a26ce9d2efc"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/InMemoryKeyValueStore.kt",
+      "bytes": 870,
+      "sha256": "9f187ee60aa89e88c2eb6dfe01f9cc3b24d927479712a3622b2f0e4a4faef2a4"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/JsonEditorSaveGateTest.kt",
+      "bytes": 4098,
+      "sha256": "cbc9da0f4db64032ab47bdb67f454ea403c12d95d86a724dfbbb228e4bfc2c8b"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/LargeValueStoreTest.kt",
+      "bytes": 3540,
+      "sha256": "5571676d14e233afb4561f5630ca88bfbfcb85ad18e04331f08750702b7d4350"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/OvpnImportTest.kt",
+      "bytes": 2236,
+      "sha256": "05dabdd2416b48741cb34d4d6ec797ddf5f6c21528ef61897025aa9c416038dc"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/PasteSubscriptionTest.kt",
+      "bytes": 4480,
+      "sha256": "adec7a5e12b07eb00bb1ded1ad04180a2f9717e9ca25b04e196eac07c3c2189e"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/PingClearTest.kt",
+      "bytes": 2330,
+      "sha256": "99f0c5aa6642d9e9fdc757bc77e40f75b9be44007d81365312e802f565543983"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/PsiphonShareAndEditTest.kt",
+      "bytes": 1843,
+      "sha256": "927f6f645957119bd4e90eb0fddecdb468359b20abb9a453c596eef086dd5133"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/RawJsonEditTest.kt",
+      "bytes": 3013,
+      "sha256": "8923f3af04bb286c7b8cf716961897c875b88cbf561537437e070584cb8295f0"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/SingBoxImportTest.kt",
+      "bytes": 5058,
+      "sha256": "e79dbb137ae80296b7541b096fa5be82d49bc56f877ed14bcedb6939212abfa4"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/SingBoxPlaceholderSubscriptionTest.kt",
+      "bytes": 11305,
+      "sha256": "5a384fe76aca76f0c2f643da3f1d515cf55703202b8e0f099f6cf7b7bf59a846"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/SubscriptionCustomImportE2ETest.kt",
+      "bytes": 1870,
+      "sha256": "ef200cccc2aff95869633da9de4e84efcf356d7ef120ebaa245eeb2c3ae5ff77"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/config/SubscriptionUserAgentTest.kt",
+      "bytes": 2309,
+      "sha256": "15bc44a050aa842be3e7124fcb654ae23f8ee7c886b3974e9903d8e720b01e86"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/dns/DnsParserTest.kt",
+      "bytes": 4262,
+      "sha256": "a57eacba23086cbb849d7c526c5f8eeb59c96cf93f126d345b67fd25a599d259"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/dns/DnsWireTest.kt",
+      "bytes": 7173,
+      "sha256": "1a73a7d5bfe400d6c8da475025d2f1add2f133aa79037648ba150fad3e8cbc2f"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/ActiveConnectionHealthTest.kt",
+      "bytes": 3086,
+      "sha256": "db9b2353abdcc7a87e067e4fa74be99bd60145b64fc39b8f716d64206db41096"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/ExitInfoAutoSelectTest.kt",
+      "bytes": 4981,
+      "sha256": "68eccf4222cfcffdd68aa834297b11ebda67796e3708723ca1acc58ad3e71c32"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/GeoPayloadTest.kt",
+      "bytes": 5975,
+      "sha256": "7247b58c114b448258b603233b87230d8c2dddd444fad1e67274347703cafd60"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/GeoPreferenceTest.kt",
+      "bytes": 1639,
+      "sha256": "687c5877c64d34ee0aa96d10d60b437dac698cf1b7576dfeb9087257709f2fed"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/MtuAccuracyTest.kt",
+      "bytes": 5159,
+      "sha256": "dcddaebf170427b530e0cb49fe29248835652ff21775197c1fb1ee77945f4d82"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/PingPrecheckTest.kt",
+      "bytes": 2837,
+      "sha256": "c53af97ea4092185bc175c36688fd27cf05b9c0b01f2c9c6e5174e5f6a7ab439"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/SpeedTestMathTest.kt",
+      "bytes": 3533,
+      "sha256": "d7c3dc7c27956f0b2b340f8717824d28ab61d07c7aa3414c1ef4cf68e0be4d89"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/SpeedTestScheduleTest.kt",
+      "bytes": 2293,
+      "sha256": "2957ffc6c6207874ab1560721633f748e54da0d0fe5909c3f2c2b5895fc3a89c"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/SpeedTestStateTest.kt",
+      "bytes": 2753,
+      "sha256": "0d55f7bb0310538013a694427a92ce3e430de53e97905b068f6fd419f797317d"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/data/net/SpeedTestTerminalStateTest.kt",
+      "bytes": 1659,
+      "sha256": "2a4288cc8d0a6319e6b6bbfdea35b21c197ea2b0f2384e21fd21940e36677720"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/ScreenTransitionTest.kt",
+      "bytes": 1386,
+      "sha256": "f62ef96231172192345e87a5e3213cbc7276190a9eaba0420da2afb8491fb816"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/AmneziaLinkTest.kt",
+      "bytes": 12295,
+      "sha256": "08b03d11ba6446fc71486deab875a342163e301f01c08cc35ae89258ff7c0028"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/AmneziaQrTest.kt",
+      "bytes": 4539,
+      "sha256": "0ac3f816b89a6151ee0746752522f3bef1379a31f37fb6c83cb6f1f7eecf55ac"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/AmneziaWgTest.kt",
+      "bytes": 7649,
+      "sha256": "4f989aaef618892960f42ecb6edc86efb5e22d36bda68cd39743a55a5b9939a5"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/AutoSelectBuildTest.kt",
+      "bytes": 7950,
+      "sha256": "3428742a663690a59d204511d46bc84fa8df9c97b12e6d261ce0db9ce1d9a297"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/CarrierProxyTest.kt",
+      "bytes": 6765,
+      "sha256": "7ae992fa3a7545ec08c2926ecd8a02b96b96e8ac09295579786ed9a5698e7b8f"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/CarrierSniffingTest.kt",
+      "bytes": 2215,
+      "sha256": "123fe5590a003d9d79a72c24a10b9dbee825f23e9e979c401c3b12dd1bfc337c"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/CloudflareWorkerTrojanTest.kt",
+      "bytes": 3815,
+      "sha256": "07acb5417d90b78b7a3aad67b3106376046d8f6e2015a3878ec814f2f4650ac7"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/ConfigParserTest.kt",
+      "bytes": 13087,
+      "sha256": "7d61cffb7879ee67b05782cfcc21ecf5e4209ea8e96a504be22648fe00a25f98"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/CrossChainTest.kt",
+      "bytes": 7921,
+      "sha256": "d95b902fcf04f89e57062639e3b82dfbec960f15b9298f0761ae8cd3acf87669"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/DeepLinkParserTest.kt",
+      "bytes": 6473,
+      "sha256": "666024dfb431730e4cf8aa7197ad6c0bf1afeb2ca584d6d92833d74a81c723b9"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/DnsTunnelEngineConfigTest.kt",
+      "bytes": 5256,
+      "sha256": "3673993f11c7e8dc8559a0766d0f83d82af04f0bcc2da528b063da5c2cb2ea36"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/LanShareAndDnsConfigTest.kt",
+      "bytes": 10547,
+      "sha256": "44a5b58a6f525c021f23ecf5a9454ca04d296fff66fb5bd3a2f8fd7317072c3d"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/MasterDnsTest.kt",
+      "bytes": 2763,
+      "sha256": "cb9384f32cba89ec56d6faf304060497e99ca2cf53f243ee262e0f8524199b69"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/OpenConnectPortTest.kt",
+      "bytes": 2726,
+      "sha256": "7e334ae01a60c36d7e903b12b5efe5d100a5b1ec6fe5f24ec845631da7066c35"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/OpenConnectProfileTest.kt",
+      "bytes": 3160,
+      "sha256": "890095bb9e9b8e6e9370c0dd1c55790840630a8d0961a8d3862c110303b42a25"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/OvpnConfigTest.kt",
+      "bytes": 7369,
+      "sha256": "45f522ee63e4579abf9947cc7519c80beb35091de839ba96e46ad78bc4c293b0"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/OvpnSingBoxRulesTest.kt",
+      "bytes": 10424,
+      "sha256": "f43eb88d291a219472f1176b54f55eabfbe9226d16cf8284a576d943773cc6e4"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/PattNgFinalMaskTest.kt",
+      "bytes": 4580,
+      "sha256": "7aaa472274bd6b8ce9c207d3101a30d5c0b12e0352ba1df70a22439970929ec7"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/ProfileSourceSerializationTest.kt",
+      "bytes": 1070,
+      "sha256": "9086d2c534ec0ea88488fcfd56bf0261fd86355c3e5a474bf6da4984d1363785"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/ProxyChainTest.kt",
+      "bytes": 5520,
+      "sha256": "e8351f0d5827221001d53df5345f0098bc6654868fd99c89f812ffd5ffd0003a"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/RoutingRulesetTest.kt",
+      "bytes": 12609,
+      "sha256": "160463b0e33285afdb03532780c6e0875fc1fcff8c72a507763721b822be9199"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/ServerlessChainTest.kt",
+      "bytes": 4696,
+      "sha256": "a3248120944bda696b662c60ec3b46b35fafd61cbd50b4050b9d64740400a859"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/ServerlessConfigTest.kt",
+      "bytes": 6169,
+      "sha256": "0ae638b8a479beba63377410d623290b484f7f9741cd0a5fffb5f82b6cb2d409"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/ShadowsocksAuditTest.kt",
+      "bytes": 10850,
+      "sha256": "a6fbdc9af6f45c90653da1b0ab2ef1ebd3db593b3b62f2ae2e6fb9ac7a5ed3b0"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SingBoxBuildTest.kt",
+      "bytes": 5175,
+      "sha256": "bfc30029fe6ab62acd191fc9a737d518502789a650d873997a84786783434002"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SingBoxConfigsTest.kt",
+      "bytes": 8288,
+      "sha256": "0247f47e8988e47e5f92d0064dd6bd5517bacb0d4356160ddec6b4811cc41e61"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SingBoxJsonTest.kt",
+      "bytes": 6386,
+      "sha256": "e9cd48f0839dff8b3a79153201efbc983d8e8537382c89ae4f0f2e8bf275860c"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SingBoxLinksTest.kt",
+      "bytes": 5504,
+      "sha256": "fa1965758476767c846eb8a1ea27f32132d1758ea5fad40a331f1714c0261ea1"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SingBoxOnlyServersTest.kt",
+      "bytes": 5808,
+      "sha256": "6f8156b07fda5f6ea9d3519db8babfc4cee47fea5b71022a0c379d0073706e12"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SingBoxTuningTest.kt",
+      "bytes": 6137,
+      "sha256": "a535817c60a5ed16ff472be4301118fbb5e18480bc22dc4241485b0ae5a2f15a"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SniSpoofCustomTest.kt",
+      "bytes": 3069,
+      "sha256": "b6599c19c3bd9af438dd6c551594519c255a6ec90709965c1d82e50283a192e5"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SniSpoofLinkTest.kt",
+      "bytes": 2153,
+      "sha256": "8e919cb60fb9586090a18b561bdf0a17c5d8fa7444aabc0ffc8f5a5fefb98b19"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SpeedtestConfigTrimTest.kt",
+      "bytes": 2569,
+      "sha256": "58b4399bfca922f571d2197eda791fe6736f2ca947bd0e67aa6756130f097d32"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SsdLinkTest.kt",
+      "bytes": 2797,
+      "sha256": "f4f05e7311b536ac6e02df5055204e956ffb1a241248f2158e745bdfbec3b112"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SshLinkTest.kt",
+      "bytes": 2381,
+      "sha256": "7719f35d75e9031c63a84f1cdcdfde90678ca9e450509b04ca9522676167ec6a"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SubscriptionCustomImportTest.kt",
+      "bytes": 1841,
+      "sha256": "11c6fec7010ebf5bcf4af412e367806322e8e9ff9089293f442a4ad82988aa64"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/SubscriptionHeadersTest.kt",
+      "bytes": 5219,
+      "sha256": "49a95e066ab2fe40cf96f008fb348f7805ffdce36bce026327d35dce87753cc9"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/WireguardConfHeaderTest.kt",
+      "bytes": 3938,
+      "sha256": "4230dc7d09909a2198c383c809ea5d7fea1de5496737ec5b8271ccf5a2139bd6"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/WireguardDnsTest.kt",
+      "bytes": 1795,
+      "sha256": "535d11421dc52a6eb5086d13266f038f0bd593898dbbb65917a043e139842e65"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/ZedLinkFieldCoverageTest.kt",
+      "bytes": 4039,
+      "sha256": "c3c3c4c288ee4ad36e533f9e5939329f20fff5c735e59ec4f92f1d3e43030338"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/domain/config/ZedLinkTest.kt",
+      "bytes": 4877,
+      "sha256": "086a2f48d267cf7400411effc29225d77fca5029195d7aaab811430c3d181bb9"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/ui/TourCaptionPlacementTest.kt",
+      "bytes": 2424,
+      "sha256": "307fc3d85f4f44f8eac0ab5da947fcc013d6713bdc1b7cdafc790280b2a86023"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/ui/easteregg/LaserBounceTest.kt",
+      "bytes": 1873,
+      "sha256": "790fd71fba29f1ed005c6ddfd4a39b27158566c676a0ac063ccf10ab8228d41a"
+    },
+    {
+      "path": "app/src/test/java/dev/cluvex/zedsecure/ui/easteregg/UniverseTest.kt",
+      "bytes": 4384,
+      "sha256": "0034ab13cf18969bf9000df8d21ebdc2a3ca28282d2c37e9c4ee51104e405c50"
+    },
+    {
+      "path": "build.gradle.kts",
+      "bytes": 446,
+      "sha256": "ccd7db05ee914238c2c5cca7d8b4939f65a3967f81f6bc2a3d636ba1d5478f6c"
+    },
+    {
+      "path": "desktop/build.gradle.kts",
+      "bytes": 3081,
+      "sha256": "db53249538361de8b031e2753e1f8c00b823a4d3c4dcddbdac2bed73329ac4dd"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/AdminPasswordDialog.kt",
+      "bytes": 3539,
+      "sha256": "7b270926f18685b043393a63221612734de94ad132248abf0766f3303ba18b08"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/Gui.kt",
+      "bytes": 18495,
+      "sha256": "0d587a7759e7adf23f30120871c38b34030c5b400049cd518bfcc352ff72f4c8"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/Main.kt",
+      "bytes": 3522,
+      "sha256": "bce4b9505208b47aefc4ffb3515204744e02dea90bc9e670621ac3d97f0bf841"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/TrayMenu.kt",
+      "bytes": 5498,
+      "sha256": "93c48a2eef217eaa40269f0c8e131d4f9a0ec329d3d1b420158b1d60f208e41e"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/BundledBinary.kt",
+      "bytes": 1422,
+      "sha256": "aa2bd1d4148c68f026f126e2dab51c2c8b3f7ba4dbde14035b7d39fa1901e22e"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/BundledTree.kt",
+      "bytes": 1583,
+      "sha256": "7a664fe4e75007b7256b0dba1283440fb82128c6a5748f358d99c469f939e5a3"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/DesktopDnsTunnel.kt",
+      "bytes": 5399,
+      "sha256": "32411fb560bc528902a16104b2863daacc8cc4dfcf20efdb0c5e7a0b5e4abc7d"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/DesktopIkev2.kt",
+      "bytes": 16405,
+      "sha256": "ce136c8fdd26fdaedc258f33d57d786c879dc708f0af46ac52be937aa5a311b0"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/DesktopPsiphon.kt",
+      "bytes": 4079,
+      "sha256": "bcb779975f29597d0ec558a74b5b50b494f55f909904a9b778f94b8ec9b65ba3"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/DesktopTor.kt",
+      "bytes": 4892,
+      "sha256": "f80171f711951f807839b0f5435a4a24c4a7e8dabb423fc4dc58faa7775e897e"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/HevBinary.kt",
+      "bytes": 297,
+      "sha256": "b28b8520b2cf4f0e075e6b9cd4b5dc5c2896ca1b2a345000d8733db3391f43ea"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/LocalPortPicker.kt",
+      "bytes": 868,
+      "sha256": "d25920041e9a7f180837030d4c52629823f29ded285da5c9df5ab35f2487c99c"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/Os.kt",
+      "bytes": 938,
+      "sha256": "518d3544f939b63542840073681f7aced66bde14f210bbfc1cbc1b4d7e948e7e"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/SystemProxy.kt",
+      "bytes": 4352,
+      "sha256": "92e91592633333e0857ed4a1ad0fd2f8dd4fc376c8a46fd5ab24882b70f117fb"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/TunMode.kt",
+      "bytes": 10984,
+      "sha256": "fe0e8748e6d6c7c5d0a89753ecacd7fadca7f68773768309f98f316f62be1950"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/core/XrayCore.kt",
+      "bytes": 3977,
+      "sha256": "2db5be5a9abe9e7f8348d43e54955691ec173ab9adbb273c48b600879e3e8cbe"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/AdminPassword.kt",
+      "bytes": 1026,
+      "sha256": "64ba369abb85674d74f566dd9ec2dadc0eb81cf86d82864be4b426eb9cb7291f"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopKeyValueStore.kt",
+      "bytes": 2362,
+      "sha256": "80aadb0be443bd1d4bb2727efea3f9bbc9087c134830ae3fddbfa885ab9e64db"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopMeter.kt",
+      "bytes": 1904,
+      "sha256": "0cb15520ff0defb37bc179e6524a532c62ae0330932ed796173a5b66952de7ca"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopMonitor.kt",
+      "bytes": 6483,
+      "sha256": "2e2314859216d1131f4f7b1b5a517c9df3aaa0e97d55a6156470e8b09da8c9b3"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopPlatform.kt",
+      "bytes": 3787,
+      "sha256": "6b4038e3da78ba0898802238bcd48eb421c916df13c6c4d1086fcddbebc91077"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopProbe.kt",
+      "bytes": 9560,
+      "sha256": "5d75de46ce69d29cb08d6b3c54850598d4ba9ecb164dc5593ceabab64103067b"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopSettings.kt",
+      "bytes": 1677,
+      "sha256": "371e37b2546ae7e7e5af78dcc748b8b2215da695c074155c5b6ec8815c372b0a"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopSingBoxStats.kt",
+      "bytes": 1218,
+      "sha256": "a429ad9d488d88e57c0d87d36310430e0fb21b396845d478d1cf7dcdea63c23e"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopStats.kt",
+      "bytes": 1959,
+      "sha256": "783d61e39a76c74d61d5f133dceb5848f54865e4b6c08e70893d061800d61555"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopVpn.kt",
+      "bytes": 19133,
+      "sha256": "58f1be20e3aa442002050a2457d0e92aadcb488d21d40223659e42c7e7303e69"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopVpnDetector.kt",
+      "bytes": 1259,
+      "sha256": "13b3959c7c0005c8ec627a392aced55162e156d1676437dc7b7682d4b6dd7977"
+    },
+    {
+      "path": "desktop/src/main/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopXray.kt",
+      "bytes": 5133,
+      "sha256": "839a6d18d4dc8c6da0b87fb0175584db384e64acf24dc8d6193cf01de50b0396"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/BundledBinaryTest.kt",
+      "bytes": 2434,
+      "sha256": "f919ea1e4bf7a0cf1ec4363ea26ddefd3d80b73deb3b87d707eb41e136ac6160"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/BundledEnginesTest.kt",
+      "bytes": 3785,
+      "sha256": "5a97072a98fd701227ef1dd98070bbe70a83b0acb42c6689193793d4e1f3c7ee"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/DesktopDnsTunnelArgsTest.kt",
+      "bytes": 4934,
+      "sha256": "bec731bf23c01ce1d196dad59cd65ede5776e76919ad5c35e67d64574f47ca72"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/DesktopIkev2Test.kt",
+      "bytes": 3511,
+      "sha256": "95c5ccfec6d882312579bfb688025dae2f70c651e5221cc42777c2c60d52bdbf"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/DesktopTorPsiphonTest.kt",
+      "bytes": 4270,
+      "sha256": "7fd5600131ca123ed08948b63bb5a700003f9593a66e46a53969e154bea55bc4"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/EnginesLaunchTest.kt",
+      "bytes": 3263,
+      "sha256": "a8a477cac1999fa203d7c459fc8dd4b0932ca9b5e15d5a8212aa44f52414a720"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/LiveEnginesTest.kt",
+      "bytes": 3173,
+      "sha256": "e7e33ca8abb086193f6da14a4ecee6f97438ecf35a3fad2deb89a16a5943349c"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/LocalPortPickerTest.kt",
+      "bytes": 1571,
+      "sha256": "adbf2ee65585d9d7de128919ef21d40cf2a0bb673ef282b4244ac59bcf7d1023"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/ProtocolSupportTest.kt",
+      "bytes": 3047,
+      "sha256": "7b73741278070648f65efee4673bf0352773a07afba136a87f68a5a1cb744fed"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/TunModeTest.kt",
+      "bytes": 3484,
+      "sha256": "78d032d773524f77961dfd3ef3dd09abf20bcdfe2f7985d122ba7fbaa29f8180"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/core/XrayCoreStopTest.kt",
+      "bytes": 453,
+      "sha256": "d26a504e9d29e507c3b98c726662f937778ff963f5a5cdbdcd44f3d015e50189"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopMeterTest.kt",
+      "bytes": 1588,
+      "sha256": "5db8e1ba6f72fb20ed3597ff89d820107c50a0846352bb23b4b4d2f28670eadb"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopSettingsModeTest.kt",
+      "bytes": 1983,
+      "sha256": "6dad7ace41986c16b247b3d3084f6fee7aec7ea6e89f26749146a81bbb0fce37"
+    },
+    {
+      "path": "desktop/src/test/kotlin/dev/cluvex/zedsecure/desktop/platform/DesktopXrayTest.kt",
+      "bytes": 4960,
+      "sha256": "98619b14d086365aafbe586d53a963b9455c53825f752b95b84fb0a642a5a986"
+    },
+    {
+      "path": "gradle/libs.versions.toml",
+      "bytes": 6724,
+      "sha256": "3995319ac07ef3ac4376dc3a76cca144da482a20aa3b2937a77ce0dd3e0eabdd"
+    },
+    {
+      "path": "settings.gradle.kts",
+      "bytes": 805,
+      "sha256": "05935a728878aae8e70ff07e3e9d27e300ae35889c4e55714822ac64391880a3"
+    },
+    {
+      "path": "shared/build.gradle.kts",
+      "bytes": 2924,
+      "sha256": "0c648ae4cb8b23755a96685e717b92af0208087cf72d4f664e3ad5007263bdbe"
+    },
+    {
+      "path": "shared/src/androidMain/kotlin/dev/cluvex/zedsecure/platform/Log.android.kt",
+      "bytes": 205,
+      "sha256": "474b953cbb94011d7a510a19739ac5665613113b8dbbf2daa0bc6742c5ef1fcb"
+    },
+    {
+      "path": "shared/src/androidMain/kotlin/dev/cluvex/zedsecure/ui/platform/BackHandler.android.kt",
+      "bytes": 239,
+      "sha256": "c67ab50b85fe0f411efbae08addc4eb40f2ba03c559053ff6e66bf5ce57d02cc"
+    },
+    {
+      "path": "shared/src/androidMain/kotlin/dev/cluvex/zedsecure/ui/platform/MouseDragScroll.android.kt",
+      "bytes": 216,
+      "sha256": "66cd59a12e80e11f67e15fa65c7c733ae150e4e62e6573e6c3d8f19b4a8a14c5"
+    },
+    {
+      "path": "shared/src/androidMain/kotlin/dev/cluvex/zedsecure/ui/theme/Theme.android.kt",
+      "bytes": 605,
+      "sha256": "13eb19c428869beded57682d3f83c977b41dfe0a12a760033328f430586df289"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_add.xml",
+      "bytes": 663,
+      "sha256": "7070e75173e83ea0394af1f70aff45c14eb102080f05a12a774db0d773de5fbe"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_add_link.xml",
+      "bytes": 1170,
+      "sha256": "bd32d8bd8226caaacd1f046a17c011fb9d921d5dfdfc2a5513d16985bfa4165c"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_arrow_back.xml",
+      "bytes": 494,
+      "sha256": "956090043bcd96c55c57b4c25bd590c82f67d2c665dd1327757c8306a4ec17fb"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_bolt.xml",
+      "bytes": 527,
+      "sha256": "bcff20f4b8c03b849fb3d787e5bc1d968865f3b0a9f2fa08286f7a873e09bb47"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_check.xml",
+      "bytes": 445,
+      "sha256": "b104b575033d060bc57f145ea81c3383bb2d9090d198a6ccb4c82a70e68fbd35"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_check_circle.xml",
+      "bytes": 741,
+      "sha256": "88d9ac23aad1df4fbc7e0344d54e5cdcc6be5de4161697b449bc6d3e8b9d5ec2"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_chevron_right.xml",
+      "bytes": 457,
+      "sha256": "fa2adac7d742acb5fb20327d5eeaa16c7c56f03bbcf11eb663094955563da106"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_close.xml",
+      "bytes": 504,
+      "sha256": "f9617762c1343caa2b73e6fabfd5c031505332dab3574ceb65aed89d727ba9d8"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_coin_tether.xml",
+      "bytes": 1131,
+      "sha256": "187225ca66cc5a0ecac1c97e2f5464a18c0e1270b824d960f0873b7aa95edbc3"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_coin_ton.xml",
+      "bytes": 631,
+      "sha256": "ae3d73b3890d10de90f915b345a9596e36c9c4ca7ea419c287595eb7cd03fa12"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_coin_tron.xml",
+      "bytes": 535,
+      "sha256": "09d1af7327b531eb25894a98288c52162ebac08256cdea385771099e06af54c4"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_content_paste.xml",
+      "bytes": 692,
+      "sha256": "f877b9e91fd0d0a1c15d50213b07ac8b004ba095ab81d19ff3ae902697391d38"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_contrast.xml",
+      "bytes": 583,
+      "sha256": "bd13f14fd604550b63d0230f1e5d2f57338f1fdb9f5201e471e02e3e09f7edb1"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_dark_mode.xml",
+      "bytes": 679,
+      "sha256": "c7618ffb45d207b8deaa773e3ce11daae1b5918078369de59d8e378c5412d69f"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_delete.xml",
+      "bytes": 1049,
+      "sha256": "539f3ff73c45d8608984eae0a6f100f53ed1128ffbbf638e2229d361c7245f89"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_description.xml",
+      "bytes": 892,
+      "sha256": "8f8a26591a8405cf6aa14a871cd1c7a56e12e5c68cb2a137ed78f48d9dea849c"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_dns.xml",
+      "bytes": 991,
+      "sha256": "201c3a82244b411ddb9fb40cc1032b3b8da2e572251b2dbc9d6d2e19ca118d7c"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_download.xml",
+      "bytes": 826,
+      "sha256": "b32ae3ba1e0e544290d78b1cd18b57bcef563b3869f34a0daa4e46a6da992714"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_drag_handle.xml",
+      "bytes": 1184,
+      "sha256": "b41d56914f10eceed6f71451ca14901bca01d16a5a16dc2550f413a9eb6a1871"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_edit.xml",
+      "bytes": 574,
+      "sha256": "1207680c53fdd4c7bdb1a644d0c5e0db49f5209228c97fd805e097858901cae7"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_encrypted.xml",
+      "bytes": 902,
+      "sha256": "9edd65ba5b40a4878cb9faed606ca8c6b7430cadd6f40f486c0c5e95eb43da9f"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_favorite.xml",
+      "bytes": 583,
+      "sha256": "db0ab755a73aeb12ed378034c34354739b11c8f722a55e7782676e08a97ed87a"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_home.xml",
+      "bytes": 769,
+      "sha256": "b44188f466b93885a1b4a6212226472482c7b65084cebf3f19d0e3ac9772e878"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_info.xml",
+      "bytes": 372,
+      "sha256": "b1cbf3684d97f255f7e272cee29fca961cdb4ed64ff48af2c53bf86bc2a0f3bd"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_ios_share.xml",
+      "bytes": 866,
+      "sha256": "157de54399daac320cbfa066648a0341c4818392b4abadf10a1b443c49be8e0e"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_key.xml",
+      "bytes": 831,
+      "sha256": "be37501143048c33961b962c4defce40a88e4d1ed2b637ba683195e62dcf82e3"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_keyboard_arrow_down.xml",
+      "bytes": 465,
+      "sha256": "b665576ebc748056b62669e205f818ec7fba963e5ea8d9cdbf00a377a864069e"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_language.xml",
+      "bytes": 1160,
+      "sha256": "4eef29626e51408dde25bd494d58ead5577a5d01d5751ce200dd08b5e423f863"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_launcher_background.xml",
+      "bytes": 5606,
+      "sha256": "ed423c73a6f40a4d2909f0901e60527b3a807cd59e1b5593bcaae1808b1c6321"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_launcher_foreground.xml",
+      "bytes": 1702,
+      "sha256": "01d1a6a6c1234eb7fe270d097eb283d72b9c95ae5118886f1b6573aad280f1f7"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_light_mode.xml",
+      "bytes": 1815,
+      "sha256": "2849b8d2989e633bb9ced4c50acfd79798aca28c1c757f280c9fc220222a0ce7"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_lock.xml",
+      "bytes": 850,
+      "sha256": "8113c48c4af74751fb6803b9d1ee769916195a535cbc65ae892ba3192945b20d"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_lock_open.xml",
+      "bytes": 858,
+      "sha256": "b4ff9e3219872316396518b3452ce9a410f9cf62b298f187045ff4891240d1d4"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_map.xml",
+      "bytes": 592,
+      "sha256": "59ba9495bdf5bfc683be7af1b29cbfe5bb55fad4b77ddefe2d7fd7fac8834b13"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_menu.xml",
+      "bytes": 321,
+      "sha256": "c671b1b4a991c5ab4f86b83bacccd330e4eb85d05d0fc6c94155ade6bdbf2741"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_more_vert.xml",
+      "bytes": 643,
+      "sha256": "9fffac74c6d799fd0e83b8bac934012986bd04d78660b2adb619abbafd2ac0ad"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_palette.xml",
+      "bytes": 1065,
+      "sha256": "a26f140b00b3891a0221daaa29d02305b0f33f3c94d3ae2f0f53686e42e28cc5"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_policy.xml",
+      "bytes": 469,
+      "sha256": "8dafd19348dda59c9faa81d02dfcffae403b622b881da2ee1732df657a7fdb91"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_public.xml",
+      "bytes": 768,
+      "sha256": "034b4a2832dc6ef0f92be10c8a7c75a1d23120d0dfa93e9ca360256bf341c732"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_push_pin.xml",
+      "bytes": 935,
+      "sha256": "1c8f4161691c46bb84ca9cafeaca8905f01b2a6cfddd77cd2c0dac003cf3ec68"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_qr_code_2.xml",
+      "bytes": 1282,
+      "sha256": "138825ff8a91509ffb35a54019acfd7854a680727592e17a73e94b8591c4cf3d"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_schedule.xml",
+      "bytes": 749,
+      "sha256": "b962748a0d7bd012286733acfb2dae167e4daf31d6231dd2d0d8a99be1c7ee64"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_search.xml",
+      "bytes": 672,
+      "sha256": "49f28ff393616fbe382c533b59a6411284fcf913330ad3e58d39702f270d9bd3"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_settings.xml",
+      "bytes": 1225,
+      "sha256": "be140b697630fadb2b082431b4c5afa491815b168586053aa3a6f208df4484c8"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_speed.xml",
+      "bytes": 865,
+      "sha256": "3881d3d5b0cf0e419d12f7f75a78f7b4e971d570d6333138d27fae33a889260c"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_speedometer.xml",
+      "bytes": 615,
+      "sha256": "61af6b24f9821a5656d692364c64931b017ec2f17f77ecc1ff552fbbce02e927"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_star.xml",
+      "bytes": 788,
+      "sha256": "56bc2d6dfc5ab4df79d519a1112a37fe7654694aaf2d56fae48382e79b147607"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_sync.xml",
+      "bytes": 581,
+      "sha256": "fc5f48073a009d5311119a4339394d3f2105eb30ae619e663a69a08f9dfdcf28"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_translate.xml",
+      "bytes": 844,
+      "sha256": "3d021fb7557ef671d27a395b6c6963d48f5219ce71da939a7392b66877b937e2"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_tray_connected.xml",
+      "bytes": 556,
+      "sha256": "36c48237965d0c352e72f0c0cc44a0d64e8680b025b06b0c6232ce329c9e189e"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_tray_connecting.xml",
+      "bytes": 556,
+      "sha256": "4ea5cc2b26fb2cc368f0fd86b7037fcd5a493ff1280d2dc0deccb2b1dcdb9e95"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_tray_disconnected.xml",
+      "bytes": 556,
+      "sha256": "ce7f2a628dc62924b10467c46af9e30dd77c15c6cb1f2d0915927134c7fb77d8"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_tune.xml",
+      "bytes": 1621,
+      "sha256": "c7ba4f9638754bd2a75eb7e15eb986bc3b80f3503ad1cb627ae656d7b7502027"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_upload.xml",
+      "bytes": 809,
+      "sha256": "46eb0e929ce038171db11d4bb4f9917afa9eae4e278b4f521c29af92d8b1ba05"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_visibility.xml",
+      "bytes": 893,
+      "sha256": "ee374685358e37408cdd9597ac8499845b2c44950ab7115baa650a3a27954f4d"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_visibility_off.xml",
+      "bytes": 1141,
+      "sha256": "edc2d33deb981e76808e8a5262170ac54054b7d30127b81be385d36d6e619046"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/drawable/ic_zed_mark.xml",
+      "bytes": 544,
+      "sha256": "21291e281ba3a4254f9f66ebbcd803e1057247982b1391436e7a80947c8c6c10"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/values/strings.xml",
+      "bytes": 104549,
+      "sha256": "7b46b44eed8a500a2778c072dad1877747ea4f8067c49b860db4b641d1d0b871"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/values-fa/strings.xml",
+      "bytes": 134327,
+      "sha256": "f3cbbc8aee42c2c66e3135867f47e219e72a906f58b163acc05f4af1e433e71c"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/values-ru/strings.xml",
+      "bytes": 142913,
+      "sha256": "5b37e86f791f86c6f6c6308059b04f2b15487fe2e2d3540e2b3acaf24a484dd5"
+    },
+    {
+      "path": "shared/src/commonMain/composeResources/values-zh/strings.xml",
+      "bytes": 102557,
+      "sha256": "dfdae68418665086369275ed43af36c51784b2a6cd27794c090e7cfe22085662"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/core/AutoSelect.kt",
+      "bytes": 4875,
+      "sha256": "6696c5b46ad4a4f3c2eff2785799d944c8690ecbfb05baba24c12cb9483821d8"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/core/ConnectionFault.kt",
+      "bytes": 2962,
+      "sha256": "406b02168d784164921203c45dec4e583d6a943816c4aa2c718f840cee2cc78b"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/core/CoreProbe.kt",
+      "bytes": 457,
+      "sha256": "264cfb4cb7759406b46048dc1f5d1dfdfd736349347f8cffcaae3917b785e3de"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/core/DeepLinkBus.kt",
+      "bytes": 568,
+      "sha256": "7465358ebb2f3e8f73e75172d7a273cb34d870a02b95c87407c0a65427efcdeb"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/core/LogBus.kt",
+      "bytes": 2550,
+      "sha256": "30bdb1f829d4a32aa88705f87285bdfeb3eb819b34ca5574ed18bde29c05cef4"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/core/VaultImportBus.kt",
+      "bytes": 602,
+      "sha256": "f06af1035ec4f765c27264164195ecfdbaf6f1c1eef50dc8649b9582d3c51dd3"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/core/VpnManager.kt",
+      "bytes": 3695,
+      "sha256": "02ff617eb6b660f683a9a2a74211e81887520231ed68eb4b9306ab22c1750d63"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/core/tor/TorBridges.kt",
+      "bytes": 3748,
+      "sha256": "8137b796fc643843a654a0ad77f9357d3b6dba4906580f5100d9e3d6b436b0c2"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/crypto/ZsxCrypto.kt",
+      "bytes": 216,
+      "sha256": "ee1058f804754b696487683bcfe3a41425c519073756e0e7d892a428c85de94b"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/crypto/ZsxModels.kt",
+      "bytes": 1320,
+      "sha256": "9bd673f811b8d366bf4d3d99f9e8151b43707fa6270ad16ec23e1105e31ba63e"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/assets/GeoAssets.kt",
+      "bytes": 623,
+      "sha256": "d58aa37008fe98861d1993a6b17fef6f21fa8578788bbb52241d33da3331a591"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/config/ConfigRepository.kt",
+      "bytes": 59180,
+      "sha256": "5153e1c960d5a71de7306bcb0d431dbc82aed7a1e4c2681cbda188c2088192d8"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/map/WorldMap.kt",
+      "bytes": 2481,
+      "sha256": "30af1ed93c0ffa202c2c187650fd8006cc55403fdf6809c2942221c37709f424"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/DohProbe.kt",
+      "bytes": 1595,
+      "sha256": "b2ab3136c4d2163519c9f5951398e2aadd4e8ff51dc41ce3f170cd2700ea0724"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/GeoLookup.kt",
+      "bytes": 2220,
+      "sha256": "48be2633fb0d047002377d329eb9feabb2bc56750710428e2c8b8cc286d862d2"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/GeoPayload.kt",
+      "bytes": 3186,
+      "sha256": "b46409f1238239638b58b103eb87ee0a63476c428925e4197033a05009e96fb5"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/MtuOptimizer.kt",
+      "bytes": 3532,
+      "sha256": "48b24368f02a6555f12a2d72a4fd94025bbff47624e179fca04ac7f0e489aadc"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/MtuOverhead.kt",
+      "bytes": 3325,
+      "sha256": "d8c6f9d8841c5de7364b7c9ecce80816a3b956017a4c046082cd79b172910df8"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/NetworkInfoRepository.kt",
+      "bytes": 7630,
+      "sha256": "698d1b6e61dbb319fcf32acc250ef7c16a9a9591229cc4bf935e24f4405935ea"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/PingCoordinator.kt",
+      "bytes": 2197,
+      "sha256": "79bd10bf6bd1d631413d3617212375d11b2a7618d29851337b5444cb57124eef"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/PingService.kt",
+      "bytes": 8438,
+      "sha256": "63e1f3ccc2b3a9a02f1e6d4f87c7acd5b8a1301bc4e4084c5be9fa6f455acb8a"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/SpeedTestEngine.kt",
+      "bytes": 11384,
+      "sha256": "c232742ac7f8c31d8191e5e39f6b095f46206ffe6506695cc714b9a90f64148a"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/net/SpeedTestMath.kt",
+      "bytes": 1322,
+      "sha256": "ef07da90b305fe4c073d0568251ddcf4de2329639f1535fb631729bb58f6f49e"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/data/update/UpdateChecker.kt",
+      "bytes": 4026,
+      "sha256": "e0bd34a0ccea416ee7a7799210f49e13fa3675610c70d5e723dab400bfd723c6"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/ai/AiAgent.kt",
+      "bytes": 2632,
+      "sha256": "2a7b28aa098a8032d75e5d5fc6f35c55789ffe983a1ac2c106ad582c85e6e43c"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/ai/AiBridge.kt",
+      "bytes": 978,
+      "sha256": "d5ccff94d81abae8b21993c0d0ab28f5f9eef336d96b2160b222b31e42657d69"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/ai/AiClients.kt",
+      "bytes": 16925,
+      "sha256": "678f79107f65948ad8c0fe70c882962639fadf3e3facd32173c228af600d4ce4"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/ai/AiSystemPrompt.kt",
+      "bytes": 7696,
+      "sha256": "89bffc132fd6017309425c56108be6f6506ec80a757dccbf77b813ff26146de8"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/ai/AiTools.kt",
+      "bytes": 12467,
+      "sha256": "898790cdb8554940d2d86c2be2540fa8f0e44b44208cbfcddb6f757dfd9f66ed"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/ai/AiTypes.kt",
+      "bytes": 3802,
+      "sha256": "ba19c7e57514725f66518027c206fbe4ba5d8a4b2d1238897d834dc295008410"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/ai/AppAiBridge.kt",
+      "bytes": 16213,
+      "sha256": "cbd747877a8735c916cc5dadd94fa482a0e84b511a34038c02bba33f1c304d5d"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/AmneziaLink.kt",
+      "bytes": 11847,
+      "sha256": "3eba17189b01290a1524c9dce8678a1d316d444743c14f37e172539eb62bfcfe"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/AmneziaQr.kt",
+      "bytes": 2587,
+      "sha256": "4b8e6f183177cfbd3879327699f5f7d46411f468890094ec26a04780b123a304"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/AutoSelectConfig.kt",
+      "bytes": 1973,
+      "sha256": "1be1b11b7f8f0212db9c4b0334e452b2ae6e75f41b5f8391aba70a2eda28c79f"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/AwgConfig.kt",
+      "bytes": 3605,
+      "sha256": "c1c21cd6f0bc5ac58f0de058df6695e0839eceba58e888642a97e63530a0652a"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/ConfigParser.kt",
+      "bytes": 22731,
+      "sha256": "0c3c9eff5bdd845149bb91a3d222d1ad635800f832b914ec1765429f311544fa"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/CustomConfig.kt",
+      "bytes": 3910,
+      "sha256": "a20b3eb3d1caa86300ce0849fa4b72259efd59a0425744798a3f6d281d14943c"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/DeepLinkParser.kt",
+      "bytes": 9269,
+      "sha256": "5908a6291f941c2809896097127dc82ba556dafdfec44621d9f6c7075017a75b"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/DnsTunnelEngineConfig.kt",
+      "bytes": 2508,
+      "sha256": "9b30417b748aa53145eb02b9976ddef2d35979374ca9d5b8c27718ca1ea7a724"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/DnsTunnelProfile.kt",
+      "bytes": 3371,
+      "sha256": "8579fffe6528be86c99fa13066212d1f70f0e7ef327419922e92d279e2621ad4"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/DohPresets.kt",
+      "bytes": 1327,
+      "sha256": "1006259f781f4810fe8845832206c170fb7a5573217b163563590f75a533f22a"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/Ikev2Profile.kt",
+      "bytes": 2663,
+      "sha256": "8c8116a781ff365a07a97868f2a663b36974b63b956888dcbdf8cf9150f69501"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/Jsonc.kt",
+      "bytes": 2428,
+      "sha256": "2321be0a16f00271e13c0f2af3209fc8c0e37893b59c70d3ae02ab10916994c0"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/LocalPorts.kt",
+      "bytes": 1217,
+      "sha256": "7d4e87411e7efa5bf00f3a3898460337e9b0aa174da44caabcd9b11076027548"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/MasterDnsProfile.kt",
+      "bytes": 4496,
+      "sha256": "26a96f0cc81fd057c873345409927adf0cbb1faa5d76897da3f36c8d2c09f8e5"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/OpenConnectProfile.kt",
+      "bytes": 5225,
+      "sha256": "9420a66830ef1d31c3d4bfc0b505165d0b2a613e23b8928dfef40a0ace257c5a"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/OvpnConfig.kt",
+      "bytes": 19812,
+      "sha256": "f536895e7b4912fdd2161076351258df864e7ba2bfb62eb52d338463c9c3a2e8"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/PsiphonProfile.kt",
+      "bytes": 8087,
+      "sha256": "6ab99a19e96ac3c41e2e19f298bfe8906981abd22183eba0c8b9a2ec6590a937"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/PsiphonRegions.kt",
+      "bytes": 342,
+      "sha256": "b3c349e48424c7d7f18f0c15fb69fd330586d88f12cf1ec224fbf2fb2e5eb383"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/RoutingMigration.kt",
+      "bytes": 2878,
+      "sha256": "c943fe95a84f593a1f593dc965c0e80e3f811e8aa206e0f7e37f2844c844daa7"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/RuleValidation.kt",
+      "bytes": 3886,
+      "sha256": "8ed438510bebc685b9720423a7fda9bca9b1f6123d52314fd566a3c49b7c2dad"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/RulesetTransfer.kt",
+      "bytes": 2023,
+      "sha256": "27cdfad37ec4814e07b205b250127e79f80da69aa9e1171a088f69ecd679069a"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/ServerConfig.kt",
+      "bytes": 3868,
+      "sha256": "ad98654a4b17f523e611b6fb345b33f5bdbf55191dd70f71655b79d65c28bcd8"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SettingsBridge.kt",
+      "bytes": 3619,
+      "sha256": "f4d269383d051125d011ced1aa6ba5b15fa1edb7be2909ca4c8bb1f36686cece"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/ShareLink.kt",
+      "bytes": 8874,
+      "sha256": "2cd416975ceba7370b34c6d6be4225da48906fe44fa05628915aad1412a742ab"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SingBoxConfigs.kt",
+      "bytes": 8941,
+      "sha256": "ede2f9149571bcafdc614822b751aa7ecf87dce0b9d726085bccf1bf8027ca48"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SingBoxJson.kt",
+      "bytes": 10430,
+      "sha256": "6c74174aa3d1e3a12c5817c2b905827c68e6b20284cb14faba958cee34b8b194"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SingBoxLinks.kt",
+      "bytes": 13423,
+      "sha256": "53e5d4ed59e21b81cfe43524695a4bf7499e9314392badab4f87516e5935c7fa"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SingBoxOnlyServers.kt",
+      "bytes": 3393,
+      "sha256": "1e50ae81cfcf0ece409917ae33cee8ed7c0db7fdf4be4343b202e813427280fa"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SingBoxTuning.kt",
+      "bytes": 4018,
+      "sha256": "07b07426893e04509f54ad6a94a5aad7080e559e69095e865e79e8ec5b3de2d7"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SniSpoofLink.kt",
+      "bytes": 3333,
+      "sha256": "a743cd6afb1a8c87c9fc2f7093c7bd315fea2e88edc7fd0f6197ae3f63935068"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SniSpoofProfile.kt",
+      "bytes": 211,
+      "sha256": "b24416f9e25e335c4178679652653562555ab1d50b3ddb49031aa2818f2e8b13"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SsdLink.kt",
+      "bytes": 3887,
+      "sha256": "42ca7eed9e630952908c1884d0ac8f88d6a37103ddf0fac1e01cfa50188d7790"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SshLink.kt",
+      "bytes": 4190,
+      "sha256": "b239f796537d18537797a0a8eb9a2dbc9475988714e52bb7c6e3b9c77c394a66"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SshProfile.kt",
+      "bytes": 460,
+      "sha256": "3abe6da44fd2dc12a37dc875a6d520a5b55b62b0e5b33111897a73a8961e913b"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/Subscription.kt",
+      "bytes": 1245,
+      "sha256": "d8cd060ad63122f939b6eb89080785327eab32ec8a963bdc63d9acbc3343b711"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/SubscriptionHeaders.kt",
+      "bytes": 4702,
+      "sha256": "6e2a50c1ef41e80ad93111eaaa5c0ad9193e814505feeced52a7c62aab63fdda"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/VpnProfile.kt",
+      "bytes": 21047,
+      "sha256": "3407cc6f248f1deda215c32278dd1abf39f829e3d852564081efe3aa5e346208"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/XrayJsonBuilder.kt",
+      "bytes": 68477,
+      "sha256": "7f5cd9738b9a3b8d91b7f81d90b42a150e3a19b06e5c45a87e95007c56a544a4"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/config/ZedLink.kt",
+      "bytes": 2434,
+      "sha256": "89e777369b34a01b5c06d675c5f7a39bccb418fa51f90c68aad742341524bc72"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/model/AppSettings.kt",
+      "bytes": 12166,
+      "sha256": "e036a16177cd5607179a3a2822ff9ce7122923f2e1046f350530687acb069ae3"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/model/ConnectionState.kt",
+      "bytes": 388,
+      "sha256": "172c2aee15bcf11b2101140d631c6b0f306dfcd55fb80c9589d7cb805f877510"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/model/RulesetItem.kt",
+      "bytes": 10644,
+      "sha256": "53772eb45a131ef5c4c8d45b7051592321bec9f908e15feeda668f8aa4ae7d4a"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/domain/power/PowerPolicy.kt",
+      "bytes": 422,
+      "sha256": "90c55a8d06a878a682a290cb4ce9a938c0d7674456968cf4b9bd744e6757352d"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/AppInfo.kt",
+      "bytes": 430,
+      "sha256": "8549d679884be7ae6966500cb77f44779fc0a0cc9dea0779a6cda8de7b17f2fc"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/Dns.kt",
+      "bytes": 1967,
+      "sha256": "a5e705f22f16f6f22e4dcf5d56c2f441c42b4e66a9dcd5ec448be98d81312323"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/Http.kt",
+      "bytes": 749,
+      "sha256": "fbfdd099aee43412ef95e115cea683cff87343d3d6da25ffa6454117f8f2ab5e"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/KeyValueStore.kt",
+      "bytes": 376,
+      "sha256": "ed0697936d9145fab7db59a15c2fd3725b809c43bfaa40c0e4fcfdeab05b7332"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/Log.kt",
+      "bytes": 92,
+      "sha256": "485dd3ebd44f3183c8533267ca6267a57aa2f42b59d63cf0d29d20892627da77"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/Net.kt",
+      "bytes": 1003,
+      "sha256": "76ec52e47e1fe91de62ec358ea72076c39d171eb01f6e15e790e80e6072c57ad"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/Qr.kt",
+      "bytes": 446,
+      "sha256": "a24e0cdc57a8104db4c520e761a862ec818f6dd2d9b879125b4263cbece86c3f"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/SecureToken.kt",
+      "bytes": 195,
+      "sha256": "76fc6c0c8e8c0a67646d3030f32f93abe7f1a2cf0680668aff4404d0d86166a2"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/Time.kt",
+      "bytes": 85,
+      "sha256": "43e6c01b0193fa63141f07ad2cc7ed2778dd3327d02555bbb313b6d5e384b55e"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/platform/Zlib.kt",
+      "bytes": 100,
+      "sha256": "92d2fa9f004816b9cba0f4155e7446303c3f74a184a21b1a57be0407aa03b864"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/MainScaffold.kt",
+      "bytes": 16221,
+      "sha256": "322a99028dec41697d987b2ec1c7ca128a29b62042071ba322c77ea4796873cb"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/components/Blob.kt",
+      "bytes": 2238,
+      "sha256": "cc28587e06ade4d7b9c35ec972573dc0175d02f1e2aa15862041dc9ca3d227ad"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/components/FlagBadge.kt",
+      "bytes": 2761,
+      "sha256": "b6812dbfa28b394a246c1c3ca1de09e79f091e6f124fd6aaaa655e1ed7474a61"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/components/NoteText.kt",
+      "bytes": 1985,
+      "sha256": "0e7bccf3d56be8a921224be97cb4f641a4ee32f497f075279e8c895b3ef45ea0"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/components/PickerField.kt",
+      "bytes": 2021,
+      "sha256": "c50c5ec268a6d68f04fe1cbd38d0aa9808c1e1070947f0690f5fadb3d4846310"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/components/QrCode.kt",
+      "bytes": 3876,
+      "sha256": "9a01683dfa24962751b18079b94f8f98b3de7c47d0e1642c4c77a6b8b01d4d9b"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/components/Sections.kt",
+      "bytes": 5006,
+      "sha256": "1cadb74b457a39a7824865cc0f09d76321f0eaf46a738f2faaefda7456b277b9"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/connection/ConnectionViewModel.kt",
+      "bytes": 1391,
+      "sha256": "446a13fab88f5fcc6bdbcb835f70bb29118264a01e272e41c2e61b265d3bd886"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/easteregg/Autopilot.kt",
+      "bytes": 4073,
+      "sha256": "ae478407417dc4551953398ff2ff102fc2dfaad309f0e1f43cb81fdd9d6493aa"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/easteregg/EggColors.kt",
+      "bytes": 423,
+      "sha256": "777af719c328dba2c23d16f1e8b344d6c6fcc7c6fb4a09ee14ff89506f82f21d"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/easteregg/LaserBounce.kt",
+      "bytes": 6234,
+      "sha256": "3ceec5b4c08b9529687fa18ab9979ec4a2206e0a7fba3b4c06162f19e4f1b8cf"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/easteregg/Namer.kt",
+      "bytes": 7395,
+      "sha256": "67081b7cab404d65e87e2ac792754a78c23086ab3b42f6644c160b8d70f0fc25"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/easteregg/Physics.kt",
+      "bytes": 3100,
+      "sha256": "350194d0d1b0a1ce2197b083fdfde4c5c2d8e5f1e1331cf6f5f5109b751bd639"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/easteregg/SpaceScreen.kt",
+      "bytes": 24153,
+      "sha256": "329b459539f16895b358bdf6514f33b02a1c105421157c66cf126cb49bbd9ffd"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/easteregg/Universe.kt",
+      "bytes": 10538,
+      "sha256": "47b9364b4e0fe2ea3c2562246f24e996d383f15e938c9874e967d41b2fc0b998"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/easteregg/Vec2.kt",
+      "bytes": 997,
+      "sha256": "673d01d38667c0959318fc628b3b76d7dd827b41991ecd000128ddfec720eeef"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/format/Format.kt",
+      "bytes": 1203,
+      "sha256": "e23d9e39dc35438fc9b930f0e2cd1b1efc640acd8d7f6d429cdc321e7eef15d9"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/home/ConnectControls.kt",
+      "bytes": 11675,
+      "sha256": "8d11336d489970e3352a260999c89a176e0aca0c10ae3e1bf2c13a7be270460c"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/home/ConnectionInfoPill.kt",
+      "bytes": 7691,
+      "sha256": "064faa29a1fc08852f3605ccc288778295d37280c3cf992b5e9d9b77a25e0c09"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/home/HomeFabCluster.kt",
+      "bytes": 7353,
+      "sha256": "16583d548b441b3ce4dbccae8d97ee22be4b66d6b3a1bfb69fcf1e9db5f724e4"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/home/HomeScreen.kt",
+      "bytes": 67131,
+      "sha256": "650d9a60dba0a9eade431b2bf66a6dbe0d19c3240d8f1111b7ab558c5bbd988f"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/home/HomeViewModel.kt",
+      "bytes": 2757,
+      "sha256": "0c6b91eeaaf1f5837c113dc75d6ad722225244132136f80ec2f1bf9290c3aa47"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/home/LogSheet.kt",
+      "bytes": 14870,
+      "sha256": "8651ab8a6f6fa7d0b0d50f64598bc7b67f30a87a4e6fb830a15fbbfe445f980f"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/map/MapScreen.kt",
+      "bytes": 13973,
+      "sha256": "8b4a1d3f8432577fe878299f36c7e5ee2690ce2bb92c017d4c04e3b52fed411d"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/map/MapViewModel.kt",
+      "bytes": 1273,
+      "sha256": "5708b13fe1dd29d3994b1ad39d1722871c0282b23575c41ad24e9c5112539dad"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/map/RouteBadge.kt",
+      "bytes": 4776,
+      "sha256": "89f3be96014edc6e35ccb1c4cbdc1feedacdac6f7755c0e0d5f9393aa6327df8"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/map/WorldMapCanvas.kt",
+      "bytes": 14215,
+      "sha256": "279322e91f22626a6c5d17e1a09b463e1c7f8d59a619baedb4c408c4da025152"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/motion/ScreenTransitions.kt",
+      "bytes": 4579,
+      "sha256": "5500ed5ee1886ec3b6d85c47d307517fbeb9bac7e66f0651c6dfebe79ea9b23d"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/navigation/NavBar.kt",
+      "bytes": 11676,
+      "sha256": "cccccd3fbee94ebb915d1e607e30bd73dee07ec38b08ff06eac039e37e992616"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/navigation/TopDestination.kt",
+      "bytes": 985,
+      "sha256": "16793785b58ad09dc72ca5e5989847016d1dc58af77739e3f6a04130c7dd8ea9"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/onboarding/Onboarding.kt",
+      "bytes": 13946,
+      "sha256": "07b752202ba2f8c8adebbece7ed7c85dfddcbcc336708b8cdbb05b55d7a51411"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/onboarding/Tour.kt",
+      "bytes": 19662,
+      "sha256": "ccba6633e9aabc4f5bc6b6ac0aa26b646bbaf844a0ff8bb4563c13cd85c95f65"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/onboarding/TourSteps.kt",
+      "bytes": 4761,
+      "sha256": "8ed48be22513157d663e45aa70d1da54e8512cac53bd727c69ba0b0a5fbbf60e"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/platform/BackHandler.kt",
+      "bytes": 166,
+      "sha256": "670a3c2bddbc8f7d68bbc09011e2ed7dd131d72c13e01838f8b30b5238026936"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/platform/MouseDragScroll.kt",
+      "bytes": 431,
+      "sha256": "02c625c0eb3b32ed6629fce74a0b5fe8b032010f7d4d443f70f26fcb199cee9c"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/platform/Platform.kt",
+      "bytes": 2231,
+      "sha256": "7caf83ca0cf9aee7bf4835397a2e4482c00359de0a6da26eabd8c85009198046"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/AutoSelectUi.kt",
+      "bytes": 22117,
+      "sha256": "5ee45a53399eca0fe947c46665571ec251cc52233a87281261d9a668ddca9c68"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/CertImport.kt",
+      "bytes": 597,
+      "sha256": "4136eafc31a1e01c741cc463c2b4d98bf12b01e187f6a92c01bd25198f6d8b6d"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/CertSourceRow.kt",
+      "bytes": 2920,
+      "sha256": "c1594b5f9d13108890baf9c198239fcf71c9737a011bd26e6691ef06a471d477"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/ChainPickerParts.kt",
+      "bytes": 5814,
+      "sha256": "295c7b43a0b9df6af83a6d48fc48c57d5c92ed82c7f6a95991458770d4531a73"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/CrossChainSheet.kt",
+      "bytes": 12220,
+      "sha256": "1dcb3e06a1b1db32f727d18e20c03e9d92cc0918bfa3b0f3335a0310bf610725"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/DeepLinkImportHost.kt",
+      "bytes": 6846,
+      "sha256": "d3414a41ea92dd07546833db02488dbbd92d4b75615bd32315958da679652704"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/DnsTunnelSheet.kt",
+      "bytes": 18994,
+      "sha256": "c8c92a1e3a67e3350721808df1dcd928a9288dded6391975af2b0e73f7f1e658"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/Ikev2CertBridge.kt",
+      "bytes": 334,
+      "sha256": "53ce19f677b64d8648ee1ca6dc4dcbd62a3463c63fbfa2b25a1ddd844f0e5c2d"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/Ikev2Sheet.kt",
+      "bytes": 15177,
+      "sha256": "f2562996ff2894aa5e72f5835722b5ec2c7844bf42a1995b952fd462ae27f613"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/ManualConfigSheet.kt",
+      "bytes": 26638,
+      "sha256": "598f441aff630417f2378208e15e8318d25263221252805cc322e02bdaaaf9a4"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/MasterDnsSheet.kt",
+      "bytes": 9376,
+      "sha256": "11b9190cdc25e2556b53e752810bfd4fbb37e5b30a6a842d4eb8e81760cf61f2"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/OpenConnectSheet.kt",
+      "bytes": 16233,
+      "sha256": "c5c633e392ff48c69b147a1f35cfa4cdc866b61a874a39ccf9adde81fa1a9986"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/ProxyChainSheet.kt",
+      "bytes": 11196,
+      "sha256": "2897c045e639e674c7275ecb927563fc50ce54f3fd042a8c93c43ee1d5ffd5ce"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/PsiphonCountryField.kt",
+      "bytes": 7048,
+      "sha256": "655f1ddeb516a2b1da579f51970abb0dc29330e5ed6f1fc78f2f9a7114c9b42c"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/PsiphonSheet.kt",
+      "bytes": 4776,
+      "sha256": "cb7848563318559a4347765711e014d2f508456068ebb86d8fb4f665f55a46da"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/ServersScreen.kt",
+      "bytes": 94732,
+      "sha256": "eccc1504ecc049ab6001e438c7fd165fac0c698f5cb6cdd683c65b353b535863"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/SniSpoofSheet.kt",
+      "bytes": 7570,
+      "sha256": "d0934eecb2df708f1beaad7bf58360bfb5ca9624a85032901729acfeef36bb80"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/SshSheet.kt",
+      "bytes": 5228,
+      "sha256": "55b2ce8a3963ef279d7079033eb8f0e29d3ea392d6c4ef24eeddced484159b96"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/servers/SubscriptionsSheet.kt",
+      "bytes": 20596,
+      "sha256": "35b7c99ae9f7f32b6d07f9d647cd959562a2007615ce6fcfc92cb55652346543"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/AboutSheet.kt",
+      "bytes": 6161,
+      "sha256": "0947bec9384e9041217eedf19e84660d28c5156bc504ebe8e5de2b648a666f23"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/AiAssistantPage.kt",
+      "bytes": 14428,
+      "sha256": "ad45d5dbacf016be6a93a1d8a151419234d272255ee9bd9d5ffeb3fb953c424f"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/AiChatScreen.kt",
+      "bytes": 10263,
+      "sha256": "0046085f66854e04756a8dc9af52cc5c31c3e77e5c89fcceb7df81d88337dbd7"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/AiSection.kt",
+      "bytes": 420,
+      "sha256": "952b8061a8ba75f525fcb093566bbed62c5cc190da54f3fe1375a2fe9c5951e7"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/AppearancePickers.kt",
+      "bytes": 10236,
+      "sha256": "ccf6d51c783866dca1524f3d38bde4fe29a813e980f7047f508fea433c20d083"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/AssetsScreen.kt",
+      "bytes": 8481,
+      "sha256": "b9145ae1bb04b9648396f2f23b12d6d4d4395dbd029dc7dbf6a414203f4bd028"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/ColorPicker.kt",
+      "bytes": 14300,
+      "sha256": "d83bc91af964bff5101728f2284fb0733cd583e804bf54d20d9d91b0cec1a02c"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/ConnectStyleLabels.kt",
+      "bytes": 1027,
+      "sha256": "ca85d43714260453cb4e7abc857ee4e3ba221e223083e61a0edcaea9bbfb64d4"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/LiveMonitorPage.kt",
+      "bytes": 20480,
+      "sha256": "96b617e530f089b69eb642a08ba4c5e64cf81cc6985d703a570687fa30009b19"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/MtuOptimizeRow.kt",
+      "bytes": 5694,
+      "sha256": "b6565447dabfd2b42739f952fa7641092809bc80e8b0e263e64bafa9acbbabff"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/PerAppProxyScreen.kt",
+      "bytes": 14383,
+      "sha256": "eec68aa5d8e67ced4c9b988233e3d659c61e17f66b4b98372227670427d1c095"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/PrivacyPage.kt",
+      "bytes": 6195,
+      "sha256": "ac69e79e5ab7cdbb31bdb3120bf8ede4e58464f5d20b5147b3c1a0f8d2307546"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/RoutingScreen.kt",
+      "bytes": 22772,
+      "sha256": "d62d5b4e551b255c871683904959de392d9fdf01afe5c0066c0652a083bbfaf9"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/RuleEditSheet.kt",
+      "bytes": 10516,
+      "sha256": "40dd6ce641b2c0ad957840d7ebffad3c4278a5c01cc1315348129e882d3b17e3"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/SettingsItem.kt",
+      "bytes": 14377,
+      "sha256": "587b39cdf9d5ed633e3f2f520ac310fb309aaa23c8a35d229818e6c842810cfc"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/SettingsScreen.kt",
+      "bytes": 88837,
+      "sha256": "772a45fbcb57d3fca3498e4a0e4877c9ae6268c2292693b990c6fbb0390083b6"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/SupportPage.kt",
+      "bytes": 6326,
+      "sha256": "488c2a8f8974222971c43dbf3a643e132070335d26df0a9e87ebe1957b616b5a"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/TorBridgesScreen.kt",
+      "bytes": 7343,
+      "sha256": "33b792370f2c55de0e2bdb70bc6db2b3da8057a42206809e8d8531de6594d35b"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/settings/TransitionPicker.kt",
+      "bytes": 7567,
+      "sha256": "712dc993229a9daf00cd146afceb9e35626a54903b35cf4b40f23c003ceb0a75"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/speedtest/SpeedTestScreen.kt",
+      "bytes": 20518,
+      "sha256": "ff2fd1f894127f0a02d74a7daa15f985d6a15acd1e6bf4be6a211130eb9785fd"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/Color.kt",
+      "bytes": 2635,
+      "sha256": "c1165ef4b6909b970fed0b0b90f7ec8c8e3a290244eefac325aca4ad4f259364"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/ColorPickerUtil.kt",
+      "bytes": 1699,
+      "sha256": "753713b2efd9fea4a250a7456721c003c0d8a0e8ea8f62e2b15ee180a279e7b5"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/Gradients.kt",
+      "bytes": 1841,
+      "sha256": "a154d35c2cc059687bfa415169b15a70774fec96fbbbb4cc6e562e02e35c7bf8"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/MotionBudget.kt",
+      "bytes": 209,
+      "sha256": "e9cc293ade2530f3577ca912f8f046d70f0968d42b4752f80a0b0515205c4f55"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/Personalization.kt",
+      "bytes": 6532,
+      "sha256": "daa1a9ecdc77c8a16225db91548cf4e08da89998579759d0beec028ee471287f"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/Shape.kt",
+      "bytes": 561,
+      "sha256": "d53668b4b146332fd6a058b87557cbfa82b34a36ea7c3c905cbc9fcbb286f48d"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/Theme.kt",
+      "bytes": 1753,
+      "sha256": "984d83c6223edc07290be3e5ac68ba1e40ffad5318338efcd9a6cdb0e30e77f2"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/ThemeProfiles.kt",
+      "bytes": 6639,
+      "sha256": "9dc3dca645a9ed0932df5bf73b74e7df7c4a8860b8653fc3db7724b1125ca9c7"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/theme/Type.kt",
+      "bytes": 6923,
+      "sha256": "81dca78af8ad9e831aecd2ee358330054fd324acc57b321212b4ef3edf60bbf1"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/update/NudgeHost.kt",
+      "bytes": 9973,
+      "sha256": "a10b0436462ee50d15c3e1c086f18bd1e9cf5c3622fb6451c331196983508de7"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/vault/VaultImportHost.kt",
+      "bytes": 6031,
+      "sha256": "350065d201094ff32959d10759f145ce4ba408639ac60ab8c35d7ae63c41ea13"
+    },
+    {
+      "path": "shared/src/commonMain/kotlin/dev/cluvex/zedsecure/ui/vault/VaultScreen.kt",
+      "bytes": 19639,
+      "sha256": "c3cafa0ae0ba330ed67f9cb1ffdcff3027cc56cf790e8e2a348c3158ef8ee08c"
+    },
+    {
+      "path": "shared/src/desktopMain/kotlin/dev/cluvex/zedsecure/platform/Log.desktop.kt",
+      "bytes": 211,
+      "sha256": "3644129d17216c1566b6beaaa6db4eca3911baba1cfd9dca5e1418fdbd3ae71b"
+    },
+    {
+      "path": "shared/src/desktopMain/kotlin/dev/cluvex/zedsecure/ui/platform/BackHandler.desktop.kt",
+      "bytes": 163,
+      "sha256": "ca1bfdf70ad90048a427921f16403f884520d19b5a063bca37321be29c6b13e6"
+    },
+    {
+      "path": "shared/src/desktopMain/kotlin/dev/cluvex/zedsecure/ui/platform/MouseDragScroll.desktop.kt",
+      "bytes": 1753,
+      "sha256": "cdbc956949ecfc2112cf1fbfd6c2b92cc7a204daddb63f5175de462c90ca0975"
+    },
+    {
+      "path": "shared/src/desktopMain/kotlin/dev/cluvex/zedsecure/ui/theme/Theme.desktop.kt",
+      "bytes": 218,
+      "sha256": "ea9f64b837ec2ae5c58c21742b288bf3234bd6517017bb035886ff8df4cb6c36"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/core/SocksTunBridge.kt",
+      "bytes": 14451,
+      "sha256": "7fc6bd4b084bd84c2f2e19b9e30f09e4e85b68c76e20fde91be90e29adaf67c5"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/core/SshController.kt",
+      "bytes": 10108,
+      "sha256": "6a8d98c11f7be6dea0d9b6177cfdf5069d1780016a3a9ee0f7fd176198972c21"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/core/tor/SnowflakeConfigurator.kt",
+      "bytes": 2515,
+      "sha256": "f1a7405b34b8b1399d2174e41d0384284b9d1c30b96cd251c81bca28fd4432f2"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/core/tor/TorConfigBuilder.kt",
+      "bytes": 6001,
+      "sha256": "7424a78c8e5c8f2799637af219c651b5a92499530ad97f537114f2117a75395c"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/crypto/ZsxCrypto.kt",
+      "bytes": 6924,
+      "sha256": "3389a790c40469d0582d56b57546f8706f9597132cbd98aaba0fc3cb0e5b044d"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/Dns.jvm.kt",
+      "bytes": 5440,
+      "sha256": "b63d8fc5508e791652c5304307531eaeea6c7d31844b47d36146c4db300650b8"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/DnsMessage.kt",
+      "bytes": 6862,
+      "sha256": "4d2532771b8adf4127c9172941085429759ca28a4ae88e809a4cea0fba06dddb"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/DnsWire.kt",
+      "bytes": 3895,
+      "sha256": "b4fc5e8600223fc308a6e107624994b6f188209020de0e43705e60bf063bc7df"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/Http.jvm.kt",
+      "bytes": 4109,
+      "sha256": "df4c05838fc0fdd571217d6344356d9b188763a459f5ff627efd45cdcc8a9ae9"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/HttpConnections.kt",
+      "bytes": 329,
+      "sha256": "9eabfb82f2f9ff434331d76a7555a63c5d3ed9cdb4727bcfd1d64ed2b916550b"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/InAppLog.kt",
+      "bytes": 789,
+      "sha256": "25173329e060ce0437cdeb106a556e8180fd28da48122b227b97e188fdcc6131"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/LanAddresses.kt",
+      "bytes": 870,
+      "sha256": "7174612fafa1d00a4733dfed2dd74042b8c01482292086578f2131745cccc317"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/Net.jvm.kt",
+      "bytes": 7320,
+      "sha256": "5718f16cfa7b4e5301f8babcb2433f4267b277ddb3a43d8f3ce7d0f554db82a1"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/Qr.jvm.kt",
+      "bytes": 845,
+      "sha256": "cc59034af0b820e78e8cbc5f0eb421b2142dec3906017f0b1c11620dfdc1726f"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/SecureToken.jvm.kt",
+      "bytes": 303,
+      "sha256": "697706f5e91b320995d62aa2d5046ddaec4a2a5a8e29eed8c78d0dd5c2ea5d07"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/Time.jvm.kt",
+      "bytes": 114,
+      "sha256": "3486019827fa71de15ccb810856c5a092151ad6bb47ef777765beadfa8f3f9e9"
+    },
+    {
+      "path": "shared/src/jvmMain/kotlin/dev/cluvex/zedsecure/platform/Zlib.jvm.kt",
+      "bytes": 749,
+      "sha256": "8a8da3314b1e540b44ffabd759029752e2c356065e21f61e367eb47ba8cd44d2"
+    },
+    {
+      "path": "tools/build-tor-android.sh",
+      "bytes": 3373,
+      "sha256": "43551c0684e99a490d890a1be23bd67f23750d3bc2ef8bbffef1fc95053096f0"
+    },
+    {
+      "path": "tools/build-zedcore.sh",
+      "bytes": 3453,
+      "sha256": "b667346a146cde7d0b00f2f861c39c2bf741ac44f48b00ba6dd28a783d53ed46"
+    },
+    {
+      "path": "tools/fetch-cores.sh",
+      "bytes": 900,
+      "sha256": "e7eedb76a933d4d60095f4c030189c8c556ac17c41b2f5e2a8a439d1c8010a5d"
+    },
+    {
+      "path": "tools/stripcomments/main.go",
+      "bytes": 2943,
+      "sha256": "e0638d1eade28acd238f6bc2262ecc61ee31c64d7ecfd3f7dea4ae662789ff81"
+    }
+  ]
+}

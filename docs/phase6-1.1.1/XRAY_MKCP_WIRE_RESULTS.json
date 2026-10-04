@@ -1,0 +1,254 @@
+[
+  {
+    "case": "mkcp-dns-original",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dns-original",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dns-original",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dns-seed",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dns-seed",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dns-seed",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dtls-original",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dtls-original",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dtls-original",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dtls-seed",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dtls-seed",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-dtls-seed",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-none-original",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-none-original",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-none-original",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-none-seed",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-none-seed",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-none-seed",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-srtp-original",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-srtp-original",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-srtp-original",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-srtp-seed",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-srtp-seed",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-srtp-seed",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-utp-original",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-utp-original",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-utp-original",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-utp-seed",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-utp-seed",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-utp-seed",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wechat-original",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wechat-original",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wechat-original",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wechat-seed",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wechat-seed",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wechat-seed",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wireguard-original",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wireguard-original",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wireguard-original",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wireguard-seed",
+    "client": "26.3.27",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wireguard-seed",
+    "client": "26.7.28",
+    "server": "26.3.27",
+    "status": "PASS"
+  },
+  {
+    "case": "mkcp-wireguard-seed",
+    "client": "26.9.30",
+    "server": "26.3.27",
+    "status": "PASS"
+  }
+]

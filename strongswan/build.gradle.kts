@@ -19,6 +19,7 @@ android {
 			ndkBuild {
 				arguments += "-j" + Runtime.getRuntime().availableProcessors()
 				arguments += "APP_ALLOW_MISSING_DEPS=true"
+                arguments += "APP_LDFLAGS=-Wl,-z,max-page-size=16384"
 				cFlags += "-DHAVE_SIGWAITINFO"
 			}
 		}

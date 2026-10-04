@@ -36,9 +36,22 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
     @Volatile private var process: Process? = null
     /** The helper engine in front of sing-box, when the profile has one; stopped with this runner. */
     private val sidecar = SidecarRunner("$TAG-sidecar", "$subdir-sidecar")
+    @Volatile var sharingPort = 0
+        private set
+    @Volatile private var configFile: File? = null
     @Volatile private var lastSpec: String? = null
     @Volatile private var sidecarName: String? = null
     @Volatile private var stopping = false
+    @Volatile private var metered = false
+    @Volatile private var statsPort = 0
+    @Volatile private var statsSecret = ""
+    @Volatile private var generation = ""
+    @Volatile var probePort = 0
+        private set
+    @Volatile private var probeSecret = ""
+    fun usage(): SingBoxUsage.Sample = SingBoxUsage.read(statsPort, statsSecret, generation)
+    fun freezeUsage(): SingBoxUsage.Sample = SingBoxUsage.read(statsPort, statsSecret, generation, freeze = true)
+    fun probe(): Long = net.gozar.plugin.api.SocksProbe.test(probePort, "vault", probeSecret)
     private val tail = ArrayDeque<String>()
 
     /** Called once when the process exits without [stop] having asked it to. */
@@ -65,7 +78,8 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         val spec = lastSpec ?: return "nothing to reconnect"
         val port = socksPort.takeIf { it > 0 } ?: return "nothing to reconnect"
         val keep = onUnexpectedExit
-        val failure = start(context, spec, port)
+        val useMeter = metered
+        val failure = start(context, spec, port, useMeter)
         onUnexpectedExit = keep
         return failure
     }
@@ -79,14 +93,18 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
      * Starts sing-box for [spec] (from [SingBoxConfig.spec]).
      * Returns null on success, or a short reason that is safe to show and log.
      */
-    fun start(context: Context, spec: String, port: Int = 0): String? {
+    fun start(context: Context, spec: String, port: Int = 0, meter: Boolean = false): String? {
         stop()
+        metered = meter
         stopping = false
         // Any failure after this point also tears down what did start
         // (dnstt in front of sing-box), so nothing is left running.
-        val failure = startInner(context, spec, port)
-        if (failure != null) stop()
-        return failure
+        try {
+            val failure = startInner(context, spec, port)
+            if (failure != null) stop()
+            return failure
+        } catch (e: Throwable) { stop(); throw e }
+        finally { configFile?.delete(); configFile = null }
     }
 
     private fun startInner(context: Context, spec: String, port: Int): String? {
@@ -94,14 +112,19 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         if (!bin.exists()) return "sing-box is not in this build"
         val chosen = if (port > 0) port else freePort() ?: return "no free local port"
         val dir = workDir(context)
-        val file = File(dir, "config.json")
+        // Clean only files owned by this runner, including the pre-random-name format.
+        dir.listFiles()?.filter { it.name == "config.json" || (it.name.startsWith("session-") && it.name.endsWith(".json")) }
+            ?.forEach { check(it.delete()) { "Cannot remove stale private configuration" } }
+        val file = File.createTempFile("session-", ".json", dir)
+        configFile = file
+        java.nio.file.Files.setPosixFilePermissions(file.toPath(), java.nio.file.attribute.PosixFilePermissions.fromString("rw-------"))
         lastSpec = spec
         var effective = spec
         val side = runCatching { org.json.JSONObject(spec).optJSONObject("sidecar") }.getOrNull()
         sidecarName = side?.optString("kind")
         if (side != null) {
             val launch = runCatching { Sidecars.launch(side) }.getOrElse { return it.message ?: "incomplete profile" }
-            val sidePort = freePort() ?: return "no free local port"
+            val sidePort = freePortExcluding(chosen) ?: return "no free local port"
             val failure = sidecar.start(context, launch, sidePort)
             if (failure != null) return failure
             sidecar.onUnexpectedExit = { code -> if (!stopping) { stop(); onUnexpectedExit?.invoke(code) } }
@@ -110,7 +133,29 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
                 remove("sidecar")
             }.toString()
         }
-        val json = runCatching { SingBoxConfig.full(effective, chosen) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
+        sharingPort = if (org.json.JSONObject(spec).optBoolean("phoneSharing")) freePortExcluding(chosen) ?: return "no free sharing port" else 0
+        var json = runCatching { SingBoxConfig.full(effective, chosen, sharingPort = sharingPort) }.getOrElse { return "bad profile: ${it.javaClass.simpleName}" }
+        if (metered) {
+            val root = org.json.JSONObject(json)
+            check(sharingPort == 0) { "Metered sharing is unsupported" }
+            statsPort = freePortExcluding(chosen) ?: return "no accounting port"
+            probePort = freePortExcluding(chosen) ?: return "no probe port"
+            while (probePort == statsPort) probePort = freePortExcluding(chosen) ?: return "no probe port"
+            statsSecret = java.util.UUID.randomUUID().toString() + java.util.UUID.randomUUID()
+            probeSecret = java.util.UUID.randomUUID().toString()
+            generation = java.util.UUID.randomUUID().toString()
+            val inbounds = root.getJSONArray("inbounds")
+            check(inbounds.length() == 1 && inbounds.getJSONObject(0).optString("tag") != "ghajar-vault-probe")
+            // Same inbound routing tag for data is preserved. Probe has separate authenticated ingress.
+            inbounds.put(org.json.JSONObject().put("type", "socks").put("tag", "ghajar-vault-probe")
+                .put("listen", "127.0.0.1").put("listen_port", probePort)
+                .put("users", org.json.JSONArray().put(org.json.JSONObject().put("username", "vault").put("password", probeSecret))))
+            val experimental = root.optJSONObject("experimental") ?: org.json.JSONObject().also { root.put("experimental", it) }
+            check(!experimental.has("clash_api")) { "Existing controller has incompatible ownership" }
+            experimental.put("clash_api", org.json.JSONObject().put("external_controller", "127.0.0.1:$statsPort").put("secret", statsSecret)
+                .put("access_control_allow_origin", org.json.JSONArray().put("http://localhost")))
+            json = root.toString()
+        }
         file.writeText(json)
 
         // Validate first: a configuration error is reported as one, instead
@@ -118,10 +163,22 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         val check = runCatching {
             val p = ProcessBuilder(bin.absolutePath, "check", "-c", file.absolutePath, "-D", dir.absolutePath, "--disable-color")
                 .directory(dir).redirectErrorStream(true).start()
-            val out = p.inputStream.bufferedReader().readText()
-            if (!p.waitFor(15, TimeUnit.SECONDS)) { p.destroyForcibly(); return "sing-box check timed out" }
-            p.exitValue() to out
-        }.getOrElse { return "sing-box could not be started: ${it.javaClass.simpleName}" }
+            val output = StringBuilder()
+            val reader = thread(isDaemon = true, name = "singbox-check-log") {
+                runCatching { p.inputStream.reader().use { input ->
+                    val buffer = CharArray(2048)
+                    while (true) {
+                        val n = input.read(buffer); if (n < 0) break
+                        synchronized(output) { output.append(buffer, 0, n); if (output.length > 16384) output.delete(0, output.length - 16384) }
+                    }
+                } }
+            }
+            try {
+                if (!p.waitFor(15, TimeUnit.SECONDS)) return "sing-box check timed out"
+                reader.join(500)
+                p.exitValue() to synchronized(output) { output.toString() }
+            } finally { net.gozar.app.terminateProcess(p, 1000) }
+        }.getOrElse { if (it is InterruptedException) throw it; return "sing-box could not be started: ${it.javaClass.simpleName}" }
         if (check.first != 0) {
             val reason = GhajarLog.redact(check.second.lineSequence().lastOrNull { it.isNotBlank() }.orEmpty()).take(240)
             GhajarLog.e(TAG, "config rejected: $reason")
@@ -165,8 +222,9 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
         }
         // The configuration holds credentials; sing-box has read it by the
         // time its inbound listens, so it does not stay on disk.
-        val ready = waitForPort(p, chosen)
+        val ready = waitForPort(p, chosen) && (sharingPort == 0 || waitForPort(p, sharingPort))
         file.delete()
+        if (ready && metered) usage() // missing/old native bridge fails closed before forwarding starts
         return if (ready) null else {
             val last = lastOutput().lastOrNull { it.isNotBlank() }.orEmpty().take(240)
             stop()
@@ -193,14 +251,19 @@ class SingBoxRunner(private val TAG: String, private val subdir: String) {
 
     fun stop() {
         stopping = true
+        lastSpec = null
+        configFile?.delete(); configFile = null
+        sharingPort = 0
+        metered = false; statsPort = 0; statsSecret = ""; probePort = 0; probeSecret = ""; generation = ""
         sidecar.onUnexpectedExit = null
-        sidecar.stop()
-        val p = process ?: return
-        process = null
-        runCatching {
-            p.destroy()
-            if (!p.waitFor(2000, TimeUnit.MILLISECONDS)) p.destroyForcibly()
-        }
+        val p = process
+        try { if (p != null) net.gozar.app.terminateProcess(p, 2000); process = null }
+        finally { sidecar.stop() }
+    }
+
+    private fun freePortExcluding(excluded: Int): Int? {
+        repeat(16) { val candidate = freePort() ?: return null; if (candidate != excluded) return candidate }
+        return null
     }
 
     companion object {

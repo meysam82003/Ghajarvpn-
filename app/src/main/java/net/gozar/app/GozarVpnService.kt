@@ -26,12 +26,20 @@ import net.gozar.app.engine.SingBoxController
 
 class GozarVpnService : VpnService() {
 
+    private var vaultRef: String? = null
+    private var vaultSession: net.gozar.app.security.vault.VaultMeteredSession? = null
+    private var vaultProbe: Job? = null
+    @Volatile private var vaultSuccessful = false
     private var tunFd: ParcelFileDescriptor? = null
     private var aetherSpec: AetherSpec? = null
+    private var chainSession: ChainSession? = null
+    private var chainWatch: Job? = null
     private var psiphonSpec: PsiphonSpec? = null
     /** sing-box proxy part (SingBoxConfig.spec) when this session runs on sing-box; null otherwise. */
     private var singboxSpec: String? = null
     private var oblivionOptions: OblivionOptions? = null
+    private val pluginHandoffs = mutableSetOf<String>()
+    private var delegatedPluginStop = false
     @Volatile private var enginesReady = false
     @Volatile private var pendingEnd = false
     private var endError: String? = null
@@ -49,6 +57,8 @@ class GozarVpnService : VpnService() {
     @Volatile private var tearingDown = false
     private var autoSelector: AutoSelector? = null
     private var autoJob: Job? = null
+    private var networkRecoveryJob: Job? = null
+    private val networkBackoff = ReconnectBackoff()
     private var underlyingListener: ((NetKind?, android.net.Network?) -> Unit)? = null
     /** True when the zeptun engine, not the Xray core, owns this session's tun. */
     @Volatile private var zeptunOwnsTun = false
@@ -57,10 +67,21 @@ class GozarVpnService : VpnService() {
     // every fifteen minutes (Android's floor for periodic work); a running
     // VPN is already a foreground service, so it checks every two minutes
     // and warnings and announcements arrive close to when they are sent.
+    private var sharingRestartJob: Job? = null
+    private var sharingPrefsJob: Job? = null
+    private var runningJson: String? = null
+    private var sharingInboundEnabled = false
+    private var sharingBackendPort = 0
+
     private var noticeJob: kotlinx.coroutines.Job? = null
 
     override fun onCreate() {
         super.onCreate()
+        // Observe intent only while the VPN service exists. No timer, listener or worker
+        // is started for disabled Sharing; this also handles backup/legacy settings edits.
+        sharingPrefsJob = scope.launch {
+            ConfigStore.get(applicationContext).vpnShareEnabled.collect { reconfigureSharing() }
+        }
         noticeJob = scope.launch {
             while (true) {
                 kotlinx.coroutines.delay(120_000)
@@ -77,13 +98,12 @@ class GozarVpnService : VpnService() {
         runCatching {
             Gozarcore.setLogger(object : gozarcore.Logger {
                 override fun log(line: String?) {
-                    Log.i("XrayCore", line ?: "")
                     GhajarLog.i("XrayCore", line ?: "")
                 }
             })
         }.onFailure { GhajarLog.e(TAG, "core logger not attached: ${it.javaClass.name}") }
         runCatching {
-            TorLog.sink = { line -> Log.i("XrayCore", line); GhajarLog.i("Tor", line) }
+            TorLog.sink = { line -> GhajarLog.i("Tor", line) }
         }
         GhajarLog.i(TAG, "service created in process ${currentProcessName()}")
     }
@@ -101,24 +121,35 @@ class GozarVpnService : VpnService() {
                 return START_STICKY
             }
             ACTION_STOP -> {
+                val handoff = intent.getStringExtra("pluginHandoff")
+                if (handoff != null) pluginHandoffs.add(handoff)
+                else net.gozar.app.plugins.PluginRuntime.cancelPending()
+                if (handoff == null && pluginHandoffs.isEmpty() && !tearingDown && !pendingEnd && tunFd == null && net.gozar.app.plugins.PluginRuntime.running && !enginesReady && startJob?.isActive != true) {
+                    delegatedPluginStop = true
+                    net.gozar.app.plugins.PluginRuntime.stop(this)
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
                 runCatching { blockFd?.close() }; blockFd = null
                 die(null)
                 return START_NOT_STICKY
             }
             ACTION_WARM -> {
                 if (enginesReady && !tearingDown) {
+                    publishSharingSession()
                     VpnBridge.sendConnected(applicationContext)
                     return START_STICKY
                 }
                 return START_NOT_STICKY
             }
             ACTION_PING -> {
-                if (enginesReady && !tearingDown) runPing()
+                if (enginesReady && !tearingDown && (vaultRef == null || net.gozar.app.security.vault.VaultRuntime.testAllowed(vaultRef!!))) runPing()
                 return START_STICKY
             }
             else -> {
                 val configJson = intent?.getStringExtra(EXTRA_CONFIG)
                 if (startJob?.isActive == true || enginesReady || tunFd != null) return START_STICKY
+                vaultRef = intent?.getStringExtra(EXTRA_VAULT_REF)
                 aetherSpec = AetherSpec.parse(intent?.getStringExtra(EXTRA_AETHER))
                 psiphonSpec = PsiphonSpec.parse(intent?.getStringExtra(EXTRA_PSIPHON))
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
@@ -128,11 +159,11 @@ class GozarVpnService : VpnService() {
                 configPort = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
                 lastPingMs = null
                 stopLabel = intent?.getStringExtra(EXTRA_STOP_LABEL) ?: "Disconnect"
-                if (configJson.isNullOrEmpty()) {
+                if (configJson.isNullOrEmpty() && vaultRef == null) {
                     die("No config provided")
                     return START_NOT_STICKY
                 }
-                startTunnel(configJson)
+                startTunnel(configJson.orEmpty())
             }
         }
         return START_STICKY
@@ -156,6 +187,16 @@ class GozarVpnService : VpnService() {
           engineLock.withLock {
             try {
             ensureActive()
+            var effectiveJson = configJson
+            vaultRef?.let { ref ->
+                val claimed = net.gozar.app.security.vault.VaultRuntime.claim(ref, System.currentTimeMillis())
+                effectiveJson = claimed.first.json
+                singboxSpec = claimed.first.singbox
+                vaultSession = claimed.second
+                vaultSuccessful = false
+                aetherSpec = null; psiphonSpec = null; torSpec = null
+            }
+            if (chainSession != null) stopAetherTor()
             val optionJson = psiphonSpec?.oblivionJson ?: aetherSpec?.oblivionJson.orEmpty()
             val options = if (optionJson.isBlank()) null else OblivionOptions(optionJson).also { it.validate() }
             oblivionOptions = options
@@ -171,7 +212,9 @@ class GozarVpnService : VpnService() {
             // that resolver - pointing apps at a real one instead would send
             // every query past the thing meant to answer it. The address is
             // inside the tun's own 0.0.0.0/0 route, so nothing else changes.
-            val singbox = singboxSpec
+            val selectedForShare = store.configs.value.firstOrNull { it.id == VpnState.activeId.value }
+            val wantSharing = store.vpnShareEnabled.value && selectedForShare?.let { net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(it) } == true
+            val singbox = singboxSpec?.let { org.json.JSONObject(it).put("phoneSharing", wantSharing).toString() }
             val fakeIpDns = ((options?.proxyOnly == true && store.zeptunTunnel.value) || singbox != null) &&
                 ZeptunEngine.available &&
                 store.zeptunDns.value == ZeptunEngine.DnsMode.FAKE_IP
@@ -216,11 +259,13 @@ class GozarVpnService : VpnService() {
             zeptunOwnsTun = wantZeptun && pfd != null
             tunFd = pfd
             if (pfd != null) { runCatching { blockFd?.close() }; blockFd = null }
-            if (pfd != null) trackUnderlyingNetwork()
+            if (pfd != null) { trackUnderlyingNetwork() }
 
                 setupGeoAssets()
                 val spec = aetherSpec
-                if (spec != null) {
+                if (spec != null && options?.core in AetherTorPolicy.modes) {
+                    chainSession = AetherTorRuntime.start(applicationContext, spec, requireNotNull(options))
+                } else if (spec != null) {
                     if (!AetherController.available(applicationContext)) {
                         die("Aether engine is not bundled in this build")
                         return@launch
@@ -229,6 +274,7 @@ class GozarVpnService : VpnService() {
                         AetherController.start(applicationContext, spec)
                     }
                     if (!up) {
+                        stopAetherTor()
                         AetherController.stop()
                         TorController.stop()
                         die("Aether failed to start")
@@ -258,7 +304,7 @@ class GozarVpnService : VpnService() {
                         return@launch
                     }
                     val failure = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
-                        SingBoxController.start(applicationContext, singbox)
+                        SingBoxController.start(applicationContext, singbox, meter = vaultSession != null)
                     }
                     if (failure != null) {
                         SingBoxController.stop()
@@ -271,7 +317,13 @@ class GozarVpnService : VpnService() {
                 }
                 runCatching { Gozarcore.stop() }
                 ensureActive()
-                val readyJson = if (psi != null) PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT) else configJson
+                val selected = store.configs.value.firstOrNull { it.id == VpnState.activeId.value }
+                val sharing = !zeptunOwnsTun && options?.proxyOnly != true && store.vpnShareEnabled.value &&
+                    selected?.let { net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(it) } == true
+                val readyJson = ConfigBuilder.withPhoneSharing(
+                    if (psi != null) PsiphonConfig.bindSocksPort(effectiveJson, PsiphonController.SOCKS_PORT) else effectiveJson, sharing)
+                runningJson = readyJson
+                sharingInboundEnabled = wantSharing
                 // zeptun's tun is not Xray's to take: in this mode Xray is not
                 // started at all (it never was in proxy-only mode), and the
                 // engine forwards the tun to whichever local SOCKS proxy the
@@ -321,7 +373,7 @@ class GozarVpnService : VpnService() {
                             val portBusy = e.message?.contains("address already in use", ignoreCase = true) == true
                             if (!portBusy || bindAttempt >= 2) throw e
                             bindAttempt++
-                            Log.w(TAG, "mixed-inbound port still held, retry $bindAttempt/2 in 400ms")
+                            GhajarLog.w(TAG, "mixed-inbound port still held, retry $bindAttempt/2 in 400ms")
                             runCatching { Gozarcore.stop() }
                             delay(400)
                         }
@@ -350,20 +402,113 @@ class GozarVpnService : VpnService() {
                     }
                 }
                 ensureActive()
+                sharingBackendPort = when {
+                    !wantSharing -> 0
+                    singbox != null -> SingBoxController.sharingPort
+                    !zeptunOwnsTun && options?.proxyOnly != true -> net.gozar.app.sharing.PhoneSharing.XRAY_PORT
+                    psi != null -> PsiphonController.SOCKS_PORT
+                    spec != null -> AetherController.SOCKS_PORT
+                    else -> 0
+                }
+                if (sharingBackendPort != 0) kotlinx.coroutines.runInterruptible(Dispatchers.IO) { net.gozar.plugin.api.SocksProbe.test(sharingBackendPort) }
+                ensureActive()
                 enginesReady = true
+                chainSession?.let { session ->
+                    chainWatch = scope.launch {
+                        while (isActive && !tearingDown && chainSession === session) {
+                            if (!session.healthy()) { die("یکی از موتورهای زنجیره متوقف شد؛ اتصال مستقیم جایگزین نمی‌شود"); break }
+                            delay(200)
+                        }
+                    }
+                }
+                publishSharingSession()
                 VpnBridge.sendConnected(applicationContext)
                 startPolling()
+                if (vaultSession != null) {
+                    val session = vaultSession
+                    vaultProbe = scope.launch {
+                        while (isActive && enginesReady && !tearingDown && vaultSession === session) {
+                            val response = runCatching { kotlinx.coroutines.runInterruptible(Dispatchers.IO) { if (singboxSpec != null) SingBoxController.probe() else net.gozar.plugin.api.SocksProbe.test(MixedPort.value) } }.getOrNull()
+                            if (response != null && enginesReady && !tearingDown && vaultSession === session) {
+                                vaultSuccessful = true
+                                break
+                            }
+                            delay(3000)
+                        }
+                    }
+                }
+            } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+                die("مهلت آماده‌شدن زنجیره تمام شد")
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                Log.e(TAG, "Xray core failed to start", e)
+                GhajarLog.e(TAG, "Xray core failed to start", e)
                 die(e.message ?: "Engine failed to start")
             }
           }
         }
     }
 
+    private fun stopAetherTor() {
+        chainWatch?.cancel(); chainWatch = null
+        chainSession?.close(); chainSession = null
+    }
+
+    private fun publishSharingSession() {
+        val store = ConfigStore.get(applicationContext)
+        val config = store.configs.value.firstOrNull { it.id == VpnState.activeId.value } ?: return
+        if (enginesReady && !tearingDown && net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(config)) {
+            net.gozar.app.sharing.PhoneSharing.sessionReady(store, sharingBackendPort)
+            if (sharingInboundEnabled != store.vpnShareEnabled.value) reconfigureSharing()
+        }
+    }
+
+    /** Serialize teardown before creating a fresh TUN; never reuse a detached descriptor. */
+    private fun reconfigureSharing() {
+        if (vaultRef != null) { net.gozar.app.sharing.PhoneSharing.invalidate(); return }
+        if (sharingRestartJob?.isActive == true || tearingDown || !enginesReady) return
+        sharingRestartJob = scope.launch {
+            engineLock.withLock {
+                val snapshot = runningJson ?: return@withLock
+                if (tearingDown || pendingEnd || !enginesReady) return@withLock
+                val store = ConfigStore.get(applicationContext)
+                val profile = store.configs.value.firstOrNull { it.id == VpnState.activeId.value } ?: return@withLock
+                if (!net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(profile) ||
+                    sharingInboundEnabled == store.vpnShareEnabled.value) return@withLock
+                val id = VpnState.activeId.value ?: return@withLock
+                if (oblivionOptions?.core in AetherTorPolicy.modes && !holdChainRoutes()) {
+                    die("حفظ مسیر مسدود هنگام تغییر نشست زنجیره ممکن نشد")
+                    return@withLock
+                }
+                enginesReady = false
+                net.gozar.app.sharing.PhoneSharing.invalidate()
+                stopAutoSelect()
+                untrackUnderlyingNetwork()
+                pollJob?.cancel(); pollJob = null
+                if (runCatching { Gozarcore.stop() }.isFailure) {
+                    die("توقف موتور برای تغییر اشتراک‌گذاری انجام نشد")
+                    return@withLock
+                }
+                if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
+                stopAetherTor()
+                TorController.stop()
+                AetherController.stop()
+                PsiphonController.stop()
+                SingBoxController.onUnexpectedExit = null
+                SingBoxController.stop()
+                sharingBackendPort = 0
+                runCatching { tunFd?.close() }; tunFd = null
+                if (tearingDown || pendingEnd) return@withLock
+                VpnState.setConnecting(id)
+                // startTunnel rechecks the latest intent. Snapshot retains the complete chain,
+                // DNS, Mux and routing config rather than rebuilding from incomplete UI fields.
+                startTunnel(snapshot)
+            }
+        }
+    }
+
     private fun startAutoSelect() {
+        if (vaultRef != null) return
         if (autoJob?.isActive == true) return
         val store = ConfigStore.get(applicationContext)
         val selector = AutoSelector(applicationContext, store) { target ->
@@ -383,6 +528,8 @@ class GozarVpnService : VpnService() {
     }
 
     private fun switchTunnel(config: ProxyConfig) {
+        if (vaultRef != null) return
+        net.gozar.app.sharing.PhoneSharing.invalidate()
         if (tearingDown) return
         val store = ConfigStore.get(applicationContext)
         val sharing = store.vpnShareEnabled.value
@@ -390,6 +537,8 @@ class GozarVpnService : VpnService() {
         val json = ConfigBuilder.build(
             config, store.fragment.value, store.splitRouting.value,
             store.sniffing.value, store.sniffTypes.value,
+            chainBase = store.configs.value.firstOrNull { it.id == config.chainId },
+            torBase = store.configs.value.firstOrNull { it.id == config.torBaseId },
             adBlock = store.adBlock.value,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,
@@ -409,6 +558,7 @@ class GozarVpnService : VpnService() {
         pollJob?.cancel(); pollJob = null
         if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
         runCatching { Gozarcore.stop() }
+        stopAetherTor()
         AetherController.stop()
         PsiphonController.stop()
         TorController.stop()
@@ -436,6 +586,24 @@ class GozarVpnService : VpnService() {
      * "پینگ" action. Never fabricated: a failed probe clears the shown value
      * instead of keeping a stale number on screen. */
     private fun runPing() {
+        val ref = vaultRef
+        if (ref != null) {
+            if (pinging || !enginesReady || !net.gozar.app.security.vault.VaultRuntime.testAllowed(ref)) return
+            pinging = true
+            val session = vaultSession
+            scope.launch {
+                try {
+                    val reply = runCatching { kotlinx.coroutines.runInterruptible(Dispatchers.IO) { if (singboxSpec != null) SingBoxController.probe() else net.gozar.plugin.api.SocksProbe.test(MixedPort.value) } }.getOrNull()
+                    if (vaultSession === session && enginesReady && !tearingDown) {
+                        lastPingMs = reply?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt()
+                        GhajarWidget.lastPingMs = lastPingMs
+                        GhajarWidget.refresh(applicationContext)
+                        getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, buildNotification())
+                    }
+                } finally { pinging = false }
+            }
+            return
+        }
         if (pinging || configAddress.isBlank() || configPort <= 0) return
         pinging = true
         scope.launch {
@@ -466,7 +634,7 @@ class GozarVpnService : VpnService() {
                     }
                 }
             }
-        }.onFailure { Log.w(TAG, "geo assets not bundled: ${it.message}") }
+        }.onFailure { GhajarLog.w(TAG, "geo assets not bundled: ${it.message}") }
         Gozarcore.setAssetPath(dir.absolutePath)
     }
 
@@ -518,6 +686,30 @@ class GozarVpnService : VpnService() {
                 val downSpeed = (down - lastDown).coerceAtLeast(0L)
                 lastUp = up; lastDown = down
 
+                if (vaultSession != null) {
+                    try {
+                        val decision = engineLock.withLock {
+                            val meter = if (singboxSpec != null) SingBoxController.usage() else null
+                            vaultSession!!.sample(meter?.upload ?: up, meter?.download ?: down, System.currentTimeMillis(), vaultSuccessful, meter?.generation)
+                        }
+                        if (!decision.connectable) {
+                            die(when (decision.status) {
+                                net.gozar.app.security.vault.EntitlementStatus.QUOTA_EXHAUSTED -> "حجم این دسترسی به پایان رسیده است."
+                                net.gozar.app.security.vault.EntitlementStatus.EXPIRED -> "زمان این دسترسی به پایان رسیده است."
+                                else -> "وضعیت دسترسی صندوق قابل تأیید نیست."
+                            })
+                            return@launch
+                        }
+                    } catch (cancelled: CancellationException) {
+                        // Teardown owns the final freeze/flush. Cancelling the polling
+                        // job is not a failed meter and must not lock a clean session.
+                        throw cancelled
+                    } catch (_: Exception) {
+                        vaultSession?.invalidate()
+                        die("ثبت امن مصرف صندوق انجام نشد؛ اتصال متوقف شد.")
+                        return@launch
+                    }
+                }
                 VpnBridge.sendCounters(applicationContext, up, down, upSpeed, downSpeed)
 
                 // The widget's session totals come from here, where they are
@@ -542,7 +734,32 @@ class GozarVpnService : VpnService() {
         }
     }
 
+    /** Final cumulative sample before native teardown. Failure never authorizes another session. */
+    private fun finishVaultAccounting() {
+        vaultProbe?.cancel(); vaultProbe = null
+        val session = vaultSession ?: return
+        runCatching {
+            val z = if (zeptunOwnsTun) ZeptunEngine.counters() else null
+            val up = z?.rxBytes ?: if (singboxSpec == null) Gozarcore.queryUplink() else 0L
+            val down = z?.txBytes ?: if (singboxSpec == null) Gozarcore.queryDownlink() else 0L
+            val meter = if (singboxSpec != null) SingBoxController.freezeUsage() else null
+            if (session.active) session.sample(meter?.upload ?: up, meter?.download ?: down, System.currentTimeMillis(), vaultSuccessful, meter?.generation)
+        }.onFailure { session.invalidate();GhajarLog.e(TAG, "vault final accounting failed; entitlement locked") }
+        runCatching { net.gozar.app.security.vault.VaultRuntime.forget(vaultRef) }
+        vaultSession = null
+    }
+
+    private fun holdChainRoutes(): Boolean {
+        val builder = Builder().setSession("Ghajar chain (blocked)").setMtu(1500)
+            .addAddress("10.10.0.2", 32).addAddress("fd00::2", 128).addRoute("0.0.0.0", 0).addRoute("::", 0)
+        applyPerApp(builder)
+        val acquired = runCatching { builder.establish() }.getOrNull() ?: return false
+        runCatching { blockFd?.close() }; blockFd = acquired
+        return true
+    }
+
     private fun die(error: String?) {
+        net.gozar.app.sharing.PhoneSharing.invalidate()
         if (tearingDown) return
         tearingDown = true
         enginesReady = false
@@ -552,19 +769,47 @@ class GozarVpnService : VpnService() {
             engineLock.withLock {
                 stopAutoSelect()
                 pollJob?.cancel(); pollJob = null
+                finishVaultAccounting()
+                val chainFailure = error != null && (vaultRef != null || oblivionOptions?.core in AetherTorPolicy.modes)
+                // Replace routes with a blocking TUN BEFORE stopping the forwarding engine.
+                // A chain failure may never inherit an optional direct fallback policy.
+                if (chainFailure) {
+                    if (!holdChainRoutes()) {
+                        if (vaultRef != null) {
+                            // Keep the existing Android TUN descriptor but stop forwarding even
+                            // when Android refuses to establish the replacement blocking TUN.
+                            if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
+                            runCatching { Gozarcore.stop() }
+                            SingBoxController.onUnexpectedExit = null
+                            SingBoxController.stop()
+                        }
+                        stopAetherTor()
+                        VpnBridge.sendError(applicationContext, error!!)
+                        tearingDown = false
+                        // Retain the existing fail-closed Xray TUN if Android refused a replacement.
+                        // Explicit Stop/revoke is the only operation that may release it.
+                        return@withLock
+                    }
+                }
                 // Before the descriptor is closed: the engine is still reading
                 // from it, and closing it underneath a running engine is how a
                 // teardown turns into a crash.
                 if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
                 runCatching { Gozarcore.stop() }
                 PsiphonController.stop()
+                stopAetherTor()
                 AetherController.stop()
                 TorController.stop()
                 SingBoxController.onUnexpectedExit = null
                 SingBoxController.stop()
+                if (vaultRef != null) { runningJson = null; singboxSpec = null }
                 runCatching { tunFd?.close() }; tunFd = null
                 val killOn = ConfigStore.get(applicationContext).killSwitch.value
-                if (error != null && killOn && oblivionOptions?.proxyOnly != true) {
+                if (chainFailure) {
+                    VpnBridge.sendError(applicationContext, error!!)
+                    getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID, buildBlockedNotification())
+                    tearingDown = false
+                } else if (error != null && killOn && oblivionOptions?.proxyOnly != true) {
                     enterKillSwitch(error)
                     tearingDown = false
                 } else {
@@ -596,7 +841,7 @@ class GozarVpnService : VpnService() {
     private fun trackUnderlyingNetwork() {
         if (underlyingListener != null) return
         var lastNetwork: android.net.Network? = null
-        val listener: (NetKind?, android.net.Network?) -> Unit = { kind, network ->
+        val listener: (NetKind?, android.net.Network?) -> Unit = listener@{ kind, network ->
             runCatching {
                 setUnderlyingNetworks(network?.let { arrayOf(it) })
                 GhajarLog.i(TAG, "tunnel now rides $kind")
@@ -607,14 +852,43 @@ class GozarVpnService : VpnService() {
             // same local port, so zeptun carries on; Xray handles this itself.
             val previous = lastNetwork
             if (network != null) lastNetwork = network
+            val ref = vaultRef
+            if (previous != null && network != null && network != previous && ref != null &&
+                !runCatching { net.gozar.app.security.vault.VaultRuntime.reconnectAllowed(ref, System.currentTimeMillis()) }.getOrDefault(false)) {
+                die("بازیابی شبکه طبق سیاست یا سهمیهٔ صندوق مجاز نیست.")
+                return@listener
+            }
             if (previous != null && network != null && network != previous &&
                 singboxSpec != null && enginesReady && !tearingDown) {
-                scope.launch {
+                if (networkRecoveryJob?.isActive == true) return@listener
+                networkRecoveryJob = scope.launch {
+                    delay(networkBackoff.delayMs(android.os.SystemClock.elapsedRealtime()))
+                    if (!enginesReady || tearingDown || NetworkWatcher.currentNetwork() == null) return@launch
+                    networkBackoff.attempted(android.os.SystemClock.elapsedRealtime())
                     GhajarLog.i(TAG, "network changed; reconnecting the proxy engine")
-                    val failure = kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
-                        SingBoxController.reconnect(applicationContext)
+                    engineLock.withLock {
+                        net.gozar.app.sharing.PhoneSharing.invalidate()
+                        sharingBackendPort = 0
+                        val failure = try { kotlinx.coroutines.runInterruptible(Dispatchers.IO) {
+                            if (vaultSession != null) {
+                                val sample = SingBoxController.freezeUsage()
+                                val decision = vaultSession!!.sample(sample.upload, sample.download, System.currentTimeMillis(), vaultSuccessful, sample.generation)
+                                net.gozar.app.security.vault.VaultRuntime.requireAllowed(decision)
+                            }
+                            SingBoxController.reconnect(applicationContext)
+                        } } catch(e: CancellationException) { throw e } catch(_: Exception) { "accounting or reconnect unavailable" }
+                        if (failure != null && !tearingDown) die("reconnect after network change failed: $failure")
+                        else if (!tearingDown && sharingInboundEnabled) {
+                            try {
+                                val port = SingBoxController.sharingPort
+                                check(port > 0)
+                                kotlinx.coroutines.runInterruptible(Dispatchers.IO) { net.gozar.plugin.api.SocksProbe.test(port) }
+                                sharingBackendPort = port
+                                publishSharingSession()
+                            } catch (e: CancellationException) { throw e }
+                            catch (_: Exception) { die("مسیر اشتراک پس از تعویض شبکه آماده نشد") }
+                        }
                     }
-                    if (failure != null && !tearingDown) die("reconnect after network change failed: $failure")
                 }
             }
         }
@@ -626,6 +900,7 @@ class GozarVpnService : VpnService() {
     }
 
     private fun untrackUnderlyingNetwork() {
+        networkRecoveryJob?.cancel(); networkRecoveryJob = null
         underlyingListener?.let { NetworkWatcher.removeListener(it) }
         underlyingListener = null
     }
@@ -651,28 +926,40 @@ class GozarVpnService : VpnService() {
     }
 
     override fun onDestroy() {
+        net.gozar.app.sharing.PhoneSharing.invalidate()
+        if (delegatedPluginStop) {
+            noticeJob?.cancel(); scope.cancel(); super.onDestroy(); return
+        }
         noticeJob?.cancel()
+        runningJson = null
+        sharingRestartJob?.cancel()
+        sharingPrefsJob?.cancel()
         tearingDown = true
         enginesReady = false
         startJob?.cancel()
         pollJob?.cancel()
         stopAutoSelect()
         untrackUnderlyingNetwork()
+        finishVaultAccounting()
         if (zeptunOwnsTun) { ZeptunEngine.stop(); zeptunOwnsTun = false }
+        val handoffs = pluginHandoffs.toList()
         // Report completion only after native teardown. A new UI retry cannot
         // start a tunnel that this older service instance is still stopping.
         scope.launch {
             engineLock.withLock {
                 runCatching { Gozarcore.stop() }
+                stopAetherTor()
                 AetherController.stop()
                 PsiphonController.stop()
                 TorController.stop()
                 SingBoxController.onUnexpectedExit = null
                 SingBoxController.stop()
+                if (vaultRef != null) { runningJson = null; singboxSpec = null }
                 runCatching { tunFd?.close() }; tunFd = null
                 runCatching { blockFd?.close() }; blockFd = null
                 runCatching { getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID) }
             }
+            handoffs.forEach { pluginStopWaiters.remove(it)?.complete(Unit) }
             if (pendingEnd && endError != null) VpnBridge.sendError(applicationContext, endError!!)
             else VpnBridge.sendDisconnected(applicationContext)
             scope.cancel()
@@ -771,6 +1058,16 @@ class GozarVpnService : VpnService() {
     }
 
     companion object {
+        private val pluginStopWaiters = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Unit>>()
+        /** Await native teardown directly; stale-broadcast filtering is not a teardown acknowledgement. */
+        suspend fun stopForPlugin(context: android.content.Context) {
+            val key = java.util.UUID.randomUUID().toString()
+            val done = kotlinx.coroutines.CompletableDeferred<Unit>(); pluginStopWaiters[key] = done
+            try {
+                context.startService(Intent(context, GozarVpnService::class.java).setAction(ACTION_STOP).putExtra("pluginHandoff", key))
+                kotlinx.coroutines.withTimeout(10000) { done.await() }
+            } finally { pluginStopWaiters.remove(key) }
+        }
         private const val TAG = "GozarVpnService"
         private const val CHANNEL_ID = "gozarnet_vpn"
         private const val NOTIF_ID = 1
@@ -789,6 +1086,7 @@ class GozarVpnService : VpnService() {
         const val ACTION_STOP = "net.gozar.app.STOP"
         const val ACTION_WARM = "net.gozar.app.WARM"
         const val ACTION_PING = "net.gozar.app.PING"
+        const val EXTRA_VAULT_REF = "vaultReference"
         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"
         const val EXTRA_AETHER = "net.gozar.app.AETHER"
         const val EXTRA_PSIPHON = "net.gozar.app.PSIPHON"

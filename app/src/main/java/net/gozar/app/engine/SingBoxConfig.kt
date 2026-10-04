@@ -32,7 +32,7 @@ object SingBoxConfig {
     /** Protocols carried as sing-box endpoints rather than outbounds. */
     private val ENDPOINTS = setOf("openconnect", "masque", "tailscale")
 
-    fun handles(config: ProxyConfig): Boolean = config.protocol in PROTOCOLS
+    fun handles(config: ProxyConfig): Boolean = FullSingBoxProfile.isFull(config) || config.protocol in PROTOCOLS || net.gozar.app.EngineSettings.usesSingBox(config)
 
     /**
      * The proxy part only, as passed to the service in an intent extra:
@@ -41,6 +41,8 @@ object SingBoxConfig {
      */
     fun spec(config: ProxyConfig): String? {
         if (!handles(config)) return null
+        net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
+        if (FullSingBoxProfile.isFull(config)) return FullSingBoxProfile.spec(config)
         val proxy = proxy(config)
         val out = JSONObject().put(if (config.protocol in ENDPOINTS) "endpoint" else "outbound", proxy)
         if (config.protocol == "shadowtls") out.put("extraOutbounds", org.json.JSONArray().put(shadowTlsOut(config)))
@@ -51,8 +53,9 @@ object SingBoxConfig {
     }
 
     /** The complete configuration for `sing-box run`, with the SOCKS inbound on [socksPort]. */
-    fun full(spec: String, socksPort: Int, logLevel: String = "info"): String {
+    fun full(spec: String, socksPort: Int, logLevel: String = "info", sharingPort: Int = 0): String {
         val s = JSONObject(spec)
+        if (s.has("fullConfig")) return FullSingBoxProfile.runtime(s.getString("fullConfig"), socksPort, sharingPort)
         val root = JSONObject()
             .put("log", JSONObject().put("level", logLevel).put("timestamp", false))
             // A server given by name needs a resolver in this sing-box
@@ -74,6 +77,21 @@ object SingBoxConfig {
             .put("final", "proxy")
             .put("default_domain_resolver", JSONObject().put("server", "local")))
         remoteDns(root, DnsTunnelPrefs.current.remoteDns)
+        if (sharingPort != 0) {
+            require(sharingPort in 1024..65535 && sharingPort != socksPort)
+            root.getJSONArray("inbounds").put(JSONObject().put("type", "socks").put("tag", "phone-share-in")
+                .put("listen", "127.0.0.1").put("listen_port", sharingPort))
+            root.getJSONObject("dns").getJSONArray("servers").put(JSONObject().put("type", "tcp")
+                .put("tag", "share-dns").put("server", "1.1.1.1").put("detour", "proxy"))
+            val route = root.getJSONObject("route")
+            val old = route.optJSONArray("rules") ?: JSONArray()
+            val rules = JSONArray()
+                .put(JSONObject().put("inbound", JSONArray().put("phone-share-in")).put("network", "udp").put("action", "reject"))
+                .put(JSONObject().put("inbound", JSONArray().put("phone-share-in")).put("action", "resolve").put("server", "share-dns"))
+                .put(JSONObject().put("inbound", JSONArray().put("phone-share-in")).put("action", "route").put("outbound", "proxy"))
+            for (i in 0 until old.length()) rules.put(old.get(i))
+            route.put("rules", rules)
+        }
         return root.toString()
     }
 
@@ -103,6 +121,15 @@ object SingBoxConfig {
                     .putIf("congestion_control", c.method.takeIf { it in setOf("cubic", "new_reno", "bbr") })
                     .putIf("udp_relay_mode", c.mode.takeIf { it in setOf("native", "quic") })
                     .put("tls", tls(c, forceOn = true))
+            }
+            "hysteria2" -> {
+                o.put("type", "hysteria2").server(c).put("password", c.password).put("tls", tls(c, forceOn = true))
+                if (c.hyUpMbps > 0) o.put("up_mbps", c.hyUpMbps)
+                if (c.hyDownMbps > 0) o.put("down_mbps", c.hyDownMbps)
+                if (c.hyObfsPassword.isNotBlank()) {
+                    require(c.hyObfs.isBlank() || c.hyObfs == "salamander") { "Unsupported Hysteria2 obfuscation" }
+                    o.put("obfs", JSONObject().put("type", "salamander").put("password", c.hyObfsPassword))
+                }
             }
             "hysteria" -> {
                 o.put("type", "hysteria").server(c)
@@ -158,7 +185,8 @@ object SingBoxConfig {
                 }
             }
             "openconnect" -> {
-                val server = if (c.port == 443 || c.port <= 0) c.address else "${c.address}:${c.port}"
+                val host = if (c.address.contains(':')) "[${c.address}]" else c.address
+                val server = if (c.port == 443 || c.port <= 0) host else "$host:${c.port}"
                 o.put("type", "openconnect")
                     .put("server", server)
                     .put("flavor", c.mode.takeIf { it in setOf("anyconnect", "gp", "fortinet", "f5", "pulse", "nc") } ?: "anyconnect")
@@ -242,6 +270,7 @@ object SingBoxConfig {
             }
             else -> throw IllegalArgumentException("not a sing-box protocol: ${c.protocol}")
         }
+        if (c.protocol != "sstp") net.gozar.app.EngineSettings.apply(c, o)
         return o
     }
 
@@ -260,7 +289,7 @@ object SingBoxConfig {
     internal fun sidecar(c: ProxyConfig): JSONObject? = when (c.protocol) {
         in DNSTT_FAMILY -> dnstt(c).put("kind", c.protocol).apply {
             val x = c.extraJson()
-            listOf("recordType", "dnsttCompat", "maxQnameLen", "clientIdSize", "noiz", "stealth", "authoritative", "cc", "cert").forEach { k -> if (x.has(k)) put(k, x.get(k)) }
+            listOf("tuning", "recordType", "dnsttCompat", "maxQnameLen", "clientIdSize", "noiz", "stealth", "authoritative", "cc", "cert").forEach { k -> if (x.has(k)) put(k, x.get(k)) }
         }
         "ssh" -> sshTransport(c)?.let { t ->
             JSONObject(t.toString()).put("kind", "sshtransport").put("host", c.address).put("port", c.port)
@@ -276,7 +305,7 @@ object SingBoxConfig {
         }
         "sstp" -> JSONObject().put("kind", "sstp").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
             .put("user", c.uuid).put("password", c.password).put("sni", c.sni).put("auth", c.method.ifBlank { "auto" })
-            .put("allowInsecure", c.allowInsecure).put("pin", c.pinnedCertSha256).put("mtu", c.mtu.takeIf { it in 576..1500 } ?: 1400)
+            .put("allowInsecure", c.allowInsecure).put("pin", c.pinnedCertSha256).put("mtu", c.mtu.takeIf { it in 576..1500 } ?: 1400).also { net.gozar.app.EngineSettings.apply(c, it) }
         "juicity" -> JSONObject().put("kind", "juicity").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
             .put("uuid", c.uuid).put("password", c.password).put("sni", c.sni).put("allowInsecure", c.allowInsecure)
             .put("cc", c.method).put("pin", c.pinnedCertSha256)

@@ -138,19 +138,22 @@ object AetherController {
         return out
     }
 
-    fun start(context: Context, spec: AetherSpec): Boolean {
+    fun start(context: Context, spec: AetherSpec, upstreamPort: Int? = null): Boolean {
         stop()
         stopping = false
         SOCKS_PORT = if (spec.oblivionJson.isBlank()) 1819 else OblivionOptions(spec.oblivionJson).aetherPort
 
         val bin = binary(context)
         if (!bin.exists()) {
-            Log.e(TAG, "binary missing at " + bin.absolutePath)
+            GhajarLog.e(TAG, "binary missing at " + bin.absolutePath)
             return false
         }
 
         val dir = workDir(context)
-        val cmd = mutableListOf(bin.absolutePath).apply { addAll(args(spec)) }
+        val cmd = mutableListOf(bin.absolutePath).apply {
+            addAll(args(spec))
+            if (upstreamPort != null) { require(upstreamPort in 1024..65535); addAll(listOf("--upstream", "socks5://127.0.0.1:$upstreamPort")) }
+        }
         Log.i(TAG, "Starting Aether")
         lastOutput.clear()
 
@@ -158,10 +161,14 @@ object AetherController {
             ProcessBuilder(cmd)
                 .directory(dir)
                 .redirectErrorStream(true)
-                .apply { environment().putAll(env(spec, context)) }
+                .apply { environment().apply {
+                    // A chain must not inherit ambient upstream/routing overrides.
+                    if (AetherTorPolicy.active(spec.oblivionJson)) keys.filter { it.startsWith("AETHER_") }.toList().forEach { remove(it) }
+                    putAll(env(spec, context))
+                } }
                 .start()
         } catch (e: Exception) {
-            Log.e(TAG, "spawn failed", e)
+            GhajarLog.e(TAG, "spawn failed", e)
             return false
         }
         process = p
@@ -171,13 +178,13 @@ object AetherController {
                 BufferedReader(InputStreamReader(p.inputStream)).useLines { lines ->
                     lines.forEach {
                         synchronized(lastOutput) {
-                            lastOutput.addLast(it)
+                            lastOutput.addLast(GhajarLog.redact(it).take(2048))
                             while (lastOutput.size > 40) lastOutput.removeFirst()
                         }
-                        if (!stopping) Log.i(TAG, it)
+                        if (!stopping && process === p) GhajarLog.i(TAG, it)
                     }
                 }
-            }.onFailure { Log.w(TAG, "log reader ended: " + it.message) }
+            }.onFailure { GhajarLog.w(TAG, "log reader ended: " + it.message) }
         }
 
         return waitForPort()
@@ -190,7 +197,7 @@ object AetherController {
             val p = process
             if (p == null || !p.isAlive) {
                 val code = runCatching { p?.exitValue() }.getOrNull()
-                Log.e(TAG, "process exited before the proxy came up, exit code=" + code)
+                GhajarLog.e(TAG, "process exited before the proxy came up, exit code=" + code)
                 dumpOutput()
                 return false
             }
@@ -206,7 +213,7 @@ object AetherController {
             }
             Thread.sleep(400)
         }
-        Log.e(TAG, "timed out after " + READY_TIMEOUT_MS + "ms waiting for the proxy")
+        GhajarLog.e(TAG, "timed out after " + READY_TIMEOUT_MS + "ms waiting for the proxy")
         dumpOutput()
         return false
     }
@@ -216,10 +223,10 @@ object AetherController {
     private fun dumpOutput() {
         val tail = synchronized(lastOutput) { lastOutput.toList() }
         if (tail.isEmpty()) {
-            Log.e(TAG, "no output was produced by the binary")
+            GhajarLog.e(TAG, "no output was produced by the binary")
         } else {
-            Log.e(TAG, "last " + tail.size + " lines from aether:")
-            tail.forEach { Log.e(TAG, "  | " + it) }
+            GhajarLog.e(TAG, "last " + tail.size + " lines from aether:")
+            tail.forEach { GhajarLog.e(TAG, "  | " + it) }
         }
     }
 
@@ -232,10 +239,7 @@ object AetherController {
     fun stop() {
         stopping = true
         val p = process ?: return
+        terminateProcess(p, 2000)
         process = null
-        runCatching {
-            p.destroy()
-            if (!p.waitFor(2000, TimeUnit.MILLISECONDS)) p.destroyForcibly()
-        }
     }
 }

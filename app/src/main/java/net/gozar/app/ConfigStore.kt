@@ -22,6 +22,18 @@ class ConfigStore private constructor(context: Context) {
     private val appCtx: Context = context.applicationContext
 
     private val prefs = context.getSharedPreferences("gozarnet", Context.MODE_PRIVATE)
+    private val _freeSourcePolicy = MutableStateFlow(prefs.getString("free_source_policy_v1", "{}") ?: "{}")
+    val freeSourcePolicy: StateFlow<String> = _freeSourcePolicy.asStateFlow()
+    fun setFreeSource(id: String, state: String) {
+        val raw = runCatching { JSONObject(_freeSourcePolicy.value) }.getOrElse { JSONObject() }.put(id, state)
+        restoreFreeSourcePolicy(raw)
+    }
+    private fun restoreFreeSourcePolicy(raw: JSONObject) {
+        val json = net.gozar.app.freecfg.FreeSourcePolicy.normalize(raw).toString()
+        prefs.edit().putString("free_source_policy_v1", json).apply(); _freeSourcePolicy.value = json
+    }
+    fun activeFreeSources() = net.gozar.app.freecfg.FreeSourcePolicy.active(runCatching { JSONObject(_freeSourcePolicy.value) }.getOrElse { JSONObject() })
+
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -136,6 +148,7 @@ class ConfigStore private constructor(context: Context) {
     fun setDynamicAccent(enabled: Boolean) {
         _dynamicAccent.value = enabled
         prefs.edit().putBoolean(KEY_DYNAMIC_ACCENT, enabled).apply()
+        GhajarRemoteTheme.refresh(appCtx)
     }
 
     /** One or two columns in the server list. */
@@ -290,12 +303,7 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_BLOCK_WHEN_OFF, enabled).apply()
     }
 
-    /** VPN Share: exposes the same local SOCKS5 inbound the engine already
-     * binds to 127.0.0.1 (see ConfigBuilder's socksIn) on 0.0.0.0 instead, so
-     * devices on this phone's own hotspot can point their proxy settings at
-     * it. Tearing down the tunnel tears down this listener with it - there is
-     * no fallback path, so a dropped VPN fails shared clients closed rather
-     * than leaking their traffic direct. */
+    /** User intent survives restart/backup; authenticated listener exists only during an eligible VPN session. */
     private val _vpnShareEnabled = MutableStateFlow(prefs.getBoolean(KEY_VPN_SHARE, false))
     val vpnShareEnabled: StateFlow<Boolean> = _vpnShareEnabled.asStateFlow()
 
@@ -304,37 +312,28 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_VPN_SHARE, enabled).apply()
     }
 
-    /** SOCKS5 credential Xray requires from every VPN-Share client. Without
-     * this the shared inbound was a plain unauthenticated open proxy on the
-     * hotspot subnet - anyone on the same Wi-Fi AP could use or sniff through
-     * it. Generated once on first use and stored the same way other secrets
-     * (KEY_CONFIGS/KEY_SUBS) already are; changing it forces every guest
-     * device to re-enter the new value, which is the intended effect of the
-     * "تولید مجدد" action in the share dialog. */
-    private val _vpnShareUsername = MutableStateFlow(readSecret(KEY_VPN_SHARE_USER).orEmpty())
+    /** Authenticated sharing relay credentials; memory only, regenerated after process death/restore. */
+    private val _vpnShareUsername = MutableStateFlow("")
     val vpnShareUsername: StateFlow<String> = _vpnShareUsername.asStateFlow()
 
-    private val _vpnSharePassword = MutableStateFlow(readSecret(KEY_VPN_SHARE_PASS).orEmpty())
+    private val _vpnSharePassword = MutableStateFlow("")
     val vpnSharePassword: StateFlow<String> = _vpnSharePassword.asStateFlow()
 
-    /** Returns the current credential, generating and persisting one first if
-     * this is the first time VPN Share is used. */
-    fun ensureVpnShareCredential(): Pair<String, String> {
+    /** Returns this process's credential, generating it on first use. */
+    @Synchronized fun ensureVpnShareCredential(): Pair<String, String> {
         if (_vpnShareUsername.value.isNotBlank() && _vpnSharePassword.value.isNotBlank()) {
             return _vpnShareUsername.value to _vpnSharePassword.value
         }
         return regenerateVpnShareCredential()
     }
 
-    fun regenerateVpnShareCredential(): Pair<String, String> {
+    @Synchronized fun regenerateVpnShareCredential(): Pair<String, String> {
         val user = "ghajar" + secureRandomToken(4)
         val pass = secureRandomToken(12)
         _vpnShareUsername.value = user
         _vpnSharePassword.value = pass
-        scope.launch(writeDispatcher) {
-            putSecretBlocking(KEY_VPN_SHARE_USER, user)
-            putSecretBlocking(KEY_VPN_SHARE_PASS, pass)
-        }
+        // Session credentials are deliberately not persisted or restored.
+        prefs.edit().remove(KEY_VPN_SHARE_USER).remove(KEY_VPN_SHARE_PASS).apply()
         return user to pass
     }
 
@@ -561,6 +560,7 @@ class ConfigStore private constructor(context: Context) {
     fun setThemeMode(mode: ThemeMode) {
         _themeMode.value = mode
         prefs.edit().putString(KEY_THEME, mode.name).apply()
+        GhajarRemoteTheme.refresh(appCtx)
     }
 
     private val _uiTheme = MutableStateFlow(loadUiTheme())
@@ -629,6 +629,7 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun add(config: ProxyConfig) {
+        require(!net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) { "Vault runtime profiles cannot be persisted" }
         _configs.value = _configs.value + config
         persistConfigs()
     }
@@ -754,7 +755,8 @@ class ConfigStore private constructor(context: Context) {
     }
 
     private fun sigOf(c: ProxyConfig): String =
-        "${c.protocol}|${c.address}|${c.port}|${c.uuid}|${c.password}"
+        if (net.gozar.app.plugins.PluginProfiles.isPlugin(c)) net.gozar.app.plugins.PluginProfiles.identity(c)
+        else "${c.protocol}|${c.address}|${c.port}|${c.uuid}|${c.password}"
 
     /** A config's display name only; everything else about it stays. */
     fun renameConfig(id: String, newName: String) {
@@ -840,7 +842,7 @@ class ConfigStore private constructor(context: Context) {
         val seen = HashSet<String>()
         val dupes = LinkedHashSet<String>()
         _configs.value.forEach { c ->
-            val key = listOf(
+            val key = if (net.gozar.app.plugins.PluginProfiles.isPlugin(c)) net.gozar.app.plugins.PluginProfiles.identity(c) else listOf(
                 c.protocol, c.address.trim().lowercase(), c.port.toString(),
                 c.uuid, c.password, c.method, c.encryption, c.flow,
                 c.alterId.toString(), c.network, c.security, c.sni,
@@ -861,6 +863,8 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun settingsSnapshot(): JSONObject = JSONObject().apply {
+        put("freeSourcePolicyV1", JSONObject(_freeSourcePolicy.value))
+        put("plugins", net.gozar.app.plugins.PluginManager.get(appCtx).backup())
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
         put("zeptunTunnel", _zeptunTunnel.value)
@@ -915,6 +919,8 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun restoreSettings(o: JSONObject) {
+        o.optJSONObject("freeSourcePolicyV1")?.let { restoreFreeSourcePolicy(it) }
+        o.optJSONArray("plugins")?.let { net.gozar.app.plugins.PluginManager.get(appCtx).restore(it) }
         if (o.has("fragment")) setFragment(o.getBoolean("fragment"))
         if (o.has("fragmentPackets")) setFragmentPackets(o.getString("fragmentPackets"))
         if (o.has("fragmentLength")) setFragmentLength(o.getString("fragmentLength"))
@@ -930,7 +936,11 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("mux")) setMux(o.getBoolean("mux"))
         if (o.has("muxConcurrency")) setMuxConcurrency(o.getInt("muxConcurrency"))
         if (o.has("blockWhenOff")) setBlockWhenOff(o.getBoolean("blockWhenOff"))
-        if (o.has("vpnShareEnabled")) setVpnShareEnabled(o.getBoolean("vpnShareEnabled"))
+        if (o.has("vpnShareEnabled")) {
+            net.gozar.app.sharing.PhoneSharing.invalidate()
+            regenerateVpnShareCredential()
+            setVpnShareEnabled(o.getBoolean("vpnShareEnabled"))
+        }
         if (o.has("onionRouting")) setOnionRouting(o.getBoolean("onionRouting"))
         if (o.has("encryptedDns")) setEncryptedDns(o.getBoolean("encryptedDns"))
         if (o.has("fakeDns")) setFakeDns(o.getBoolean("fakeDns"))
@@ -994,6 +1004,9 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun restoreBackup(configs: List<ProxyConfig>, subs: List<Subscription>, settings: JSONObject?) {
+        // Even a 1.0.10 backup without sharing settings invalidates temporary sessions.
+        net.gozar.app.sharing.PhoneSharing.invalidate()
+        regenerateVpnShareCredential()
         _configs.value = configs
         _subscriptions.value = subs
         persistConfigs()
@@ -1057,6 +1070,7 @@ class ConfigStore private constructor(context: Context) {
     // reference copy of an immutable list) stays on the caller's thread.
     private fun persistConfigs() {
         val snapshot = _configs.value
+        require(snapshot.none { net.gozar.app.security.vault.VaultRuntime.isReference(it.id) }) { "Vault runtime profiles cannot be persisted" }
         scope.launch(writeDispatcher) {
             val arr = JSONArray()
             snapshot.forEach { arr.put(it.toJson()) }

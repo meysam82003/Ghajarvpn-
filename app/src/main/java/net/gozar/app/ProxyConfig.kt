@@ -132,7 +132,9 @@ data class ProxyConfig(
     val source: ConfigSource = ConfigSource.PERSONAL,
     val locked: Boolean = false,
     val favorite: Boolean = false,
-    val id: String = UUID.randomUUID().toString()
+    val id: String = UUID.randomUUID().toString(),
+    /** REALITY crawler path; absent in old backups means the original default. */
+    val spiderX: String = "/"
 ) {
     fun toJson(): JSONObject = JSONObject()
         .put("id", id).put("name", name).put("protocol", protocol)
@@ -140,7 +142,7 @@ data class ProxyConfig(
         .put("password", password).put("method", method).put("alterId", alterId)
         .put("encryption", encryption).put("flow", flow).put("network", network)
         .put("security", security).put("sni", sni).put("publicKey", publicKey)
-        .put("shortId", shortId).put("fingerprint", fingerprint)
+        .put("spiderX", spiderX).put("shortId", shortId).put("fingerprint", fingerprint)
         .put("path", path).put("host", host)
         .put("serviceName", serviceName).put("mode", mode).put("alpn", alpn).put("source", source.name)
         .put("headerType", headerType)
@@ -185,6 +187,7 @@ data class ProxyConfig(
             sni = o.optString("sni", ""),
             publicKey = o.optString("publicKey", ""),
             shortId = o.optString("shortId", ""),
+            spiderX = o.optString("spiderX", "/"),
             fingerprint = o.optString("fingerprint", "chrome"),
             path = o.optString("path", ""),
             host = o.optString("host", ""),

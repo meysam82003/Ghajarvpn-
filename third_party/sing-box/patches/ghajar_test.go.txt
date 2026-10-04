@@ -1,0 +1,81 @@
+package trafficcontrol
+
+import (
+	"github.com/sagernet/sing/common/bufio"
+	"io"
+	"net"
+	"sync/atomic"
+	"testing"
+)
+
+func TestGhajarTCPCountsActualPayload(t *testing.T) {
+	m := NewManager()
+	a, b := net.Pipe()
+	defer a.Close()
+	defer b.Close()
+	up, down := m.ghajarCounters("data", new(atomic.Int64), new(atomic.Int64))
+	c := bufio.NewInt64CounterConn(a, up, down)
+	done := make(chan error, 1)
+	go func() { _, e := b.Write([]byte("upload")); done <- e }()
+	data := make([]byte, 6)
+	if _, e := io.ReadFull(c, data); e != nil {
+		t.Fatal(e)
+	}
+	if e := <-done; e != nil {
+		t.Fatal(e)
+	}
+	go func() { _, e := io.ReadFull(b, make([]byte, 8)); done <- e }()
+	if _, e := c.Write([]byte("download")); e != nil {
+		t.Fatal(e)
+	}
+	if e := <-done; e != nil {
+		t.Fatal(e)
+	}
+	u, d := m.GhajarUsage()
+	if u != 6 || d != 8 {
+		t.Fatalf("got %d %d", u, d)
+	}
+	m.Clear()
+	u, d = m.GhajarUsage()
+	if u != 6 || d != 8 {
+		t.Fatal("history clearing reset meter")
+	}
+}
+func TestGhajarProbeDoesNotConsumeQuota(t *testing.T) {
+	m := NewManager()
+	up, down := m.ghajarCounters("ghajar-vault-probe", new(atomic.Int64), new(atomic.Int64))
+	for _, p := range up {
+		p.Add(100)
+	}
+	for _, p := range down {
+		p.Add(200)
+	}
+	u, d := m.GhajarUsage()
+	if u != 0 || d != 0 {
+		t.Fatal("probe charged")
+	}
+}
+func TestGhajarCountersIncludeConcurrentConnections(t *testing.T) {
+	m := NewManager()
+	for i := 0; i < 2000; i++ {
+		up, down := m.ghajarCounters("data", new(atomic.Int64), new(atomic.Int64))
+		for _, p := range up {
+			p.Add(3)
+		}
+		for _, p := range down {
+			p.Add(5)
+		}
+	}
+	u, d := m.GhajarUsage()
+	if u != 6000 || d != 10000 {
+		t.Fatal("lost connection totals")
+	}
+}
+
+func TestGhajarFreezeRejectsNewIO(t *testing.T) {
+ m:=NewManager()
+ m.ghajarUpload.Add(12);m.ghajarDownload.Add(34)
+ up,down:=m.GhajarFreeze()
+ if up!=12 || down!=34 { t.Fatal("final counters") }
+ if m.ghajarBeginIO() { t.Fatal("I/O admitted after freeze") }
+}

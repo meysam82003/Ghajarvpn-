@@ -36,7 +36,7 @@ class SitePermissionsStoreTest {
         s.remember("example.com", SitePermission.MICROPHONE, SitePermissionState.BLOCK)
         s.forget("example.com")
         assertEquals(SitePermissionState.ASK, s.state("example.com", SitePermission.CAMERA))
-        assertEquals(SitePermissionState.ASK, s.state("example.com", SitePermission.MICROPHONE))
+        assertEquals(SitePermissionState.BLOCK, s.state("example.com", SitePermission.MICROPHONE))
     }
 
     @Test
@@ -58,9 +58,14 @@ class SitePermissionsStoreTest {
     }
 
     @Test
-    fun `os permission mapping is total`() {
-        for (resource in SitePermission.entries) {
-            assertTrue(!SitePermissionsStore.osPermissionFor(resource).isNullOrBlank())
+    fun `only camera has an OS grant path even with a legacy allow`() {
+        val s = store()
+        assertEquals(android.Manifest.permission.CAMERA, SitePermissionsStore.osPermissionFor(SitePermission.CAMERA))
+        for (resource in listOf(SitePermission.MICROPHONE, SitePermission.GEOLOCATION)) {
+            s.remember("example.com", resource, SitePermissionState.ALLOW)
+            assertEquals(null, SitePermissionsStore.osPermissionFor(resource))
+            assertEquals(SitePermissionState.BLOCK, s.state("example.com", resource))
+            assertEquals(SitePermissionState.BLOCK, s.decisions()["example.com"]?.get(resource))
         }
     }
 }

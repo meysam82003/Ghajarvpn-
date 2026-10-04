@@ -1,0 +1,59 @@
+{
+  "sha256": "213ce36cf9faa2f9149c568541ed178b987f83b5576719ff61b49fc8ad8805a1",
+  "entries": [
+    {
+      "path": "jni/armeabi-v7a/libgojni.so",
+      "bytes": 44718044
+    },
+    {
+      "path": "jni/arm64-v8a/libgojni.so",
+      "bytes": 46808912
+    },
+    {
+      "path": "jni/x86/libgojni.so",
+      "bytes": 45262788
+    },
+    {
+      "path": "jni/x86_64/libgojni.so",
+      "bytes": 49805808
+    }
+  ],
+  "modules": [
+    "dep\tgithub.com/Psiphon-Labs/bolt\tv0.0.0-20200624191537-23cedaef7ad7\th1:Hx/NCZTnvoKZuIBwSmxE58KKoNLXIGG6hBJYN7pj9Ag=",
+    "dep\tgithub.com/Psiphon-Labs/consistent\tv0.0.0-20240322131436-20aaa4e05737\th1:QTMy7Uc2Xc7fz6O/Khy1xi0VBND13GqzLUE2mHw6HUU=",
+    "dep\tgithub.com/Psiphon-Labs/covert-dtls\tv0.0.0-20260423180104-2d3b15cbc8be\th1:Lh1pAsY7Rvzrnecx4n7RVxhBgzZcAruARl/F3uN/74s=",
+    "dep\tgithub.com/Psiphon-Labs/pion-ice/v4\tv4.0.0-20260423180031-37d6e92d021f\th1:mjFPePcMMkRSpJ+Jxw/ofR0/EL+fsbh5xbSHea2ZD5w=",
+    "dep\tgithub.com/Psiphon-Labs/pion-webrtc/v4\tv4.0.0-20260423180049-7ff453f9681a\th1:vRPFPZ+kMNFY7p5N3HrvhAz7s8idJHFV8EY5lnQJT0A=",
+    "dep\tgithub.com/Psiphon-Labs/psiphon-tls\tv0.0.0-20260429174135-190516348878\th1:cZs+MSkBCXOXxUjFzknZVQlYQ2no/sxAXbvWLeCgA6I=",
+    "dep\tgithub.com/Psiphon-Labs/psiphon-tunnel-core\tv0.0.0",
+    "=>\t/home/runner/work/_temp/psiphon-tunnel-core\t(devel)\t",
+    "dep\tgithub.com/Psiphon-Labs/quic-go\tv0.0.0-20250527153145-79fe45fb83b1",
+    "=>\t/home/runner/work/_temp/psiphon-tunnel-core/third_party/quic-go-fork\t(devel)\t",
+    "dep\tgithub.com/Psiphon-Labs/utls\tv1.1.1-0.20260423193914-69eb96d02588\th1:LlvUAE1YX65jG+nFJtbTWvaj3qTgMkaa3wpn6ys0p40=",
+    "dep\tgithub.com/apernet/quic-go\tv0.59.1-0.20260217092621-db4786c77a22\th1:00ziBGnLWQEcR9LThDwvxOznJJquJ9bYUdmBFnawLMU=",
+    "dep\tgithub.com/pion/dtls/v3\tv3.1.2\th1:gqEdOUXLtCGW+afsBLO0LtDD8GnuBBjEy6HRtyofZTc=",
+    "dep\tgithub.com/quic-go/qpack\tv0.6.0\th1:g7W+BMYynC1LbYLSqRt8PBg5Tgwxn214ZZR34VIOjz8=",
+    "dep\tgithub.com/quic-go/qpack/v4legacy\tv0.4.0",
+    "=>\t/home/runner/work/_temp/psiphon-tunnel-core/third_party/qpack-v4legacy\t(devel)\t",
+    "dep\tgithub.com/refraction-networking/utls\tv1.8.3-0.20260301010127-aa6edf4b11af\th1:er2acxbi3N1nvEq6HXHUAR1nTWEJmQfqiGR8EVT9rfs=",
+    "dep\tgithub.com/xtls/xray-core\tv1.260327.0\th1:g4TzxMwyPrxslZh6uD+FiG3lXKTrnNO+b4ky2OhogHE=",
+    "dep\tgithub.com/Psiphon-Labs/bolt\tv0.0.0-20200624191537-23cedaef7ad7\th1:Hx/NCZTnvoKZuIBwSmxE58KKoNLXIGG6hBJYN7pj9Ag=",
+    "dep\tgithub.com/Psiphon-Labs/consistent\tv0.0.0-20240322131436-20aaa4e05737\th1:QTMy7Uc2Xc7fz6O/Khy1xi0VBND13GqzLUE2mHw6HUU=",
+    "dep\tgithub.com/Psiphon-Labs/covert-dtls\tv0.0.0-20260423180104-2d3b15cbc8be\th1:Lh1pAsY7Rvzrnecx4n7RVxhBgzZcAruARl/F3uN/74s=",
+    "dep\tgithub.com/Psiphon-Labs/pion-ice/v4\tv4.0.0-20260423180031-37d6e92d021f\th1:mjFPePcMMkRSpJ+Jxw/ofR0/EL+fsbh5xbSHea2ZD5w=",
+    "dep\tgithub.com/Psiphon-Labs/pion-webrtc/v4\tv4.0.0-20260423180049-7ff453f9681a\th1:vRPFPZ+kMNFY7p5N3HrvhAz7s8idJHFV8EY5lnQJT0A=",
+    "dep\tgithub.com/Psiphon-Labs/psiphon-tls\tv0.0.0-20260429174135-190516348878\th1:cZs+MSkBCXOXxUjFzknZVQlYQ2no/sxAXbvWLeCgA6I=",
+    "dep\tgithub.com/Psiphon-Labs/psiphon-tunnel-core\tv0.0.0",
+    "=>\t/home/runner/work/_temp/psiphon-tunnel-core\t(devel)\t",
+    "dep\tgithub.com/Psiphon-Labs/quic-go\tv0.0.0-20250527153145-79fe45fb83b1",
+    "=>\t/home/runner/work/_temp/psiphon-tunnel-core/third_party/quic-go-fork\t(devel)\t",
+    "dep\tgithub.com/Psiphon-Labs/utls\tv1.1.1-0.20260423193914-69eb96d02588\th1:LlvUAE1YX65jG+nFJtbTWvaj3qTgMkaa3wpn6ys0p40=",
+    "dep\tgithub.com/apernet/quic-go\tv0.59.1-0.20260217092621-db4786c77a22\th1:00ziBGnLWQEcR9LThDwvxOznJJquJ9bYUdmBFnawLMU=",
+    "dep\tgithub.com/pion/dtls/v3\tv3.1.2\th1:gqEdOUXLtCGW+afsBLO0LtDD8GnuBBjEy6HRtyofZTc=",
+    "dep\tgithub.com/quic-go/qpack\tv0.6.0\th1:g7W+BMYynC1LbYLSqRt8PBg5Tgwxn214ZZR34VIOjz8=",
+    "dep\tgithub.com/quic-go/qpack/v4legacy\tv0.4.0",
+    "=>\t/home/runner/work/_temp/psiphon-tunnel-core/third_party/qpack-v4legacy\t(devel)\t",
+    "dep\tgithub.com/refraction-networking/utls\tv1.8.3-0.20260301010127-aa6edf4b11af\th1:er2acxbi3N1nvEq6HXHUAR1nTWEJmQfqiGR8EVT9rfs=",
+    "dep\tgithub.com/xtls/xray-core\tv1.260327.0\th1:g4TzxMwyPrxslZh6uD+FiG3lXKTrnNO+b4ky2OhogHE="
+  ]
+}
