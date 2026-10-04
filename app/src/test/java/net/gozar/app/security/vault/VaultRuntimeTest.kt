@@ -33,7 +33,12 @@ class VaultRuntimeTest {
         assertEquals(100L,ledger.read(e.usageId).bytes(Accounting.TOTAL))
     }
     @Test fun cumulativeSamplesResetAndFinalFlushNeverSubtractUsage() = ledger { ledger,_ ->
-        val e=entry();val session=VaultMeteredSession(e,ledger,1000)
+        // Keep the monotonic clock deterministic. Production intentionally
+        // advances time with elapsedRealtime so a backwards wall-clock change
+        // cannot extend entitlement lifetime; a busy CI runner must not make
+        // this synthetic timestamp assertion drift by a few milliseconds.
+        var elapsed=0L
+        val e=entry();val session=VaultMeteredSession(e,ledger,1000) { elapsed }
         session.sample(10,20,1001);session.sample(10,20,1002)
         session.sample(3,4,1003);session.sample(5,7,1004)
         assertEquals(15L,ledger.read(e.usageId).upload)
@@ -42,12 +47,13 @@ class VaultRuntimeTest {
         assertEquals(1001L,ledger.read(e.usageId).firstConnectAt)
     }
     @Test fun firstConnectRequiresSuccessfulDataAndDoesNotResetOnReconnect() = ledger { ledger,_ ->
+        var elapsed=0L
         val e=entry(VaultQuota(validityMillis=1000,activationMode=ActivationMode.FIRST_CONNECT))
-        val s=VaultMeteredSession(e,ledger,1000)
+        val s=VaultMeteredSession(e,ledger,1000) { elapsed }
         assertNull(s.sample(0,0,1100).expiresAt)
         assertEquals(2200L,s.sample(5,5,1200,false).expiresAt)
         s.close()
-        val next=VaultMeteredSession(e,ledger,1500)
+        val next=VaultMeteredSession(e,ledger,1500) { elapsed }
         assertEquals(2200L,next.sample(0,0,1600,true).expiresAt)
         assertEquals(EntitlementStatus.EXPIRED,next.check(2200).status)
     }
