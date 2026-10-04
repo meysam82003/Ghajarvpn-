@@ -417,7 +417,7 @@ class GhajarDnsOnlyService : VpnService() {
     private fun privateDnsActive(): Boolean = runCatching {
         val cm = getSystemService(ConnectivityManager::class.java) ?: return false
         val network = cm.activeNetwork ?: return false
-        android.os.Build.VERSION.SDK_INT >= 28 && cm.getLinkProperties(network)?.isPrivateDnsActive == true
+        cm.getLinkProperties(network)?.isPrivateDnsActive == true
     }.getOrDefault(false)
 
     private fun teardown() {

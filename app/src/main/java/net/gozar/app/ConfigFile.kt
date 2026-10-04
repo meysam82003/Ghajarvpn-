@@ -76,8 +76,7 @@ object ConfigFile {
         val openVpnProfiles: List<ByteArray> = emptyList(),
         /** Per-network auto-connect rules (ConfigFile v>=5 only); null on
          * older backups, which leaves the installed rules untouched. */
-        val networkRules: JSONObject? = null,
-        val vault: JSONObject? = null
+        val networkRules: JSONObject? = null
     )
 
     fun isPasswordProtected(bytes: ByteArray): Boolean {
@@ -119,13 +118,8 @@ object ConfigFile {
         GhajarOpenVpnBridge.exportProfiles(context).forEach { bytes ->
             profilesArr.put(Base64.encodeToString(bytes, Base64.NO_WRAP))
         }
-        val vault = net.gozar.app.security.vault.VaultBackup.capture(File(context.filesDir,"safebox.gsb"),
-            net.gozar.app.security.vault.VaultUsageLedger(File(context.noBackupFilesDir,"vault-usage.json")))
-        require(vault == null || !password.isNullOrBlank()) { "برای پشتیبان صندوق رمز مستقل بکاپ لازم است." }
-        vault?.put("secureScreen",context.getSharedPreferences("ghajar_vault",0).getBoolean("secure_screen",true))
         val root = JSONObject()
-            .put("v", 6)
-            .put("vault",vault)
+            .put("v", 5)
             .put("kind", "backup")
             .put("configs", cfgArr)
             .put("subs", subArr)
@@ -214,7 +208,7 @@ object ConfigFile {
         }
         return Backup(
             configs, subs, root.optJSONObject("settings"), root.optJSONObject("openVpnSettings"), profiles,
-            root.optJSONObject("networkRules"), root.optJSONObject("vault")
+            root.optJSONObject("networkRules")
         )
     }
 

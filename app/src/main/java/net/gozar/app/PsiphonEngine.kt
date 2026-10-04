@@ -200,7 +200,7 @@ object PsiphonController {
     fun start(service: VpnService, spec: PsiphonSpec): Boolean {
         stop()
         if (!available()) {
-            GhajarLog.e(TAG, "ca.psiphon.aar is not bundled in this build")
+            Log.e(TAG, "ca.psiphon.aar is not bundled in this build")
             return false
         }
 
@@ -239,12 +239,12 @@ object PsiphonController {
         }.getOrDefault(false)
 
         if (!reachedInTime) {
-            GhajarLog.e(TAG, "timed out after ${READY_TIMEOUT_MS}ms waiting for psiphon to come up")
+            Log.e(TAG, "timed out after ${READY_TIMEOUT_MS}ms waiting for psiphon to come up")
             stop()
             return false
         }
         if (SOCKS_PORT == 0 || !instance.isRunning || !connectedReported.get()) {
-            GhajarLog.e(TAG, "psiphon did not come up: ${failure ?: "unknown error"}")
+            Log.e(TAG, "psiphon did not come up: ${failure ?: "unknown error"}")
             stop()
             return false
         }

@@ -44,7 +44,6 @@ object FreeConfigs {
      * Healthy results appear during scanning. Only a complete scan replaces the
      * whole subscription; an unreachable feed cannot erase its previous entries. */
     suspend fun refresh(store: ConfigStore, label: String): Int {
-        if (store.activeFreeSources().isEmpty()) return NO_CONFIGS
         if (!refreshLock.tryLock()) return BUSY
         _busy.value = true; _incomplete.value = false
         _progress.value = Progress(0, 0, 0)
@@ -79,10 +78,8 @@ object FreeConfigs {
         try {
             coroutineScope {
                 val configs = Channel<ProxyConfig>(64)
-                val subscriptions = Channel<Pair<String, net.gozar.app.freecfg.FreeSource>>(32)
-                suspend fun offer(original: ProxyConfig, source: net.gozar.app.freecfg.FreeSource) {
-                    val cfg = original.copy(name = original.name + " · " + source.endpoint.substringAfterLast('/'),
-                        extra = original.extraJson().put("publicSource", org.json.JSONObject().put("id", source.id).put("url", source.endpoint)).toString())
+                val subscriptions = Channel<String>(32)
+                suspend fun offer(cfg: ProxyConfig) {
                     if (cfg.address.isNotBlank() && cfg.port in 1..65535 && candidates.add(FreeFeedRules.signature(cfg))) {
                         configs.send(cfg); progress()
                     }
@@ -100,15 +97,15 @@ object FreeConfigs {
                     }
                 } }
                 val expanders = List(4) { launch(Dispatchers.IO) {
-                    for ((url, source) in subscriptions) {
-                        try { SubscriptionFetcher.parseBody(FreeFeedHttp.read(url, route()), ConfigSource.COMMUNITY).forEach { offer(it, source) } }
+                    for (url in subscriptions) {
+                        try { SubscriptionFetcher.parseBody(FreeFeedHttp.read(url, route()), ConfigSource.COMMUNITY).forEach { offer(it) } }
                         catch (e: CancellationException) { throw e }
                         catch (_: SubscriptionError) { /* A message's web link may be an ordinary page. */ }
                         catch (_: Exception) { failures.incrementAndGet() }
                     }
                 } }
                 val feedSlots = Semaphore(3)
-                store.activeFreeSources().map { source -> launch(Dispatchers.IO) {
+                FreeSourceRegistry.DEFAULT_SOURCES.filter { it.enabled }.map { source -> launch(Dispatchers.IO) {
                     feedSlots.withPermit {
                         var before = 0L
                         try {
@@ -122,8 +119,8 @@ object FreeConfigs {
                                 val fresh = FreeFeedRules.recentPosts(posts, started)
                                 for (post in fresh) {
                                     val links = FreeFeedRules.extract(post.html)
-                                    for (link in links.configs) runCatching { ConfigParser.parse(link, ConfigSource.COMMUNITY) }.getOrNull()?.let { offer(it, source) }
-                                    for (link in links.subscriptions) if (urls.add(link)) subscriptions.send(link to source)
+                                    for (link in links.configs) runCatching { ConfigParser.parse(link, ConfigSource.COMMUNITY) }.getOrNull()?.let { offer(it) }
+                                    for (link in links.subscriptions) if (urls.add(link)) subscriptions.send(link)
                                 }
                                 if (posts.any { it.publishedAt == null }) failures.incrementAndGet()
                                 if (posts.all { (it.publishedAt ?: Long.MAX_VALUE) < started - 72 * 60 * 60 * 1000L }) break

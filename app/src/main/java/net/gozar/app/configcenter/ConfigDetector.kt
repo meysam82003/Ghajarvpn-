@@ -16,7 +16,7 @@ object ConfigDetector {
         OPENVPN,
         WIREGUARD,
         SSH,
-        BPF, NPVT, NPVS, NPVTSUB, EHI, NM, HAPP, DARK, TNL, SLIP,
+        NPVT, NPVS, NPVTSUB, EHI, NM, HAPP, DARK, TNL, SLIP,
         UNKNOWN
     }
 
@@ -38,7 +38,6 @@ object ConfigDetector {
     )
 
     fun detect(fileName: String?, bytes: ByteArray): Detection {
-        if (net.gozar.app.configtoolkit.BpfParser.looksLike(bytes)) return Detection(Format.BPF, Confidence.PARTIAL, "libbox profile; decode and core validation required")
         val text = runCatching { bytes.toString(Charsets.UTF_8) }.getOrDefault("")
         val printable = text.count { it.code in 9..13 || it.code in 32..126 || it.code > 127 }
         val looksText = bytes.isNotEmpty() && printable >= bytes.size * 0.85

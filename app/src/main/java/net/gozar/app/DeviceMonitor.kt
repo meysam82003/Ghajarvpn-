@@ -18,7 +18,7 @@ import java.io.File
  *
  * Every reader is best-effort: a vendor that hides a value gives null, never
  * an exception. Call [Sampler.sample] off the main thread, at most once a
- * second; thermal headroom itself is cached for ten seconds.
+ * second (getThermalHeadroom returns NaN when called faster).
  */
 object DeviceMonitor {
 
@@ -58,8 +58,6 @@ object DeviceMonitor {
         private val ticksPerSecond = runCatching { Os.sysconf(OsConstants._SC_CLK_TCK) }.getOrDefault(100L).coerceAtLeast(1L)
         private var lastTicks = -1L
         private var lastWallMs = 0L
-        private var lastHeadroomAt = -10_000L
-        private var headroomCached: Float? = null
 
         fun sample(): Sample {
             val sticky = runCatching {
@@ -83,13 +81,9 @@ object DeviceMonitor {
                 ?.let { if (it > 20_000) it / 1000 else it }
 
             val thermal = if (Build.VERSION.SDK_INT >= 29) runCatching { power?.currentThermalStatus }.getOrNull() else null
-            val sampleTime = android.os.SystemClock.elapsedRealtime()
-            if (Build.VERSION.SDK_INT >= 30 && sampleTime - lastHeadroomAt >= 10_000L) {
-                headroomCached = runCatching { power?.getThermalHeadroom(10) }.getOrNull()
-                    ?.takeIf { !it.isNaN() && it >= 0f }?.let { it * 100f }
-                lastHeadroomAt = sampleTime
-            }
-            val headroom = headroomCached
+            val headroom = if (Build.VERSION.SDK_INT >= 30)
+                runCatching { power?.getThermalHeadroom(10) }.getOrNull()?.takeIf { !it.isNaN() && it >= 0f }?.let { it * 100f }
+            else null
 
             val procs = ownProcesses()
             var ticks = 0L

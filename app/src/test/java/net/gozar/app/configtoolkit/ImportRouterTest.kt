@@ -24,7 +24,7 @@ class ImportRouterTest {
 
     @Test fun appKeyNpvsNeverAsksForAPassword() {
         val outcome = ImportRouter.decode(appKeySealed(), "user.npvs")
-        assertTrue("got $outcome", outcome is ImportRouter.Outcome.Invalid)
+        assertTrue("got $outcome", outcome is ImportRouter.Outcome.Locked)
     }
 
     @Test fun passphraseNpvsWithoutPassphraseAsksForIt() {

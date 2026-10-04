@@ -24,12 +24,10 @@ object VpnState {
 
     fun setPicking(value: Boolean) { _picking.value = value }
     fun setDisconnecting() {
-        net.gozar.app.sharing.PhoneSharing.invalidate()
         GhajarLog.i("VpnState", "state -> DISCONNECTING (was ${_state.value})")
         _state.value = Connection.DISCONNECTING
     }
     fun setConnecting(id: String) {
-        net.gozar.app.sharing.PhoneSharing.invalidate()
         GhajarLog.i("VpnState", "state -> CONNECTING id=$id (was ${_state.value})")
         _activeId.value = id; _error.value = null; _connectedAt.value = 0L; _state.value = Connection.CONNECTING
     }
@@ -38,12 +36,10 @@ object VpnState {
         _connectedAt.value = System.currentTimeMillis(); _state.value = Connection.CONNECTED
     }
     fun setError(message: String) {
-        net.gozar.app.sharing.PhoneSharing.invalidate()
         GhajarLog.e("VpnState", "state -> ERROR id=${_activeId.value} msg=$message (was ${_state.value})")
         _picking.value = false; _error.value = message; _connectedAt.value = 0L; _state.value = Connection.ERROR
     }
     fun setDisconnected() {
-        net.gozar.app.sharing.PhoneSharing.invalidate()
         GhajarLog.i("VpnState", "state -> DISCONNECTED (was ${_state.value}, id was ${_activeId.value})")
         _picking.value = false; _activeId.value = null; _connectedAt.value = 0L; _state.value = Connection.DISCONNECTED
     }

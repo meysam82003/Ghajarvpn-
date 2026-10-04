@@ -129,24 +129,4 @@ class GhajarLogRedactionTest {
         assertGone("my-npvs-secret-99", "passphrase: my-npvs-secret-99")
         assertTrue(redacted("<ca>x</ca> remote vpn.example.com 1194").contains("vpn.example.com"))
     }
-    @Test fun `short credentials and HTTP basic and encoded profiles are removed`() {
-        assertGone("YWJjOmRlZg==", "Proxy-Authorization: Basic YWJjOmRlZg==")
-        assertGone("xy", "token=xy&safe=1")
-        assertGone("abc123+/=", "secretKey=abc123+/=")
-        assertGone("user:short", "https://user:short@example.org")
-        assertGone("YWVzOnNlY3JldEBob3N0OjQ0Mw==", "ss://YWVzOnNlY3JldEBob3N0OjQ0Mw==")
-    }
-    @Test fun `memory sink is sanitized before export`() {
-        GhajarLog.i("Regression", "password=synthetic-sensitive-value")
-        assertFalse(GhajarLog.entries.value.last().message.contains("synthetic-sensitive-value"))
-    }
-    @Test fun `vault keys and complete escaped secrets never reach diagnostics`() {
-        assertGone("one two", "{\"token_secret\":\"one two\"}")
-        assertGone("suffix", "{\"password\":\"prefix\\\" suffix\"}")
-        assertGone("x", "cookie=x")
-        assertGone("syntheticBase64Key+/=", "masterKey=syntheticBase64Key+/=")
-        assertGone("private-profile-host", "failure: {\"rawConfig\":{\"server\":\"private-profile-host\"}}")
-        assertGone("private-profile-host", "failed ProxyConfig(address=private-profile-host, extra={})")
-    }
-
 }

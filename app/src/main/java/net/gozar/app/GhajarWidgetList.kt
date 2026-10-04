@@ -32,7 +32,6 @@ class GhajarWidgetListService : RemoteViewsService() {
 
         override fun getViewAt(position: Int): RemoteViews {
             val v = RemoteViews(app.packageName, R.layout.widget_config_row)
-            GhajarRemoteTheme.row(app, v)
             val c = rows.getOrNull(position) ?: return v
             val lang = runCatching { ConfigStore.get(app).lang.value }.getOrNull() ?: Lang.FA
             val active = VpnState.activeId.value

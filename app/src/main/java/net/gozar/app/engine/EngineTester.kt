@@ -173,8 +173,7 @@ object EngineTester {
      * Records a quick result for the server list.
      */
     fun realDelay(cfg: ProxyConfig, chain: ProxyConfig? = null, boundMs: Long = 0L): Long =
-        if (net.gozar.app.security.vault.VaultRuntime.isReference(cfg.id)) -1L else when (EngineRouting.engineFor(cfg)) {
-            EngineId.PLUGIN -> -1L // Never feed an opaque config into Xray or initialize plugins for list probes.
+        when (EngineRouting.engineFor(cfg)) {
             EngineId.SINGBOX -> test(cfg, if (boundMs > 0) boundMs.toInt() else 10_000, probes = 2, trace = false).latencyMs?.toLong() ?: -1L
             else -> {
                 val json = ConfigBuilder.buildForTest(cfg, chain)
@@ -197,7 +196,6 @@ object EngineTester {
     /** A full result for [cfg]. Blocking; call off the main thread. */
     fun test(cfg: ProxyConfig, timeoutMs: Int = 10_000, probes: Int = 5, trace: Boolean = true): EngineTestResult {
         val engine = EngineRouting.engineFor(cfg)
-        if (net.gozar.app.security.vault.VaultRuntime.isReference(cfg.id)) return EngineTestResult(engine, false, false, null, "تست صندوق فقط از داخل نشست فعال و حساب‌شده اجرا می‌شود.")
         val r = when (engine) {
             EngineId.SINGBOX -> testSingBox(cfg, timeoutMs, probes, trace)
             EngineId.XRAY -> testXray(cfg, probes)

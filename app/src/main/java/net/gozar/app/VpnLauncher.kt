@@ -45,9 +45,7 @@ object VpnLauncher {
      * returns immediately.
      */
     suspend fun relaunch(appContext: Context, store: ConfigStore, config: ProxyConfig): LaunchOutcome {
-        if (net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) return LaunchOutcome.REFUSED
         if (VpnService.prepare(appContext) != null) return LaunchOutcome.NO_PERMISSION
-        if (net.gozar.app.plugins.PluginProfiles.isPlugin(config)) return net.gozar.app.plugins.PluginRuntime.launch(appContext, config)
 
         runCatching {
             appContext.startService(
@@ -62,8 +60,6 @@ object VpnLauncher {
         val json = ConfigBuilder.build(
             config, store.fragment.value, store.splitRouting.value,
             store.sniffing.value, store.sniffTypes.value,
-            chainBase = store.configs.value.firstOrNull { it.id == config.chainId },
-            torBase = store.configs.value.firstOrNull { it.id == config.torBaseId },
             adBlock = store.adBlock.value,
             fakeDns = store.fakeDns.value,
             encryptedDns = store.encryptedDns.value,

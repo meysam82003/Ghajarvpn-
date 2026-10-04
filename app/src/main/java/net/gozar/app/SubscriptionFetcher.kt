@@ -5,6 +5,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.net.HttpURLConnection
 import java.net.URL
+import java.security.SecureRandom
+import java.security.cert.X509Certificate
+import javax.net.ssl.HostnameVerifier
+import javax.net.ssl.HttpsURLConnection
+import javax.net.ssl.SSLContext
+import javax.net.ssl.SSLSocketFactory
+import javax.net.ssl.TrustManager
+import javax.net.ssl.X509TrustManager
 
 data class SubUserInfo(
     val upload: Long = 0,
@@ -31,13 +39,13 @@ object SubscriptionFetcher {
         fetchFull(url, source).configs
 
     suspend fun fetchFull(url: String, source: ConfigSource = ConfigSource.PERSONAL,
-        proxy: java.net.Proxy = java.net.Proxy.NO_PROXY): FetchResult =
+        proxy: java.net.Proxy = java.net.Proxy.NO_PROXY, strictTls: Boolean = false): FetchResult =
         withContext(Dispatchers.IO) {
-            val conn = openFollowingRedirects(url, proxy)
+            val conn = openFollowingRedirects(url, proxy, strictTls)
             try {
                 val code = conn.responseCode
                 if (code !in 200..299) {
-                    runCatching { conn.errorStream?.close() }
+                    runCatching { conn.errorStream?.use { it.readBytes() } }
                     throw SubscriptionError(SubscriptionError.Kind.HTTP, code)
                 }
                 val body = conn.inputStream.use { input ->
@@ -68,12 +76,15 @@ object SubscriptionFetcher {
         }
     }
 
-    private fun openFollowingRedirects(startUrl: String, proxy: java.net.Proxy): HttpURLConnection {
+    private fun openFollowingRedirects(startUrl: String, proxy: java.net.Proxy, strictTls: Boolean): HttpURLConnection {
         var current = startUrl
         var hops = 0
         while (true) {
             val conn = (URL(current).openConnection(proxy) as HttpURLConnection).apply {
-
+                if (this is HttpsURLConnection && !strictTls) {
+                    sslSocketFactory = insecureSocketFactory()
+                    hostnameVerifier = HostnameVerifier { _, _ -> true }
+                }
                 connectTimeout = 12000
                 readTimeout = 12000
                 requestMethod = "GET"
@@ -81,7 +92,7 @@ object SubscriptionFetcher {
                 setRequestProperty("Accept", "*/*")
                 instanceFollowRedirects = false
             }
-            val code = try { conn.responseCode } catch(error: Exception) { conn.disconnect();throw error }
+            val code = conn.responseCode
             if (code in 300..399 && hops < 5) {
                 val loc = conn.getHeaderField("Location")
                 conn.disconnect()
@@ -90,7 +101,7 @@ object SubscriptionFetcher {
                 }
                 val next = URL(URL(current), loc)
                 require(next.protocol in setOf("http", "https"))
-                if (URL(current).protocol == "https") require(next.protocol == "https")
+                if (strictTls && URL(current).protocol == "https") require(next.protocol == "https")
                 current = next.toString()
                 hops++
                 continue
@@ -99,6 +110,16 @@ object SubscriptionFetcher {
         }
     }
 
+    private fun insecureSocketFactory(): SSLSocketFactory {
+        val trustAll = arrayOf<TrustManager>(object : X509TrustManager {
+            override fun checkClientTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun checkServerTrusted(chain: Array<out X509Certificate>?, authType: String?) {}
+            override fun getAcceptedIssuers(): Array<X509Certificate> = arrayOf()
+        })
+        val ctx = SSLContext.getInstance("TLS")
+        ctx.init(null, trustAll, SecureRandom())
+        return ctx.socketFactory
+    }
     private fun parseUserInfo(header: String?): SubUserInfo? {
         if (header.isNullOrBlank()) return null
         val map = header.split(';').mapNotNull {

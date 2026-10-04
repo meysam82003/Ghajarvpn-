@@ -60,7 +60,7 @@ object SshManager {
             android.util.Log.i(TAG, "connected ${host.endpoint} viaTunnel=$viaTunnel")
             SshStatus.Up(viaTunnel).also { set(host.id, it) }
         } catch (e: Throwable) {
-            net.gozar.app.GhajarLog.w(TAG, "connect failed for ${host.endpoint}", e)
+            android.util.Log.w(TAG, "connect failed for ${host.endpoint}", e)
             SshStatus.Failed(keyFor(e), e.message.orEmpty()).also { set(host.id, it) }
         }
     }
@@ -116,7 +116,7 @@ object SshManager {
                 }
                 ExecResult(ch.exitStatus, stdout.trim(), errBuf.toString("UTF-8").trim())
             } catch (e: Throwable) {
-                net.gozar.app.GhajarLog.w(TAG, "SSH command failed", e)
+                android.util.Log.w(TAG, "exec failed: $command", e)
                 ExecResult(-1, "", e.message.orEmpty())
             } finally {
                 runCatching { ch?.disconnect() }

@@ -30,16 +30,11 @@ object ForeignImport {
     // ---------------------------------------------------------------- Clash
 
     fun looksLikeClash(text: String): Boolean {
-        val t = text.trimStart('\uFEFF', ' ', '\n', '\r', '\t')
+        val t = text.trimStart('﻿', ' ', '\n', '\r', '\t')
         return !t.startsWith("{") && !t.startsWith("[") && Regex("(?m)^\\s*proxies\\s*:").containsMatchIn(t)
     }
 
-    fun clash(text: String, source: ConfigSource = ConfigSource.PERSONAL): Result = Result(
-        listOf(net.gozar.app.plugins.PluginProfiles.create("mihomo", "mihomo-yaml", text, source = source)),
-        listOf("کانفیگ کامل حفظ شد؛ برای اتصال افزونه Mihomo لازم است."))
-
-    /** Explicit node extraction remains available; never the default full-config import. */
-    fun clashNodes(text: String, source: ConfigSource = ConfigSource.PERSONAL): Result {
+    fun clash(text: String, source: ConfigSource = ConfigSource.PERSONAL): Result {
         val root = runCatching { MiniYaml.parse(text) }.getOrNull() as? Map<*, *>
             ?: return Result(emptyList(), listOf("the YAML could not be read"))
         val proxies = root["proxies"] as? List<*> ?: return Result(emptyList(), listOf("no proxies: list"))
@@ -179,12 +174,6 @@ object ForeignImport {
     }
 
     fun singBox(root: JSONObject, source: ConfigSource = ConfigSource.PERSONAL): Result {
-        val c = net.gozar.app.engine.FullSingBoxProfile.create(root.toString(), source = source)
-        return Result(listOf(c), listOfNotNull(net.gozar.app.engine.FullSingBoxProfile.blockReason(c)))
-    }
-
-    /** Explicit extraction only; default import preserves the full document. */
-    fun singBoxNodes(root: JSONObject, source: ConfigSource = ConfigSource.PERSONAL): Result {
         val all = mutableListOf<JSONObject>()
         listOf("outbounds", "endpoints").forEach { k ->
             root.optJSONArray(k)?.let { a -> for (i in 0 until a.length()) a.optJSONObject(i)?.let(all::add) }
@@ -199,7 +188,7 @@ object ForeignImport {
             val type = o.optString("type")
             if (type in skipTypes || o.optString("tag") in carriers) continue
             val name = o.optString("tag").ifBlank { type }
-            val c = runCatching { singBoxOutbound(o, byTag, source)?.let { EngineSettings.fromUpstream(it, o) } }.getOrNull()
+            val c = runCatching { singBoxOutbound(o, byTag, source) }.getOrNull()
             if (c != null) out += c else warn += "$name: type \"$type\" skipped (not supported or incomplete)"
         }
         return Result(out, warn)

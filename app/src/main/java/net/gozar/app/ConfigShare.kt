@@ -13,7 +13,6 @@ import java.net.URLEncoder
 object ConfigShare {
 
     fun toLink(c: ProxyConfig): String = when (c.protocol) {
-        "plugin" -> net.gozar.app.plugins.PluginProfiles.export(c)
         "vless" -> userLink("vless", c.uuid, c, includeEncryption = true)
         "trojan" -> userLink("trojan", c.password, c, includeEncryption = false)
         "vmess" -> vmessLink(c)
@@ -103,8 +102,7 @@ object ConfigShare {
                 if (c.mode == "doh") "doh" to c.path else "resolver" to (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port,
                 "upstream" to c.method.ifEmpty { "socks" })
             val x = c.extraJson()
-            val tuning = x.optJSONObject("tuning")?.let { o -> net.gozar.app.engine.DnsTunnelTuning.flags.keys.filter { o.has(it) }.map { it to o.getString(it) } }.orEmpty()
-            val opts = tuning + listOfNotNull(
+            val opts = listOfNotNull(
                 x.optString("recordType").takeIf { it.isNotEmpty() }?.let { "record" to it },
                 if (x.has("dnsttCompat")) "compat" to (if (x.optBoolean("dnsttCompat")) "1" else "0") else null,
                 x.optInt("maxQnameLen", 0).takeIf { it > 0 }?.let { "qname" to it.toString() },
@@ -120,7 +118,7 @@ object ConfigShare {
     }
 
     private fun simpleLink(scheme: String, userInfo: String, c: ProxyConfig, params: List<Pair<String, String>>): String {
-        val query = (params + EngineSettings.share(c)).filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
+        val query = params.filter { it.second.isNotEmpty() }.joinToString("&") { it.first + "=" + enc(it.second) }
         val host = if (c.address.contains(':')) "[" + c.address + "]" else c.address
         val user = if (userInfo.isEmpty() || userInfo == ":") "" else "$userInfo@"
         return "$scheme://$user$host:${c.port}" + (if (query.isEmpty()) "" else "?$query") + "#" + enc(c.name)
@@ -139,7 +137,7 @@ object ConfigShare {
         }
         if (c.hyUpMbps > 0) params.add("upmbps" to c.hyUpMbps.toString())
         if (c.hyDownMbps > 0) params.add("downmbps" to c.hyDownMbps.toString())
-        val query = (params + EngineSettings.share(c)).joinToString("&") { it.first + "=" + enc(it.second) }
+        val query = params.joinToString("&") { it.first + "=" + enc(it.second) }
         val host = if (c.address.contains(':')) "[" + c.address + "]" else c.address
         return "hysteria2://" + enc(c.password) + "@" + host + ":" + c.port +
                 (if (query.isEmpty()) "" else "?" + query) + "#" + enc(c.name)
@@ -159,7 +157,6 @@ object ConfigShare {
         if (c.sni.isNotEmpty()) params.add("sni" to c.sni)
         if (c.publicKey.isNotEmpty()) params.add("pbk" to c.publicKey)
         if (c.shortId.isNotEmpty()) params.add("sid" to c.shortId)
-        if (c.security == "reality") params.add("spx" to c.spiderX)
         if (c.fingerprint.isNotEmpty()) params.add("fp" to c.fingerprint)
         if (c.path.isNotEmpty()) params.add("path" to c.path)
         if (c.host.isNotEmpty()) params.add("host" to c.host)
@@ -176,8 +173,7 @@ object ConfigShare {
         if (c.maskPassword.isNotEmpty()) params.add("maskPass" to c.maskPassword)
         if (c.echConfigList.isNotEmpty()) params.add("ech" to c.echConfigList)
         val query = params.joinToString("&") { "${it.first}=${enc(it.second)}" }
-        val host = if (c.address.contains(':')) "[${c.address}]" else c.address
-        return "$scheme://${enc(userInfo)}@$host:${c.port}?$query#${enc(c.name)}"
+        return "$scheme://${enc(userInfo)}@${c.address}:${c.port}?$query#${enc(c.name)}"
     }
 
     private fun vmessLink(c: ProxyConfig): String {
@@ -205,8 +201,7 @@ object ConfigShare {
             "${c.method}:${c.password}".toByteArray(Charsets.UTF_8),
             Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
         )
-        val host = if (c.address.contains(':')) "[${c.address}]" else c.address
-        return "ss://$userInfo@$host:${c.port}#${enc(c.name)}"
+        return "ss://$userInfo@${c.address}:${c.port}#${enc(c.name)}"
     }
 
     const val QR_MAX_CHARS = 2300
