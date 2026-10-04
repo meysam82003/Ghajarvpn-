@@ -1,0 +1,6 @@
+ZedSecure audit, pinned commit 7c9639933abe7033c9f44a4a52f13ec1e74f8b55
+Files in Ghajar VPN 1.1.1 that copy or adapt ZedSecure code: NONE.
+Files added for the audit itself:
+  docs/zedsecure-audit/ZEDSECURE_AUDIT_FA.md
+  docs/zedsecure-audit/ZEDSECURE_CHANGED_FILES.txt
+  docs/ZEDSECURE_DESKTOP_CANDIDATES_FA.md

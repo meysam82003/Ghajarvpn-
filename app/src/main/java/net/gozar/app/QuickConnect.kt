@@ -47,6 +47,10 @@ object QuickConnect {
             VpnState.setError(net.gozar.app.engine.RemovedCores.MESSAGE)
             return QuickConnectResult.FAILED
         }
+        net.gozar.app.gsb2.Gsb2Store.gate(context, config)?.let { reason ->
+            VpnState.setError(reason)
+            return QuickConnectResult.FAILED
+        }
         if (VpnService.prepare(context) != null) return QuickConnectResult.NEEDS_CONSENT
 
         if (config.protocol == "ikev2") {

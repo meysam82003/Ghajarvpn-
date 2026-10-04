@@ -1137,6 +1137,10 @@ class MainActivity : ComponentActivity() {
             Toast.makeText(this, net.gozar.app.engine.RemovedCores.MESSAGE, Toast.LENGTH_LONG).show()
             return
         }
+        net.gozar.app.gsb2.Gsb2Store.gate(this, config)?.let { reason ->
+            Toast.makeText(this, reason, Toast.LENGTH_LONG).show()
+            return
+        }
         if (config.protocol == "ikev2") {
             val xrayWasUp = VpnState.state.value != Connection.DISCONNECTED
             IkeController.claim(config)
@@ -13672,6 +13676,16 @@ private fun ConfigRow(
                 horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
             ) {
                 if ("protocol" in fields) ProtocolTag(config.protocol, isActive)
+                net.gozar.app.gsb2.Gsb2.Meta.of(config)?.let { meta ->
+                    val used = remember(meta.shareId, ping) { net.gozar.app.gsb2.Gsb2Store.used(context, meta.shareId) }
+                    Text(
+                        "GSB2" + (if (meta.quotaBytes > 0) " · " + formatBytes((meta.quotaBytes - used).coerceAtLeast(0), lang) else "") +
+                            (if (meta.expiresAt > 0) " · " + localizeDigits(java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.US).format(java.util.Date(meta.expiresAt)), lang) else ""),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = c.info,
+                        maxLines = 1
+                    )
+                }
                 if (net.gozar.app.engine.RemovedCores.isRemoved(config)) {
                     Text(
                         t("removed_core_badge"),
@@ -15484,6 +15498,9 @@ private fun SharingHubScreen(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit
             }
         }
 
+        Rail("اشتراک امن GSB2")
+        Gsb2CreateSection(picked = picked, all = configs)
+
         Rail("پورتال شبکهٔ محلی")
         Slab(spacing = 6.dp) {
             val p = portal
@@ -15606,6 +15623,121 @@ private fun ReleaseHistorySection(installed: String) {
                 !end -> GhostPill(text = "نسخه‌های بیشتر", onClick = { loadMore() })
             }
             if (failed) GhostPill(text = "تلاش دوباره", onClick = { loadMore() })
+        }
+    }
+}
+
+
+/**
+ * Create a GSB2 share of one config or of its whole group: name, note,
+ * optional password, a fixed end date and/or a validity counted from import,
+ * a data quota, and whether the receiver may see the server details. The
+ * receiving app enforces the date and the quota.
+ */
+@Composable
+private fun Gsb2CreateSection(picked: ProxyConfig?, all: List<ProxyConfig>) {
+    val context = LocalContext.current
+    val c = ghajarColors
+    val scope = rememberCoroutineScope()
+    var open by rememberSaveable { mutableStateOf(false) }
+    var name by rememberSaveable(picked?.id) { mutableStateOf(picked?.name.orEmpty()) }
+    var note by rememberSaveable { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var hidden by rememberSaveable { mutableStateOf(true) }
+    var whole by rememberSaveable { mutableStateOf(false) }
+    var expiryDays by rememberSaveable { mutableIntStateOf(0) }
+    var durationDays by rememberSaveable { mutableIntStateOf(0) }
+    var quotaGb by rememberSaveable { mutableStateOf("") }
+    var status by remember { mutableStateOf("") }
+    var pending by remember { mutableStateOf<ByteArray?>(null) }
+    val group = remember(picked, all) {
+        if (picked == null) emptyList() else if (picked.subId.isNotBlank()) all.filter { it.subId == picked.subId } else listOf(picked)
+    }
+    val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val bytes = pending
+        if (uri != null && bytes != null) {
+            status = if (runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } }.isSuccess) "فایل GSB2 ذخیره شد." else "ذخیره نشد."
+        }
+        pending = null
+    }
+    fun build(): ByteArray? {
+        val items = (if (whole) group else listOfNotNull(picked)).filterNot { it.locked || net.gozar.app.gsb2.Gsb2.Meta.of(it) != null }
+        if (items.isEmpty()) { status = "کانفیگی برای اشتراک انتخاب نشده (کانفیگ قفل یا دریافتی از GSB2 قابل اشتراک دوباره نیست)."; return null }
+        val gb = quotaGb.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 }
+        val now = System.currentTimeMillis()
+        val share = net.gozar.app.gsb2.Gsb2.Share(
+            name = name.ifBlank { items.first().name }, note = note.trim(), createdAt = now,
+            expiresAt = if (expiryDays > 0) now + expiryDays * 86_400_000L else 0L,
+            durationMs = durationDays * 86_400_000L,
+            quotaBytes = gb?.let { (it * 1024 * 1024 * 1024).toLong() } ?: 0L,
+            hidden = hidden, configs = items.map { it.copy(subId = "") }
+        )
+        val (priv, pub) = net.gozar.app.gsb2.Gsb2Store.issuerKeys(context)
+        return net.gozar.app.gsb2.Gsb2.seal(share, priv, pub, password.takeIf { it.isNotEmpty() }?.toCharArray())
+    }
+    Slab(spacing = 6.dp) {
+        SlabRow(title = "ساخت اشتراک امن", subtitle = "رمز، تاریخ پایان، مدت اعتبار، سقف حجم و پنهان‌کردن کانفیگ",
+            icon = Icons.Filled.Lock, chevron = true, onClick = { open = !open })
+        if (open) {
+            OutlinedTextField(name, { name = it.take(60) }, label = { Text("نام نمایشی") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(note, { note = it.take(300) }, label = { Text("یادداشت (اختیاری)") }, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(password, { password = it.take(64) }, label = { Text("رمز (اختیاری)") }, singleLine = true,
+                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+            if (password.isEmpty()) Text("بدون رمز، فایل فقط پنهان است و هر کسی که آن را داشته باشد می‌تواند واردش کند.",
+                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+            Text("محتوا", style = MaterialTheme.typography.labelLarge)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                GhostPill(text = "همین کانفیگ", fillWidth = false, accent = if (!whole) c.primary else c.textMuted, onClick = { whole = false })
+                GhostPill(text = localizeDigits("کل گروه (${group.size})", Lang.FA), fillWidth = false, accent = if (whole) c.primary else c.textMuted, onClick = { whole = true })
+            }
+            Text("تاریخ پایان", style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0 to "ندارد", 1 to "۱ روز", 7 to "۷ روز", 30 to "۳۰ روز", 90 to "۹۰ روز").forEach { (d, l) ->
+                    GhostPill(text = l, fillWidth = false, accent = if (expiryDays == d) c.primary else c.textMuted, onClick = { expiryDays = d })
+                }
+            }
+            Text("مدت اعتبار از لحظهٔ ورود", style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(0 to "ندارد", 1 to "۱ روز", 7 to "۷ روز", 30 to "۳۰ روز").forEach { (d, l) ->
+                    GhostPill(text = l, fillWidth = false, accent = if (durationDays == d) c.primary else c.textMuted, onClick = { durationDays = d })
+                }
+            }
+            Text("سقف حجم", style = MaterialTheme.typography.labelLarge)
+            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf("" to "نامحدود", "1" to "۱ گیگ", "2" to "۲ گیگ", "5" to "۵ گیگ", "10" to "۱۰ گیگ", "20" to "۲۰ گیگ").forEach { (v, l) ->
+                    GhostPill(text = l, fillWidth = false, accent = if (quotaGb == v) c.primary else c.textMuted, onClick = { quotaGb = v })
+                }
+            }
+            OutlinedTextField(quotaGb, { quotaGb = it.filter { ch -> ch.isDigit() || ch == '.' }.take(6) }, label = { Text("حجم دلخواه (گیگابایت)") },
+                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("پنهان‌کردن سرور و رمزها از گیرنده", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                SkinSwitch(checked = hidden, onCheckedChange = { hidden = it })
+            }
+            Text("تاریخ و حجم را برنامهٔ قاجار در گوشی گیرنده اعمال می‌کند: بعد از تمام شدن، اتصال برقرار نمی‌شود و اتصال فعال قطع می‌شود.",
+                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                GhostPill(text = "ذخیرهٔ فایل", icon = Icons.Filled.Lock, fillWidth = false, onClick = {
+                    scope.launch {
+                        val bytes = withContext(Dispatchers.Default) { runCatching { build() }.getOrNull() } ?: return@launch
+                        pending = bytes
+                        saver.launch("${name.ifBlank { "ghajar" }.replace(Regex("[^\\p{L}\\p{N}_-]+"), "_").take(40)}.gsb2")
+                    }
+                })
+                GhostPill(text = "ارسال", icon = Icons.Filled.Share, fillWidth = false, onClick = {
+                    scope.launch {
+                        val bytes = withContext(Dispatchers.Default) { runCatching { build() }.getOrNull() } ?: return@launch
+                        runCatching {
+                            val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+                            val f = java.io.File(dir, "${name.ifBlank { "ghajar" }.replace(Regex("[^\\p{L}\\p{N}_-]+"), "_").take(40)}.gsb2").apply { writeBytes(bytes) }
+                            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/octet-stream")
+                                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "اشتراک GSB2"))
+                        }.onFailure { status = "ارسال انجام نشد." }
+                    }
+                })
+            }
+            if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall, color = c.info)
         }
     }
 }

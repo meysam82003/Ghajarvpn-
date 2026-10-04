@@ -26,6 +26,7 @@ object FormatDetector {
             return FormatDetection(format, (base + extensionBonus).coerceAtMost(100), evidence)
         }
 
+        if (net.gozar.app.gsb2.Gsb2.looksLike(input.bytes)) return result(ConfigFormat.GSB2, 98, "GSB2")
         // Binary: sing-box profile content (type 3, version, gzip magic).
         if (SingBoxProfileFile.looksLike(input.bytes)) return result(ConfigFormat.BPF, 95, "sing-box-profile")
         if (text.startsWith("NPVTSUB1", true)) return result(ConfigFormat.NPVT, 90, "NPVTSUB1")

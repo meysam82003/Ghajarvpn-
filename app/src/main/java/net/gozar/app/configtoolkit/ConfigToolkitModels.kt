@@ -15,6 +15,7 @@ enum class ConfigFormat(val extensions: Set<String>) {
     HAT(setOf("hat")),
     DARK(setOf("dark")),
     BPF(setOf("bpf")),
+    GSB2(setOf("gsb2")),
     JSON(setOf("json")),
     TEXT(setOf("txt", "conf", "yaml", "yml")),
     UNKNOWN(emptySet())

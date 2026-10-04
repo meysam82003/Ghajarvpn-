@@ -44,7 +44,11 @@ class GozarVpnService : VpnService() {
     private var configProtocol: String = ""
     private var configCore: String = ""
 
+    /** The GSB2 share the current session is drawing on, if any. */
+    @Volatile private var gsb2Active: net.gozar.app.gsb2.Gsb2.Meta? = null
+
     private fun describe(config: ProxyConfig?) {
+        gsb2Active = config?.let { net.gozar.app.gsb2.Gsb2.Meta.of(it) }
         configProtocol = config?.protocol.orEmpty()
         configCore = config?.let { net.gozar.app.engine.CoreManager.engine(net.gozar.app.engine.EngineRouting.engineFor(it)).displayName }.orEmpty()
     }
@@ -551,6 +555,16 @@ class GozarVpnService : VpnService() {
                 val upSpeed = (up - lastUp).coerceAtLeast(0L)
                 val downSpeed = (down - lastDown).coerceAtLeast(0L)
                 lastUp = up; lastDown = down
+
+                // GSB2: count this second's traffic against the share, and stop
+                // the tunnel the moment its quota or time runs out.
+                gsb2Active?.let { meta ->
+                    net.gozar.app.gsb2.Gsb2Store.addUsage(applicationContext, meta.shareId, upSpeed + downSpeed)
+                    val verdict = net.gozar.app.gsb2.Gsb2.check(meta,
+                        net.gozar.app.gsb2.Gsb2Store.used(applicationContext, meta.shareId),
+                        net.gozar.app.gsb2.Gsb2Store.now(applicationContext))
+                    if (verdict is net.gozar.app.gsb2.Gsb2.Verdict.Blocked) { die(verdict.reason); return@launch }
+                }
 
                 VpnBridge.sendCounters(applicationContext, up, down, upSpeed, downSpeed)
 

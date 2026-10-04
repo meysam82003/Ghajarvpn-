@@ -37,7 +37,8 @@ object DirectShare {
     private val STANDARD_LINKS = setOf("vless", "vmess", "trojan", "shadowsocks", "hysteria2", "tuic", "hysteria", "anytls")
 
     fun exports(c: ProxyConfig, target: Target): List<Export> {
-        if (c.locked) return emptyList()
+        // Locked configs and configs received through GSB2 are not passed on.
+        if (c.locked || c.extraJson().has("gsb2")) return emptyList()
         if (RemovedCores.isRemoved(c)) return listOfNotNull(ghajarLink(c))
         val out = mutableListOf<Export>()
         val link = runCatching { ConfigShare.toLink(c) }.getOrDefault("")
