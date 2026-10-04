@@ -20,7 +20,7 @@ object SingBoxConfig {
 
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
     val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect", "masque",
-        "amneziawg", "mieru", "brook", "naive", "shadowtls", "sstp", "softether", "tailscale", "tailcat")
+        "amneziawg", "mieru", "brook", "naive", "shadowtls", "sstp", "softether", "tailscale", "tailcat", SingBoxFull.PROTOCOL)
 
     /** Protocols carried as sing-box endpoints rather than outbounds. */
     private val ENDPOINTS = setOf("openconnect", "masque", "tailscale")
@@ -34,6 +34,7 @@ object SingBoxConfig {
      */
     fun spec(config: ProxyConfig): String? {
         if (!handles(config)) return null
+        if (config.protocol == SingBoxFull.PROTOCOL) return SingBoxFull.configOf(config)?.let { JSONObject().put("full", it).toString() }
         val proxy = proxy(config)
         val out = JSONObject().put(if (config.protocol in ENDPOINTS) "endpoint" else "outbound", proxy)
         if (config.protocol == "shadowtls") out.put("extraOutbounds", org.json.JSONArray().put(shadowTlsOut(config)))
@@ -46,6 +47,7 @@ object SingBoxConfig {
     /** The complete configuration for `sing-box run`, with the SOCKS inbound on [socksPort]. */
     fun full(spec: String, socksPort: Int, logLevel: String = "info"): String {
         val s = JSONObject(spec)
+        s.optJSONObject("full")?.let { return SingBoxFull.runnable(it, socksPort, logLevel) }
         val root = JSONObject()
             .put("log", JSONObject().put("level", logLevel).put("timestamp", false))
             // A server given by name needs a resolver in this sing-box

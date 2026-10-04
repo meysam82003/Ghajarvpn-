@@ -9,7 +9,7 @@ import java.util.Locale
 
 class DecoderRegistry(
     private val decoders: List<ConfigDecoder> = listOf(
-        NpvtDecoder(), NpvsDecoder(), HappDecoder(), NetModDecoder(),
+        BpfDecoder(), NpvtDecoder(), NpvsDecoder(), HappDecoder(), NetModDecoder(),
         SlipNetDecoder(), EhiDecoder(), HatDecoder(), DarkDecoder(),
         GenericJsonDecoder(), TextLinkDecoder()
     )

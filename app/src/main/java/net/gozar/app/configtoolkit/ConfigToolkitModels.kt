@@ -6,7 +6,7 @@ import org.json.JSONObject
 import java.util.UUID
 
 enum class ConfigFormat(val extensions: Set<String>) {
-    NPVT(setOf("npvt")),
+    NPVT(setOf("npvt", "npvts", "npvtsub")),
     NPVS(setOf("npvs")),
     HAPP(setOf("happ")),
     NETMOD(setOf("nm")),
@@ -14,6 +14,7 @@ enum class ConfigFormat(val extensions: Set<String>) {
     SLIPNET(setOf("slip")),
     HAT(setOf("hat")),
     DARK(setOf("dark")),
+    BPF(setOf("bpf")),
     JSON(setOf("json")),
     TEXT(setOf("txt", "conf", "yaml", "yml")),
     UNKNOWN(emptySet())

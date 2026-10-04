@@ -157,6 +157,8 @@
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.npvt" />
                 <data android:pathPattern=".*\\.npvs" />
+                <data android:pathPattern=".*\\.npvts" />
+                <data android:pathPattern=".*\\.bpf" />
                 <data android:pathPattern=".*\\.npvtsub" />
                 <data android:pathPattern=".*\\.happ" />
                 <data android:pathPattern=".*\\.nm" />

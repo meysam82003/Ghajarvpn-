@@ -69,6 +69,7 @@ object CapabilityRegistry {
                 base += setOf(Capability.UDP, Capability.SHARE_THROUGH_PHONE)
             "openconnect", "sstp", "softether" -> base += setOf(Capability.UDP, Capability.ADVANCED_AUTH, Capability.SHARE_THROUGH_PHONE)
             "tailscale", "tailcat" -> base += setOf(Capability.UDP, Capability.ADVANCED_AUTH)
+            SingBoxFull.PROTOCOL -> base += setOf(Capability.UDP, Capability.DNS, Capability.FULL_CONFIG, Capability.SHARE_THROUGH_PHONE)
             "openvpn" -> { base -= Capability.SUBSCRIPTION; base += setOf(Capability.UDP, Capability.TUN, Capability.FULL_CONFIG, Capability.ADVANCED_AUTH) }
             "ikev2" -> { base -= Capability.SUBSCRIPTION; base += setOf(Capability.UDP, Capability.TUN, Capability.ADVANCED_AUTH) }
             "psiphon", "tor", "aether" -> { base -= Capability.SUBSCRIPTION; base += Capability.SHARE_THROUGH_PHONE }
