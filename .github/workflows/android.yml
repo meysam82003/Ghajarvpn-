@@ -555,7 +555,7 @@ jobs:
         run: |
           V="${{ steps.version.outputs.name }}"
           TAG="${{ steps.tag.outputs.tag }}"
-          TITLE="GhajarVPN $V"
+          TITLE="Ghajar VPN $V"
           NOTES=docs/release-notes/v$V.md
           # Create if it does not exist, otherwise update in place. The old
           # form failed outright on a re-run, because `gh release create`
