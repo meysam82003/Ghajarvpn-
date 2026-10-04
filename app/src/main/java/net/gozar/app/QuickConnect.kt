@@ -43,6 +43,10 @@ object QuickConnect {
             ?: store.configs.value.firstOrNull()
             ?: return QuickConnectResult.NO_CONFIG
         if (config.id != selectedId) store.setSelectedId(config.id)
+        if (net.gozar.app.engine.RemovedCores.isRemoved(config)) {
+            VpnState.setError(net.gozar.app.engine.RemovedCores.MESSAGE)
+            return QuickConnectResult.FAILED
+        }
         if (VpnService.prepare(context) != null) return QuickConnectResult.NEEDS_CONSENT
 
         if (config.protocol == "ikev2") {

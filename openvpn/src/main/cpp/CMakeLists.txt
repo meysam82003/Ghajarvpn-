@@ -120,12 +120,7 @@ target_link_libraries(ovpnutil log)
 add_library(osslutil SHARED ovpnutil/osslutil.cpp)
 target_link_libraries(osslutil log crypto ssl)
 
-if (NOT ${CMAKE_LIBRARY_OUTPUT_DIRECTORY} MATCHES "build/intermediates/cmake/.*skeleton.*/")
-    add_library(osslspeedtest SHARED ovpnutil/sslspeed.c)
-    target_link_libraries(osslspeedtest log crypto ssl)
-else ()
-    message("Not budiling SSLSpeedTest for output dir ${CMAKE_LIBRARY_OUTPUT_DIRECTORY}")
-endif ()
+# osslspeedtest (OpenSSL speed page of the upstream UI) is not built: Ghajar VPN does not ship that page.
 
 set(openvpn_srcs
         src/compat/compat-basename.c

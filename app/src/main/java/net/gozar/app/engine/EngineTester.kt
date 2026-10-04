@@ -164,7 +164,6 @@ object EngineTester {
     fun attach(context: Context) {
         appContext = context.applicationContext
         EngineTestStore.attach(context)
-        runCatching { DnsTunnelPrefs.load(context.applicationContext) }
     }
 
     /**
@@ -196,12 +195,16 @@ object EngineTester {
     /** A full result for [cfg]. Blocking; call off the main thread. */
     fun test(cfg: ProxyConfig, timeoutMs: Int = 10_000, probes: Int = 5, trace: Boolean = true): EngineTestResult {
         val engine = EngineRouting.engineFor(cfg)
-        val r = when (engine) {
+        val r = when {
+            RemovedCores.isRemoved(cfg) -> EngineTestResult(engine, coreStarted = false, internetOk = false, latencyMs = null,
+                error = RemovedCores.MESSAGE, steps = listOf(TestStep("engine", false, RemovedCores.MESSAGE_EN)))
+            else -> when (engine) {
             EngineId.SINGBOX -> testSingBox(cfg, timeoutMs, probes, trace)
             EngineId.XRAY -> testXray(cfg, probes)
             else -> EngineTestResult(engine, coreStarted = false, internetOk = false, latencyMs = null,
                 error = "this engine is tested by connecting to it",
                 steps = listOf(TestStep("engine", null, "tested by connecting")))
+            }
         }
         val stored = if (probes < 5 || !trace) merge(cfg.id, r) else r
         EngineTestStore.put(cfg.id, stored)
@@ -378,14 +381,11 @@ object EngineTester {
 object Reach {
     data class Target(val host: String, val port: Int, val udp: Boolean, val tls: Boolean, val sni: String)
 
-    private val UDP = setOf("tuic", "hysteria", "hysteria2", "wireguard", "amneziawg", "juicity")
+    private val UDP = setOf("tuic", "hysteria", "hysteria2", "wireguard", "amneziawg")
 
     fun target(c: ProxyConfig): Target {
         val x = c.extraJson()
         return when (c.protocol) {
-            // DNS tunnels talk to the resolver, not to the tunnel server.
-            "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream" -> Target(
-                c.address, c.port, udp = c.mode.ifBlank { "udp" } == "udp", tls = c.mode == "dot" || c.mode == "doh", sni = c.address)
             "ssh" -> {
                 val via = x.optJSONObject("transport")
                 val proxyHost = via?.optString("proxyHost").orEmpty()

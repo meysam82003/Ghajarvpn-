@@ -73,18 +73,6 @@ object ProtocolForms {
             Field("sni", "f_sni"), Field("payload", "f_payload", Kind.MULTILINE, default = "CONNECT [host_port] [protocol][crlf]Host: [host][crlf][crlf]"),
             Field("wspath", "f_ws_path", default = "/"), Field("wshost", "f_ws_host"), Field("proxy", "f_front_proxy", hint = "host:port"),
             Field("hostkey", "f_ssh_hostkey", advanced = true), Field("pk", "f_ssh_pk", Kind.PEM, advanced = true))),
-        Form("dnstt", "DNSTT / VayDNS / NoizDNS / Slipstream", "dns", listOf(
-            NAME, Field("variant", "f_dns_engine", Kind.SELECT, default = "dnstt", options = listOf("dnstt", "vaydns", "noizdns", "slipstream")),
-            Field("domain", "f_dns_domain", required = true), Field("pubkey", "f_dns_pubkey", hint = "64 hex"),
-            Field("transport", "f_dns_transport", Kind.SELECT, default = "udp", options = listOf("udp", "dot", "doh")),
-            Field("resolver", "f_dns_resolver", default = "8.8.8.8:53", hint = "host:port / https://…/dns-query"),
-            Field("upstream", "f_dns_upstream", Kind.SELECT, advanced = true, default = "socks", options = listOf("socks", "ssh")),
-            Field("user", "f_user", advanced = true), Field("pass", "f_password", Kind.PASSWORD, advanced = true))),
-        Form("masterdns", "MasterDNS / StormDNS / CottenDNS", "dns", listOf(
-            NAME, Field("variant", "f_dns_engine", Kind.SELECT, default = "masterdns", options = listOf("masterdns", "stormdns", "cottendns")),
-            Field("domain", "f_dns_domain", required = true), Field("key", "f_dns_key", Kind.PASSWORD, required = true),
-            Field("resolvers", "f_dns_resolvers", Kind.MULTILINE, required = true, hint = "8.8.8.8:53"),
-            Field("enc", "f_dns_enc", Kind.NUMBER, advanced = true, default = "1"))),
         Form("tuic", "TUIC v5", "proxy", listOf(NAME, server(), port("443"), Field("uuid", "UUID", required = true), PASS,
             Field("cc", "f_cc", Kind.SELECT, advanced = true, default = "bbr", options = listOf("bbr", "cubic", "new_reno")),
             Field("alpn", "ALPN", advanced = true, default = "h3"), SNI, INSECURE)),
@@ -110,8 +98,6 @@ object ProtocolForms {
             Field("derp", "f_tc_derp", advanced = true, hint = "https://tailcat.dev/derpmap.json"),
             Field("region", "f_tc_region", Kind.NUMBER, advanced = true))),
         Form("anytls", "AnyTLS", "proxy", listOf(NAME, server(), port("443"), PASS.copy(required = true), SNI, INSECURE)),
-        Form("juicity", "Juicity", "proxy", listOf(NAME, server(), port("443"), Field("uuid", "UUID", required = true), PASS,
-            Field("cc", "f_cc", Kind.SELECT, advanced = true, default = "bbr", options = listOf("bbr", "cubic", "new_reno")), SNI, PIN, INSECURE)),
         Form("naive", "NaiveProxy", "proxy", listOf(NAME, server(), port("443"), USER, PASS,
             Field("quic", "f_naive_quic", Kind.SWITCH, advanced = true))),
         Form("mieru", "Mieru", "proxy", listOf(NAME, server(), Field("port", "f_port", Kind.NUMBER, required = true), USER.copy(required = true),
@@ -186,18 +172,6 @@ object ProtocolForms {
                 "hostkey" to v["hostkey"],
                 "pk" to v["pk"]?.takeIf { it.contains("PRIVATE KEY") }?.let { Base64.getUrlEncoder().withoutPadding().encodeToString(it.toByteArray()) }
             ) + tail
-            "dnstt" -> {
-                val doh = v["transport"] == "doh"
-                (v["variant"] ?: "dnstt") + "://" + userInfo(v["user"], v["pass"]) + v["domain"]!!.trim() + query(
-                    "pubkey" to v["pubkey"], "transport" to v["transport"],
-                    "resolver" to v["resolver"].takeIf { !doh }, "doh" to v["resolver"].takeIf { doh },
-                    "upstream" to v["upstream"]?.takeIf { it == "ssh" }) + tail
-            }
-            "masterdns" -> {
-                val resolvers = v["resolvers"]!!.split('\n', ',', ' ').map { it.trim() }.filter { it.isNotEmpty() }
-                (v["variant"] ?: "masterdns") + "://" + enc(v["key"]!!.trim()) + "@" + v["domain"]!!.trim() +
-                    query("resolver" to resolvers.joinToString(","), "enc" to v["enc"]) + tail
-            }
             "tuic" -> "tuic://" + enc(v["uuid"].orEmpty()) + ":" + enc(v["pass"].orEmpty()) + "@" + hostPort(v["server"]!!, v["port"].orEmpty()) +
                 query("congestion_control" to v["cc"], "alpn" to v["alpn"], "sni" to v["sni"], "allow_insecure" to if (on("insecure")) "1" else null) + tail
             "hysteria2" -> "hysteria2://" + enc(v["pass"].orEmpty()) + "@" + hostPort(v["server"]!!, v["port"].orEmpty()) +
@@ -205,9 +179,6 @@ object ProtocolForms {
                     "insecure" to if (on("insecure")) "1" else null) + tail
             "anytls" -> "anytls://" + enc(v["pass"].orEmpty()) + "@" + hostPort(v["server"]!!, v["port"].orEmpty()) +
                 query("sni" to v["sni"], "insecure" to if (on("insecure")) "1" else null) + tail
-            "juicity" -> "juicity://" + enc(v["uuid"].orEmpty()) + ":" + enc(v["pass"].orEmpty()) + "@" + hostPort(v["server"]!!, v["port"].orEmpty()) +
-                query("congestion_control" to v["cc"], "sni" to v["sni"], "pinned_certchain_sha256" to v["pin"],
-                    "allow_insecure" to if (on("insecure")) "1" else null) + tail
             "masque" -> "masque://" + userInfo(v["user"], v["pass"]) + hostPort(v["server"]!!, v["port"].orEmpty()) +
                 query("version" to v["version"]?.takeIf { it != "3" }, "path" to v["path"], "sni" to v["sni"], "alpn" to v["alpn"],
                     "fp" to v["fp"], "pin" to v["pin"], "mtu" to v["mtu"], "insecure" to if (on("insecure")) "1" else null) + tail

@@ -195,8 +195,7 @@ object CoreSettingsRegistry {
         EngineId.XRAY -> listOf(Link("set_core_xray_global", "conn:xray"), Link("sec_dns", "conn:dns"), Link("routing", "conn:routing"))
         EngineId.ZEPTUN_TUN -> listOf(Link("set_core_zeptun_global", "conn:zeptun"))
         EngineId.OPENVPN -> listOf(Link("set_core_openvpn_global", "conn:openvpn"))
-        EngineId.DNS_TUNNEL -> listOf(Link("dnsproto_title", "dnsproto"))
-        EngineId.SINGBOX -> listOf(Link("sec_dns", "dnsproto"))
+        EngineId.SINGBOX -> listOf(Link("sec_dns", "conn:dns"))
         else -> emptyList()
     }
 
@@ -208,7 +207,6 @@ object CoreSettingsRegistry {
         EngineId.TOR -> "Bridges: obfs4 · meek · webtunnel · snowflake"
         EngineId.IKEV2 -> "Server · EAP user / password · remote ID · MTU"
         EngineId.PSIPHON -> "Region · Oblivion options"
-        EngineId.DNS_TUNNEL -> "Domain · public key · UDP / DoT / DoH · resolver · upstream"
         else -> ""
     }
 }
@@ -322,6 +320,5 @@ private fun coreIcon(id: EngineId): ImageVector = when (id) {
     EngineId.TOR -> androidx.compose.material.icons.Icons.Filled.Hub
     EngineId.AETHER -> androidx.compose.material.icons.Icons.Filled.Cloud
     EngineId.ZEPTUN_TUN -> androidx.compose.material.icons.Icons.Filled.Memory
-    EngineId.DNS_TUNNEL -> androidx.compose.material.icons.Icons.Filled.Dns
     EngineId.SINGBOX -> androidx.compose.material.icons.Icons.Filled.Layers
 }

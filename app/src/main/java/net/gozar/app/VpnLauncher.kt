@@ -46,6 +46,10 @@ object VpnLauncher {
      */
     suspend fun relaunch(appContext: Context, store: ConfigStore, config: ProxyConfig): LaunchOutcome {
         if (VpnService.prepare(appContext) != null) return LaunchOutcome.NO_PERMISSION
+        if (net.gozar.app.engine.RemovedCores.isRemoved(config)) {
+            GhajarLog.w(TAG, "not launched: ${config.protocol} is not in this build")
+            return LaunchOutcome.REFUSED
+        }
 
         runCatching {
             appContext.startService(

@@ -1121,6 +1121,10 @@ class MainActivity : ComponentActivity() {
 
     private fun proceedConnectChecked(config: ProxyConfig) {
         if (VpnState.state.value == Connection.CONNECTED) return
+        if (net.gozar.app.engine.RemovedCores.isRemoved(config)) {
+            Toast.makeText(this, net.gozar.app.engine.RemovedCores.MESSAGE, Toast.LENGTH_LONG).show()
+            return
+        }
         if (config.protocol == "ikev2") {
             val xrayWasUp = VpnState.state.value != Connection.DISCONNECTED
             IkeController.claim(config)
@@ -1380,7 +1384,6 @@ private fun GozarApp(
     var aboutDetail by remember { mutableStateOf(false) }
     var themeDetail by remember { mutableStateOf(false) }
     var cleanIpDetail by remember { mutableStateOf(false) }
-    var dnsLabDetail by remember { mutableStateOf(false) }
     var netMonDetail by remember { mutableStateOf(false) }
     var netCatDetail by remember { mutableStateOf(false) }
     var netCatIndex by remember { mutableStateOf(-1) }
@@ -1395,7 +1398,7 @@ private fun GozarApp(
     var backupDetail by remember { mutableStateOf(false) }
     // The per-protocol add-server form being filled, by ProtocolForms id.
     var protoForm by remember { mutableStateOf("") }
-    // New Settings pages share one slot: "geodata", "dnsproto", "livemon", "safebox".
+    // New Settings pages share one slot: "geodata", "livemon", "safebox".
     var extraPage by remember { mutableStateOf("") }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
     val sortMode by store.sortMode.collectAsState()
@@ -1573,7 +1576,7 @@ private fun GozarApp(
     var debugDetail by remember { mutableStateOf(false) }
     val page = pagerState.currentPage
     val onSettingsTab = page == PAGE_SETTINGS
-    val subScreenOpen = (page == PAGE_HOME && (protoForm.isNotEmpty() || showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || dnsLabDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail || backupDetail || extraPage.isNotEmpty()))
+    val subScreenOpen = (page == PAGE_HOME && (protoForm.isNotEmpty() || showPicker || showManual || showProjects || showTorNodes || showWindscribe || showScanner || showOpenVpnHub || showPsiphonHub || exportConfigs != null)) || (onSettingsTab && (usageDetail || perAppDetail || logsDetail || stabilityDetail || aboutDetail || cleanIpDetail || themeDetail || toolsDetail || connDetail || prefsDetail || netMonDetail || netCatDetail || netCatIndex >= 0 || checkHostDetail || sshDetail || debugDetail || backupDetail || extraPage.isNotEmpty()))
 
     val screenKey = when {
         page == PAGE_SHOP -> "shop"
@@ -1602,7 +1605,6 @@ private fun GozarApp(
         onSettingsTab && aboutDetail -> "about"
         onSettingsTab && themeDetail -> "theme"
         onSettingsTab && cleanIpDetail -> "cleanip"
-        onSettingsTab && dnsLabDetail -> "dnslab"
         onSettingsTab && checkHostDetail -> "checkhost"
         onSettingsTab && netCatIndex >= 0 -> "netcatone"
         onSettingsTab && netCatDetail -> "netcat"
@@ -1636,7 +1638,6 @@ private fun GozarApp(
             aboutDetail -> aboutDetail = false
             themeDetail -> themeDetail = false
             cleanIpDetail -> cleanIpDetail = false
-            dnsLabDetail -> dnsLabDetail = false
             checkHostDetail -> checkHostDetail = false
             netCatIndex >= 0 -> netCatIndex = -1
             netCatDetail -> netCatDetail = false
@@ -1723,7 +1724,6 @@ private fun GozarApp(
                                 "usage" -> t("data_usage")
                                 "backup" -> t("backup_title")
                                 "geodata" -> t("geodata_title")
-                                "dnsproto" -> t("dnsproto_title")
                                 "livemon" -> t("livemon_title")
                                 "safebox" -> t("safebox_title")
                                 "cores" -> t("set_tile_cores")
@@ -1761,7 +1761,7 @@ private fun GozarApp(
                         "openvpnhub" -> BounceIconButton(onClick = { showOpenVpnHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "psiphonhub" -> BounceIconButton(onClick = { showPsiphonHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "scanqr" -> BounceIconButton(onClick = { showScanner = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "geodata", "dnsproto", "livemon", "safebox" -> BounceIconButton(onClick = { extraPage = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "geodata", "livemon", "safebox" -> BounceIconButton(onClick = { extraPage = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "backup" -> BounceIconButton(onClick = { backupDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "usage" -> BounceIconButton(onClick = { usageDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "perapp" -> BounceIconButton(onClick = { perAppDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1770,7 +1770,6 @@ private fun GozarApp(
                         "about" -> BounceIconButton(onClick = { aboutDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "theme" -> BounceIconButton(onClick = { themeDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "cleanip" -> BounceIconButton(onClick = { cleanIpDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "dnslab" -> BounceIconButton(onClick = { dnsLabDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netmon" -> BounceIconButton(onClick = { netMonDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "netcat" -> BounceIconButton(onClick = { netCatDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "checkhost" -> BounceIconButton(onClick = { checkHostDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1827,7 +1826,6 @@ private fun GozarApp(
                         aboutDetail = false
                         themeDetail = false
                         cleanIpDetail = false
-                        dnsLabDetail = false
                         netMonDetail = false
                         netCatDetail = false
                         netCatIndex = -1
@@ -1952,11 +1950,6 @@ private fun GozarApp(
                                 scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
                             },
                             onProtocolForm = { id -> protoForm = id },
-                            onDnsLab = {
-                                showPicker = false
-                                dnsLabDetail = true
-                                scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
-                            },
                             onConnectOpenVpn = onConnectOpenVpn,
                             onDisconnectOpenVpn = onDisconnectOpenVpn,
                             onTestOpenVpn = onTestOpenVpn,
@@ -2028,7 +2021,6 @@ private fun GozarApp(
                     aboutDetail -> "about"
                     themeDetail -> "theme"
                     cleanIpDetail -> "cleanip"
-                    dnsLabDetail -> "dnslab"
                     checkHostDetail -> "checkhost"
                     // The index rides in the key, so the page keeps its own
                     // category while it animates out after Back clears it.
@@ -2078,7 +2070,6 @@ private fun GozarApp(
                         )
                         "usage" -> DataUsageScreen()
                         "geodata" -> GeoDataScreen()
-                        "dnsproto" -> DnsProtocolsScreen()
                         "livemon" -> LiveMonitorScreen(store = store)
                         "conn" -> ConnectionSettingsScreen(
                             store = store,
@@ -2105,13 +2096,11 @@ private fun GozarApp(
                         "netcat" -> NetCategoriesScreen(onOpen = { netCatIndex = it })
                         "checkhost" -> CheckHostScreen()
                         "netcatone" -> NetCategoryScreen(index = key.substringAfter(':').toIntOrNull() ?: -1)
-                        "dnslab" -> DnsLabScreen(store = store)
                         "tools" -> ToolsScreen(
                             store = store,
                             onOpenCheckHost = { checkHostDetail = true },
                             onOpenStability = { stabilityDetail = true },
                             onOpenCleanIp = { cleanIpDetail = true },
-                            onOpenDnsLab = { dnsLabDetail = true },
                             onSwitch = onSwitch,
                             onOpenExtra = { extraPage = it }
                         )
@@ -2590,7 +2579,6 @@ private fun ConfigPickerScreen(
     onPsiphonHub: () -> Unit = {},
     onTor: () -> Unit = {},
     onSsh: () -> Unit = {},
-    onDnsLab: () -> Unit = {},
     onProtocolForm: (String) -> Unit = {},
     onConnectOpenVpn: (String) -> Unit = {},
     onDisconnectOpenVpn: () -> Unit = {},
@@ -2976,7 +2964,6 @@ private fun ConfigPickerScreen(
             onPsiphon = { addMenu = false; onPsiphonHub() },
             onTor = { addMenu = false; onTor() },
             onSsh = { addMenu = false; onSsh() },
-            onDnsLab = { addMenu = false; onDnsLab() },
             onSubscription = { addMenu = false; subDialog = true },
             onProtocolForm = { id -> addMenu = false; onProtocolForm(id) }
         )
@@ -4338,7 +4325,6 @@ private fun AddServerPanel(
     onPsiphon: () -> Unit = {},
     onTor: () -> Unit = {},
     onSsh: () -> Unit = {},
-    onDnsLab: () -> Unit = {},
     onSubscription: () -> Unit = {},
     onProtocolForm: (String) -> Unit = {},
     modifier: Modifier = Modifier
@@ -4514,13 +4500,10 @@ private fun AddServerPanel(
                         Rail(t("add_group_tunnels"))
                         SlabRow(title = "SSH", subtitle = t("add_ssh_sub"), icon = Icons.Filled.Terminal,
                             accent = c.highlight, chevron = true, enabled = !busy, onClick = onSsh)
-                        SlabDivider()
-                        SlabRow(title = t("dnslab_title"), subtitle = t("add_dnslab_sub"), icon = Icons.Filled.Dns,
-                            accent = c.info, chevron = true, enabled = !busy, onClick = onDnsLab)
                         // One entry per core: each opens its own form with the
                         // fields that protocol needs and an Advanced section.
                         listOf("vpn" to t("add_group_vpn_forms"), "tunnel" to t("add_group_tunnel_forms"),
-                            "dns" to t("add_group_dns_forms"), "proxy" to t("add_group_proxy_forms")).forEach { (group, label) ->
+                            "proxy" to t("add_group_proxy_forms")).forEach { (group, label) ->
                             val forms = ProtocolForms.forms.filter { it.group == group && it.id != "openconnect" }
                             if (forms.isNotEmpty()) {
                                 Rail(label)
@@ -4987,7 +4970,7 @@ private fun LabeledDropdown(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun settingsDepth(key: String): Int = when (key.substringBefore(':')) {
     "settings" -> 0
-    "stability", "cleanip", "dnslab", "perapp", "logs", "theme", "netcat" -> 2
+    "stability", "cleanip", "perapp", "logs", "theme", "netcat" -> 2
     "checkhost" -> 3
     "core" -> 2
     "netcatone" -> 3
@@ -7215,7 +7198,6 @@ private fun ToolsScreen(
     onOpenStability: () -> Unit,
     onOpenCleanIp: () -> Unit,
     onOpenCheckHost: () -> Unit,
-    onOpenDnsLab: () -> Unit,
     onSwitch: (ProxyConfig) -> Unit,
     onOpenExtra: (String) -> Unit = {},
     modifier: Modifier = Modifier
@@ -7245,8 +7227,6 @@ private fun ToolsScreen(
             SettingsTileSpec("t_livemon", t("livemon_title"), t("livemon_sub"), Icons.Filled.MonitorHeart, onClick = { onOpenExtra("livemon") }),
             SettingsTileSpec("t_check", t("chk_title"), t("chk_sub"), Icons.Filled.NetworkCheck, onClick = onOpenCheckHost),
             SettingsTileSpec("t_scan", t("scan_warp"), t("scan_sub"), iconRes = R.drawable.cloudflare, onClick = onOpenCleanIp),
-            SettingsTileSpec("t_dnslab", t("dnslab_title"), t("dnslab_sub"), Icons.Filled.Dns, onClick = onOpenDnsLab),
-            SettingsTileSpec("t_dnsproto", t("dnsproto_title"), t("dnsproto_sub"), Icons.Filled.Dns, onClick = { onOpenExtra("dnsproto") }),
             SettingsTileSpec("t_geodata", t("geodata_title"), t("geodata_sub"), Icons.Filled.Public, onClick = { onOpenExtra("geodata") })
         ))
 
@@ -8014,7 +7994,7 @@ private fun ConfigDebuggerScreen(
         PanelChecksGroup(config)
         // The engine-level view of the same server: real test, DPI fingerprint.
         var engineDetails by remember(config.id) { mutableStateOf(false) }
-        GhostPill(text = t("srv_details") + " · " + t("srv_dpi"), icon = Icons.Filled.Info, onClick = { engineDetails = true })
+        GhostPill(text = t("srv_details"), icon = Icons.Filled.Info, onClick = { engineDetails = true })
         if (engineDetails) ServerDetailsDialog(config = config, conn = Connection.DISCONNECTED,
             onDismiss = { engineDetails = false }, onConnect = null, onEdit = { engineDetails = false })
     }
@@ -8402,8 +8382,6 @@ private fun ConnectionSettingsScreen(
             }
         )
         if (show("dns")) SettingsGroup(t("sec_dns")) {
-            SlabRow(title = t("dnsproto_title"), subtitle = t("dnsproto_sub"), icon = Icons.Filled.Dns, chevron = true,
-                onClick = { onOpenExtra("dnsproto") })
             SettingRow(
                 title = t("fakedns_title"),
                 subtitle = t("fakedns_sub"),
@@ -13661,6 +13639,15 @@ private fun ConfigRow(
                 horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
             ) {
                 if ("protocol" in fields) ProtocolTag(config.protocol, isActive)
+                if (net.gozar.app.engine.RemovedCores.isRemoved(config)) {
+                    Text(
+                        t("removed_core_badge"),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = c.warning,
+                        maxLines = 1
+                    )
+                }
                 if ("core" in fields) {
                     Text(
                         coreLabel(config),
@@ -14612,83 +14599,6 @@ private fun GeoDataScreen(modifier: Modifier = Modifier) {
     }
 }
 
-/** Settings -> DNS protocols: global options for the DNS tunnel engines. */
-@Composable
-private fun DnsProtocolsScreen(modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val c = ghajarColors
-    val start = remember { net.gozar.app.engine.DnsTunnelPrefs.current }
-    var resolver by remember { mutableStateOf(start.overrideResolver) }
-    var transport by remember { mutableStateOf(start.overrideTransport) }
-    var pool by remember { mutableStateOf(start.pool.joinToString("\n")) }
-    var workers by remember { mutableStateOf(if (start.workers > 0) start.workers.toString() else "") }
-    var duplication by remember { mutableStateOf(if (start.duplication > 0) start.duplication.toString() else "") }
-    var keepSlow by remember { mutableStateOf(start.keepSlowResolvers) }
-    var remote by remember { mutableStateOf(start.remoteDns) }
-    var saved by remember { mutableStateOf(false) }
-    val transports = listOf("udp", "dot", "doh")
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-    ) {
-        ScreenHeader(title = t("dnsproto_title"), context = t("dnsproto_header"))
-
-        Rail(t("dnsproto_override"))
-        SkinField(value = resolver, onValueChange = { resolver = it; saved = false }, label = t("dnsproto_resolver"),
-            placeholder = "8.8.8.8:53", helper = t("dnsproto_resolver_help"))
-        SlidingSegments(
-            labels = listOf("UDP", "DoT", "DoH"),
-            selected = transports.indexOf(transport).coerceAtLeast(0),
-            onSelect = { transport = transports[it]; saved = false }
-        )
-
-        Rail(t("dnsproto_pool"))
-        SkinField(value = pool, onValueChange = { pool = it; saved = false }, label = t("dnsproto_pool_field"),
-            placeholder = "1.1.1.1\n8.8.8.8", helper = t("dnsproto_pool_help"), singleLine = false, minLines = 3)
-
-        Rail(t("dnsproto_perf"))
-        SkinField(value = workers, onValueChange = { v -> workers = v.filter(Char::isDigit).take(2); saved = false },
-            label = t("dnsproto_workers"), placeholder = t("dnsproto_default"),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-        SkinField(value = duplication, onValueChange = { v -> duplication = v.filter(Char::isDigit).take(2); saved = false },
-            label = t("dnsproto_dup"), placeholder = t("dnsproto_default"), helper = t("dnsproto_dup_help"),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number))
-        Slab(spacing = 0.dp) {
-            SlabRow(
-                title = t("dnsproto_keep_slow"),
-                subtitle = t("dnsproto_keep_slow_sub"),
-                icon = Icons.Filled.Dns,
-                trailing = { SkinSwitch(checked = keepSlow, onCheckedChange = { keepSlow = it; saved = false }) }
-            )
-        }
-
-        Rail(t("dnsproto_remote"))
-        SkinField(value = remote, onValueChange = { remote = it.trim(); saved = false }, label = t("dnsproto_remote_field"),
-            placeholder = "1.1.1.1", helper = t("dnsproto_remote_help"))
-
-        PillButton(
-            text = if (saved) t("dnsproto_saved") else t("save"),
-            icon = Icons.Filled.CheckCircle,
-            onClick = {
-                net.gozar.app.engine.DnsTunnelPrefs.save(context, net.gozar.app.engine.DnsTunnelPrefs.Values(
-                    overrideResolver = resolver.trim(),
-                    overrideTransport = transport,
-                    pool = pool.split('\n', ',', ' ').map { it.trim() }.filter { it.isNotEmpty() },
-                    workers = workers.toIntOrNull()?.coerceIn(0, 32) ?: 0,
-                    duplication = duplication.toIntOrNull()?.coerceIn(0, 10) ?: 0,
-                    keepSlowResolvers = keepSlow,
-                    remoteDns = remote
-                ))
-                saved = true
-            }
-        )
-        InfoBox(t("dnsproto_note"), accent = c.info)
-    }
-}
-
 /** Settings -> Live monitor: what this app takes from the phone right now, and what the tunnel is doing. */
 @Composable
 private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier) {
@@ -15168,8 +15078,6 @@ private fun ServerDetailsDialog(
     val version by net.gozar.app.engine.EngineTestStore.version.collectAsState()
     val result = remember(version, config.id) { net.gozar.app.engine.EngineTestStore.get(config.id) }
     var testing by remember { mutableStateOf(false) }
-    var dpi by remember { mutableStateOf<net.gozar.app.engine.DpiCheck.Result?>(null) }
-    var dpiRunning by remember { mutableStateOf(false) }
     val engine = remember(config) { net.gozar.app.engine.EngineRouting.engineFor(config) }
     val country = remember(config.name, result) {
         splitFlags(config.name).firstOrNull { it.first }?.second?.uppercase() ?: result?.exitCountry.orEmpty()
@@ -15235,30 +15143,6 @@ private fun ServerDetailsDialog(
             }
             if (testing) SkinLoading(t("srv_testing"))
 
-            Rail(t("srv_dpi"))
-            val d = dpi
-            when {
-                dpiRunning -> SkinLoading(t("srv_dpi_running"))
-                d == null -> Text(t("srv_dpi_hint"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                d.error != null -> Text(d.error, style = MaterialTheme.typography.bodySmall, color = c.error)
-                else -> {
-                    DebugInfoRow(t("srv_dpi_seen_as"), d.protocol ?: "Unknown")
-                    DebugInfoRow(t("srv_dpi_confidence"), d.confidence ?: "—")
-                    if (d.risks.isNotEmpty()) DebugInfoRow(t("srv_dpi_risks"), d.risks.joinToString(", "), c.warning)
-                    d.note?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
-                }
-            }
-            GhostPill(
-                text = t("srv_dpi_run"),
-                enabled = !dpiRunning && !testing,
-                onClick = {
-                    dpiRunning = true
-                    scope.launch {
-                        dpi = withContext(Dispatchers.IO) { net.gozar.app.engine.DpiCheck.run(context, config) }
-                        dpiRunning = false
-                    }
-                }
-            )
             Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
                 if (onConnect != null) {
                     GhostPill(
@@ -15451,7 +15335,6 @@ internal fun coreLabel(c: ProxyConfig): String = when (net.gozar.app.engine.Engi
     net.gozar.app.engine.EngineId.TOR -> "Tor"
     net.gozar.app.engine.EngineId.AETHER -> "Aether"
     net.gozar.app.engine.EngineId.ZEPTUN_TUN -> "zeptun"
-    net.gozar.app.engine.EngineId.DNS_TUNNEL -> "DNS"
 }
 
 /** A one-word verdict on a measured latency, with its tone. */

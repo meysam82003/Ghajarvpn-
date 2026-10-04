@@ -22,8 +22,6 @@ class EngineTesterTest {
         assertTrue(Reach.target(tuic).udp)
         val anytls = ConfigParser.parse("anytls://pw@a.example.com:8443?sni=cdn.example.com#a")!!
         Reach.target(anytls).let { assertFalse(it.udp); assertTrue(it.tls); assertEquals("cdn.example.com", it.sni); assertEquals(8443, it.port) }
-        val dns = ProxyConfig(name = "d", protocol = "dnstt", address = "8.8.8.8", port = 53, mode = "udp")
-        Reach.target(dns).let { assertEquals("8.8.8.8", it.host); assertTrue(it.udp) }
         val ssh = ProxyConfig(name = "s", protocol = "ssh", address = "ssh.example.com", port = 22,
             extra = JSONObject().put("transport", JSONObject().put("mode", "http-proxy").put("proxyHost", "p.example.com").put("proxyPort", 8080)).toString())
         Reach.target(ssh).let { assertEquals("p.example.com", it.host); assertEquals(8080, it.port) }

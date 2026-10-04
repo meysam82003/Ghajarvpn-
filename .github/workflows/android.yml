@@ -112,9 +112,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: app/src/main/jniLibs
-          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          key: ghajar-native-v2-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**') }}
           restore-keys: |
-            ghajar-native-v1-${{ runner.os }}-
+            ghajar-native-v2-${{ runner.os }}-
 
       - name: Validate restored native checkpoint
         id: native-ready
@@ -123,7 +123,7 @@ jobs:
           set -e
           ready=true
           for abi in arm64-v8a armeabi-v7a; do
-            for lib in libzeptun.so libzeptun-jni.so libsingbox.so libdnstt.so libvaydns.so libnoizdns.so libmasterdns.so libstormdns.so libcottendns.so libslipstream.so libghajarhelper.so liblyrebird.so libaether.so libjuicity.so libndpiclassify.so; do
+            for lib in libzeptun.so libzeptun-jni.so libsingbox.so libghajarhelper.so liblyrebird.so libaether.so; do
               [ -s "app/src/main/jniLibs/$abi/$lib" ] || ready=false
             done
           done
@@ -193,20 +193,6 @@ jobs:
         if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-singbox.sh
 
-      # dnstt (David Fifield, CC0-1.0), the DNS tunnel client, pinned by
-      # module version and checksum - see scripts/build-dnstt.sh.
-      - name: Build the dnstt DNS tunnel client
-        if: steps.native-ready.outputs.ready != 'true'
-        run: sh scripts/build-dnstt.sh
-
-      - name: Build the DNS tunnel family (VayDNS, NoizDNS, MasterDNS, StormDNS, CottenDNS)
-        if: steps.native-ready.outputs.ready != 'true'
-        run: sh scripts/build-dns-tunnels.sh
-
-      - name: Build Slipstream (QUIC over DNS)
-        if: steps.native-ready.outputs.ready != 'true'
-        run: sh scripts/build-slipstream.sh
-
       - name: Build ghajar-helper (SSH transports, AmneziaWG, Mieru, Brook)
         if: steps.native-ready.outputs.ready != 'true'
         run: sh scripts/build-ghajar-helper.sh
@@ -233,20 +219,12 @@ jobs:
           ABIS: arm64-v8a armeabi-v7a x86_64
         run: sh scripts/build-aether.sh
 
-      - name: Build Juicity client
-        if: steps.native-ready.outputs.ready != 'true'
-        run: sh scripts/build-juicity.sh
-
-      - name: Build nDPI fingerprint check
-        if: steps.native-ready.outputs.ready != 'true'
-        run: sh scripts/build-ndpi.sh
-
       - name: Save native-core checkpoint
         if: steps.native-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: app/src/main/jniLibs
-          key: ghajar-native-v1-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**', 'native/ndpi-classify/**') }}
+          key: ghajar-native-v2-${{ runner.os }}-${{ hashFiles('scripts/build-*.sh', 'native/ghajar-helper/**') }}
 
       - name: Report 16 KB page alignment of native files
         run: sh scripts/check-16kb.sh

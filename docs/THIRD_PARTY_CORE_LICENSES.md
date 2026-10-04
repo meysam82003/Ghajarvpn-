@@ -1,5 +1,9 @@
 # Third-party VPN cores — licence audit
 
+> **1.1.1:** the standalone DNS tunnel clients (dnstt, VayDNS, NoizDNS, MasterDNS, StormDNS, CottenDNS, Slipstream),
+> the Juicity client, the nDPI fingerprint check and OpenVPN's OpenSSL speed-test library are no longer built or shipped.
+> Their rows below are kept as history; none of their binaries or licences is in the 1.1.1 APK.
+
 Ghajar VPN itself is **GPL-3.0** (`LICENSE`). Every entry below was checked by
 cloning the repository at the commit listed and reading its licence file on
 2026-09-26. "Linking" is how the code would reach the APK.
