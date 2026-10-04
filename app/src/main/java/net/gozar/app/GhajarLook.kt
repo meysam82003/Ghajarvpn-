@@ -280,7 +280,7 @@ val LookTransitions = listOf(
 )
 val LookNavStyles = listOf("floating", "standard", "minimal", "filled", "outline")
 val LookOrbStyles = listOf(
-    "circle", "pill", "capsule_glow", "soft_square", "double_ring", "neon", "minimal", "segmented", "shield", "power"
+    "circle", "ring", "compact", "pill", "capsule_glow", "soft_square", "double_ring", "neon", "minimal", "segmented", "shield", "power"
 )
 
 /** Colourable elements. [group] is the Personalization category they are listed in. */

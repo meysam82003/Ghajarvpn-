@@ -236,6 +236,7 @@ import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Visibility
 import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Storefront
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
 import androidx.compose.material.icons.filled.FilterList
@@ -1587,13 +1588,16 @@ private fun GozarApp(
         page == PAGE_HOME && showPsiphonHub -> "psiphonhub"
         page == PAGE_HOME && showPicker -> "picker"
         page == PAGE_HOME -> "connection"
+        // App Proxy and Logcat open from inside a connection page
+        // (extraPage = conn:*): they must win over it, or the tap only sets
+        // a flag that stays hidden until Back clears the parent page.
+        onSettingsTab && perAppDetail -> "perapp"
+        onSettingsTab && logsDetail -> "logs"
         onSettingsTab && extraPage.isNotEmpty() -> extraPage
         onSettingsTab && backupDetail -> "backup"
         onSettingsTab && sshDetail -> "ssh"
         onSettingsTab && debugDetail -> "debugger"
         onSettingsTab && usageDetail -> "usage"
-        onSettingsTab && perAppDetail -> "perapp"
-        onSettingsTab && logsDetail -> "logs"
         onSettingsTab && stabilityDetail -> "stability"
         onSettingsTab && aboutDetail -> "about"
         onSettingsTab && themeDetail -> "theme"
@@ -1622,12 +1626,12 @@ private fun GozarApp(
             showOpenVpnHub -> showOpenVpnHub = false
             showPsiphonHub -> showPsiphonHub = false
             showPicker -> showPicker = false
+            perAppDetail -> perAppDetail = false
+            logsDetail -> logsDetail = false
             extraPage.startsWith("core:") -> extraPage = "cores"
             extraPage.isNotEmpty() -> extraPage = ""
             backupDetail -> backupDetail = false
             usageDetail -> usageDetail = false
-            perAppDetail -> perAppDetail = false
-            logsDetail -> logsDetail = false
             stabilityDetail -> stabilityDetail = false
             aboutDetail -> aboutDetail = false
             themeDetail -> themeDetail = false
@@ -2013,13 +2017,13 @@ private fun GozarApp(
                 }
             } else {
                 val setKey = when {
+                    perAppDetail -> "perapp"
+                    logsDetail -> "logs"
                     extraPage.isNotEmpty() -> extraPage
                     backupDetail -> "backup"
                     sshDetail -> "ssh"
                     debugDetail -> "debugger"
                     usageDetail -> "usage"
-                    perAppDetail -> "perapp"
-                    logsDetail -> "logs"
                     stabilityDetail -> "stability"
                     aboutDetail -> "about"
                     themeDetail -> "theme"
@@ -2138,7 +2142,8 @@ private fun GozarApp(
                             onOpenExtra = { extraPage = it },
                             onOpenTheme = { themeDetail = true },
                             onOpenNotifications = { notifDetail = true },
-                            onOpenStability = { stabilityDetail = true }
+                            onOpenStability = { stabilityDetail = true },
+                            onOpenStore = { scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) } }
                         )
                     }
                 }
@@ -4982,7 +4987,7 @@ private fun LabeledDropdown(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun settingsDepth(key: String): Int = when (key.substringBefore(':')) {
     "settings" -> 0
-    "stability", "cleanip", "dnslab", "perapp", "theme", "netcat" -> 2
+    "stability", "cleanip", "dnslab", "perapp", "logs", "theme", "netcat" -> 2
     "checkhost" -> 3
     "core" -> 2
     "netcatone" -> 3
@@ -6687,6 +6692,7 @@ private fun SettingsScreen(
     onOpenTheme: () -> Unit = {},
     onOpenNotifications: () -> Unit = {},
     onOpenStability: () -> Unit = {},
+    onOpenStore: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
@@ -6713,7 +6719,8 @@ private fun SettingsScreen(
                 preferences = onOpenPreferences, about = onOpenAbout, netmon = onOpenNetMon, ssh = onOpenSsh,
                 debugger = onOpenDebugger, backup = onOpenBackup, theme = onOpenTheme, notifications = onOpenNotifications,
                 stability = onOpenStability,
-                logs = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) }
+                logs = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) },
+                store = onOpenStore
             )
         )
     }
@@ -6736,7 +6743,24 @@ private fun SettingsScreen(
             )
         )
 
-        groups.forEach { (title, tiles) ->
+        var query by rememberSaveable { mutableStateOf("") }
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it.take(40) },
+            singleLine = true,
+            placeholder = { Text(t("settings_search")) },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = if (query.isNotEmpty()) {
+                { IconButton(onClick = { query = "" }) { Icon(Icons.Filled.Close, contentDescription = t("cancel")) } }
+            } else null,
+            modifier = Modifier.fillMaxWidth()
+        )
+
+        if (query.isNotBlank()) {
+            val hits = remember(groups, query) { SettingsTiles.search(groups, query) }
+            if (hits.isEmpty()) Text(t("settings_search_empty"), color = c.textSecondary, style = MaterialTheme.typography.bodyMedium)
+            else TileGrid(hits)
+        } else groups.forEach { (title, tiles) ->
             val shown = arrangeTiles(tiles, look)
             if (shown.isNotEmpty()) {
                 Rail(title)
@@ -6758,16 +6782,37 @@ object SettingsTiles {
         val extra: (String) -> Unit, val connection: () -> Unit, val tools: () -> Unit, val usage: () -> Unit,
         val preferences: () -> Unit, val about: () -> Unit, val netmon: () -> Unit, val ssh: () -> Unit,
         val debugger: () -> Unit, val backup: () -> Unit, val theme: () -> Unit, val notifications: () -> Unit,
-        val stability: () -> Unit, val logs: () -> Unit
+        val stability: () -> Unit, val logs: () -> Unit, val store: () -> Unit = {}
     )
 
     /** (id, title key) of every tile, for the Personalization order editor. */
     val ALL: List<Pair<String, String>> = listOf(
-        "conn_general" to "set_tile_general", "cores" to "set_tile_cores", "dns" to "sec_dns", "routing" to "routing",
-        "geodata" to "geodata_title", "tools" to "tools", "speed" to "stab_title", "netmon" to "netmon_title",
-        "livemon" to "livemon_title", "debugger" to "debugger", "ssh" to "ssh", "logs" to "log_title",
-        "personalize" to "theme_settings", "notifications" to "notif_settings", "preferences" to "preferences",
-        "usage" to "data_usage", "backup" to "backup_title", "safebox" to "safebox_title", "about" to "about"
+        "conn_general" to "set_tile_general", "dns" to "sec_dns", "routing" to "routing", "geodata" to "geodata_title",
+        "cores" to "set_tile_cores", "sharing" to "set_tile_sharing", "personalize" to "theme_settings",
+        "preferences" to "preferences", "store" to "set_tile_store", "usage" to "data_usage",
+        "backup" to "backup_title", "safebox" to "safebox_title", "notifications" to "notif_settings",
+        "tools" to "tools", "speed" to "stab_title", "netmon" to "netmon_title", "livemon" to "livemon_title",
+        "debugger" to "debugger", "ssh" to "ssh", "logs" to "log_title", "about" to "about"
+    )
+
+    /**
+     * Extra words a tile answers to in the quick search, beyond its title and
+     * subtitle: the names people actually type ("kill switch", "theme", "qr").
+     */
+    val KEYWORDS: Map<String, String> = mapOf(
+        "conn_general" to "kill switch killswitch کیل سوییچ اتصال خودکار mux ipv6 tun",
+        "dns" to "dns doh dot دی ان اس",
+        "routing" to "route routing bypass iran مسیریابی دور زدن",
+        "cores" to "core xray sing-box singbox psiphon tor aether ikev2 openvpn openconnect wireguard amnezia هسته پروتکل plugin پلاگین",
+        "sharing" to "share hotspot qr socks proxy lan اشتراک هات اسپات کیوآر آیفون ویندوز روتر",
+        "personalize" to "theme dark light amoled color accent icon تم رنگ تیره روشن ظاهر",
+        "store" to "shop store account renew wallet فروشگاه حساب تمدید کیف پول",
+        "backup" to "backup restore export import پشتیبان بکاپ بازگردانی",
+        "notifications" to "notification widget اعلان ویجت",
+        "logs" to "log logcat debug crash لاگ خطا",
+        "about" to "about version update release github درباره نسخه بروزرسانی",
+        "tools" to "tools ping speed test ابزار",
+        "speed" to "speed test سرعت پایداری"
     )
 
     fun groups(t: (String) -> String, usage: String, killSwitch: Boolean, nav: Nav): List<Pair<String, List<SettingsTileSpec>>> {
@@ -6777,30 +6822,57 @@ object SettingsTiles {
         return listOf(
             t("sec_connection") to listOf(
                 tile("conn_general", "set_tile_general", "set_tile_general_sub", Icons.Filled.Router, active = killSwitch) { nav.extra("conn:general") },
-                tile("cores", "set_tile_cores", "set_tile_cores_sub", Icons.Filled.Layers) { nav.extra("cores") },
                 tile("dns", "sec_dns", "set_tile_dns_sub", Icons.Filled.Dns) { nav.extra("conn:dns") },
                 tile("routing", "routing", "set_tile_routing_sub", Icons.Filled.CallSplit) { nav.extra("conn:routing") },
                 tile("geodata", "geodata_title", "geodata_sub", Icons.Filled.Public) { nav.extra("geodata") }
             ),
+            t("sec_core") to listOf(
+                tile("cores", "set_tile_cores", "set_tile_cores_sub", Icons.Filled.Layers) { nav.extra("cores") }
+            ),
+            t("sec_share") to listOf(
+                tile("sharing", "set_tile_sharing", "set_tile_sharing_sub", Icons.Filled.Share) { nav.extra("sharing") }
+            ),
+            t("sec_personal") to listOf(
+                tile("personalize", "theme_settings", "theme_settings_sub", Icons.Filled.Palette, onClick = nav.theme),
+                tile("preferences", "preferences", "preferences_sub", Icons.Filled.Tune, onClick = nav.preferences)
+            ),
+            t("sec_store") to listOf(
+                tile("store", "set_tile_store", "set_tile_store_sub", Icons.Filled.Storefront, onClick = nav.store),
+                tile("usage", "data_usage", null, Icons.Filled.DataUsage, badge = usage, onClick = nav.usage)
+            ),
+            t("sec_backup") to listOf(
+                tile("backup", "backup_title", "backup_sub", Icons.Filled.Backup, onClick = nav.backup),
+                tile("safebox", "safebox_title", "safebox_sub", Icons.Filled.Lock) { nav.extra("safebox") }
+            ),
+            t("sec_notifications") to listOf(
+                tile("notifications", "notif_settings", "notif_settings_sub", Icons.Filled.Notifications, onClick = nav.notifications)
+            ),
             t("sec_diagnostics") to listOf(
+                tile("logs", "log_title", "set_tile_logs_sub", Icons.Filled.BugReport, onClick = nav.logs),
                 tile("tools", "tools", "tools_sub", Icons.Filled.Build, onClick = nav.tools),
                 tile("speed", "stab_title", "stab_sub", Icons.Filled.Speed, onClick = nav.stability),
                 tile("netmon", "netmon_title", "netmon_sub", Icons.Filled.TravelExplore, onClick = nav.netmon),
                 tile("livemon", "livemon_title", "livemon_sub", Icons.Filled.MonitorHeart) { nav.extra("livemon") },
                 tile("debugger", "debugger", "debugger_settings_sub", iconRes = R.drawable.ic_royal_tools, onClick = nav.debugger),
-                tile("ssh", "ssh", "ssh_settings_sub", iconRes = R.drawable.ic_royal_tunnel, onClick = nav.ssh),
-                tile("logs", "log_title", "set_tile_logs_sub", Icons.Filled.BugReport, onClick = nav.logs)
+                tile("ssh", "ssh", "ssh_settings_sub", iconRes = R.drawable.ic_royal_tunnel, onClick = nav.ssh)
             ),
-            t("sec_app") to listOf(
-                tile("personalize", "theme_settings", "theme_settings_sub", Icons.Filled.Palette, onClick = nav.theme),
-                tile("notifications", "notif_settings", "notif_settings_sub", Icons.Filled.Notifications, onClick = nav.notifications),
-                tile("preferences", "preferences", "preferences_sub", Icons.Filled.Tune, onClick = nav.preferences),
-                tile("usage", "data_usage", null, Icons.Filled.DataUsage, badge = usage, onClick = nav.usage),
-                tile("backup", "backup_title", "backup_sub", Icons.Filled.Backup, onClick = nav.backup),
-                tile("safebox", "safebox_title", "safebox_sub", Icons.Filled.Lock) { nav.extra("safebox") },
+            t("sec_about") to listOf(
                 tile("about", "about", "about_sub", Icons.Filled.Info, onClick = nav.about)
             )
         )
+    }
+
+    /** Quick search over every tile: title, subtitle, section and [KEYWORDS]. */
+    fun search(groups: List<Pair<String, List<SettingsTileSpec>>>, query: String): List<SettingsTileSpec> {
+        val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        if (words.isEmpty()) return emptyList()
+        return groups.flatMap { (section, tiles) ->
+            tiles.filter { tile ->
+                val hay = listOf(tile.title, tile.subtitle.orEmpty(), section, KEYWORDS[tile.id].orEmpty())
+                    .joinToString(" ").lowercase()
+                words.all { it in hay }
+            }
+        }.distinctBy { it.id }
     }
 }
 
@@ -9668,16 +9740,28 @@ private fun LogsScreen(store: ConfigStore, modifier: Modifier = Modifier) {
                         )
                     }
                 } else CompositionLocalProvider(LocalLayoutDirection provides LayoutDirection.Ltr) {
+                    // One lazy row per line instead of a single Text holding
+                    // the whole logcat: a long log no longer lays out (and
+                    // recomposes) as one giant paragraph. Lines wrap inside
+                    // the card, so long URLs, IPv6 and stack traces never push
+                    // the page sideways; the newest lines are kept.
+                    val lines = remember(logs) { logs.lines().takeLast(3000) }
                     SelectionContainer {
-                        Text(
-                            logs,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontFamily = MonoFont,
-                            textAlign = TextAlign.Left,
-                            modifier = Modifier.fillMaxSize()
-                                .verticalScroll(rememberScrollState())
-                                .padding(horizontal = 14.dp, vertical = 12.dp)
-                        )
+                        androidx.compose.foundation.lazy.LazyColumn(
+                            Modifier.fillMaxSize(),
+                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 12.dp)
+                        ) {
+                            items(lines.size) { i ->
+                                Text(
+                                    lines[i],
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontFamily = MonoFont,
+                                    textAlign = TextAlign.Left,
+                                    softWrap = true,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+                        }
                     }
                 }
             }
