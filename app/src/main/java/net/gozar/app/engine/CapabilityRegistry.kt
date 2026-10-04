@@ -37,7 +37,7 @@ object CapabilityRegistry {
             Capability.SHARE_THROUGH_PHONE)),
         CoreDescriptor(EngineId.SINGBOX, LayerKind.CORE, true, setOf(
             Capability.TCP, Capability.UDP, Capability.IPV6, Capability.SOCKS, Capability.DNS,
-            Capability.FULL_CONFIG, Capability.SUBSCRIPTION, Capability.ADVANCED_AUTH, Capability.SHARE_THROUGH_PHONE)),
+            Capability.FULL_CONFIG, Capability.SUBSCRIPTION, Capability.ADVANCED_AUTH)),
         CoreDescriptor(EngineId.PSIPHON, LayerKind.CORE, true, setOf(
             Capability.TCP, Capability.SOCKS, Capability.SHARE_THROUGH_PHONE)),
         CoreDescriptor(EngineId.TOR, LayerKind.CORE, true, setOf(
@@ -63,13 +63,14 @@ object CapabilityRegistry {
             "vless" -> base += setOf(Capability.UDP, Capability.IPV6, Capability.REALITY, Capability.XHTTP, Capability.ECH, Capability.SHARE_THROUGH_PHONE)
             "vmess", "trojan" -> base += setOf(Capability.UDP, Capability.IPV6, Capability.XHTTP, Capability.ECH, Capability.SHARE_THROUGH_PHONE)
             "ss", "shadowsocks", "socks", "http" -> base += setOf(Capability.UDP, Capability.IPV6, Capability.SHARE_THROUGH_PHONE)
-            "hysteria2", "tuic", "hysteria" -> base += setOf(Capability.UDP, Capability.IPV6, Capability.SHARE_THROUGH_PHONE)
-            "wireguard", "amneziawg" -> base += setOf(Capability.UDP, Capability.IPV6, Capability.FULL_CONFIG, Capability.SHARE_THROUGH_PHONE)
-            "ssh", "naive", "anytls", "shadowtls", "snell", "mieru", "brook", "masque" ->
-                base += setOf(Capability.UDP, Capability.SHARE_THROUGH_PHONE)
-            "openconnect", "sstp", "softether" -> base += setOf(Capability.UDP, Capability.ADVANCED_AUTH, Capability.SHARE_THROUGH_PHONE)
+            "hysteria2" -> base += setOf(Capability.UDP, Capability.IPV6, Capability.SHARE_THROUGH_PHONE)
+            "tuic", "hysteria" -> base += setOf(Capability.UDP, Capability.IPV6)
+            "wireguard" -> base += setOf(Capability.UDP, Capability.IPV6, Capability.FULL_CONFIG, Capability.SHARE_THROUGH_PHONE)
+            "amneziawg" -> base += setOf(Capability.UDP, Capability.IPV6, Capability.FULL_CONFIG)
+            "ssh", "naive", "anytls", "shadowtls", "snell", "mieru", "brook", "masque" -> base += Capability.UDP
+            "openconnect", "sstp", "softether" -> base += setOf(Capability.UDP, Capability.ADVANCED_AUTH)
             "tailscale", "tailcat" -> base += setOf(Capability.UDP, Capability.ADVANCED_AUTH)
-            SingBoxFull.PROTOCOL -> base += setOf(Capability.UDP, Capability.DNS, Capability.FULL_CONFIG, Capability.SHARE_THROUGH_PHONE)
+            SingBoxFull.PROTOCOL -> base += setOf(Capability.UDP, Capability.DNS, Capability.FULL_CONFIG)
             "openvpn" -> { base -= Capability.SUBSCRIPTION; base += setOf(Capability.UDP, Capability.TUN, Capability.FULL_CONFIG, Capability.ADVANCED_AUTH) }
             "ikev2" -> { base -= Capability.SUBSCRIPTION; base += setOf(Capability.UDP, Capability.TUN, Capability.ADVANCED_AUTH) }
             "psiphon", "tor", "aether" -> { base -= Capability.SUBSCRIPTION; base += Capability.SHARE_THROUGH_PHONE }

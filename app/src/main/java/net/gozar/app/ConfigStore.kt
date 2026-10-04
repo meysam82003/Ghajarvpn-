@@ -302,6 +302,16 @@ class ConfigStore private constructor(context: Context) {
     fun setVpnShareEnabled(enabled: Boolean) {
         _vpnShareEnabled.value = enabled
         prefs.edit().putBoolean(KEY_VPN_SHARE, enabled).apply()
+        if (!enabled) setVpnShareExpiresAt(0L)
+    }
+
+    /** When sharing switches itself off (epoch ms); 0 = until turned off. Enforced by GozarVpnService. */
+    private val _vpnShareExpiresAt = MutableStateFlow(prefs.getLong(KEY_VPN_SHARE_EXPIRES, 0L))
+    val vpnShareExpiresAt: StateFlow<Long> = _vpnShareExpiresAt.asStateFlow()
+
+    fun setVpnShareExpiresAt(at: Long) {
+        _vpnShareExpiresAt.value = at
+        prefs.edit().putLong(KEY_VPN_SHARE_EXPIRES, at).apply()
     }
 
     /** SOCKS5 credential Xray requires from every VPN-Share client. Without
@@ -1084,6 +1094,7 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_ONION = "onion_routing"
         private const val KEY_BLOCK_WHEN_OFF = "block_when_off"
         private const val KEY_VPN_SHARE = "vpn_share_enabled"
+        private const val KEY_VPN_SHARE_EXPIRES = "vpn_share_expires_at"
         private const val KEY_VPN_SHARE_USER = "vpn_share_user"
         private const val KEY_VPN_SHARE_PASS = "vpn_share_pass"
         const val SORT_ADDED = "added"

@@ -429,7 +429,7 @@ object ConfigBuilder {
         }
 
         val inbounds = JSONArray().put(tunIn).put(socksIn)
-        if (shareOnLan) {
+        if (shareAuthed) {
             // Android's own per-network "Manual Proxy" setting is HTTP-only
             // and has no credential field at all, so it can never speak to
             // an authenticated SOCKS5 inbound. This plain HTTP inbound is
@@ -438,11 +438,14 @@ object ConfigBuilder {
             // can use it while it's on. The authenticated socks-in above
             // stays available at the same time for anything that supports
             // manual SOCKS5+credentials (a browser, Telegram, etc.).
+            // 1.1.1: the HTTP inbound takes the same credential as SOCKS5.
+            // An open proxy on a hotspot is usable by anyone in range.
             inbounds.put(JSONObject().put("tag", "http-share-in")
                 .put("port", HttpSharePort.value)
                 .put("listen", shareListenAddress)
                 .put("protocol", "http")
-                .put("settings", JSONObject()))
+                .put("settings", JSONObject().put("accounts",
+                    JSONArray().put(JSONObject().put("user", shareUser).put("pass", sharePass)))))
         }
         if (config.protocol == "tor" || onion) {
             inbounds.put(JSONObject().put("tag", "tor-in")
@@ -513,6 +516,19 @@ object ConfigBuilder {
         root.put("outbounds", outbounds)
 
         val rules = JSONArray()
+        if (shareAuthed) {
+            // Kill switch for shared devices, first so nothing below can
+            // send their traffic direct (split routing, DNS, ad rules): the
+            // phone's own private networks and loopback are refused, and the
+            // rest goes to the tunnel or nowhere. Losing the tunnel stops this
+            // core and the listener with it.
+            val shared = JSONArray().put("socks-in").put("http-share-in")
+            rules.put(JSONObject().put("type", "field").put("inboundTag", shared)
+                .put("ip", JSONArray().put("geoip:private"))
+                .put("outboundTag", "block"))
+            rules.put(JSONObject().put("type", "field").put("inboundTag", shared)
+                .put("outboundTag", "proxy"))
+        }
         if (onion) {
             rules.put(JSONObject().put("type", "field")
                 .put("domain", JSONArray().put("regexp:\\.onion$"))
@@ -572,7 +588,7 @@ object ConfigBuilder {
                 .put("outboundTag", "direct"))
         }
         val proxiedInbounds = JSONArray().put("tun-in").put("socks-in")
-        if (shareOnLan) proxiedInbounds.put("http-share-in")
+        if (shareAuthed) proxiedInbounds.put("http-share-in")
         rules.put(JSONObject().put("type", "field")
             .put("inboundTag", proxiedInbounds)
             .put("outboundTag", "proxy"))

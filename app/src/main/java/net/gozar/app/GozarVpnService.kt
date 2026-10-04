@@ -508,6 +508,16 @@ class GozarVpnService : VpnService() {
             var lastUp = 0L
             var lastDown = 0L
             while (isActive && !tearingDown) {
+                // Sharing with an expiry turns itself off here, and the core is
+                // rebuilt without the shared listeners at once.
+                val store = ConfigStore.get(applicationContext)
+                val shareUntil = store.vpnShareExpiresAt.value
+                if (store.vpnShareEnabled.value && shareUntil in 1..System.currentTimeMillis()) {
+                    store.setVpnShareEnabled(false)
+                    val active = store.configs.value.firstOrNull { it.id == VpnState.activeId.value }
+                    GhajarLog.i(TAG, "VPN share expired; listeners closed")
+                    if (active != null) { scope.launch { switchTunnel(active) }; return@launch }
+                }
                 // When zeptun owns the tun, Xray is not running and its
                 // counters are meaningless; zeptun's own are the real ones
                 // (rx = read from the tun = sent by apps, tx = written back).

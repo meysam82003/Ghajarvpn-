@@ -1724,6 +1724,7 @@ private fun GozarApp(
                                 "usage" -> t("data_usage")
                                 "backup" -> t("backup_title")
                                 "geodata" -> t("geodata_title")
+                                "sharing" -> t("set_tile_sharing")
                                 "livemon" -> t("livemon_title")
                                 "safebox" -> t("safebox_title")
                                 "cores" -> t("set_tile_cores")
@@ -1761,7 +1762,7 @@ private fun GozarApp(
                         "openvpnhub" -> BounceIconButton(onClick = { showOpenVpnHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "psiphonhub" -> BounceIconButton(onClick = { showPsiphonHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "scanqr" -> BounceIconButton(onClick = { showScanner = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "geodata", "livemon", "safebox" -> BounceIconButton(onClick = { extraPage = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "geodata", "livemon", "safebox", "sharing" -> BounceIconButton(onClick = { extraPage = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "backup" -> BounceIconButton(onClick = { backupDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "usage" -> BounceIconButton(onClick = { usageDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "perapp" -> BounceIconButton(onClick = { perAppDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -2081,6 +2082,7 @@ private fun GozarApp(
                         "cores" -> CoreHubScreen(onOpen = { extraPage = it })
                         "core" -> CoreDetailScreen(idName = key.substringAfter(':'), onOpen = { extraPage = it })
                         "safebox" -> SafeboxScreen(store = store)
+                        "sharing" -> SharingHubScreen(store = store, onSwitch = onSwitch)
                         "backup" -> Column(
                             Modifier.fillMaxSize().verticalScroll(rememberScrollState())
                                 .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
@@ -7353,8 +7355,10 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
     // actually exposes the shared proxy - OpenVPN and IKEv2 run through
     // completely separate engines with no such inbound at all, so telling
     // the user it's active there would be a real IP/port that never works.
-    val activeProtocol = configs.find { it.id == activeId }?.protocol
-    val xraySupported = !activeId.orEmpty().startsWith("ovpn:") && activeProtocol != "ikev2"
+    val activeConfig = configs.find { it.id == activeId }
+    val xraySupported = !activeId.orEmpty().startsWith("ovpn:") && activeConfig != null &&
+        net.gozar.app.sharing.PhoneShare.supports(activeConfig)
+    val expiresAt by store.vpnShareExpiresAt.collectAsState()
     val live = enabled && connected == Connection.CONNECTED && xraySupported
 
     fun copy(label: String, value: String) {
@@ -7390,7 +7394,7 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
                 )
             } else if (enabled && connected == Connection.CONNECTED && !xraySupported) {
                 Text(
-                    "وضعیت: غیرفعال (این قابلیت فقط برای پروتکل‌های Xray کار می‌کند؛ اتصال فعلی OpenVPN یا IKEv2 است)",
+                    "وضعیت: غیرفعال (" + net.gozar.app.sharing.PhoneShare.unsupportedReason(activeConfig) + ")",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error
                 )
             }
@@ -7402,8 +7406,8 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
                 } else {
                     ShareAddressRow("آدرس پراکسی (HTTP، برای تنظیمات Wi-Fi)", ip, httpPort.toString(), ::copy)
                     Text(
-                        "بدون رمز؛ هر دستگاهی در همین شبکه می‌تواند از این آدرس استفاده کند.",
-                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error
+                        "با همان نام کاربری و رمز زیر. تنظیم پراکسی خود اندروید فیلد رمز ندارد؛ در آن‌جا از برنامه‌ای با پشتیبانی SOCKS5/HTTP همراه رمز استفاده کن.",
+                        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     HorizontalDivider(color = ghajarColors.border)
                     ShareAddressRow("آدرس SOCKS5 (امن‌تر؛ برای اپ/مرورگری که SOCKS را پشتیبانی کند)",
@@ -7432,6 +7436,20 @@ private fun VpnShareDialog(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, 
                     }
                     TextButton(onClick = { store.regenerateVpnShareCredential(); applyLiveIfConnected() }) {
                         Text("تولید رمز SOCKS5 جدید")
+                    }
+                }
+                // Sharing that ends by itself: the service turns it off and
+                // closes the listeners when the time is up.
+                Text(
+                    if (expiresAt > 0) "پایان خودکار: " + localizeDigits(java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(expiresAt)), Lang.FA)
+                    else "پایان خودکار: خاموش",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    listOf(30 to "۳۰ دقیقه", 60 to "۱ ساعت", 240 to "۴ ساعت", 0 to "بدون پایان").forEach { (min, label) ->
+                        TextButton(onClick = {
+                            store.setVpnShareExpiresAt(if (min == 0) 0L else System.currentTimeMillis() + min * 60_000L)
+                        }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text(label, style = MaterialTheme.typography.labelSmall) }
                     }
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -15391,4 +15409,149 @@ internal fun relativeTime(at: Long, lang: Lang): String {
         mins < 1440 -> localizeDigits("${mins / 60}", lang) + (if (fa) " ساعت پیش" else "h ago")
         else -> localizeDigits("${mins / 1440}", lang) + (if (fa) " روز پیش" else "d ago")
     }
+}
+
+/**
+ * Settings -> Sharing: one config to another device in the format its apps
+ * read, this phone's own connection to devices on its hotspot, and a
+ * short-lived LAN page for a device that cannot scan a QR code.
+ */
+@Composable
+private fun SharingHubScreen(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val clipboard = LocalClipboardManager.current
+    val c = ghajarColors
+    val configs by store.configs.collectAsState()
+    val selectedId by store.selectedId.collectAsState()
+    val activeId by VpnState.activeId.collectAsState()
+    val conn by VpnState.state.collectAsState()
+    val shareOn by store.vpnShareEnabled.collectAsState()
+    var pickedId by rememberSaveable { mutableStateOf<String?>(null) }
+    val picked = configs.firstOrNull { it.id == (pickedId ?: selectedId) } ?: configs.firstOrNull()
+    var pickerOpen by remember { mutableStateOf(false) }
+    var target by rememberSaveable { mutableStateOf(net.gozar.app.sharing.DirectShare.Target.ANDROID) }
+    var qr by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var phoneShareOpen by remember { mutableStateOf(false) }
+    var portal by remember { mutableStateOf<net.gozar.app.sharing.LocalSharePortal?>(null) }
+    var portalUrl by remember { mutableStateOf("") }
+    var portalError by remember { mutableStateOf("") }
+    var tick by remember { mutableIntStateOf(0) }
+    DisposableEffect(Unit) { onDispose { portal?.revoke() } }
+    LaunchedEffect(portal) { while (portal != null) { delay(1000); tick++ } }
+    val exports = remember(picked, target) { picked?.let { net.gozar.app.sharing.DirectShare.exports(it, target) }.orEmpty() }
+    val activeConfig = configs.firstOrNull { it.id == activeId }
+
+    fun copy(text: String) {
+        clipboard.setText(AnnotatedString(text))
+        Toast.makeText(context, "کپی شد", Toast.LENGTH_SHORT).show()
+    }
+    fun send(text: String, title: String) {
+        val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
+        context.startActivity(Intent.createChooser(i, title))
+    }
+    fun openPortal(text: String) {
+        portal?.revoke()
+        val addr = net.gozar.app.sharing.LocalSharePortal.lanAddresses().firstOrNull()
+        if (addr == null) { portalError = "به Wi-Fi وصل شو یا هات‌اسپات را روشن کن؛ آدرس شبکهٔ محلی پیدا نشد."; return }
+        val p = net.gozar.app.sharing.LocalSharePortal(text)
+        portalUrl = runCatching { p.start(addr) }.getOrElse { portalError = it.message.orEmpty(); return }
+        portalError = ""
+        p.onClosed = { portal = null }
+        portal = p
+    }
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ScreenHeader(title = "اشتراک‌گذاری", context = "کانفیگ برای دستگاه دیگر، یا اتصال همین گوشی از طریق هات‌اسپات")
+
+        Rail("اشتراک یک کانفیگ")
+        Slab(spacing = 6.dp) {
+            SlabRow(title = picked?.name ?: "کانفیگی ذخیره نشده", subtitle = picked?.protocol?.uppercase(),
+                icon = Icons.Filled.Dns, chevron = configs.isNotEmpty(), onClick = { pickerOpen = !pickerOpen })
+            if (pickerOpen) configs.take(200).forEach { cfg ->
+                Text(cfg.name, style = MaterialTheme.typography.bodySmall,
+                    color = if (cfg.id == picked?.id) c.primary else c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.fillMaxWidth().clickable { pickedId = cfg.id; pickerOpen = false }.padding(vertical = 6.dp))
+            }
+        }
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            net.gozar.app.sharing.DirectShare.Target.entries.forEach { tg ->
+                GhostPill(text = tg.label, onClick = { target = tg }, accent = if (tg == target) c.primary else c.textMuted, fillWidth = false, minHeight = 40.dp)
+            }
+        }
+        if (picked != null && exports.isEmpty()) {
+            Text(if (picked.locked) "این کانفیگ قفل است و خروجی ندارد." else "برای ${picked.protocol} و ${target.label} قالب استانداردی وجود ندارد.",
+                style = MaterialTheme.typography.bodySmall, color = c.warning)
+        }
+        exports.forEach { ex ->
+            Slab(spacing = 6.dp) {
+                Text(ex.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text("برنامه‌ها: " + ex.apps.joinToString("، "), style = MaterialTheme.typography.labelMedium, color = c.info)
+                ex.steps.forEachIndexed { i, step ->
+                    Text(localizeDigits("${i + 1}. ", Lang.FA) + step, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+                }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GhostPill(text = "کپی", icon = Icons.Filled.ContentCopy, onClick = { copy(ex.text) }, fillWidth = false)
+                    GhostPill(text = "ارسال", icon = Icons.Filled.Share, onClick = { send(ex.text, ex.title) }, fillWidth = false)
+                    if (ex.qr) GhostPill(text = "QR", icon = Icons.Filled.QrCodeScanner, onClick = { qr = ex.text to ex.title }, fillWidth = false)
+                    GhostPill(text = "پورتال شبکهٔ محلی", icon = Icons.Filled.Wifi, onClick = { openPortal(ex.text) }, fillWidth = false)
+                }
+            }
+        }
+
+        Rail("پورتال شبکهٔ محلی")
+        Slab(spacing = 6.dp) {
+            val p = portal
+            if (p != null && p.isOpen) {
+                Text("دستگاه دیگر در همین Wi-Fi/هات‌اسپات این آدرس را در مرورگر یا برنامه‌اش باز کند:", style = MaterialTheme.typography.bodySmall)
+                Text(portalUrl, fontFamily = MonoFont, style = MaterialTheme.typography.bodySmall, color = c.primary)
+                val left = remember(tick, p) { ((p.expiry - System.currentTimeMillis()) / 1000).coerceAtLeast(0) }
+                Text(localizeDigits("یک‌بار مصرف · ${left / 60}:${"%02d".format(left % 60)} تا بسته‌شدن", Lang.FA),
+                    style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    GhostPill(text = "کپی آدرس", onClick = { copy(portalUrl) }, fillWidth = false)
+                    GhostPill(text = "QR آدرس", onClick = { qr = portalUrl to "پورتال" }, fillWidth = false)
+                    GhostPill(text = "لغو", onClick = { p.revoke() }, accent = c.error, fillWidth = false)
+                }
+            } else {
+                Text("از دکمهٔ «پورتال شبکهٔ محلی» زیر هر خروجی استفاده کن. صفحه فقط روی آدرس شبکهٔ محلی باز می‌شود، با توکن تصادفی، ۱۰ دقیقه اعتبار و بعد از اولین دریافت بسته می‌شود.",
+                    style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+            }
+            if (portalError.isNotBlank()) Text(portalError, style = MaterialTheme.typography.bodySmall, color = c.error)
+        }
+
+        Rail("اشتراک اتصال همین گوشی")
+        Slab(spacing = 6.dp) {
+            val supported = activeConfig?.let { net.gozar.app.sharing.PhoneShare.supports(it) } == true
+            SlabRow(
+                title = "SOCKS5 / HTTP با رمز روی هات‌اسپات",
+                subtitle = when {
+                    conn != Connection.CONNECTED -> "اول به یک سرور وصل شو"
+                    !supported -> net.gozar.app.sharing.PhoneShare.unsupportedReason(activeConfig)
+                    shareOn -> "روشن"
+                    else -> "خاموش"
+                },
+                icon = Icons.Filled.Wifi, chevron = true, onClick = { phoneShareOpen = true }
+            )
+            Text("ترافیک دستگاه متصل فقط از تونل می‌رود؛ اگر VPN قطع شود درگاه هم بسته می‌شود و راه مستقیمی باقی نمی‌ماند. دسترسی به شبکهٔ محلی و localhost گوشی برای دستگاه مهمان بسته است.",
+                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+        }
+
+        Rail("چه چیزی قابل اشتراک است")
+        Slab(spacing = 4.dp) {
+            listOf(
+                "VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC / AnyTLS: لینک استاندارد برای همهٔ پلتفرم‌ها.",
+                "WireGuard: فایل .conf استاندارد (بدون reserved اختصاصی). AmneziaWG: فقط با برنامهٔ AmneziaWG.",
+                "TUIC، AnyTLS، Hysteria، NaiveProxy، ShadowTLS، MASQUE و دیگر پروتکل‌های sing-box: فایل کامل sing-box برای دسکتاپ و روتر.",
+                "IKEv2 و OpenVPN: کلید و گواهی هر دستگاه را از مدیر سرور بگیر؛ این برنامه رمز آن‌ها را بیرون نمی‌دهد.",
+                "Psiphon، Tor و Aether سرور ثابت ندارند؛ برای آن‌ها «اشتراک اتصال همین گوشی» را استفاده کن."
+            ).forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = c.textSecondary) }
+        }
+    }
+
+    qr?.let { (text, title) -> QrDialog(link = text, title = title, onDismiss = { qr = null }) }
+    if (phoneShareOpen) VpnShareDialog(store = store, onSwitch = onSwitch, onDismiss = { phoneShareOpen = false })
 }
