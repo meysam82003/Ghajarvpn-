@@ -293,6 +293,16 @@ fun CoreDetailScreen(idName: String, onOpen: (String) -> Unit, modifier: Modifie
                 color = c.textSecondary
             )
         }
+        val caps = remember(engine.id) { net.gozar.app.engine.CapabilityRegistry.core(engine.id) }
+        Rail(t("set_core_caps"))
+        Slab(spacing = 6.dp) {
+            Text(
+                mixedText(caps.capabilities.joinToString(" · ") { it.name.replace('_', ' ') }),
+                style = MaterialTheme.typography.bodySmall,
+                color = c.textSecondary
+            )
+            if (caps.protected) Text(t("set_core_protected"), style = MaterialTheme.typography.labelSmall, color = c.good)
+        }
         val links = CoreSettingsRegistry.links(engine.id)
         if (links.isNotEmpty()) {
             Rail(t("set_core_global"))

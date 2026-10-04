@@ -24,7 +24,13 @@ object PsiphonConfig {
         "FRONTED-MEEK-CDN-QUIC-OSSH",
     )
 
-    private val NON_INPROXY_PROTOCOLS = listOf(
+    /**
+     * Every non-in-proxy tunnel protocol the bundled psiphon-tunnel-core
+     * (app/libs/ca.psiphon.aar) carries; each name was checked against the
+     * protocol strings inside its libgojni.so. In-proxy (INPROXY-WEBRTC-*)
+     * needs a Ghajar-held key this build does not have, so it is never offered.
+     */
+    val NON_INPROXY_PROTOCOLS = listOf(
         "SSH", "OSSH", "TLS-OSSH", "UNFRONTED-MEEK-OSSH",
         "UNFRONTED-MEEK-HTTPS-OSSH", "UNFRONTED-MEEK-SESSION-TICKET-OSSH",
         "QUIC-OSSH", "SHADOWSOCKS-OSSH", "FRONTED-MEEK-OSSH",
@@ -52,13 +58,34 @@ object PsiphonConfig {
             "31PgWQFTEPICV7GCvgVlPRxnofqKSjgTWI4mxDhBpVcATvaoBl1L/6WLbFvBsoAUBItWwctO2xal" +
             "KxF5szhGm8lccoc5MZr8kfE0uxMgsxz4er68iCID+rsCAQM="
 
-    fun mode(raw: String): String = when (raw.trim()) {
-        MODE_CDN -> MODE_CDN
-        MODE_DIRECT -> MODE_DIRECT
+    const val PROTOCOL_PREFIX = "proto:"
+    const val INPROXY_AVAILABLE = false
+
+    fun mode(raw: String): String = when {
+        raw.trim() == MODE_CDN -> MODE_CDN
+        raw.trim() == MODE_DIRECT -> MODE_DIRECT
+        protocol(raw) != null -> PROTOCOL_PREFIX + protocol(raw)
         else -> MODE_AUTO
     }
 
+    /** The single tunnel protocol a "proto:NAME" mode pins, if it is one this build has. */
+    fun protocol(raw: String): String? =
+        raw.trim().takeIf { it.startsWith(PROTOCOL_PREFIX) }?.removePrefix(PROTOCOL_PREFIX)?.takeIf { it in NON_INPROXY_PROTOCOLS }
+
+    /**
+     * Why [raw] cannot run, or null. Behind Aether (chain) Psiphon dials
+     * through a SOCKS5 upstream, which carries no UDP: QUIC protocols cannot
+     * work there and are refused up front instead of timing out.
+     */
+    fun incompatibility(raw: String, chained: Boolean): String? {
+        val p = protocol(raw)
+        if (raw.trim().startsWith(PROTOCOL_PREFIX) && p == null) return "این پروتکل سایفون در این نسخه وجود ندارد."
+        if (chained && p != null && p.contains("QUIC")) return "پروتکل $p روی QUIC است و پشت زنجیر Aether (SOCKS5 بدون UDP) کار نمی‌کند."
+        return null
+    }
+
     fun chainedProtocols(raw: String): List<String> {
+        protocol(raw)?.let { p -> return if (p.contains("QUIC")) emptyList() else listOf(p) }
         val protocols = if (mode(raw) == MODE_CDN) CDN_PROTOCOLS else NON_INPROXY_PROTOCOLS
         return protocols.filterNot { it.contains("QUIC") || it.startsWith("INPROXY") || (mode(raw) == MODE_DIRECT && it.startsWith("FRONTED")) }
     }
@@ -104,10 +131,15 @@ object PsiphonConfig {
         config.put("InproxyTunnelProtocolSelectionProbability", 0.0)
 
         putCdnFronting(config, cdnIps, cdnSni)
+        incompatibility(mode, options.core == "chain")?.let { throw IllegalArgumentException(it) }
         if (options.core == "chain") {
             config.put("UpstreamProxyURL", "socks5://127.0.0.1:${options.aetherPort}")
             config.put("LimitTunnelProtocols", JSONArray(chainedProtocols(mode)))
             if (mode(mode) != MODE_AUTO) config.put("DisableTactics", true)
+            return config.toString()
+        }
+        protocol(mode)?.let { p ->
+            config.put("LimitTunnelProtocols", JSONArray().put(p))
             return config.toString()
         }
         when (mode(mode)) {

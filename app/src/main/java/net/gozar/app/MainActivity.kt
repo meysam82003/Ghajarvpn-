@@ -11980,6 +11980,36 @@ private fun PsiphonHubScreen(
             }
         }
 
+        // The bundled core's real tunnel protocols, one of them pinned per
+        // profile. In-proxy needs a key this build does not hold.
+        var protoOpen by remember { mutableStateOf(false) }
+        val pinned = PsiphonConfig.protocol(mode)
+        SlabRow(
+            title = "پروتکل تونل",
+            subtitle = pinned ?: "انتخاب خودکار سایفون",
+            icon = Icons.Filled.Tune, chevron = true,
+            onClick = { protoOpen = !protoOpen }
+        )
+        if (protoOpen) Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            (listOf<String?>(null) + PsiphonConfig.NON_INPROXY_PROTOCOLS).forEach { p ->
+                val value = p?.let { PsiphonConfig.PROTOCOL_PREFIX + it } ?: PsiphonConfig.MODE_AUTO
+                val on = (p == null && pinned == null && mode !in setOf(PsiphonConfig.MODE_CDN, PsiphonConfig.MODE_DIRECT)) || p == pinned
+                Text(
+                    (if (on) "● " else "○ ") + (p ?: "خودکار"),
+                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = MonoFont,
+                    color = if (on) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth().clickable {
+                        mode = value
+                        store.updatePsiphonSettings(config.id, mode, country)
+                        protoOpen = false
+                    }.padding(vertical = 6.dp)
+                )
+            }
+            Text("INPROXY (Conduit): در این نسخه در دسترس نیست.", style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+
         // Was a two-character text field. That asked the user to know both
         // that DE means Germany and - the part that actually bites - whether
         // Psiphon has a server there, which it does not tell you: an
@@ -12008,7 +12038,10 @@ private fun PsiphonHubScreen(
                 if (isActive && conn != Connection.DISCONNECTED && conn != Connection.ERROR) {
                     onDisconnect()
                 } else {
-                    val error = runCatching { OblivionOptions(oblivion).validate() }.exceptionOrNull()
+                    val error = runCatching {
+                        OblivionOptions(oblivion).validate()
+                        PsiphonConfig.incompatibility(mode, OblivionOptions(oblivion).core == "chain")?.let { throw IllegalArgumentException(it) }
+                    }.exceptionOrNull()
                     settingsError = error?.message
                     if (error == null) onConnect(config.copy(psiphonMode = mode, psiphonCountry = country, psiphonCdnIps = cdnIps, psiphonCdnSni = cdnSni, oblivionJson = oblivion))
                 }
