@@ -638,6 +638,10 @@ class MainActivity : ComponentActivity() {
                         if (showWelcome) {
                             GhajarIntro(onDone = { showWelcome = false })
                         }
+                        // First install only (see Onboarding.shouldShow); drawn
+                        // over the app once the intro has finished.
+                        var showOnboarding by remember { mutableStateOf(Onboarding.shouldShow(applicationContext, store)) }
+                        if (showOnboarding && !showWelcome) OnboardingWizard(store = store, onDone = { showOnboarding = false })
                         pendingOvpn?.let { profile ->
                             var ovpnUser by remember(profile) { mutableStateOf(profile.embeddedUsername) }
                             var ovpnPass by remember(profile) { mutableStateOf(profile.embeddedPassword) }
