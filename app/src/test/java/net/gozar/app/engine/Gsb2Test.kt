@@ -30,7 +30,7 @@ class Gsb2Test {
         val bytes = Gsb2.seal(share.copy(hidden = false), keys.first, keys.second, null)
         assertFalse(Gsb2.needsPassword(bytes))
         val ok = Gsb2.open(bytes, null) as Gsb2.OpenResult.Ok
-        assertFalse(Gsb2.receivedConfigs(ok.share).single().locked)
+        assertTrue(Gsb2.receivedConfigs(ok.share).single().locked)
     }
 
     @Test fun tamperingIsDetected() {

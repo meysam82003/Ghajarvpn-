@@ -3686,13 +3686,13 @@ private fun ConfigPickerScreen(
                 count = selected.size,
                 onClose = { clearSel() },
                 onCopy = {
-                    val text = configs.filter { selected.containsKey(it.id) }
+                    val text = configs.filter { selected.containsKey(it.id) && it.shareable() }
                         .joinToString("\n") { ConfigShare.toLink(it) }
                     clipboard.setText(AnnotatedString(text))
                     android.widget.Toast.makeText(context, t("copied"), android.widget.Toast.LENGTH_SHORT).show()
                 },
                 onShareApp = {
-                    val text = configs.filter { selected.containsKey(it.id) }
+                    val text = configs.filter { selected.containsKey(it.id) && it.shareable() }
                         .joinToString("\n") { ConfigShare.toLink(it) }
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"; putExtra(Intent.EXTRA_TEXT, text)
@@ -3700,7 +3700,7 @@ private fun ConfigPickerScreen(
                     context.startActivity(Intent.createChooser(send, t("share")))
                 },
                 onShareFile = {
-                    onShareFile(configs.filter { selected.containsKey(it.id) })
+                    onShareFile(configs.filter { selected.containsKey(it.id) && net.gozar.app.gsb2.Gsb2.Meta.of(it) == null })
                     clearSel()
                 },
                 onDelete = { confirmDelete = true }
@@ -4033,6 +4033,13 @@ private fun ManualConfigScreen(
     val t = stringsFn()
     var name by remember { mutableStateOf(existing?.name ?: "") }
 
+    if (existing != null && net.gozar.app.gsb2.Gsb2.Meta.of(existing) != null) {
+        Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text("این کانفیگ از اشتراک امن GSB2 آمده و فقط برای اتصال است؛ قابل ویرایش نیست.", style = MaterialTheme.typography.bodyMedium)
+            GhostPill(t("cancel"), onCancel)
+        }
+        return
+    }
     if (existing?.locked == true) {
         Column(
             modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -6889,7 +6896,7 @@ private fun BackupRow(store: ConfigStore) {
                     runCatching {
                         val data = ConfigFile.encodeBackup(
                             context,
-                            store.configs.value,
+                            store.configs.value.filter { net.gozar.app.gsb2.Gsb2.Meta.of(it) == null },
                             store.subscriptions.value,
                             store.settingsSnapshot(),
                             password
@@ -13365,6 +13372,9 @@ private fun ConfigRow(
     val clipboard = LocalClipboardManager.current
     var shareMenu by remember { mutableStateOf(false) }
     var moreMenu by remember { mutableStateOf(false) }
+    // A config received through GSB2 is for connecting only: no share, copy,
+    // QR, edit, rename or chain.
+    val isGsb2 = remember(config.extra) { net.gozar.app.gsb2.Gsb2.Meta.of(config) != null }
     var renaming by remember { mutableStateOf(false) }
     var draftName by remember { mutableStateOf(config.name) }
     var qrFor by remember { mutableStateOf<String?>(null) }
@@ -13757,7 +13767,7 @@ private fun ConfigRow(
                             tint = if (config.favorite) c.premium else c.textSecondary,
                             onClick = onToggleFavorite
                         )
-                        Box {
+                        if (!isGsb2) Box {
                             RowAction(
                                 icon = Icons.Filled.Share,
                                 label = t("share"),
@@ -13796,13 +13806,13 @@ private fun ConfigRow(
                                 }
                             }
                         }
-                        RowAction(
+                        if (!isGsb2) RowAction(
                             icon = Icons.Filled.Layers,
                             label = t("chain_through"),
                             tint = if (config.chainId.isNotEmpty()) c.primary else c.textSecondary,
                             onClick = onChain
                         )
-                        RowAction(
+                        if (!isGsb2) RowAction(
                             icon = Icons.Filled.Edit,
                             label = t("edit"),
                             tint = c.primary,
@@ -13828,7 +13838,7 @@ private fun ConfigRow(
                                         qrFor = ConfigShare.toLink(config)
                                     }
                                 }
-                                CompactMenuItem(Icons.Filled.DriveFileRenameOutline, t("cfg_rename")) {
+                                if (!isGsb2) CompactMenuItem(Icons.Filled.DriveFileRenameOutline, t("cfg_rename")) {
                                     moreMenu = false
                                     draftName = config.name
                                     renaming = true
@@ -15643,7 +15653,6 @@ private fun Gsb2CreateSection(picked: ProxyConfig?, all: List<ProxyConfig>) {
     var name by rememberSaveable(picked?.id) { mutableStateOf(picked?.name.orEmpty()) }
     var note by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var hidden by rememberSaveable { mutableStateOf(true) }
     var whole by rememberSaveable { mutableStateOf(false) }
     var expiryDays by rememberSaveable { mutableIntStateOf(0) }
     var durationDays by rememberSaveable { mutableIntStateOf(0) }
@@ -15670,13 +15679,13 @@ private fun Gsb2CreateSection(picked: ProxyConfig?, all: List<ProxyConfig>) {
             expiresAt = if (expiryDays > 0) now + expiryDays * 86_400_000L else 0L,
             durationMs = durationDays * 86_400_000L,
             quotaBytes = gb?.let { (it * 1024 * 1024 * 1024).toLong() } ?: 0L,
-            hidden = hidden, configs = items.map { it.copy(subId = "") }
+            hidden = true, configs = items.map { it.copy(subId = "") }
         )
         val (priv, pub) = net.gozar.app.gsb2.Gsb2Store.issuerKeys(context)
         return net.gozar.app.gsb2.Gsb2.seal(share, priv, pub, password.takeIf { it.isNotEmpty() }?.toCharArray())
     }
     Slab(spacing = 6.dp) {
-        SlabRow(title = "ساخت اشتراک امن", subtitle = "رمز، تاریخ پایان، مدت اعتبار، سقف حجم و پنهان‌کردن کانفیگ",
+        SlabRow(title = "ساخت اشتراک امن", subtitle = "رمز، تاریخ پایان، مدت اعتبار و سقف حجم؛ گیرنده فقط وصل می‌شود",
             icon = Icons.Filled.Lock, chevron = true, onClick = { open = !open })
         if (open) {
             OutlinedTextField(name, { name = it.take(60) }, label = { Text("نام نمایشی") }, singleLine = true, modifier = Modifier.fillMaxWidth())
@@ -15710,10 +15719,8 @@ private fun Gsb2CreateSection(picked: ProxyConfig?, all: List<ProxyConfig>) {
             }
             OutlinedTextField(quotaGb, { quotaGb = it.filter { ch -> ch.isDigit() || ch == '.' }.take(6) }, label = { Text("حجم دلخواه (گیگابایت)") },
                 singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("پنهان‌کردن سرور و رمزها از گیرنده", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                SkinSwitch(checked = hidden, onCheckedChange = { hidden = it })
-            }
+            Text("گیرنده فقط می‌تواند وصل شود: سرور، رمزها، QR و لینک را نمی‌بیند و نمی‌تواند کپی، ویرایش یا دوباره ارسال کند.",
+                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
             Text("تاریخ و حجم را برنامهٔ قاجار در گوشی گیرنده اعمال می‌کند: بعد از تمام شدن، اتصال برقرار نمی‌شود و اتصال فعال قطع می‌شود.",
                 style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -15741,3 +15748,7 @@ private fun Gsb2CreateSection(picked: ProxyConfig?, all: List<ProxyConfig>) {
         }
     }
 }
+
+
+/** Whether a config's link may leave the app: not when locked, not when it came through GSB2. */
+private fun ProxyConfig.shareable(): Boolean = !locked && net.gozar.app.gsb2.Gsb2.Meta.of(this) == null

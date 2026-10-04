@@ -59,7 +59,7 @@ object Gsb2 {
         val durationMs: Long = 0L,
         /** Bytes up+down allowed, 0 = unlimited. */
         val quotaBytes: Long = 0L,
-        /** The receiver sees server and credentials only when false. */
+        /** Always hidden: a received share is for connecting only (kept in the format for compatibility). */
         val hidden: Boolean = true,
         val configs: List<ProxyConfig> = emptyList(),
         val subscriptions: List<String> = emptyList(),
@@ -166,7 +166,7 @@ object Gsb2 {
         val meta = Meta(share.id, share.name, expires, share.quotaBytes, fingerprint(share.issuerKey))
         return share.configs.map { c ->
             val extra = c.extraJson().put("gsb2", meta.toJson())
-            c.copy(id = UUID.randomUUID().toString(), subId = "", locked = c.locked || share.hidden, extra = extra.toString(),
+            c.copy(id = UUID.randomUUID().toString(), subId = "", locked = true, extra = extra.toString(),
                 name = c.name.ifBlank { share.name })
         }
     }
