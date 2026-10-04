@@ -129,4 +129,12 @@ class GhajarLogRedactionTest {
         assertGone("my-npvs-secret-99", "passphrase: my-npvs-secret-99")
         assertTrue(redacted("<ca>x</ca> remote vpn.example.com 1194").contains("vpn.example.com"))
     }
+
+    @Test
+    fun `basic auth subscription tokens and cookies are removed`() {
+        assertGone("dXNlcjpwYXNzd29yZA==", "Authorization: Basic dXNlcjpwYXNzd29yZA==")
+        assertGone("AbCdEf123456XYZ", "fetch https://panel.example.com/sub/AbCdEf123456XYZ failed")
+        assertGone("q1w2e3r4t5y6", "GET https://p.example.com/api?token=q1w2e3r4t5y6&x=1")
+        assertGone("sessionid=abc123", "Set-Cookie: sessionid=abc123; Path=/")
+    }
 }

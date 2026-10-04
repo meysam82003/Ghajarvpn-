@@ -53,9 +53,9 @@ public class NativeUtils {
     static {
         if (!isRoboUnitTest()) {
             System.loadLibrary("ovpnutil");
-            if (!BuildConfig.FLAVOR.equals("skeleton")) {
-                System.loadLibrary("osslspeedtest");
-            }
+            // libosslspeedtest is not built into Ghajar VPN 1.1.1: only the
+            // upstream UI's OpenSSL speed page used it, and that page is not
+            // part of this app (the module builds the skeleton sources).
         }
     }
 

@@ -41,6 +41,17 @@ class GozarVpnService : VpnService() {
     private var pollJob: Job? = null
     private var startJob: Job? = null
     private var configName: String = "VPN"
+    private var configProtocol: String = ""
+    private var configCore: String = ""
+
+    /** The GSB2 share the current session is drawing on, if any. */
+    @Volatile private var gsb2Active: net.gozar.app.gsb2.Gsb2.Meta? = null
+
+    private fun describe(config: ProxyConfig?) {
+        gsb2Active = config?.let { net.gozar.app.gsb2.Gsb2.Meta.of(it) }
+        configProtocol = config?.protocol.orEmpty()
+        configCore = config?.let { net.gozar.app.engine.CoreManager.engine(net.gozar.app.engine.EngineRouting.engineFor(it)).displayName }.orEmpty()
+    }
     private var configAddress: String = ""
     private var configPort: Int = 0
     @Volatile private var lastPingMs: Int? = null
@@ -116,6 +127,21 @@ class GozarVpnService : VpnService() {
                 if (enginesReady && !tearingDown) runPing()
                 return START_STICKY
             }
+            // Notification actions. Idempotent: ignored unless the tunnel is
+            // up and not already being torn down or rebuilt.
+            ACTION_RECONNECT, ACTION_NEXT -> {
+                if (enginesReady && !tearingDown && VpnState.state.value == Connection.CONNECTED) {
+                    val store = ConfigStore.get(applicationContext)
+                    val list = store.configs.value.filterNot { net.gozar.app.engine.RemovedCores.isRemoved(it) || it.protocol == "ikev2" || it.protocol == "openvpn" }
+                    val current = list.firstOrNull { it.id == VpnState.activeId.value }
+                    val target = if (intent.action == ACTION_RECONNECT) current else nextAfter(list, current)
+                    if (target != null) {
+                        if (target.id != current?.id) store.setSelectedId(target.id)
+                        scope.launch { switchTunnel(target) }
+                    }
+                }
+                return START_STICKY
+            }
             else -> {
                 val configJson = intent?.getStringExtra(EXTRA_CONFIG)
                 if (startJob?.isActive == true || enginesReady || tunFd != null) return START_STICKY
@@ -124,6 +150,7 @@ class GozarVpnService : VpnService() {
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
                 singboxSpec = intent?.getStringExtra(EXTRA_SINGBOX)?.takeIf { it.isNotBlank() }
                 configName = intent?.getStringExtra(EXTRA_NAME) ?: "VPN"
+                describe(runCatching { ConfigStore.get(applicationContext).configs.value.firstOrNull { it.id == VpnState.activeId.value } }.getOrNull())
                 configAddress = intent?.getStringExtra(EXTRA_ADDRESS).orEmpty()
                 configPort = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
                 lastPingMs = null
@@ -421,6 +448,7 @@ class GozarVpnService : VpnService() {
         torSpec = if (config.protocol == "tor")
             TorController.spec(config) else null
         configName = config.name
+        describe(config)
         configAddress = config.address
         configPort = config.port
         lastPingMs = null
@@ -508,6 +536,16 @@ class GozarVpnService : VpnService() {
             var lastUp = 0L
             var lastDown = 0L
             while (isActive && !tearingDown) {
+                // Sharing with an expiry turns itself off here, and the core is
+                // rebuilt without the shared listeners at once.
+                val store = ConfigStore.get(applicationContext)
+                val shareUntil = store.vpnShareExpiresAt.value
+                if (store.vpnShareEnabled.value && shareUntil in 1..System.currentTimeMillis()) {
+                    store.setVpnShareEnabled(false)
+                    val active = store.configs.value.firstOrNull { it.id == VpnState.activeId.value }
+                    GhajarLog.i(TAG, "VPN share expired; listeners closed")
+                    if (active != null) { scope.launch { switchTunnel(active) }; return@launch }
+                }
                 // When zeptun owns the tun, Xray is not running and its
                 // counters are meaningless; zeptun's own are the real ones
                 // (rx = read from the tun = sent by apps, tx = written back).
@@ -517,6 +555,16 @@ class GozarVpnService : VpnService() {
                 val upSpeed = (up - lastUp).coerceAtLeast(0L)
                 val downSpeed = (down - lastDown).coerceAtLeast(0L)
                 lastUp = up; lastDown = down
+
+                // GSB2: count this second's traffic against the share, and stop
+                // the tunnel the moment its quota or time runs out.
+                gsb2Active?.let { meta ->
+                    net.gozar.app.gsb2.Gsb2Store.addUsage(applicationContext, meta.shareId, upSpeed + downSpeed)
+                    val verdict = net.gozar.app.gsb2.Gsb2.check(meta,
+                        net.gozar.app.gsb2.Gsb2Store.used(applicationContext, meta.shareId),
+                        net.gozar.app.gsb2.Gsb2Store.now(applicationContext))
+                    if (verdict is net.gozar.app.gsb2.Gsb2.Verdict.Blocked) { die(verdict.reason); return@launch }
+                }
 
                 VpnBridge.sendCounters(applicationContext, up, down, upSpeed, downSpeed)
 
@@ -542,8 +590,36 @@ class GozarVpnService : VpnService() {
         }
     }
 
+    /** The next config in the same group as [current] (its subscription), wrapping round. */
+    private fun nextAfter(list: List<ProxyConfig>, current: ProxyConfig?): ProxyConfig? {
+        if (current == null) return list.firstOrNull()
+        val group = list.filter { it.subId == current.subId }
+        if (group.size < 2) return null
+        return group[(group.indexOfFirst { it.id == current.id } + 1) % group.size]
+    }
+
+    /** "قاجار VPN خاموش شد" or the reason it failed, on its own channels, never on the persistent one. */
+    private fun postEndEvent(error: String?) {
+        val nm = getSystemService(NotificationManager::class.java) ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_EVENTS, "رویدادهای اتصال", NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_ERRORS, "خطای اتصال", NotificationManager.IMPORTANCE_HIGH))
+        }
+        val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
+        val b = Notification.Builder(this, if (error != null) CHANNEL_ERRORS else CHANNEL_EVENTS)
+            .setSmallIcon(R.drawable.ic_stat_ghajar)
+            .setContentTitle(if (error != null) "اتصال قاجار VPN برقرار نماند" else "قاجار VPN خاموش شد")
+            .setContentIntent(pi)
+            .setAutoCancel(true)
+        if (error != null) b.setContentText(GhajarLog.redact(error).take(160))
+        if (error == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) b.setTimeoutAfter(5000)
+        runCatching { nm.notify(EVENT_NOTIF_ID, b.build()) }
+    }
+
     private fun die(error: String?) {
         if (tearingDown) return
+        val wasUp = enginesReady
+        if (wasUp || error != null) postEndEvent(error)
         tearingDown = true
         enginesReady = false
         startJob?.cancel()
@@ -689,8 +765,9 @@ class GozarVpnService : VpnService() {
     ): Notification {
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Same id as always, so the user's own choices for it survive.
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "GozarNet", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, "اتصال VPN", NotificationManager.IMPORTANCE_LOW)
             )
         }
         val pi = PendingIntent.getActivity(
@@ -700,8 +777,12 @@ class GozarVpnService : VpnService() {
             this, 1, Intent(this, GozarVpnService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE
         )
-        val pingPi = PendingIntent.getService(
-            this, 2, Intent(this, GozarVpnService::class.java).setAction(ACTION_PING),
+        val reconnectPi = PendingIntent.getService(
+            this, 3, Intent(this, GozarVpnService::class.java).setAction(ACTION_RECONNECT),
+            PendingIntent.FLAG_IMMUTABLE
+        )
+        val nextPi = PendingIntent.getService(
+            this, 4, Intent(this, GozarVpnService::class.java).setAction(ACTION_NEXT),
             PendingIntent.FLAG_IMMUTABLE
         )
         // First line: live instantaneous speed (updates every second). Second
@@ -709,17 +790,33 @@ class GozarVpnService : VpnService() {
         // the other.
         val speedLine = "↓ ${fmt(downSpeed)}/s   ↑ ${fmt(upSpeed)}/s"
         val usageLine = "${fmt(totalDown)} دانلود  •  ${fmt(totalUp)} آپلود"
-        val titleWithPing = lastPingMs?.let { "$configName · ${it}ms" } ?: configName
-        val pingLabel = if (pinging) "در حال تست…" else "پینگ"
+        val up = VpnState.state.value == Connection.CONNECTED
+        val since = VpnState.connectedAt.value
+        val duration = if (up && since > 0) {
+            val sec = (System.currentTimeMillis() - since) / 1000
+            "%d:%02d:%02d".format(sec / 3600, (sec / 60) % 60, sec % 60)
+        } else ""
+        // Server, protocol, core and the last real ping; never a location
+        // from the device - only what the server's own name carries.
+        val detail = listOf(configName, configProtocol.uppercase(), configCore, lastPingMs?.let { "${it}ms" }.orEmpty())
+            .filter { it.isNotBlank() }.joinToString(" · ")
         return Notification.Builder(this, CHANNEL_ID)
-            .setContentTitle(titleWithPing)
+            .setContentTitle(if (up) "قاجار VPN روشن شد" else "قاجار VPN در حال اتصال…")
+            .setSubText(detail)
             .setContentText(speedLine)
-            .setStyle(Notification.BigTextStyle().bigText("$speedLine\n$usageLine"))
+            .setStyle(Notification.BigTextStyle().bigText(
+                listOf(detail, speedLine, usageLine, duration.takeIf { it.isNotEmpty() }?.let { "مدت اتصال: $it" }.orEmpty())
+                    .filter { it.isNotBlank() }.joinToString("\n")))
             .setSmallIcon(R.drawable.ic_stat_ghajar)
             .setContentIntent(pi)
             .addAction(
                 Notification.Action.Builder(
-                    android.R.drawable.ic_menu_rotate, pingLabel, pingPi
+                    android.R.drawable.ic_media_next, "سرور بعدی", nextPi
+                ).build()
+            )
+            .addAction(
+                Notification.Action.Builder(
+                    android.R.drawable.ic_menu_rotate, "اتصال مجدد", reconnectPi
                 ).build()
             )
             .addAction(
@@ -789,6 +886,11 @@ class GozarVpnService : VpnService() {
         const val ACTION_STOP = "net.gozar.app.STOP"
         const val ACTION_WARM = "net.gozar.app.WARM"
         const val ACTION_PING = "net.gozar.app.PING"
+        const val ACTION_RECONNECT = "net.gozar.app.RECONNECT"
+        const val ACTION_NEXT = "net.gozar.app.NEXT_SERVER"
+        private const val CHANNEL_EVENTS = "ghajar_vpn_events"
+        private const val CHANNEL_ERRORS = "ghajar_vpn_errors"
+        private const val EVENT_NOTIF_ID = 4711
         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"
         const val EXTRA_AETHER = "net.gozar.app.AETHER"
         const val EXTRA_PSIPHON = "net.gozar.app.PSIPHON"

@@ -5,6 +5,9 @@ import android.util.LruCache
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -1543,20 +1546,42 @@ private fun MarketDiscountCodes(codes: List<GhajarMarketPublicCode>, applied: St
             val isApplied = applied.equals(code.code, ignoreCase = true)
             Slab(spacing = 6.dp, padding = GhajarSpacing.md, accent = if (isApplied) c.primary else c.premium) {
                 // The code is Latin: always one line, always left-to-right,
-                // scrolled rather than broken if a shop picks a very long one.
-                Text(
-                    code.code,
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        textDirection = androidx.compose.ui.text.style.TextDirection.Ltr,
-                        fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
-                    ),
-                    fontWeight = FontWeight.Bold,
-                    color = c.primary,
-                    maxLines = 1,
-                    softWrap = false,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                // never broken. A very long code scrolls sideways inside its
+                // own line instead of being cut; it can be selected, and the
+                // copy button puts the exact code on the clipboard.
+                val clipboard = androidx.compose.ui.platform.LocalClipboardManager.current
+                var copied by remember(code.code) { mutableStateOf(false) }
+                androidx.compose.runtime.CompositionLocalProvider(
+                    androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr
+                ) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        androidx.compose.foundation.text.selection.SelectionContainer(
+                            Modifier.weight(1f).horizontalScroll(rememberScrollState())
+                        ) {
+                            Text(
+                                code.code,
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    textDirection = androidx.compose.ui.text.style.TextDirection.Ltr,
+                                    fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace
+                                ),
+                                fontWeight = FontWeight.Bold,
+                                color = c.primary,
+                                maxLines = 1,
+                                softWrap = false
+                            )
+                        }
+                        Icon(
+                            if (copied) Icons.Filled.Check else Icons.Filled.ContentCopy,
+                            contentDescription = "کپی کد",
+                            tint = c.primary,
+                            modifier = Modifier.size(36.dp).clip(RoundedCornerShape(10.dp))
+                                .clickable {
+                                    clipboard.setText(androidx.compose.ui.text.AnnotatedString(code.code))
+                                    copied = true
+                                }.padding(8.dp)
+                        )
+                    }
+                }
                 val percent = localizeDigits(
                     if (code.percent % 1.0 == 0.0) code.percent.toLong().toString() else code.percent.toString(), lang
                 ) + "٪ تخفیف"

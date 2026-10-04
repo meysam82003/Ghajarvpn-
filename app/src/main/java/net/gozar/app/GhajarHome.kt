@@ -161,7 +161,7 @@ fun ConnectOrb(
         label = "orbPress"
     )
 
-    val k = diameter.value / 236f
+    val k = diameter.value / 236f * (if (style == "compact") 0.72f else 1f)
     val wide = style == "pill" || style == "capsule_glow"
     val shape = when (style) {
         "pill", "capsule_glow" -> RoundedCornerShape(50)
@@ -172,6 +172,7 @@ fun ConnectOrb(
     val (w, h) = when (style) {
         "pill", "capsule_glow" -> diameter * 1.08f to diameter * 0.44f
         "soft_square" -> diameter * 0.82f to diameter * 0.82f
+        "compact" -> diameter * 0.72f to diameter * 0.72f
         else -> diameter to diameter
     }
     val filled = style == "pill"
@@ -358,6 +359,15 @@ fun ConnectOrb(
                                 style = Stroke(width = stroke * 1.6f)
                             )
                         }
+                    }
+                    "ring" -> {
+                        // Ring: no disc, just the track and the state arc.
+                        drawArc(c.border, 0f, 360f, false, topLeft, arcSize, style = Stroke(stroke * 1.2f))
+                        drawArc(
+                            tint.copy(alpha = if (enabled || picking) 1f else 0.4f), start,
+                            if (fill > 0f) 360f * fill else 0f, false, topLeft, arcSize,
+                            style = Stroke(stroke * 2f, cap = StrokeCap.Round)
+                        )
                     }
                     "double_ring" -> {
                         drawCircle(c.secondaryCard, radius = size.minDimension / 2f - inset)

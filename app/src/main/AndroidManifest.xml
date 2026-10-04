@@ -29,6 +29,16 @@
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
         tools:ignore="QueryAllPackagesPermission" />
+    <!-- 1.1.1: no map, no voice, no shared-storage access. Strip these even if
+         a bundled library's manifest asks for them, so the merged manifest
+         never carries a location/microphone/legacy-storage permission. -->
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
+    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" tools:node="remove" />
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" tools:node="remove" />
 
     <application
         android:name=".GozarApplication"
@@ -147,6 +157,9 @@
                 <data android:mimeType="*/*" />
                 <data android:pathPattern=".*\\.npvt" />
                 <data android:pathPattern=".*\\.npvs" />
+                <data android:pathPattern=".*\\.npvts" />
+                <data android:pathPattern=".*\\.bpf" />
+                <data android:pathPattern=".*\\.gsb2" />
                 <data android:pathPattern=".*\\.npvtsub" />
                 <data android:pathPattern=".*\\.happ" />
                 <data android:pathPattern=".*\\.nm" />
@@ -237,25 +250,6 @@
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="VPN tunneling client" />
-        </service>
-        <!--
-            DNS-only mode's own VpnService.
-
-            Deliberately WITHOUT the android.net.VpnService intent-filter. VPN
-            consent is granted to the app by VpnService.prepare(), not to a
-            particular service, and that filter is what nominates a service as
-            the app's always-on VPN. Declaring it on two services leaves which
-            one the system picks for always-on ambiguous, and the tunnel is the
-            one that should win that.
-        -->
-        <service
-            android:name=".GhajarDnsOnlyService"
-            android:permission="android.permission.BIND_VPN_SERVICE"
-            android:foregroundServiceType="specialUse"
-            android:exported="false">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="DNS resolver selection" />
         </service>
         <service
             android:name=".GhajarNotificationJob"
