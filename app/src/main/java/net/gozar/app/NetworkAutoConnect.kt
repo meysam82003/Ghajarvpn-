@@ -31,8 +31,6 @@ object NetworkAutoConnect {
     private var appContext: Context? = null
     private var job: Job? = null
     private var lastKind: NetKind? = null
-    private var lastNetwork: Network? = null
-    private val backoff = ReconnectBackoff()
 
     fun initialize(context: Context) {
         if (appContext != null) return
@@ -43,16 +41,14 @@ object NetworkAutoConnect {
         NetworkWatcher.addListener(::onNetwork)
     }
 
-    @Synchronized private fun onNetwork(kind: NetKind?, network: Network?) {
+    private fun onNetwork(kind: NetKind?, network: Network?) {
         val app = appContext ?: return
         val previous = lastKind
         lastKind = kind
         // Losing the network entirely is not something to act on: there is no
         // route to build a tunnel over. The next onNetwork with a kind is.
-        if (kind == null || network == null) { job?.cancel(); lastNetwork = null; return }
-        if (kind == previous && network == lastNetwork) return
-        lastNetwork = network
-        job?.cancel()
+        if (kind == null) return
+        if (kind == previous) return
 
         val rules = NetworkRules.read(app)
         if (rules.idle) return
@@ -78,19 +74,17 @@ object NetworkAutoConnect {
 
         GhajarLog.i(TAG, "network became $kind, applying $decision (was $previous, live=$live)")
         job?.cancel()
-        job = scope.launch { apply(app, decision, live, network) }
+        job = scope.launch { apply(app, decision, live) }
     }
 
-    private suspend fun apply(app: Context, action: NetRuleAction, wasLive: Boolean, network: Network) {
+    private suspend fun apply(app: Context, action: NetRuleAction, wasLive: Boolean) {
         // A network change arrives before the new network can carry a
         // handshake; measuring a server one millisecond after the switch just
         // measures the gap.
-        delay(backoff.delayMs(android.os.SystemClock.elapsedRealtime()))
-        if (NetworkWatcher.currentNetwork() != network || NetworkRules.read(app).idle) return
+        delay(SETTLE_MS)
 
         val store = ConfigStore.get(app)
         store.awaitReady()
-        if (net.gozar.app.security.vault.VaultRuntime.isReference(VpnState.activeId.value ?: store.selectedId.value)) return
 
         val config = when (action) {
             NetRuleAction.FASTEST -> AutoSelector(app, store).pickFastest()
@@ -103,10 +97,6 @@ object NetworkAutoConnect {
             return
         }
 
-        if (NetworkWatcher.currentNetwork() != network) return
-        // A manual stop while settling must cancel recovery, not revive the VPN.
-        if (wasLive && VpnState.state.value !in setOf(Connection.CONNECTED, Connection.CONNECTING)) return
-        backoff.attempted(android.os.SystemClock.elapsedRealtime())
         when (VpnLauncher.relaunch(app, store, config)) {
             LaunchOutcome.STARTED ->
                 GhajarLog.i(TAG, "started ${if (wasLive) "recovery" else "auto-connect"}")
@@ -118,4 +108,5 @@ object NetworkAutoConnect {
     }
 
     private const val TAG = "GhajarNetRules"
+    private const val SETTLE_MS = 1_200L
 }

@@ -495,7 +495,6 @@ object GhajarLookStore {
             ctx.applicationContext.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
                 .edit().putString(KEY, value.toJson().toString()).apply()
         }
-        GhajarRemoteTheme.refresh(ctx)
     }
 
     fun update(ctx: Context, f: (GhajarLook) -> GhajarLook) = set(ctx, f(_look.value))

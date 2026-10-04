@@ -26,7 +26,7 @@ import androidx.core.net.toUri
  * Replaces the old :browser module's embedded store mode, which this project
  * no longer ships.
  */
-class GhajarStoreWebActivity : androidx.activity.ComponentActivity() {
+class GhajarStoreWebActivity : Activity() {
 
     /** The active theme's canvas, resolved once in onCreate. */
     private var chrome: Int = Color.BLACK
@@ -41,11 +41,6 @@ class GhajarStoreWebActivity : androidx.activity.ComponentActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() {
-                if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else finish()
-            }
-        })
         // This window is Views, not Compose, so it resolves the stored theme
         // directly; it used to be painted in the old fixed navy.
         val palette = ghajarPaletteFor(this)
@@ -111,21 +106,6 @@ class GhajarStoreWebActivity : androidx.activity.ComponentActivity() {
                     } catch (_: Exception) { null }
                 }
 
-                private fun showFailure(view: WebView?) {
-                    progress.visibility = View.GONE
-                    view?.stopLoading()
-                    view?.loadDataWithBaseURL(null, "<html dir='rtl'><meta charset='utf-8'><body style='background:#101b24;color:white;padding:32px;font-family:sans-serif'>اتصال به فروشگاه برقرار نشد. اینترنت را بررسی کن و دوباره صفحه را باز کن.</body></html>", "text/html", "UTF-8", null)
-                }
-                override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: android.webkit.WebResourceError?) {
-                    if (request?.isForMainFrame == true) showFailure(view)
-                }
-                override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, response: android.webkit.WebResourceResponse?) {
-                    if (request?.isForMainFrame == true) showFailure(view)
-                }
-                override fun onReceivedSslError(view: WebView?, handler: android.webkit.SslErrorHandler?, error: android.net.http.SslError?) {
-                    handler?.cancel(); showFailure(view)
-                }
-
                 override fun onPageStarted(view: WebView?, u: String?, favicon: android.graphics.Bitmap?) {
                     progress.visibility = View.VISIBLE
                 }
@@ -185,7 +165,10 @@ class GhajarStoreWebActivity : androidx.activity.ComponentActivity() {
         webView.loadUrl(url.toString())
     }
 
-
+    @Deprecated("Deprecated in Android")
+    override fun onBackPressed() {
+        if (::webView.isInitialized && webView.canGoBack()) webView.goBack() else super.onBackPressed()
+    }
 
     @Deprecated("Deprecated in Android")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: android.content.Intent?) {

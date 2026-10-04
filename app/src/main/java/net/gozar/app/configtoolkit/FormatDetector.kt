@@ -26,7 +26,6 @@ object FormatDetector {
             return FormatDetection(format, (base + extensionBonus).coerceAtMost(100), evidence)
         }
 
-        if (BpfParser.looksLike(input.bytes)) return result(ConfigFormat.BPF, 95, "libbox-profile")
         if (text.startsWith("NPVTSUB1", true)) return result(ConfigFormat.NPVT, 90, "NPVTSUB1")
         if (text.startsWith("NPVT1", true)) return result(ConfigFormat.NPVT, 90, "NPVT1")
         if (text.startsWith("NPVO1", true)) return result(ConfigFormat.NPVS, 95, "NPVO1")
@@ -54,7 +53,7 @@ object FormatDetector {
             return result(hinted, if (hinted == ConfigFormat.JSON) 80 else 75, "json")
         }
 
-        val standardLink = Regex("(?im)^\\s*(vless|vmess|trojan|ss|socks5?|hysteria2?|hy2|tuic|anytls|shadowquic|sq|ssh|openconnect|anyconnect|" +
+        val standardLink = Regex("(?im)^\\s*(vless|vmess|trojan|ss|socks5?|hysteria2?|hy2|tuic|anytls|ssh|openconnect|anyconnect|" +
             "dnstt|vaydns|noizdns|slipstream|masterdns|stormdns|cottendns|mierus?|brook|juicity|naive\\+https|naive\\+quic|naive|" +
             "sstp|softether|amneziawg|awg|wireguard|wg|ikev2)://").containsMatchIn(text)
         if (standardLink) return result(ConfigFormat.TEXT, 90, "standard-link")

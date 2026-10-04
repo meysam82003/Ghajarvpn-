@@ -100,6 +100,8 @@ class GhajarBrowserActivity : Activity() {
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private var pendingPermission: PermissionRequest? = null
     private var pendingWebResource: String? = null
+    private var pendingGeolocation: String? = null
+    private var pendingGeolocationCallback: android.webkit.GeolocationPermissions.Callback? = null
     private var dialog: AlertDialog? = null
     private var embeddedStore = false
 
@@ -1287,7 +1289,6 @@ class GhajarBrowserActivity : Activity() {
             val origin = sitePermissions.originOf(request.origin.toString())
             if (webResource == null || origin.isBlank()) { request.deny(); return }
             val resource = SITE_RESOURCES.getValue(webResource)
-            if (!SitePermissionsStore.supported(resource)) { request.deny(); return }
 
             // Stored Block decisions are honoured silently; private tabs always ask.
             val tab = currentTab()
@@ -1317,8 +1318,32 @@ class GhajarBrowserActivity : Activity() {
         }
 
         override fun onGeolocationPermissionsShowPrompt(origin: String?, callback: android.webkit.GeolocationPermissions.Callback?) {
-            // Location is intentionally unavailable; no OS prompt and no stale saved grant.
-            callback?.invoke(origin, false, false)
+            callback ?: return
+            val host = sitePermissions.originOf(origin.orEmpty())
+            if (host.isBlank()) { callback.invoke(origin, false, false); return }
+            val tab = currentTab()
+            if (tab?.private != true) {
+                when (sitePermissions.state(host, SitePermission.GEOLOCATION)) {
+                    SitePermissionState.BLOCK -> { callback.invoke(origin, false, false); return }
+                    SitePermissionState.ALLOW -> { promptOsForGeolocation(origin, callback); return }
+                    SitePermissionState.ASK -> Unit
+                }
+            }
+            runOnUiThread {
+                AlertDialog.Builder(this@GhajarBrowserActivity)
+                    .setTitle("اجازهٔ موقعیت مکانی")
+                    .setMessage("این سایت برای موقعیت مکانی اجازه می‌خواهد:\n$host")
+                    .setPositiveButton("اجازه") { _, _ ->
+                        if (tab?.private != true) sitePermissions.remember(host, SitePermission.GEOLOCATION, SitePermissionState.ALLOW)
+                        promptOsForGeolocation(origin, callback)
+                    }
+                    .setNeutralButton("همیشه رد") { _, _ ->
+                        if (tab?.private != true) sitePermissions.remember(host, SitePermission.GEOLOCATION, SitePermissionState.BLOCK)
+                        callback.invoke(origin, false, false)
+                    }
+                    .setNegativeButton("رد") { _, _ -> callback.invoke(origin, false, false) }
+                    .show()
+            }
         }
 
         override fun onShowCustomView(view: View?, callback: CustomViewCallback?) {
@@ -1355,7 +1380,6 @@ class GhajarBrowserActivity : Activity() {
 
     /** Grants the web resource once (optionally after) the OS-level permission exists. */
     private fun grantAfterOsPermission(request: PermissionRequest, webResource: String, resource: SitePermission, origin: String, @Suppress("UNUSED_PARAMETER") prompt: Boolean) {
-        if (!SitePermissionsStore.supported(resource)) { request.deny(); return }
         val os = SitePermissionsStore.osPermissionFor(resource)
         if (os == null) {
             request.grant(arrayOf(webResource))
@@ -1369,13 +1393,26 @@ class GhajarBrowserActivity : Activity() {
         }
     }
 
+    private fun promptOsForGeolocation(origin: String?, callback: android.webkit.GeolocationPermissions.Callback) {
+        val os = SitePermissionsStore.osPermissionFor(SitePermission.GEOLOCATION) ?: return callback.invoke(origin, true, false)
+        if (checkSelfPermission(os) == PackageManager.PERMISSION_GRANTED) {
+            callback.invoke(origin, true, false)
+        } else {
+            pendingGeolocation = origin; pendingGeolocationCallback = callback
+            requestPermissions(arrayOf(os), GEOLOCATION_REQUEST)
+        }
+    }
+
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == CAMERA_REQUEST) {
             val request = pendingPermission; pendingPermission = null
             val resource = pendingWebResource; pendingWebResource = null
             if (grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED && resource != null) request?.grant(arrayOf(resource)) else request?.deny()
-
+        } else if (requestCode == GEOLOCATION_REQUEST) {
+            val origin = pendingGeolocation; pendingGeolocation = null
+            val callback = pendingGeolocationCallback; pendingGeolocationCallback = null
+            callback?.invoke(origin, grantResults.firstOrNull() == PackageManager.PERMISSION_GRANTED, false)
         }
     }
 
@@ -1437,6 +1474,7 @@ class GhajarBrowserActivity : Activity() {
     companion object {
         private const val FILE_REQUEST = 731
         private const val CAMERA_REQUEST = 732
+        private const val GEOLOCATION_REQUEST = 733
         private const val QR_REQUEST = 734
         private const val LIBRARY_REQUEST = 735
         private val SITE_RESOURCES = mapOf(

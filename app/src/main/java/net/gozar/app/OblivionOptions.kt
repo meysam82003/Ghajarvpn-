@@ -10,19 +10,14 @@ class OblivionOptions(raw: String = "") {
     fun number(key: String): Int = text(key).toIntOrNull() ?: defaults[key]?.toIntOrNull() ?: 0
     fun changed(key: String, value: String): String = JSONObject(data.toString()).put(key,value).toString()
     val core get() = text("core")
-    val aether get() = core == "aether" || core == "chain" || core in AetherTorPolicy.modes
-    val psiphon get() = core in setOf("psiphon", "chain")
+    val aether get() = core == "aether" || core == "chain"
+    val psiphon get() = core != "aether"
     val proxyOnly get() = text("routingMode") == "proxy"
     val socksPort get() = number("socksPort")
     val aetherPort get() = if (core == "chain") socksPort + 10 else socksPort
     val bindHost get() = if (flag("allowLan") && core != "chain") "0.0.0.0" else "127.0.0.1"
     fun validate() {
-        AetherTorPolicy.validate(this)
-        require(core in listOf("psiphon","aether","chain") + AetherTorPolicy.modes) { "روش اتصال نامعتبر است" }
-        require(text("protocol") in setOf("masque", "wg", "gool", "mim")) { "پروتکل Aether نامعتبر است" }
-        require(text("transport") in setOf("h2", "h3")) { "انتقال MASQUE نامعتبر است" }
-        require(text("exitLoc").isBlank() || Regex("!?[A-Za-z]{2}(,[A-Za-z]{2})*").matches(text("exitLoc"))) { "کشور خروجی را مثل DE,SE یا !IR وارد کنید" }
-        require(text("mimOuter").isBlank() || text("mimOuter") != text("mimInner")) { "دو سرور mim باید متفاوت باشند" }
+        require(core in listOf("psiphon","aether","chain")) { "روش اتصال نامعتبر است" }
         require(socksPort in 1024..65524 && socksPort != MixedPort.value && socksPort+1 != MixedPort.value) { "پورت پروکسی نامعتبر یا اشغال است" }
         require(number("mtu") in 1280..9000) { "MTU باید بین ۱۲۸۰ تا ۹۰۰۰ باشد" }
         require(number("validateSeconds") in 1..120 && number("reconnectSeconds") in 1..120) { "زمان انتظار باید بین ۱ تا ۱۲۰ ثانیه باشد" }
@@ -38,14 +33,13 @@ class OblivionOptions(raw: String = "") {
             "--scan",text("scanMode"),"--noize",text("obfuscation"),"--log-level",text("logLevel"),
             "--ip",text("ipVersion"),"--validate-secs",text("validateSeconds"),"--reconnect-secs",text("reconnectSeconds"))
         val protocol=text("protocol")
-        out += when(protocol) {"wg"->"--wg";"gool"->"--gool";"mim"->"--mim";else->"--masque"}
+        out += when(protocol) {"wg"->"--wg";"gool"->"--gool";else->"--masque"}
         fun option(key:String,arg:String){if(text(key).isNotBlank())out.addAll(listOf(arg,text(key).trim()))}
         if(protocol=="masque" && text("transport")=="h2") {
             out+="--h2";option("h2Endpoint","--h2-peer")
             if(flag("fragment")){out+="--fragment";option("fragmentSize","--fragment-size");option("fragmentDelay","--fragment-delay")}
         }
-        if(protocol in listOf("masque", "mim"))option("echMode","--ech")
-        option("exitLoc", "--exit-loc")
+        if(protocol=="masque")option("echMode","--ech")
         if(protocol in listOf("wg","gool")) {
             option("wgKeepalive","--keepalive");if(!flag("wgProfileRetry"))out+="--no-profile-retry"
             if(protocol=="wg")option("wgEndpoint","--wg-peer")
@@ -53,9 +47,6 @@ class OblivionOptions(raw: String = "") {
         if(protocol=="gool") {
             option("wiwOuter","--wiw-outer");option("wiwInner","--wiw-inner")
             if(text("wiwOuter").isBlank()&&text("wiwInner").isBlank())out+="--wiw-scan"
-        } else if (protocol == "mim") {
-            option("mimOuter", "--mim-outer"); option("mimInner", "--mim-inner")
-            if (text("mimOuter").isBlank() && text("mimInner").isBlank()) out += "--mim-scan"
         } else option("endpoint","--peer")
         if(flag("overrideDns")) {
             val dns=listOf(text("dnsPrimary"),text("dnsSecondary")).filter { it.isNotBlank() }
@@ -84,6 +75,6 @@ class OblivionOptions(raw: String = "") {
             "socksPort" to "1819","allowLan" to "false","routingMode" to "vpn","mtu" to "1500","overrideDns" to "true",
             "dnsPrimary" to "1.1.1.1","dnsSecondary" to "1.0.0.1","fragment" to "false","fragmentSize" to "16-32",
             "fragmentDelay" to "2-10","quickReconnect" to "true","dataCheck" to "true","validateSeconds" to "10",
-            "reconnectSeconds" to "2","wgKeepalive" to "5","wgProfileRetry" to "true","gatewayProxy" to "false","bypassSelected" to "false", "psiphonDiagnostics" to "true")
+            "reconnectSeconds" to "2","wgKeepalive" to "5","wgProfileRetry" to "true","gatewayProxy" to "false","bypassSelected" to "false")
     }
 }

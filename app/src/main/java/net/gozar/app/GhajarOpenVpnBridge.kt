@@ -307,7 +307,6 @@ object GhajarOpenVpnBridge {
         }
         val target = existing ?: profile.also { manager.addProfile(it) }
         if (existing != null) {
-            target.mGhajarOriginalConfig = profile.mGhajarOriginalConfig
             target.mName = profile.mName
             target.mConnections = profile.mConnections
             target.mAuthenticationType = profile.mAuthenticationType
@@ -655,16 +654,9 @@ object GhajarOpenVpnBridge {
     private fun sha256(text: String): String = MessageDigest.getInstance("SHA-256")
         .digest(text.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
 
-    /** Export original portable text only: generated runtime config contains Android-only paths/hooks. */
-    fun portableExport(context: Context, uuid: String): Result<String> = runCatching {
-        val raw = findProfile(context, uuid)?.mGhajarOriginalConfig
-            ?.takeIf { it.isNotBlank() } ?: error("فایل اصلی این پروفایل قدیمی موجود نیست؛ فایل .ovpn اصلی را دوباره Import کنید.")
-        net.gozar.app.sharing.OpenVpnExport.portable(raw)
-    }
-
     private fun parse(raw: String): VpnProfile {
         val parser = OvpnConfigParser()
         parser.parseConfig(StringReader(raw))
-        return parser.convertProfile().also { it.mGhajarOriginalConfig = raw }
+        return parser.convertProfile()
     }
 }

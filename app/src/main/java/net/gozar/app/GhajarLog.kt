@@ -9,8 +9,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
@@ -38,8 +36,9 @@ data class GhajarLogEntry(
 /**
  * App-wide log + crash recorder.
  *
- * - Sanitized entries use a bounded memory ring and disk queue. A log flood
- *   drops oldest pending disk entries rather than consuming unbounded memory.
+ * - Every entry lands in a bounded in-memory ring buffer (for the live in-app
+ *   log screen) AND is appended to a rotating file on disk, so nothing is
+ *   lost if the process dies right after logging.
  * - Android Log calls are best-effort so plain JVM unit tests can exercise
  *   state-machine code without Robolectric just because it emits diagnostics.
  */
@@ -52,8 +51,6 @@ object GhajarLog {
     private val ring = ArrayDeque<GhajarLogEntry>(MAX_MEMORY_ENTRIES)
     private val ringLock = Any()
     private val writeMutex = Mutex()
-    private val fileLock = Any()
-    private val diskQueue = Channel<GhajarLogEntry>(256, BufferOverflow.DROP_OLDEST)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val started = AtomicBoolean(false)
 
@@ -71,11 +68,6 @@ object GhajarLog {
         // Mirror to external app storage so the log is reachable without adb
         // (readable at /storage/emulated/0/Android/data/<pkg>/files/).
         extLogDir = context.getExternalFilesDir(null)?.let { File(it, "ghajar_logs_ext").apply { mkdirs() } }
-        scope.launch {
-            for (entry in diskQueue) writeMutex.withLock {
-                runCatching { writeEntrySync(entry) }
-            }
-        }
         i("Logger", "=== Ghajar log session started (v${runCatching { BuildConfig.VERSION_NAME }.getOrDefault("?")}) ===")
     }
 
@@ -97,13 +89,14 @@ object GhajarLog {
                     appendLine(recent)
                     appendLine("============================")
                 }
-                if (started.get()) synchronized(fileLock) {
-                    rotateIfNeeded()
-                    val safeBlock=redact(block).take(256_000).toByteArray()
-                    FileOutputStream(currentFile(), true).use { it.write(safeBlock) }
+                if (started.get()) {
+                    FileOutputStream(currentFile(), true).use { it.write(block.toByteArray()) }
                     extLogDir?.let { dir ->
-                        // One bounded crash report, never an unlimited append-only mirror.
-                        File(dir, "ghajar-crash.log").writeBytes(safeBlock)
+                        runCatching {
+                            FileOutputStream(File(dir, "ghajar-crash.log"), true).use {
+                                it.write(block.toByteArray())
+                            }
+                        }
                     }
                 }
             }
@@ -114,8 +107,7 @@ object GhajarLog {
 
     fun d(tag: String, msg: String) = log(GhajarLogLevel.DEBUG, tag, msg)
     fun i(tag: String, msg: String) = log(GhajarLogLevel.INFO, tag, msg)
-    fun w(tag: String, msg: String, throwable: Throwable? = null) =
-        log(GhajarLogLevel.WARN, tag, if (throwable == null) msg else "$msg :: ${throwable.stackTraceToString()}")
+    fun w(tag: String, msg: String) = log(GhajarLogLevel.WARN, tag, msg)
     fun e(tag: String, msg: String, throwable: Throwable? = null) =
         log(
             GhajarLogLevel.ERROR,
@@ -128,10 +120,7 @@ object GhajarLog {
         )
 
     private fun log(level: GhajarLogLevel, tag: String, msg: String) {
-        if(level==GhajarLogLevel.DEBUG && !BuildConfig.DEBUG) return
-        // Redact before every sink: memory, private files, external mirror and Logcat.
-        val safe=redact(msg).take(16_384)
-        val entry = GhajarLogEntry(System.currentTimeMillis(), level, tag, safe)
+        val entry = GhajarLogEntry(System.currentTimeMillis(), level, tag, msg)
         synchronized(ringLock) {
             if (ring.size >= MAX_MEMORY_ENTRIES) ring.removeFirst()
             ring.addLast(entry)
@@ -142,10 +131,10 @@ object GhajarLog {
         // Diagnostics must never alter VPN state-machine behaviour.
         runCatching {
             when (level) {
-                GhajarLogLevel.DEBUG -> Log.d(tag, safe)
-                GhajarLogLevel.INFO -> Log.i(tag, safe)
-                GhajarLogLevel.WARN -> Log.w(tag, safe)
-                GhajarLogLevel.ERROR, GhajarLogLevel.CRASH -> Log.e(tag, safe)
+                GhajarLogLevel.DEBUG -> Log.d(tag, msg)
+                GhajarLogLevel.INFO -> Log.i(tag, msg)
+                GhajarLogLevel.WARN -> Log.w(tag, msg)
+                GhajarLogLevel.ERROR, GhajarLogLevel.CRASH -> Log.e(tag, msg)
             }
         }
 
@@ -158,31 +147,46 @@ object GhajarLog {
                 }
                 return
             }
-            // Bounded queue: log floods cannot allocate one suspended coroutine per message.
-            diskQueue.trySend(entry)
+            scope.launch {
+                writeMutex.withLock {
+                    runCatching {
+                        rotateIfNeeded()
+                        writeEntryLocked(entry)
+                    }
+                }
+            }
         }
     }
 
-    private fun writeEntrySync(entry: GhajarLogEntry) = synchronized(fileLock) {
-        rotateIfNeeded()
+    private fun writeEntrySync(entry: GhajarLogEntry) {
         val line = (entry.formatted() + "\n").toByteArray()
         FileOutputStream(currentFile(), true).use { it.write(line) }
-        extLogDir?.let { dir -> FileOutputStream(File(dir, "ghajar.log"), true).use { it.write(line) } }
+        extLogDir?.let { dir ->
+            FileOutputStream(File(dir, "ghajar.log"), true).use { it.write(line) }
+        }
+    }
+
+    private fun writeEntryLocked(entry: GhajarLogEntry) {
+        rotateIfNeeded()
+        FileOutputStream(currentFile(), true).use {
+            it.write((entry.formatted() + "\n").toByteArray())
+        }
+        extLogDir?.let { dir ->
+            FileOutputStream(File(dir, "ghajar.log"), true).use {
+                it.write((entry.formatted() + "\n").toByteArray())
+            }
+        }
     }
 
     private fun rotateIfNeeded() {
-        fun rotate(dir: File) {
-            val file=File(dir,"ghajar.log")
-            if (!file.exists() || file.length() < MAX_FILE_BYTES) return
-            for (n in ROTATED_FILES downTo 1) {
-                val src=if(n==1) file else File(dir,"ghajar.log.${n-1}")
-                val dst=File(dir,"ghajar.log.$n")
-                if(n==ROTATED_FILES && dst.exists()) dst.delete()
-                if(src.exists()) src.renameTo(dst)
-            }
+        val file = currentFile()
+        if (!file.exists() || file.length() < MAX_FILE_BYTES) return
+        for (n in ROTATED_FILES downTo 1) {
+            val src = if (n == 1) file else rotatedFile(n - 1)
+            val dst = rotatedFile(n)
+            if (n == ROTATED_FILES && dst.exists()) dst.delete()
+            if (src.exists()) src.renameTo(dst)
         }
-        rotate(logDir)
-        extLogDir?.let(::rotate)
     }
 
     fun clear() {
@@ -190,11 +194,8 @@ object GhajarLog {
         scope.launch {
             writeMutex.withLock {
                 runCatching {
-                    synchronized(fileLock) {
-                        currentFile().delete()
-                        for (n in 1..ROTATED_FILES) rotatedFile(n).delete()
-                        extLogDir?.listFiles()?.filter { it.name.startsWith("ghajar") }?.forEach { it.delete() }
-                    }
+                    currentFile().delete()
+                    for (n in 1..ROTATED_FILES) rotatedFile(n).delete()
                 }
             }
         }
@@ -226,15 +227,12 @@ object GhajarLog {
      * The exported file is meant to be shared with support/developers, so it
      * must never carry anything that could be replayed against the account:
      * bearer/session tokens, API keys, card numbers or phone numbers that may
-     * have ended up in a logged exception message or URL. The same policy is
-     * applied before storage and Logcat; export rechecks legacy log files.
+     * have ended up in a logged exception message or URL. This never touches
+     * what's kept in the in-app log (GhajarLogActivity), only the copy that
+     * leaves the device.
      */
     internal val redactionPatterns: List<Pair<Regex, String>> = listOf(
-        // Consume the entire JSON string, including escaped quotes/spaces, before
-        // scalar patterns. A token containing a space must not leak its suffix.
-        Regex("(?i)(\"(?:password|passphrase|private[_-]?key|master[_-]?key|token[_-]?(?:secret|password|pin)|client[_-]?certificate|auth[_-]?cookie|cookie|kek|dek|cek)\"\\s*:\\s*)\"(?:\\\\.|[^\"\\\\])*\"") to "$1\"[REDACTED]\"",
-        Regex("(?i)((?:master[ _-]?key|token[ _-]?(?:secret|password|pin)|kek|dek|cek)\\s*[:=]\\s*)[^\\s,;}]+") to "$1[REDACTED]",
-        Regex("(?i)(?:bearer|basic)\\s+[A-Za-z0-9+/=\\-_.]+") to "Authorization [REDACTED]",
+        Regex("(?i)bearer\\s+[A-Za-z0-9\\-_.]{8,}") to "Bearer [REDACTED]",
         // Helper engines that print their own secrets: MasterDnsVPN/StormDNS
         // log "Active Encryption Key: …", and TOML/JSON engine configs carry
         // ENCRYPTION_KEY / obfs keys.
@@ -244,20 +242,20 @@ object GhajarLog {
         // generic three: "pass" as well as "password", the private/public keys
         // and short id a Reality config is useless without, the pre-shared key
         // and obfuscation secret, and the one-time web panel ticket.
-        Regex("(?i)(\"?(?:token|access_token|api[_-]?key|session|ticket|secret(?:[_-]?key)?|pbk|sid|psk|pass|passwd|private[_-]?key|public[_-]?key|short[_-]?id|auth)\"?\\s*[:=]\\s*\"?)[^\\s\",;&}]+") to "$1[REDACTED]",
+        Regex("(?i)(\"?(?:token|access_token|api[_-]?key|session|ticket|secret|psk|pass|passwd|private[_-]?key|public[_-]?key|short[_-]?id|auth)\"?\\s*[:=]\\s*\"?)[A-Za-z0-9+/\\-_.=]{6,}") to "$1[REDACTED]",
         Regex("(?i)(\"?password\"?\\s*[:=]\\s*\"?)[^\"\\s,}]{1,}") to "$1[REDACTED]",
         // A share link carries the credential in its userinfo, so the whole
         // link is the secret. Everything up to the @ goes; the host and port
         // stay, because which server failed is the point of a diagnostic.
-        Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|hy2|tuic|socks5?|https?|ssh|anytls|wireguard|wg)://[^@\\s/]+@") to "$1://[REDACTED]@",
+        Regex("(?i)\\b(vless|vmess|trojan|ss|ssr|hysteria2?|hy2|tuic|socks5?|http|ssh|anytls|wireguard|wg)://[^@\\s/]+@") to "$1://[REDACTED]@",
         // Whole PEM blocks: an .ovpn certificate or private key, a WireGuard or
         // SSH key pasted into a profile.
         Regex("-----BEGIN [A-Z ]+-----[\\s\\S]*?-----END [A-Z ]+-----") to "[PEM REDACTED]",
         Regex("(?is)<(key|cert|ca|tls-auth|tls-crypt|tls-crypt-v2|secret)>.*?</\\1>") to "<$1>[REDACTED]</$1>",
         // An OpenConnect session cookie and an NPVS passphrase.
-        Regex("(?i)(\"?(?:webvpn|cookie|passphrase|passkey|preshared[_-]?key)\"?\\s*[:=]\\s*\"?)[^\"\\s,;}]{1,}") to "$1[REDACTED]",
+        Regex("(?i)(\"?(?:webvpn|cookie|passphrase|passkey|preshared[_-]?key)\"?\\s*[:=]\\s*\"?)[^\"\\s,;}]{4,}") to "$1[REDACTED]",
         // A bare vmess:// link is a base64 blob with no @ at all.
-        Regex("(?i)\\b(?:vmess|ssr|ss)://[A-Za-z0-9+/_=-]{16,}") to "encoded-profile://[REDACTED]",
+        Regex("(?i)\\bvmess://[A-Za-z0-9+/=]{16,}") to "vmess://[REDACTED]",
         // A VLESS/VMess uuid is that server's whole authentication.
         Regex("(?i)\\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\\b") to "[UUID]",
         // Long hex runs are how every credential this app generates looks: the
@@ -271,13 +269,10 @@ object GhajarLog {
 
     /**
      * Internal rather than private so the pattern set is unit-tested. It is
-     * applied at ingestion and again when exporting older on-device logs.
+     * applied only to the copy that leaves the device; the in-app log view is
+     * untouched, so a user debugging their own connection still sees
+     * everything.
      */
-    internal fun redact(text: String): String {
-        // Nested profile blobs cannot be safely removed with a single scalar
-        // regex. Refuse the whole diagnostic, including crash-message variants.
-        if (Regex("(?i)(?:ProxyConfig|VaultEntry|NpvDecodedContainer)\\s*\\(|\"(?:rawConfig|fullConfig|rawDecodedProfile|payloadCipher|decryptedVault)\"\\s*:").containsMatchIn(text))
-            return "[SENSITIVE PROFILE REDACTED]"
-        return redactionPatterns.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
-    }
+    internal fun redact(text: String): String =
+        redactionPatterns.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }
 }

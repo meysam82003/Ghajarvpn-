@@ -33,7 +33,7 @@ object SftpBrowser {
             ch.connect(TIMEOUT)
             channels[hostId] = ch
             ch
-        }.onFailure { net.gozar.app.GhajarLog.w(TAG, "open failed", it) }.getOrNull()
+        }.onFailure { android.util.Log.w(TAG, "open failed", it) }.getOrNull()
     }
 
     fun close(hostId: String) {

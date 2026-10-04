@@ -24,11 +24,3 @@ include(":app")
 include(":strongswan")
 include(":openvpn")
 include(":browser")
-
-include(":plugin-api")
-
-// Separate APKs; never dependencies of the base app and never built by its tasks.
-if (providers.gradleProperty("includeOnDemandPlugins").orNull == "true") {
-    include(":plugins:shadowquic")
-    include(":plugins:mihomo")
-}

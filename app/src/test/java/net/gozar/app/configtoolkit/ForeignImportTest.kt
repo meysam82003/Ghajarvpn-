@@ -75,7 +75,7 @@ class ForeignImportTest {
 
     @Test
     fun clashProxiesBecomeProfiles() {
-        val r = ForeignImport.clashNodes(clash)
+        val r = ForeignImport.clash(clash)
         val by = r.configs.associateBy { it.name }
         assertEquals(setOf("ss-plain", "vless-reality", "vmess-ws", "hy2", "wg"), by.keys)
         assertEquals("shadowsocks", by.getValue("ss-plain").protocol); assertEquals("p#ss", by.getValue("ss-plain").password)
@@ -88,8 +88,7 @@ class ForeignImportTest {
         assertEquals(1280, by.getValue("wg").mtu)
         assertTrue(r.warnings.single().contains("ssr"))
         // The common entry point takes the YAML as a subscription body.
-        assertEquals(1, ConfigParser.parseBundle(clash).size)
-        assertEquals(clash, net.gozar.app.plugins.PluginProfiles.read(ConfigParser.parseBundle(clash).single())!!.payload)
+        assertEquals(5, ConfigParser.parseBundle(clash).size)
     }
 
     @Test
@@ -108,7 +107,7 @@ class ForeignImportTest {
           "endpoints":[{"type":"wireguard","tag":"wg","address":["10.0.0.2/32"],"private_key":"aGVsbG8taGVsbG8taGVsbG8taGVsbG8taGVsbG8tMTI=",
              "peers":[{"address":"198.51.100.7","port":51820,"public_key":"d29ybGQtd29ybGQtd29ybGQtd29ybGQtd29ybGQtMTI="}]}]}
         """.trimIndent())
-        val list = net.gozar.app.ForeignImport.singBoxNodes(sb).configs
+        val list = ConfigParser.parseJsonOutbounds(sb.toString())
         val by = list.associateBy { it.name }
         assertEquals(setOf("v", "ss", "t", "wg"), by.keys)
         assertEquals("grpc", by.getValue("v").network); assertEquals("gs", by.getValue("v").serviceName)

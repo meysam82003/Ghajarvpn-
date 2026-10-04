@@ -2,13 +2,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- Ghajar never needs microphone/location for VPN, QR or manual hotspot sharing. -->
-    <uses-permission android:name="android.permission.RECORD_AUDIO" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" tools:node="remove" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" tools:node="remove" />
-    <!-- OpenVPN UI file browser is not compiled; Ghajar imports through the document picker. -->
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" tools:node="remove" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.VIBRATE" />
     <!-- Connectivity callbacks: which physical network the device is on, for
@@ -61,13 +54,6 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-            <intent-filter android:label="وارد کردن پروفایل در قاجار">
-                <action android:name="android.intent.action.SEND" />
-                <category android:name="android.intent.category.DEFAULT" />
-                <data android:mimeType="application/octet-stream" />
-                <data android:mimeType="application/json" />
-                <data android:mimeType="text/plain" />
-            </intent-filter>
             <intent-filter>
                 <action android:name="android.service.quicksettings.action.QS_TILE_PREFERENCES" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -79,6 +65,7 @@
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:host="*" />
+                <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="application/x-grt" />
                 <data android:mimeType="application/x-openvpn-profile" />
             </intent-filter>
@@ -117,12 +104,6 @@
                 <data android:scheme="ghajarvpn" android:host="payment-return" />
             </intent-filter>
         </activity>
-        <activity android:name=".plugins.PluginActivity" android:exported="false" android:theme="@style/Theme.Ghajarvpn" />
-        <receiver android:name=".plugins.PluginInstallReceiver" android:exported="false" />
-        <service android:name=".plugins.PluginVpnService" android:exported="false"
-            android:permission="android.permission.BIND_VPN_SERVICE" android:foregroundServiceType="specialUse">
-            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="On-demand signed plugin VPN" />
-        </service>
         <activity
             android:name=".SecurePaymentActivity"
             android:exported="false"
@@ -156,6 +137,7 @@
                 <data android:scheme="file" />
                 <data android:mimeType="application/json" />
                 <data android:mimeType="text/plain" />
+                <data android:mimeType="application/octet-stream" />
             </intent-filter>
             <intent-filter android:label="مرکز کانفیگ قاجار">
                 <action android:name="android.intent.action.VIEW" />
@@ -163,11 +145,6 @@
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:mimeType="*/*" />
-                <data android:host="*" />
-                <data android:pathPattern=".*\\.bpf" />
-                <data android:pathPattern=".*\\..*\\.bpf" />
-                <data android:pathPattern=".*\\..*\\.npvt" />
-                <data android:pathPattern=".*\\..*\\.npvs" />
                 <data android:pathPattern=".*\\.npvt" />
                 <data android:pathPattern=".*\\.npvs" />
                 <data android:pathPattern=".*\\.npvtsub" />

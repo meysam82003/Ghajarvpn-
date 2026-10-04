@@ -100,7 +100,7 @@ object IkeController {
     }
 
     private fun pushState(bound: VpnStateService) {
-        net.gozar.app.GhajarLog.w(TAG, "state=" + bound.getState() + " err=" + bound.getErrorState())
+        android.util.Log.w(TAG, "state=" + bound.getState() + " err=" + bound.getErrorState())
         _state.value = bound.getState()
         _error.value = bound.getErrorState()
         when (bound.getState()) {
@@ -124,7 +124,7 @@ object IkeController {
     fun bind(context: Context) {
         if (service != null) return
         runCatching {
-            net.gozar.app.GhajarLog.w(TAG, "binding VpnStateService")
+            android.util.Log.w(TAG, "binding VpnStateService")
             context.applicationContext.bindService(
                 Intent(context.applicationContext, VpnStateService::class.java),
                 connection,
@@ -159,9 +159,9 @@ object IkeController {
         if (existing == null) source.insertProfile(profile) else source.updateVpnProfile(profile)
         val id = profile.getUUID()
         source.close()
-        net.gozar.app.GhajarLog.w(TAG, "profile ready uuid=" + id)
+        android.util.Log.w(TAG, "profile ready uuid=" + id)
         id
-    }.onFailure { net.gozar.app.GhajarLog.e(TAG, "profileFor failed", it) }.getOrNull()
+    }.onFailure { android.util.Log.e(TAG, "profileFor failed", it) }.getOrNull()
 
     @Volatile
     private var claimedId: String = ""
@@ -199,7 +199,7 @@ object IkeController {
         watchdog = scope.launch {
             delay(CONNECT_TIMEOUT_MS)
             if (active && _state.value != VpnStateService.State.CONNECTED) {
-                net.gozar.app.GhajarLog.w(TAG, "connect timed out after ${CONNECT_TIMEOUT_MS}ms, giving up")
+                android.util.Log.w(TAG, "connect timed out after ${CONNECT_TIMEOUT_MS}ms, giving up")
                 disconnect(context)
                 VpnState.setError("ike_err_unreachable")
             }
@@ -209,15 +209,15 @@ object IkeController {
             putString(VpnProfileDataSource.KEY_UUID, uuid.toString())
             putString(VpnProfileDataSource.KEY_PASSWORD, config.password)
         })
-        net.gozar.app.GhajarLog.w(TAG, "starting CharonVpnService")
+        android.util.Log.w(TAG, "starting CharonVpnService")
         return runCatching {
             context.applicationContext.startService(intent)
             bind(context)
-            net.gozar.app.GhajarLog.w(TAG, "startService returned")
+            android.util.Log.w(TAG, "startService returned")
             true
         }.onFailure {
             active = false
-            net.gozar.app.GhajarLog.e(TAG, "startService failed", it)
+            android.util.Log.e(TAG, "startService failed", it)
         }.getOrDefault(false)
     }
 

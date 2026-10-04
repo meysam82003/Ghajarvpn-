@@ -5,8 +5,6 @@ signing.properties
 *.jks
 *.keystore
 *.p12
-# Synthetic localhost TLS rejection fixture; never used for app signing.
-!src/test/resources/untrusted-localhost.p12
 *.pem
 google-services.json
 

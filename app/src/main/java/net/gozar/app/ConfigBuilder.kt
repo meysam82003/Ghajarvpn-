@@ -5,24 +5,6 @@ import org.json.JSONObject
 
 object ConfigBuilder {
 
-    private fun phoneSharingInbound() = JSONObject().put("tag", "phone-share-in")
-        .put("port", net.gozar.app.sharing.PhoneSharing.XRAY_PORT)
-        .put("listen", "127.0.0.1").put("protocol", "socks")
-        .put("settings", JSONObject().put("udp", false))
-
-    /** Patch only our private relay inbound; preserve every outbound, chain and routing setting. */
-    internal fun withPhoneSharing(json: String, enabled: Boolean): String {
-        val root = JSONObject(json)
-        val previous = root.getJSONArray("inbounds")
-        val inbounds = JSONArray()
-        for (i in 0 until previous.length()) {
-            val inbound = previous.getJSONObject(i)
-            if (inbound.optString("tag") != "phone-share-in") inbounds.put(inbound)
-        }
-        if (enabled) inbounds.put(phoneSharingInbound())
-        return root.put("inbounds", inbounds).toString()
-    }
-
     private val DohHosts = listOf(
         "chrome.cloudflare-dns.com",
         "mozilla.cloudflare-dns.com",
@@ -352,30 +334,27 @@ object ConfigBuilder {
         chainBase: ProxyConfig? = null,
         onionRouting: Boolean = false,
         coreLogLevel: String = "warning",
-        /** Legacy caller parameters retained for compatibility. LAN binding is now owned by PhoneSharing;
-         * the core exposes only loopback inbounds and never handles LAN authentication. */
+        /** VPN Share ("VPN Only" mode): binds the mixed SOCKS5 inbound to
+         * [shareListenAddress] instead of loopback so devices on this phone's
+         * own hotspot can use it as their proxy. See ConfigStore.vpnShareEnabled. */
         shareOnLan: Boolean = false,
+        /** Required whenever [shareOnLan] is true: without a SOCKS5 username/
+         * password Xray's socks-in accepts any client on the LAN with no
+         * check at all, i.e. an open proxy. Ignored when [shareOnLan] is
+         * false (the loopback-only inbound never needs one). */
         shareUser: String = "",
         sharePass: String = "",
+        /** The exact interface address to bind the shared inbounds to -
+         * hotspotInterfaceAddress() from the caller, or "127.0.0.1" when no
+         * hotspot interface is currently up. Must never be the 0.0.0.0
+         * wildcard: that also binds the cellular data interface, which on
+         * some carriers/networks carries a real, routable address, turning
+         * this unauthenticated/LAN-only proxy into one reachable from the
+         * public internet. Falling back to loopback here disables the
+         * sharing without touching shareOnLan/UI state, exactly like the
+         * existing "missing credential -> loopback-only" fail-safe below. */
         shareListenAddress: String = "127.0.0.1"
     ): String {
-        net.gozar.app.security.vault.VaultRuntime.check(config)
-        net.gozar.app.engine.ChainPlan.validate(config, chainBase)
-        net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
-        if(config.protocol=="xray-full") {
-            require(!splitRouting && !directOnly && !fakeDns && !encryptedDns && customDns.isBlank() && !youtubeDirect && !onionRouting && chainBase==null && torBase==null && !shareOnLan && !fragment && !mux) { "تنظیمات مسیر میزبان نباید Full Xray را تغییر دهند؛ آن‌ها را خاموش کنید." }
-            return net.gozar.app.engine.FullXrayProfile.runtime(config)
-        }
-        if (net.gozar.app.engine.FullSingBoxProfile.isFull(config)) {
-            net.gozar.app.engine.FullSingBoxProfile.spec(config)
-            require(!splitRouting && !directOnly && !fakeDns && !encryptedDns && customDns.isBlank() && !youtubeDirect && !onionRouting && chainBase == null && torBase == null) { "تنظیمات مسیر میزبان با Full Config ترکیب نشده‌اند؛ آن‌ها را صریحاً غیرفعال کنید." }
-            return "{\"outbounds\":[{\"protocol\":\"blackhole\",\"tag\":\"proxy\"}]}"
-        }
-        require(!net.gozar.app.plugins.PluginProfiles.isPlugin(config)) { "Full plugin configs require their own engine" }
-        val chainOptions = config.oblivionJson.takeIf { AetherTorPolicy.active(it) }?.let { OblivionOptions(it).also { it.validate() } }
-        if (chainOptions != null) require(!directOnly && !splitRouting && !youtubeDirect && !onionRouting && !fakeDns && chainBase == null && torBase == null) {
-            "زنجیره Aether/Tor با direct/split/onion/FakeDNS یا زنجیره دیگر قابل ترکیب نیست؛ تنظیمات را صریحاً تغییر دهید"
-        }
         val onion = onionRouting && config.protocol != "tor"
         val fake = fakeDns || onion
         val chosenDns = customDns.trim()
@@ -427,15 +406,44 @@ object ConfigBuilder {
                 .put("routeOnly", !adBlock && splitRouting && !sniffing))
         }
 
-        // Phone sharing has a separate authenticated relay. Never expose the app's local inbound.
-        val socksIn = JSONObject().put("tag", "socks-in").put("port", MixedPort.value)
-            .put("listen", "127.0.0.1").put("protocol", "socks")
-            .put("settings", JSONObject().put("udp", true))
-        if (splitRouting || sniffing || adBlock) socksIn.put("sniffing", JSONObject()
-            .put("enabled", true).put("destOverride", JSONArray().put("http").put("tls").put("quic")).put("routeOnly", false))
+        // A missing credential must never fall back to an open, unauthenticated
+        // proxy on the LAN - fail safe to loopback-only instead.
+        val shareAuthed = shareOnLan && shareUser.isNotBlank() && sharePass.isNotBlank()
+        val socksSettings = JSONObject().put("udp", true)
+        if (shareAuthed) {
+            socksSettings.put("auth", "password")
+                .put("accounts", JSONArray().put(JSONObject().put("user", shareUser).put("pass", sharePass)))
+        }
+        val socksIn = JSONObject().put("tag", "socks-in")
+            .put("port", MixedPort.value)
+            .put("listen", if (shareAuthed) shareListenAddress else "127.0.0.1")
+            .put("protocol", "socks")
+            .put("settings", socksSettings)
+        if (splitRouting || sniffing || adBlock) {
+            val socksTypes = JSONArray()
+            listOf("http", "tls", "quic").forEach { socksTypes.put(it) }
+            socksIn.put("sniffing", JSONObject()
+                .put("enabled", true)
+                .put("destOverride", socksTypes)
+                .put("routeOnly", false))
+        }
+
         val inbounds = JSONArray().put(tunIn).put(socksIn)
-        if (shareOnLan && net.gozar.app.engine.CapabilityRegistry.supportsPhoneSharing(config))
-            inbounds.put(phoneSharingInbound())
+        if (shareOnLan) {
+            // Android's own per-network "Manual Proxy" setting is HTTP-only
+            // and has no credential field at all, so it can never speak to
+            // an authenticated SOCKS5 inbound. This plain HTTP inbound is
+            // what that native setting actually needs - by construction it
+            // cannot carry a password, so anyone on the same Wi-Fi/hotspot
+            // can use it while it's on. The authenticated socks-in above
+            // stays available at the same time for anything that supports
+            // manual SOCKS5+credentials (a browser, Telegram, etc.).
+            inbounds.put(JSONObject().put("tag", "http-share-in")
+                .put("port", HttpSharePort.value)
+                .put("listen", shareListenAddress)
+                .put("protocol", "http")
+                .put("settings", JSONObject()))
+        }
         if (config.protocol == "tor" || onion) {
             inbounds.put(JSONObject().put("tag", "tor-in")
                 .put("port", TorController.BRIDGE_PORT).put("listen", "127.0.0.1")
@@ -505,9 +513,6 @@ object ConfigBuilder {
         root.put("outbounds", outbounds)
 
         val rules = JSONArray()
-        // First rule: shared requests cannot hit split routing, Youtube Direct, local DNS or onion detours.
-        rules.put(JSONObject().put("type", "field").put("inboundTag", JSONArray().put("phone-share-in"))
-            .put("outboundTag", "proxy"))
         if (onion) {
             rules.put(JSONObject().put("type", "field")
                 .put("domain", JSONArray().put("regexp:\\.onion$"))
@@ -567,23 +572,16 @@ object ConfigBuilder {
                 .put("outboundTag", "direct"))
         }
         val proxiedInbounds = JSONArray().put("tun-in").put("socks-in")
+        if (shareOnLan) proxiedInbounds.put("http-share-in")
         rules.put(JSONObject().put("type", "field")
             .put("inboundTag", proxiedInbounds)
             .put("outboundTag", "proxy"))
         root.put("routing", JSONObject().put("domainStrategy", "AsIs").put("rules", rules))
 
-        WireGuardProfile.applyDns(config, root)
-        if (chainOptions != null) AetherTorPolicy.constrain(root, chainOptions)
         return root.toString()
     }
 
     fun buildForTest(config: ProxyConfig, chainBase: ProxyConfig? = null): String {
-        require(!net.gozar.app.security.vault.VaultRuntime.isReference(config.id)) { "Vault tests require the metered active session" }
-        net.gozar.app.engine.ChainPlan.validate(config, chainBase)
-        net.gozar.app.configtoolkit.NpvPolicy.requireConnectable(config)
-        require(config.protocol!="xray-full") { "آزمون جداگانهٔ Full Xray قرارداد inbound ندارد؛ از نشست اصلی استفاده کنید." }
-        require(!net.gozar.app.engine.FullSingBoxProfile.isFull(config)) { "Full sing-box config requires sing-box" }
-        require(!net.gozar.app.plugins.PluginProfiles.isPlugin(config)) { "Plugin profiles cannot be probed through Xray" }
         val root = JSONObject()
         root.put("log", JSONObject().put("loglevel", "none"))
         val proxyOut = buildOutbound(config)
@@ -596,7 +594,6 @@ object ConfigBuilder {
             outbounds.put(buildOutbound(chainBase).put("tag", "chain"))
         }
         root.put("outbounds", outbounds)
-        WireGuardProfile.applyDns(config, root)
         return root.toString()
     }
 
@@ -742,7 +739,31 @@ object ConfigBuilder {
     }
 
     private fun buildWireguard(config: ProxyConfig): JSONObject {
-        return JSONObject().put("tag", "proxy").put("protocol", "wireguard").put("settings", WireGuardProfile.settings(config))
+        val isWarpHost = config.address.equals("engage.cloudflareclient.com", ignoreCase = true)
+        val epAddress = if (isWarpHost) Warp.WARP_ENDPOINT_HOST else config.address
+        val epPort = if (isWarpHost) Warp.WARP_ENDPOINT_PORT else config.port
+
+        val peer = JSONObject()
+            .put("publicKey", config.publicKey)
+            .put("endpoint", "$epAddress:$epPort")
+            .put("allowedIPs", JSONArray().put("0.0.0.0/0").put("::/0"))
+
+        val addrs = JSONArray()
+        config.localAddress.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+            .forEach { addrs.put(it) }
+
+        val settings = JSONObject()
+            .put("secretKey", config.privateKey)
+            .put("address", addrs)
+            .put("peers", JSONArray().put(peer))
+        if (config.mtu > 0) settings.put("mtu", config.mtu)
+
+        val reserved = config.reserved.split(",").map { it.trim() }.mapNotNull { it.toIntOrNull() }
+        if (reserved.size == 3) {
+            settings.put("reserved", JSONArray().apply { reserved.forEach { put(it) } })
+        }
+
+        return JSONObject().put("tag", "proxy").put("protocol", "wireguard").put("settings", settings)
     }
 
     private fun normalizeNetwork(n: String): String = when (val v = n.trim().lowercase()) {
@@ -857,18 +878,10 @@ object ConfigBuilder {
                 }
             }
             "kcp" -> {
-                // v26.3.27 moved the legacy packet header and seed into FinalMask.
-                // Keep the stored profile unchanged; migrate only the generated wire config.
-                val masks = JSONArray()
-                val header = config.headerType.lowercase()
-                require(header in setOf("", "none", "srtp", "utp", "wechat", "dtls", "wireguard", "dns")) {
-                    "Unsupported mKCP header: $header"
-                }
-                if (header !in setOf("", "none")) masks.put(JSONObject().put("type", "header-$header"))
-                masks.put(if (config.path.isEmpty()) JSONObject().put("type", "mkcp-original")
-                    else JSONObject().put("type", "mkcp-aes128gcm").put("settings", JSONObject().put("password", config.path)))
-                stream.put("kcpSettings", JSONObject())
-                stream.put("finalmask", JSONObject().put("udp", masks))
+                val kcp = JSONObject().put("header",
+                    JSONObject().put("type", config.headerType.ifEmpty { "none" }))
+                if (config.path.isNotEmpty()) kcp.put("seed", config.path)
+                stream.put("kcpSettings", kcp)
             }
             "ws" -> {
                 val ws = JSONObject().put("path", config.path.ifEmpty { "/" })
@@ -905,7 +918,7 @@ object ConfigBuilder {
                     if (config.randomSubdomain) randomLabel(config.sni) else config.sni
                 )
                 .put("publicKey", config.publicKey)
-                .put("shortId", config.shortId).put("fingerprint", config.fingerprint).put("spiderX", config.spiderX))
+                .put("shortId", config.shortId).put("fingerprint", config.fingerprint).put("spiderX", "/"))
             "tls" -> {
                 val baseSni = config.sni.ifEmpty {
                     config.host.substringBefore(",").trim().ifEmpty { config.address }
@@ -943,9 +956,7 @@ object ConfigBuilder {
         maskEntry(config)?.let { entry ->
             val side = maskSide(net, entry.optString("type"))
             if (side != null) {
-                val masks = stream.optJSONObject("finalmask") ?: JSONObject().also { stream.put("finalmask", it) }
-                val entries = masks.optJSONArray(side) ?: JSONArray().also { masks.put(side, it) }
-                entries.put(entry)
+                stream.put("finalmask", JSONObject().put(side, JSONArray().put(entry)))
             } else {
                 // Named but not applicable here. Said out loud, because a
                 // silently dropped disguise is worse than one that is not

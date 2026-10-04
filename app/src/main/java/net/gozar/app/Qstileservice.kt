@@ -140,8 +140,6 @@ class QsTileService : TileService() {
     }
 
     // Only first-time Android VPN consent requires an Activity.
-    // API 26–33 has only the Intent overload. API 34+ uses PendingIntent below.
-    @android.annotation.SuppressLint("StartActivityAndCollapseDeprecated")
     private fun openApp() {
         val intent = Intent(this, MainActivity::class.java)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP)

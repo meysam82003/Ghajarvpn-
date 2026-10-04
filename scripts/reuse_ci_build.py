@@ -11,7 +11,6 @@ import yaml
 HARNESS_FILES = {
     ".github/workflows/android.yml",
     "scripts/crash_crawl.py",
-    "scripts/validation/emulator_gates.sh",
     "scripts/test_crash_crawl.py",
     "scripts/reuse_ci_build.py",
     "scripts/test_reuse_ci_build.py",

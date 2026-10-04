@@ -89,17 +89,6 @@ git -C "$work" fetch --all --tags
 git -C "$work" checkout "$SINGBOX_COMMIT"
 
 cd "$work"
-# Apply the reviewed accounting bridge to the exact pinned source. Refuse drift.
-patch_file="$root/third_party/sing-box/patches/0001-vault-usage.patch"
-if git apply --reverse --check "$patch_file" 2>/dev/null; then
-    echo "Ghajar usage bridge already applied"
-else
-    git apply --check "$patch_file"
-    git apply "$patch_file"
-fi
-
-cp "$root/third_party/sing-box/patches/ghajar_test.go.txt" common/trafficcontrol/ghajar_test.go
-go test ./common/trafficcontrol
 
 # Only the two ABIs this app ships. The API level matches the app's minSdk
 # path for the Psiphon AAR (26); a lower one buys nothing here.

@@ -119,13 +119,12 @@ object TorController {
         return geo to geo6
     }
 
-    private fun writeTorrc(context: Context, exitCountry: String, throughVpn: Boolean, bridges: TorBridges = TorBridges.NONE, socksPort: Int = SOCKS_PORT, upstreamPort: Int = BRIDGE_PORT): File {
+    private fun writeTorrc(context: Context, exitCountry: String, throughVpn: Boolean, bridges: TorBridges = TorBridges.NONE): File {
         val dir = dataDir(context)
         val (geo, geo6) = geoFiles(context)
         val sb = StringBuilder()
-        sb.appendLine("SocksPort 127.0.0.1:" + socksPort)
-        sb.appendLine("ControlPort 127.0.0.1:" + if (socksPort == SOCKS_PORT) CONTROL_PORT else AetherTorPolicy.CONTROL_PORT)
-        sb.appendLine("CookieAuthentication 1")
+        sb.appendLine("SocksPort 127.0.0.1:" + SOCKS_PORT)
+        sb.appendLine("ControlPort 127.0.0.1:" + CONTROL_PORT)
         sb.appendLine("DataDirectory " + dir.absolutePath)
         sb.appendLine("CacheDirectory " + File(dir, "cache").absolutePath)
         sb.appendLine("AvoidDiskWrites 1")
@@ -138,10 +137,10 @@ object TorController {
             sb.appendLine("ExitNodes {" + cc + "}")
             sb.appendLine("StrictNodes 0")
         } else if (cc.length == 2) {
-            GhajarLog.w(TAG, "geoip assets missing, exit country ignored")
+            Log.w(TAG, "geoip assets missing, exit country ignored")
         }
         if (throughVpn) {
-            sb.appendLine("Socks5Proxy 127.0.0.1:" + upstreamPort)
+            sb.appendLine("Socks5Proxy 127.0.0.1:" + BRIDGE_PORT)
         }
         sb.append(bridges.torrc(ptBinary(context).absolutePath))
         val torrc = File(dir, "torrc")
@@ -149,7 +148,7 @@ object TorController {
         return torrc
     }
 
-    fun start(context: Context, exitCountry: String, throughVpn: Boolean, bridges: TorBridges = TorBridges.NONE, socksPort: Int = SOCKS_PORT, upstreamPort: Int = BRIDGE_PORT): Boolean {
+    fun start(context: Context, exitCountry: String, throughVpn: Boolean, bridges: TorBridges = TorBridges.NONE): Boolean {
         stop()
         stopping = false
         bootstrapped = false
@@ -157,16 +156,16 @@ object TorController {
 
         val bin = binary(context)
         if (!bin.exists()) {
-            GhajarLog.e(TAG, "binary missing at " + bin.absolutePath)
+            Log.e(TAG, "binary missing at " + bin.absolutePath)
             return false
         }
 
         val dir = dataDir(context)
         if (bridges.transport.isNotEmpty() && bridges.transport != "vanilla" && !ptBinary(context).exists()) {
-            GhajarLog.e(TAG, "bridges need lyrebird, which is not in this build")
+            Log.e(TAG, "bridges need lyrebird, which is not in this build")
             return false
         }
-        val torrc = writeTorrc(context, exitCountry, throughVpn, bridges, socksPort, upstreamPort)
+        val torrc = writeTorrc(context, exitCountry, throughVpn, bridges)
 
         val p = try {
             ProcessBuilder(listOf(bin.absolutePath, "-f", torrc.absolutePath))
@@ -175,7 +174,7 @@ object TorController {
                 .apply { environment()["HOME"] = dir.absolutePath }
                 .start()
         } catch (e: Exception) {
-            GhajarLog.e(TAG, "spawn failed", e)
+            Log.e(TAG, "spawn failed", e)
             return false
         }
         process = p
@@ -184,7 +183,7 @@ object TorController {
             runCatching {
                 BufferedReader(InputStreamReader(p.inputStream)).useLines { lines ->
                     lines.forEach { line ->
-                        if (stopping || process !== p) return@forEach
+                        if (stopping) return@forEach
                         Log.i(TAG, line)
                         TorLog.emit(line)
                         val idx = line.indexOf("Bootstrapped ")
@@ -202,23 +201,23 @@ object TorController {
             }
         }
 
-        return waitForPort(socksPort)
+        return waitForPort()
     }
 
-    private fun waitForPort(socksPort: Int): Boolean {
+    private fun waitForPort(): Boolean {
         val deadline = System.currentTimeMillis() + READY_TIMEOUT_MS
         var portOpen = false
         while (System.currentTimeMillis() < deadline) {
             if (stopping) return false
             val p = process
             if (p == null || !p.isAlive) {
-                GhajarLog.e(TAG, "process exited before bootstrap completed")
+                Log.e(TAG, "process exited before bootstrap completed")
                 return false
             }
             if (!portOpen) {
                 portOpen = runCatching {
                     Socket().use {
-                        it.connect(InetSocketAddress("127.0.0.1", socksPort), 400)
+                        it.connect(InetSocketAddress("127.0.0.1", SOCKS_PORT), 400)
                         true
                     }
                 }.getOrDefault(false)
@@ -229,15 +228,18 @@ object TorController {
             }
             Thread.sleep(500)
         }
-        GhajarLog.e(TAG, "timed out at bootstrap " + bootstrapPercent + "%")
+        Log.e(TAG, "timed out at bootstrap " + bootstrapPercent + "%")
         return false
     }
 
     fun stop() {
         stopping = true
         val p = process ?: return
-        terminateProcess(p, 3000)
         process = null
+        runCatching {
+            p.destroy()
+            if (!p.waitFor(3000, TimeUnit.MILLISECONDS)) p.destroyForcibly()
+        }
     }
 }
 

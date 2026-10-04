@@ -33,8 +33,6 @@ object PsiphonConfig {
         "FRONTED-MEEK-CDN-QUIC-OSSH",
     )
 
-    val protocolChoices: List<String> get() = NON_INPROXY_PROTOCOLS
-
     // Psiphon Inc's own public propagation/sponsor IDs and remote server list
     // location/signature - these are meant to be embedded in client builds,
     // not per-app secrets.
@@ -83,12 +81,11 @@ object PsiphonConfig {
             config.put("LocalHttpProxyPort", options.socksPort + 1)
             if (options.flag("allowLan")) config.put("ListenInterface", "any")
         }
-        config.put("EmitDiagnosticNotices", options.flag("psiphonDiagnostics"))
-        config.put("EmitDiagnosticNetworkParameters", options.flag("psiphonDiagnostics"))
+        config.put("EmitDiagnosticNotices", true)
+        config.put("EmitDiagnosticNetworkParameters", true)
         config.put("EmitServerAlerts", true)
 
         val region = country.trim().uppercase()
-        require(region.isEmpty() || Regex("[A-Z]{2}").matches(region)) { "کد کشور سایفون نامعتبر است" }
         if (region.isNotEmpty()) config.put("EgressRegion", region)
 
         config.put(
@@ -106,35 +103,23 @@ object PsiphonConfig {
         config.put("InproxyTunnelProtocolPreferProbability", 0.0)
         config.put("InproxyTunnelProtocolSelectionProbability", 0.0)
 
-        val preference = options.text("psiphonProtocol")
-        require(preference.isBlank() || preference in NON_INPROXY_PROTOCOLS) { "پروتکل سایفون پشتیبانی نمی‌شود" }
-        val timeout = options.text("psiphonTimeout")
-        if (timeout.isNotBlank()) {
-            val seconds = timeout.toIntOrNull()
-            require(seconds != null && seconds in 1..600) { "مهلت سایفون باید بین ۱ تا ۶۰۰ ثانیه باشد" }
-            config.put("EstablishTunnelTimeoutSeconds", seconds)
-        }
-        fun select(protocols: List<String>): JSONArray {
-            require(preference.isBlank() || preference in protocols) { "پروتکل انتخابی با این حالت یا زنجیرهٔ اتصال سازگار نیست" }
-            return JSONArray(if (preference.isBlank()) protocols else listOf(preference))
-        }
         putCdnFronting(config, cdnIps, cdnSni)
         if (options.core == "chain") {
             config.put("UpstreamProxyURL", "socks5://127.0.0.1:${options.aetherPort}")
-            config.put("LimitTunnelProtocols", select(chainedProtocols(mode)))
+            config.put("LimitTunnelProtocols", JSONArray(chainedProtocols(mode)))
             if (mode(mode) != MODE_AUTO) config.put("DisableTactics", true)
             return config.toString()
         }
         when (mode(mode)) {
             MODE_CDN -> {
-                config.put("LimitTunnelProtocols", select(CDN_PROTOCOLS))
+                config.put("LimitTunnelProtocols", JSONArray(CDN_PROTOCOLS))
                 config.put("DisableTactics", true)
             }
             MODE_DIRECT -> {
-                config.put("LimitTunnelProtocols", select(NON_INPROXY_PROTOCOLS))
+                config.put("LimitTunnelProtocols", JSONArray(NON_INPROXY_PROTOCOLS))
                 config.put("DisableTactics", true)
             }
-            else -> config.put("LimitTunnelProtocols", select(NON_INPROXY_PROTOCOLS))
+            else -> config.put("LimitTunnelProtocols", JSONArray(NON_INPROXY_PROTOCOLS))
         }
 
         return config.toString()

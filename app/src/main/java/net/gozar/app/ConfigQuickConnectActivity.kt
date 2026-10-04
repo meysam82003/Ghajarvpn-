@@ -27,7 +27,7 @@ class ConfigQuickConnectActivity : ComponentActivity() {
             store.awaitReady()
             val summary = withContext(Dispatchers.IO) {
                 runCatching {
-                    val bytes = contentResolver.openInputStream(uri)?.use { net.gozar.app.configtoolkit.BoundedInput.read(it) }
+                    val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
                         ?: return@runCatching Result.fail("خواندن فایل ممکن نشد")
                     val result = ConfigNormalizer.normalizeFile(uri.lastPathSegment, bytes, mutableSetOf())
                     if (result.validCount == 0) {

@@ -44,7 +44,7 @@ class GozarBrowserRouteEngine(private val appContext: Context) : BrowserRouteEng
             if (!ownedByBrowser) return
             ownedByBrowser = false
             runCatching { Gozarcore.stop() }
-                .onFailure { GhajarLog.w(TAG, "stop failed: ${it.javaClass.simpleName}") }
+                .onFailure { Log.w(TAG, "stop failed: ${it.javaClass.simpleName}") }
         }
     }
 
@@ -100,7 +100,7 @@ class GozarBrowserRouteEngine(private val appContext: Context) : BrowserRouteEng
                     }
                 }
             }
-        }.onFailure { GhajarLog.w(TAG, "geo assets not bundled: ${it.message}") }
+        }.onFailure { Log.w(TAG, "geo assets not bundled: ${it.message}") }
         Gozarcore.setAssetPath(dir.absolutePath)
     }
 

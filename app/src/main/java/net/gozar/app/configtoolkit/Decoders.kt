@@ -9,7 +9,7 @@ import java.util.Locale
 
 class DecoderRegistry(
     private val decoders: List<ConfigDecoder> = listOf(
-        BpfDecoder(), NpvtDecoder(), NpvsDecoder(), HappDecoder(), NetModDecoder(),
+        NpvtDecoder(), NpvsDecoder(), HappDecoder(), NetModDecoder(),
         SlipNetDecoder(), EhiDecoder(), HatDecoder(), DarkDecoder(),
         GenericJsonDecoder(), TextLinkDecoder()
     )
@@ -18,13 +18,6 @@ class DecoderRegistry(
 
     fun decode(input: ConfigInput): ParsedConfig {
         require(input.bytes.size <= MAX_FILE_BYTES) { throw ConfigToolkitException.TooLarge(MAX_FILE_BYTES) }
-        net.gozar.app.sharing.DirectShare.importPackage(input.bytes.toString(Charsets.UTF_8), net.gozar.app.ConfigSource.PERSONAL)?.let { configs ->
-            return ParsedConfig(ConfigFormat.JSON, configs.map { NormalizedProfile.from(it, ConfigFormat.JSON) })
-        }
-        net.gozar.app.plugins.PluginProfiles.import(input.bytes.toString(Charsets.UTF_8))?.let { config ->
-            return ParsedConfig(ConfigFormat.TEXT, listOf(NormalizedProfile.from(config, ConfigFormat.TEXT)),
-                warnings = listOf(net.gozar.app.plugins.PluginProfiles.requirement(config).orEmpty()))
-        }
         val detection = FormatDetector.detect(input)
         val decoder = decoderFor(detection) ?: throw ConfigToolkitException.UnsupportedFormat(detection.format)
         val parsed = decoder.decode(input)
@@ -74,10 +67,6 @@ open class GenericJsonDecoder(override val format: ConfigFormat = ConfigFormat.J
 
     internal fun parseJson(text: String, source: ConfigFormat): ParsedConfig {
         val clean = text.trim()
-        runCatching { BoundedJson.objectValue(clean) }.getOrNull()?.takeIf { net.gozar.app.ForeignImport.looksLikeSingBox(it) }?.let {
-            val c = net.gozar.app.engine.FullSingBoxProfile.create(text)
-            return ParsedConfig(source, listOf(NormalizedProfile.from(c, source, text)), text, warnings = listOfNotNull(net.gozar.app.engine.FullSingBoxProfile.blockReason(c)))
-        }
         val root = runCatching { JSONObject(clean) }.getOrNull()
         val array = if (root == null) runCatching { JSONArray(clean) }.getOrNull() else null
         if (root == null && array == null) throw ConfigToolkitException.InvalidConfig("ساختار JSON معتبر نیست.")
@@ -143,13 +132,13 @@ open class GenericJsonDecoder(override val format: ConfigFormat = ConfigFormat.J
                 when { reality.length() > 0 -> "reality"; tls != null -> "tls"; else -> "none" }
             },
             sni = first(o, "sni", "serverName").ifBlank { sec.optString("serverName") },
-            host = first(o, "host").ifBlank { ws.optJSONObject("headers")?.optString("Host").orEmpty().ifBlank { ws.optString("host") } },
+            host = first(o, "host").ifBlank { ws.optJSONObject("headers")?.optString("Host").orEmpty() },
             path = first(o, "path").ifBlank { ws.optString("path") },
             alpn = first(o, "alpn").ifBlank { jsonStrings(sec.optJSONArray("alpn")).joinToString(",") },
             fingerprint = first(o, "fingerprint", "fp").ifBlank { sec.optString("fingerprint", "chrome") },
             flow = first(o, "flow"), publicKey = first(o, "publicKey", "pbk").ifBlank { reality.optString("publicKey") },
             shortId = first(o, "shortId", "sid").ifBlank { reality.optString("shortId") },
-            spiderX = first(o, "spiderX", "spx").ifBlank { reality.optString("spiderX", "/") },
+            spiderX = first(o, "spiderX", "spx").ifBlank { reality.optString("spiderX") },
             grpcServiceName = first(o, "serviceName").ifBlank { grpc.optString("serviceName") },
             authority = first(o, "authority").ifBlank { grpc.optString("authority") },
             allowInsecure = o.optBoolean("allowInsecure", sec.optBoolean("allowInsecure", false)),
@@ -188,7 +177,7 @@ open class GenericJsonDecoder(override val format: ConfigFormat = ConfigFormat.J
 
     private fun criticalSignature(p: NormalizedProfile) = listOf(
         p.protocol, p.server.lowercase(), p.port, p.uuid, p.password, p.method,
-        p.network, p.security, p.sni, p.host, p.path, p.publicKey, p.shortId, p.spiderX
+        p.network, p.security, p.sni, p.host, p.path, p.publicKey, p.shortId
     ).joinToString("\u0000")
 }
 
@@ -206,7 +195,7 @@ class NpvtDecoder : GenericJsonDecoder(ConfigFormat.NPVT) {
     override fun decode(input: ConfigInput): ParsedConfig {
         val text = ReadablePayload.extract(input, "NPVT1")
             ?: ReadablePayload.extract(input, "NPVTSUB1")
-            ?: return openNpvContainer(input, format)
+            ?: throw npvContainerFailure(input, format)
         return convertReadableNpv(text, input, format, this)
     }
 }
@@ -273,20 +262,19 @@ internal fun npvLinesToConfigs(lines: List<String>): List<net.gozar.app.ProxyCon
 }
 
 /**
- * NPVO1, authenticated app-key and passphrase NPVS through [NpvContainer].
- * Recipient-protected files require the actual recipient private key.
- * Publisher authenticity remains distinct from successful authenticated decryption.
+ * NPVO1 open exports and passphrase-sealed NPVS through [NpvContainer]; files
+ * locked with the vendor's app key or to a recipient stay closed, with the
+ * reason said plainly.
  */
 internal fun openNpvContainer(input: ConfigInput, format: ConfigFormat): ParsedConfig {
     val pass = input.passkey?.let { String(it) }
     return when (val r = NpvContainer.open(input.bytes, pass)) {
         is NpvContainer.Result.Opened -> {
-            val configs = r.decoded?.profiles() ?: npvLinesToConfigs(r.lines)
+            val configs = npvLinesToConfigs(r.lines)
             if (configs.isEmpty()) throw ConfigToolkitException.InvalidConfig(
                 "فایل باز شد اما لینک قابل استفاده‌ای در آن نبود." +
                     (if (r.creatorMessage.isNotBlank()) "\n" + r.creatorMessage else ""))
-            ParsedConfig(format, configs.map { NormalizedProfile.from(it, format) }, r.decoded?.json()?.toString(), warnings =
-                listOf("رمزگشایی شد؛ اصالت ناشر تأیید نشده") + configs.mapNotNull(NpvPolicy::reason))
+            ParsedConfig(format, configs.map { NormalizedProfile.from(it, format) })
         }
         NpvContainer.Result.NeedsPassphrase -> throw ConfigToolkitException.PasskeyRequired()
         NpvContainer.Result.WrongPassphrase -> throw ConfigToolkitException.WrongPasskey()

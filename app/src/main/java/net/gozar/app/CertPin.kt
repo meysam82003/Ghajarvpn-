@@ -58,7 +58,7 @@ object CertPin {
                 val digest = MessageDigest.getInstance("SHA-256").digest(leaf.encoded)
                 digest.joinToString("") { b -> "%02x".format(b) }
             } catch (e: Throwable) {
-                net.gozar.app.GhajarLog.w(TAG, "pin fetch failed for $host:$port", e)
+                android.util.Log.w(TAG, "pin fetch failed for $host:$port", e)
                 null
             } finally {
                 runCatching { ssl?.close() }

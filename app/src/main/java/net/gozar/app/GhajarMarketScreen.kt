@@ -176,7 +176,7 @@ fun GhajarMarketScreen(
         error = null
         runCatching { api.marketShops() }
             .onSuccess { feed = it }
-            .onFailure { error = StorePublicError.message(it, "فهرست فروشگاه‌ها در دسترس نیست") }
+            .onFailure { error = it.message ?: "فهرست فروشگاه‌ها در دسترس نیست" }
         busy = false
     }
 
@@ -507,7 +507,7 @@ private fun MarketOrderPage(
         scope.launch {
             runCatching { api.marketSubmitReceipt(order.id, uri, note) }
                 .onSuccess { message = it; pollKey++ }
-                .onFailure { message = StorePublicError.message(it, "ارسال رسید انجام نشد") }
+                .onFailure { message = it.message ?: "ارسال رسید انجام نشد" }
             sending = false
         }
     }
@@ -710,7 +710,7 @@ internal fun MarketDelivery(
             importing = true
             runCatching { api.importServiceOnce(store, marketServiceDetails(status, "سرویس فروشگاه")) }
                 .onSuccess { count -> synced = true; imported = if (count > 0) "به لیست سرورها اضافه شد." else "این سرویس در لیست سرورها هست." }
-                .onFailure { imported = StorePublicError.message(it, "افزودن انجام نشد") }
+                .onFailure { imported = it.message ?: "افزودن انجام نشد" }
             importing = false
         }
     }
@@ -761,7 +761,7 @@ internal fun MarketDelivery(
                                     if (count > 0) "به لیست سرورها اضافه شد."
                                     else "این سرویس در لیست سرورها هست."
                                 },
-                                { StorePublicError.message(it, "افزودن انجام نشد") }
+                                { it.message ?: "افزودن انجام نشد" }
                             )
                         importing = false
                     }
@@ -791,7 +791,7 @@ private fun MarketRegisterPage(api: GhajarStoreApi, onBack: () -> Unit) {
         busy = true
         runCatching { api.marketTerms() }
             .onSuccess { terms = it }
-            .onFailure { error = StorePublicError.message(it, "قوانین خوانده نشد") }
+            .onFailure { error = it.message ?: "قوانین خوانده نشد" }
         busy = false
     }
 
