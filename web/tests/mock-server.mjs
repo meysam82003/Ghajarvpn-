@@ -145,6 +145,7 @@ http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host}`)
   if (url.pathname === '/__state') return json(res, 200, { ...state, dismissed: [...state.dismissed] })
   if (url.pathname === '/__pay') { state.paid = true; return json(res, 200, { ok: true }) }
+  if (url.pathname === PREFIX + '/pwa/push.php') return api(req, res, 'push.php', url.searchParams)
   if (url.pathname.startsWith(PREFIX + '/api/')) return api(req, res, url.pathname.slice((PREFIX + '/api/').length), url.searchParams)
   if (url.pathname === '/' || url.pathname === PREFIX || url.pathname === PREFIX + '/') { res.writeHead(302, { Location: PREFIX + '/pwa/' }); return res.end() }
   if (!url.pathname.startsWith(PREFIX + '/pwa/')) { res.writeHead(404); return res.end() }

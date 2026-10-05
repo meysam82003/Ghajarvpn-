@@ -1,6 +1,6 @@
 <?php
 /**
- * Pushes due notices to every installed Ghajar PWA (run every minute).
+ * Sends due notices to every installed Ghajar web app (run every minute).
  *
  * For each account with a subscribed device it reads the very feed the
  * Android app polls (notices.php?action=feed) with that account's own token,
@@ -8,17 +8,24 @@
  * shop announcements and discount codes, payment results, ticket replies and
  * broadcast messages. What was pushed is reported back with `shown`, which
  * starts the server's repeat clock exactly as the app's posting does.
+ *
+ * Lives inside pwa/ and only reads the bot's config: nothing of the bot is
+ * changed. Run it from the host's cron, either way:
+ *   php /path/to/Ghajarvpn/pwa/push-cron.php
+ *   curl -s https://<host>/…/Ghajarvpn/pwa/push-cron.php
  */
-require_once __DIR__ . '/_init.php';
-rx_cron_boot('webpush', 55);
-
-if (!rx_cron_require_or_skip('webpush', [
-    __DIR__ . '/../config.php',
-    __DIR__ . '/../api/lib/WebPush.php',
-])) {
-    return;
+@ini_set('display_errors', '0');
+@set_time_limit(60);
+ignore_user_abort(true);
+if (PHP_SAPI !== 'cli') {
+    header('Content-Type: text/plain; charset=utf-8');
+    header('Cache-Control: no-store');
 }
-if (!rx_cron_db_ready('webpush')) {
+require_once __DIR__ . '/../config.php';
+require_once __DIR__ . '/push-lib.php';
+$pdo = $GLOBALS['pdo'] ?? ($pdo ?? null);
+if (!($pdo instanceof PDO)) {
+    echo "no database\n";
     return;
 }
 
@@ -131,6 +138,7 @@ try {
 } finally {
     flock($lock, LOCK_UN);
 }
+echo "OK\n";
 
 function ghajar_push_http(string $url, string $token, ?array $body = null): ?array
 {

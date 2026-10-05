@@ -240,12 +240,8 @@ final class FaoximaWebLink
         }
     }
 
-    /**
-     * Mints a ticket for an already-authenticated user. The bot's "open the
-     * app" button gets a longer life (it waits in the chat until tapped);
-     * it is still single use.
-     */
-    public static function issueTicket(int $userId, int $ttl = self::TICKET_TTL_SECONDS): ?string
+    /** Mints a ticket for an already-authenticated user. */
+    public static function issueTicket(int $userId): ?string
     {
         global $pdo;
         if (!($pdo instanceof PDO) || $userId <= 0) {
@@ -267,7 +263,7 @@ final class FaoximaWebLink
                 ':ticket' => $ticket,
                 ':uid'    => $userId,
                 ':now'    => $now,
-                ':exp'    => $now + max(30, min($ttl, 3600)),
+                ':exp'    => $now + self::TICKET_TTL_SECONDS,
             ]);
             return $ticket;
         } catch (Throwable $e) {

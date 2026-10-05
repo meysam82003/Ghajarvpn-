@@ -3,10 +3,10 @@ name: Web PWA
 on:
   push:
     branches: [main]
-    paths: ['web/**', 'backend/Faoxima-1.0.0/pwa/**', 'backend/Faoxima-1.0.0/api/push.php', 'backend/Faoxima-1.0.0/api/lib/WebPush.php', 'backend/Faoxima-1.0.0/cronbot/webpush.php', '.github/workflows/web.yml']
+    paths: ['web/**', 'backend/Faoxima-1.0.0/pwa/**', '.github/workflows/web.yml']
   pull_request:
     branches: [main]
-    paths: ['web/**', 'backend/Faoxima-1.0.0/pwa/**', 'backend/Faoxima-1.0.0/api/push.php', 'backend/Faoxima-1.0.0/api/lib/WebPush.php', 'backend/Faoxima-1.0.0/cronbot/webpush.php', '.github/workflows/web.yml']
+    paths: ['web/**', 'backend/Faoxima-1.0.0/pwa/**', '.github/workflows/web.yml']
   workflow_dispatch:
 
 permissions:
@@ -30,8 +30,7 @@ jobs:
       - name: Typecheck and build
         run: npm run build
       - name: PHP syntax
-        working-directory: backend/Faoxima-1.0.0
-        run: for f in api/push.php api/lib/WebPush.php cronbot/webpush.php; do php -l "$f"; done
+        run: for f in public/push.php public/push-lib.php public/push-cron.php; do php -l "$f"; done
       - name: No host in the bundle
         working-directory: backend/Faoxima-1.0.0/pwa
         run: |

@@ -6,7 +6,7 @@
  *  - On Chromium, refreshes the notice feed in the background (periodic sync),
  *    exactly like the app's 15-minute JobScheduler job.
  */
-const VERSION = 'ghajar-pwa-v1'
+const VERSION = 'ghajar-pwa-v2'
 const SHELL = VERSION + '-shell'
 const ASSETS = VERSION + '-assets'
 const SCOPE = self.registration.scope
@@ -36,7 +36,7 @@ self.addEventListener('fetch', event => {
   const url = new URL(req.url)
   if (url.origin !== location.origin) return
   // The API, payments and subscription links are never cached.
-  if (url.href.startsWith(API) || !url.href.startsWith(SCOPE)) return
+  if (url.href.startsWith(API) || !url.href.startsWith(SCOPE) || url.pathname.endsWith('.php')) return
   if (req.mode === 'navigate') {
     event.respondWith((async () => {
       try {
@@ -123,16 +123,17 @@ async function show(n) {
   return true
 }
 
-async function api(path, init) {
+async function api(path, init, base = API) {
   const token = await idbGet('token')
   if (!token) return null
-  const res = await fetch(API + path, {
+  const res = await fetch(base + path, {
     ...init,
     headers: { Accept: 'application/json', Authorization: 'Bearer ' + token, 'X-Ghajar-Client': 'app', ...(init && init.body ? { 'Content-Type': 'application/json' } : {}) },
     cache: 'no-store'
   })
   return res.json().catch(() => null)
 }
+const pushApi = (path, init) => api(path, init, SCOPE)
 
 async function sha(text) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
@@ -217,10 +218,10 @@ self.addEventListener('notificationclick', event => {
 self.addEventListener('pushsubscriptionchange', event => {
   event.waitUntil((async () => {
     try {
-      const keyRes = await fetch(API + 'push.php?action=key', { cache: 'no-store' }).then(r => r.json())
+      const keyRes = await fetch(SCOPE + 'push.php?action=key', { cache: 'no-store' }).then(r => r.json())
       const raw = atob(keyRes.key.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((keyRes.key.length + 3) % 4))
       const sub = await self.registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: Uint8Array.from(raw, c => c.charCodeAt(0)) })
-      await api('push.php?action=subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON(), old_endpoint: event.oldSubscription && event.oldSubscription.endpoint }) })
+      await pushApi('push.php?action=subscribe', { method: 'POST', body: JSON.stringify({ subscription: sub.toJSON(), old_endpoint: event.oldSubscription && event.oldSubscription.endpoint }) })
     } catch { /* the page re-subscribes on next open */ }
   })())
 })

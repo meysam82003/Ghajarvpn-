@@ -10,10 +10,10 @@ declare(strict_types=1);
  *   POST ?action=unsubscribe  {endpoint}
  *   POST ?action=test         sends one test notification to this account's devices
  *
- * Every write needs the same bearer token the app and the PWA use for the
- * shop. The notices themselves are produced by cronbot/webpush.php from the
- * same feed the Android app reads (notices.php), so a device gets exactly
- * what the app would show.
+ * Lives inside pwa/ and only reads the bot's own files: nothing of the bot
+ * is changed. Every write needs the same bearer token the app and the PWA
+ * use for the shop. The notices themselves are sent by push-cron.php from
+ * the same feed the Android app reads (notices.php).
  */
 
 if (!defined('FAOXIMA_SKIP_BOTAPI_ROUTER')) {
@@ -38,8 +38,8 @@ function __push_emit(int $http, array $payload): void
 }
 
 try {
-    require_once __DIR__ . '/lib/Bootstrap.php';
-    require_once __DIR__ . '/lib/WebPush.php';
+    require_once __DIR__ . '/../api/lib/Bootstrap.php';
+    require_once __DIR__ . '/push-lib.php';
 
     while (ob_get_level() > 0) {
         @ob_end_clean();
@@ -88,10 +88,10 @@ try {
                 $prefs[$k] = (bool)$body['prefs'][$k];
             }
         }
-        // Where the cron reaches the notice feed for this device: this very
-        // API directory, as the device reached it. No host is configured.
+        // Where the cron reaches the notice feed for this device: the bot's
+        // api/ beside this folder, as the device reached it. No host is configured.
         $scheme = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https') ? 'https' : 'http';
-        $apiBase = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/api/push.php')), '/') . '/';
+        $apiBase = $scheme . '://' . ($_SERVER['HTTP_HOST'] ?? 'localhost') . rtrim(str_replace('\\', '/', dirname(dirname($_SERVER['SCRIPT_NAME'] ?? '/pwa/push.php'))), '/') . '/api/';
         if (!empty($body['old_endpoint']) && is_string($body['old_endpoint'])) {
             $pdo->prepare('DELETE FROM ghajar_push_subscriptions WHERE endpoint_hash = ? AND user_id = ?')
                 ->execute([hash('sha256', $body['old_endpoint']), $userId]);

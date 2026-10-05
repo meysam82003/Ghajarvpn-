@@ -9,7 +9,7 @@ import { isStandalone } from './platform'
  *
  * Push is the part that makes a closed app still put "your service ends
  * tomorrow" on the lock screen: the server runs the same feed for every
- * subscribed device and pushes what is due (api/push.php + cronbot/webpush.php).
+ * subscribed device and pushes what is due (pwa/push.php + pwa/push-cron.php).
  * While the app is open the page posts the same notifications itself.
  */
 

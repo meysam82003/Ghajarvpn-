@@ -17,7 +17,8 @@ export const MINIAPP_API = API_BASE + 'miniapp.php'
 export const WEBLINK_API = API_BASE + 'weblink.php'
 export const NOTICES_API = API_BASE + 'notices.php'
 export const MARKET_API = API_BASE + 'market.php'
-export const PUSH_API = API_BASE + 'push.php'
+/** Notification registration ships inside the app's own folder (pwa/push.php). */
+export const PUSH_API = new URL('./push.php', document.baseURI).toString()
 
 export const APP_NAME_FA = 'قاجار وی پی ان'
 export const APP_NAME_EN = 'Ghajarvpn'
