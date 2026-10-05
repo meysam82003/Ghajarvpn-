@@ -367,9 +367,12 @@ object GhajarNotificationMonitor {
     private fun createChannels(context: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         val manager = context.getSystemService(NotificationManager::class.java)
+        // Channels whose importance was created too low: a channel's
+        // importance cannot change after creation, so they moved to new ids.
+        listOf("ghajarvpn_general", "gozarnet_vpn", "ghajar_vpn_events", "ghajar_updates").forEach { runCatching { manager.deleteNotificationChannel(it) } }
         manager.createNotificationChannels(
             listOf(
-                NotificationChannel(BrandConfig.NOTIFICATION_CHANNEL_GENERAL, "اعلان‌های قاجار", NotificationManager.IMPORTANCE_DEFAULT),
+                NotificationChannel(BrandConfig.NOTIFICATION_CHANNEL_GENERAL, "اعلان‌های قاجار", NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel(BrandConfig.NOTIFICATION_CHANNEL_SERVICE, "هشدار حجم و زمان سرویس", NotificationManager.IMPORTANCE_HIGH),
                 NotificationChannel(BrandConfig.NOTIFICATION_CHANNEL_IMPORTANT, "اعلان‌های مهم و شناور", NotificationManager.IMPORTANCE_HIGH)
             )

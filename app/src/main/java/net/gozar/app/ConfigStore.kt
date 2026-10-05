@@ -17,6 +17,21 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 
 enum class PerAppMode { OFF, ALLOWLIST, BLOCKLIST }
+
+/** A named per-app rule ("بانک", "بازی"…): its apps either go only through the VPN or stay outside it. */
+data class PerAppProfile(val id: String, val name: String, val mode: PerAppMode, val apps: Set<String>) {
+    fun toJson(): org.json.JSONObject = org.json.JSONObject().put("id", id).put("name", name).put("mode", mode.name)
+        .put("apps", org.json.JSONArray(apps.toList()))
+    companion object {
+        const val MAX = 10
+        fun fromJson(o: org.json.JSONObject): PerAppProfile? = runCatching {
+            val arr = o.optJSONArray("apps")
+            PerAppProfile(o.getString("id"), o.optString("name").ifBlank { "پروفایل" },
+                PerAppMode.valueOf(o.optString("mode", "BLOCKLIST")).takeIf { it != PerAppMode.OFF } ?: PerAppMode.BLOCKLIST,
+                if (arr == null) emptySet() else (0 until arr.length()).map { arr.getString(it) }.toSet())
+        }.getOrNull()
+    }
+}
 enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 class ConfigStore private constructor(context: Context) {
     private val appCtx: Context = context.applicationContext
@@ -570,9 +585,47 @@ class ConfigStore private constructor(context: Context) {
 
     fun addImported(imported: List<ProxyConfig>): Int {
         if (imported.isEmpty()) return 0
-        _configs.value = _configs.value + imported
+        // A received «اشتراک قاجار» share becomes its own group, drawn like a
+        // subscription (its quota and time as the group's bar). Everything
+        // else is added as before.
+        val (shared, plain) = imported.partition { net.gozar.app.gsb2.Gsb2.Meta.of(it) != null }
+        var subs = _subscriptions.value
+        val tagged = shared.groupBy { net.gozar.app.gsb2.Gsb2.Meta.of(it)!!.shareId }.flatMap { (shareId, list) ->
+            val meta = net.gozar.app.gsb2.Gsb2.Meta.of(list.first())!!
+            val url = net.gozar.app.gsb2.Gvpn.urlFor(shareId)
+            val sub = subs.firstOrNull { it.url == url } ?: Subscription(
+                name = meta.shareName.ifBlank { "اشتراک قاجار" }, url = url,
+                total = meta.quotaBytes, expire = if (meta.expiresAt > 0) meta.expiresAt / 1000 else 0L,
+                lastUpdated = System.currentTimeMillis()
+            ).also { subs = listOf(it) + subs }
+            list.map { it.copy(subId = sub.id) }
+        }
+        val replaced = tagged.map { it.subId }.toSet()
+        _configs.value = _configs.value.filterNot { it.subId in replaced } + plain + tagged
+        if (subs !== _subscriptions.value) { _subscriptions.value = subs; persistSubscriptions() }
         persistConfigs()
         return imported.size
+    }
+
+    /** Keeps a received share's group bar in step with what the tunnel counted. */
+    fun updateGvpnUsage(shareId: String, used: Long) {
+        val url = net.gozar.app.gsb2.Gvpn.urlFor(shareId)
+        if (_subscriptions.value.none { it.url == url && it.used != used }) return
+        _subscriptions.value = _subscriptions.value.map { if (it.url == url) it.copy(used = used) else it }
+        persistSubscriptions()
+    }
+
+    /** Removes a received share and everything in it. */
+    fun deleteGvpnShare(shareId: String) {
+        val url = net.gozar.app.gsb2.Gvpn.urlFor(shareId)
+        val subIds = _subscriptions.value.filter { it.url == url }.map { it.id }.toSet()
+        val gone = _configs.value.filter { it.subId in subIds || net.gozar.app.gsb2.Gsb2.Meta.of(it)?.shareId == shareId }.map { it.id }.toSet()
+        if (gone.isEmpty() && subIds.isEmpty()) return
+        _configs.value = _configs.value.filterNot { it.id in gone }
+        _subscriptions.value = _subscriptions.value.filterNot { it.id in subIds }
+        if (_selectedId.value in gone) setSelectedId(null)
+        persistConfigs()
+        persistSubscriptions()
     }
 
     fun delete(id: String) {
@@ -808,6 +861,8 @@ class ConfigStore private constructor(context: Context) {
         put("lang", _lang.value.name)
         put("perAppMode", _perAppMode.value.name)
         put("perAppList", JSONArray(_perAppList.value.toList()))
+        put("perAppProfiles", JSONArray().apply { _perAppProfiles.value.forEach { put(it.toJson()) } })
+        put("perAppActive", _activePerAppProfile.value ?: "")
         put("selectedId", _selectedId.value ?: "")
         // Personalization travels with a full backup (colours, layout, styles,
         // saved presets). It holds no secrets, so the backup's own security
@@ -876,6 +931,11 @@ class ConfigStore private constructor(context: Context) {
         o.optString("perAppMode").takeIf { it.isNotEmpty() }?.let { v ->
             runCatching { setPerAppMode(PerAppMode.valueOf(v)) }
         }
+        o.optJSONArray("perAppProfiles")?.let { arr ->
+            _perAppProfiles.value = (0 until arr.length()).mapNotNull { PerAppProfile.fromJson(arr.getJSONObject(it)) }.take(PerAppProfile.MAX)
+            persistPerAppProfiles()
+            setActivePerAppProfileId(o.optString("perAppActive").takeIf { id -> id.isNotBlank() && _perAppProfiles.value.any { it.id == id } })
+        }
         o.optJSONArray("perAppList")?.let { arr ->
             setPerAppList((0 until arr.length()).map { arr.getString(it) }.toSet())
         }
@@ -886,13 +946,20 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun restoreBackup(configs: List<ProxyConfig>, subs: List<Subscription>, settings: JSONObject?) {
-        _configs.value = configs
-        _subscriptions.value = subs
-        persistConfigs()
-        persistSubscriptions()
+        // A backup written with the servers unticked carries none: the ones
+        // on the phone stay. Received «اشتراک قاجار» shares are never in a
+        // backup and always stay.
+        if (configs.isNotEmpty() || subs.isNotEmpty()) {
+            val keptSubs = _subscriptions.value.filter { net.gozar.app.gsb2.Gvpn.isGvpnUrl(it.url) }
+            val keptConfigs = _configs.value.filter { net.gozar.app.gsb2.Gsb2.Meta.of(it) != null }
+            _configs.value = configs + keptConfigs
+            _subscriptions.value = subs + keptSubs
+            persistConfigs()
+            persistSubscriptions()
+        }
         settings?.let { restoreSettings(it) }
         val wanted = settings?.optString("selectedId").orEmpty()
-        setSelectedId(if (configs.any { it.id == wanted }) wanted else configs.firstOrNull()?.id)
+        if (configs.isNotEmpty()) setSelectedId(if (configs.any { it.id == wanted }) wanted else configs.firstOrNull()?.id)
     }
 
     data class MergeReport(
@@ -1012,11 +1079,70 @@ class ConfigStore private constructor(context: Context) {
     fun setPerAppMode(mode: PerAppMode) {
         _perAppMode.value = mode
         prefs.edit().putString(KEY_PERAPP_MODE, mode.name).apply()
+        if (mode == PerAppMode.OFF) setActivePerAppProfileId(null)
+        else syncActiveProfile()
     }
 
     fun setPerAppList(pkgs: Set<String>) {
         _perAppList.value = pkgs
         prefs.edit().putStringSet(KEY_PERAPP_LIST, pkgs).apply()
+        syncActiveProfile()
+    }
+
+    // ---- named per-app profiles ----
+
+    private val _perAppProfiles = MutableStateFlow(loadPerAppProfiles())
+    val perAppProfiles: StateFlow<List<PerAppProfile>> = _perAppProfiles
+    private val _activePerAppProfile = MutableStateFlow(prefs.getString("perapp_active_profile", null))
+    val activePerAppProfile: StateFlow<String?> = _activePerAppProfile
+
+    private fun loadPerAppProfiles(): List<PerAppProfile> = runCatching {
+        val arr = JSONArray(prefs.getString("perapp_profiles", "[]"))
+        (0 until arr.length()).mapNotNull { PerAppProfile.fromJson(arr.getJSONObject(it)) }
+    }.getOrDefault(emptyList())
+
+    private fun persistPerAppProfiles() {
+        prefs.edit().putString("perapp_profiles", JSONArray().apply { _perAppProfiles.value.forEach { put(it.toJson()) } }.toString()).apply()
+    }
+
+    private fun setActivePerAppProfileId(id: String?) {
+        _activePerAppProfile.value = id
+        prefs.edit().putString("perapp_active_profile", id).apply()
+    }
+
+    /** The active profile follows edits made on the list and the mode. */
+    private fun syncActiveProfile() {
+        val id = _activePerAppProfile.value ?: return
+        val mode = _perAppMode.value.takeIf { it != PerAppMode.OFF } ?: return
+        _perAppProfiles.value = _perAppProfiles.value.map { if (it.id == id) it.copy(mode = mode, apps = _perAppList.value) else it }
+        persistPerAppProfiles()
+    }
+
+    /** Creates (or renames/updates) a profile; returns false when ten already exist. */
+    fun savePerAppProfile(name: String, mode: PerAppMode, apps: Set<String>, id: String? = null): Boolean {
+        val clean = name.trim().take(40).ifBlank { return false }
+        val list = _perAppProfiles.value
+        if (id == null && list.size >= PerAppProfile.MAX) return false
+        val profile = PerAppProfile(id ?: UUID.randomUUID().toString(), clean, if (mode == PerAppMode.OFF) PerAppMode.BLOCKLIST else mode, apps)
+        _perAppProfiles.value = if (list.any { it.id == profile.id }) list.map { if (it.id == profile.id) profile else it } else list + profile
+        persistPerAppProfiles()
+        if (id == null) applyPerAppProfile(profile.id)
+        return true
+    }
+
+    fun deletePerAppProfile(id: String) {
+        _perAppProfiles.value = _perAppProfiles.value.filterNot { it.id == id }
+        persistPerAppProfiles()
+        if (_activePerAppProfile.value == id) applyPerAppProfile(null)
+    }
+
+    /** Makes a profile the live per-app rule; null turns per-app routing off. */
+    fun applyPerAppProfile(id: String?) {
+        val p = _perAppProfiles.value.firstOrNull { it.id == id }
+        setActivePerAppProfileId(p?.id)
+        _perAppMode.value = p?.mode ?: PerAppMode.OFF
+        _perAppList.value = p?.apps ?: _perAppList.value
+        prefs.edit().putString(KEY_PERAPP_MODE, _perAppMode.value.name).putStringSet(KEY_PERAPP_LIST, _perAppList.value).apply()
     }
 
     fun togglePerApp(pkg: String) {

@@ -8,11 +8,11 @@
 
 **کلاینت VPN چندهسته‌ای اندروید، همراه فروشگاه، ربات تلگرام و مینی‌اپ**
 
-![Version](https://img.shields.io/badge/version-1.1.1-gold)
+![Version](https://img.shields.io/badge/version-1.1.2-gold)
 ![Android](https://img.shields.io/badge/Android-8.0%2B-3DDC84)
 ![License](https://img.shields.io/badge/license-GPL--3.0-blue)
 
-[⬇️ دانلود](https://github.com/meysam82003/Ghajarvpn-/releases/latest) · [📝 یادداشت نسخه](docs/release-notes/v1.1.1.md) · [📣 کانال](https://t.me/Ghajarvpn) · [🤖 ربات](https://t.me/Ghajar_vpnbot)
+[⬇️ دانلود](https://github.com/meysam82003/Ghajarvpn-/releases/latest) · [📝 یادداشت نسخه](docs/release-notes/v1.1.2.md) · [📣 کانال](https://t.me/Ghajarvpn) · [🤖 ربات](https://t.me/Ghajar_vpnbot)
 
 </div>
 
@@ -78,7 +78,7 @@ A multi-core Android VPN client with a built-in store, Telegram bot and mini app
 
 **Build:** `./gradlew :app:assembleDebug` with JDK 17, Android SDK 36 and NDK `28.2.13676358`.
 
-[Download](https://github.com/meysam82003/Ghajarvpn-/releases/latest) · [Release notes](docs/release-notes/v1.1.1.md)
+[Download](https://github.com/meysam82003/Ghajarvpn-/releases/latest) · [Release notes](docs/release-notes/v1.1.2.md)
 
 </details>
 

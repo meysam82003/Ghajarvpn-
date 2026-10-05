@@ -58,7 +58,7 @@ object BrandConfig {
     const val CLIENT_ID = "app"
 
     const val NOTIFICATION_CHANNEL_CONNECTION = "ghajarvpn_connection"
-    const val NOTIFICATION_CHANNEL_GENERAL = "ghajarvpn_general"
+    const val NOTIFICATION_CHANNEL_GENERAL = "ghajarvpn_general_v2"
     const val NOTIFICATION_CHANNEL_SERVICE = "ghajarvpn_service_alerts"
     const val NOTIFICATION_CHANNEL_IMPORTANT = "ghajarvpn_important"
 

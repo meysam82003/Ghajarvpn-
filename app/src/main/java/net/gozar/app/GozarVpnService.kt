@@ -150,6 +150,7 @@ class GozarVpnService : VpnService() {
                 torSpec = intent?.getStringExtra(EXTRA_TOR)
                 singboxSpec = intent?.getStringExtra(EXTRA_SINGBOX)?.takeIf { it.isNotBlank() }
                 configName = intent?.getStringExtra(EXTRA_NAME) ?: "VPN"
+                VpnState.setActiveName(configName)
                 describe(runCatching { ConfigStore.get(applicationContext).configs.value.firstOrNull { it.id == VpnState.activeId.value } }.getOrNull())
                 configAddress = intent?.getStringExtra(EXTRA_ADDRESS).orEmpty()
                 configPort = intent?.getIntExtra(EXTRA_PORT, 0) ?: 0
@@ -176,6 +177,7 @@ class GozarVpnService : VpnService() {
         // ForegroundServiceDidNotStartInTimeException and crashing the process,
         // which is what forced a full device reboot to recover from.
         startForeground(NOTIF_ID, buildNotification())
+        GhajarIdleNotification.cancel(this)
         if (tunFd != null) return
         tearingDown = false
 
@@ -199,7 +201,7 @@ class GozarVpnService : VpnService() {
             // every query past the thing meant to answer it. The address is
             // inside the tun's own 0.0.0.0/0 route, so nothing else changes.
             val singbox = singboxSpec
-            val fakeIpDns = ((options?.proxyOnly == true && store.zeptunTunnel.value) || singbox != null) &&
+            val fakeIpDns = (options?.proxyOnly == true && store.zeptunTunnel.value) &&
                 ZeptunEngine.available &&
                 store.zeptunDns.value == ZeptunEngine.DnsMode.FAKE_IP
             val resolvers = if (fakeIpDns) listOf(ZeptunEngine.FAKE_DNS_ADDRESS)
@@ -221,13 +223,13 @@ class GozarVpnService : VpnService() {
             // sing-box has no tun of its own in this app: it always publishes
             // a local SOCKS5 and zeptun carries the device into it, so it
             // needs zeptun whatever the proxy-only setting says.
-            if (singbox != null && !ZeptunEngine.available) {
-                die("sing-box needs the zeptun tun engine, which is not in this build")
-                return@launch
-            }
-            val wantZeptun = (options?.proxyOnly == true &&
+            // sing-box publishes a local SOCKS5 and Xray's own tun carries the
+            // device into it (see bindSingBoxSocks below). That path is the one
+            // every other config already uses, so sing-box no longer depends on
+            // the zeptun library loading on the device.
+            val wantZeptun = options?.proxyOnly == true &&
                 store.zeptunTunnel.value &&
-                ZeptunEngine.available) || singbox != null
+                ZeptunEngine.available
             val pfd = if (options?.proxyOnly == true) {
                 if (wantZeptun) builder.establish() else null
             } else builder.establish()
@@ -298,14 +300,17 @@ class GozarVpnService : VpnService() {
                 }
                 runCatching { Gozarcore.stop() }
                 ensureActive()
-                val readyJson = if (psi != null) PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT) else configJson
+                val readyJson = when {
+                    psi != null -> PsiphonConfig.bindSocksPort(configJson, PsiphonController.SOCKS_PORT)
+                    singbox != null -> bindSingBoxSocks(configJson, SingBoxController.socksPort)
+                    else -> configJson
+                }
                 // zeptun's tun is not Xray's to take: in this mode Xray is not
                 // started at all (it never was in proxy-only mode), and the
                 // engine forwards the tun to whichever local SOCKS proxy the
                 // proxy-only engine published.
                 if (zeptunOwnsTun && pfd != null) {
                     val socksPort = when {
-                        singbox != null -> SingBoxController.socksPort
                         psi != null -> PsiphonController.SOCKS_PORT
                         else -> AetherController.SOCKS_PORT
                     }
@@ -390,6 +395,26 @@ class GozarVpnService : VpnService() {
         }
     }
 
+    /**
+     * Points the Xray config's "proxy" outbound at sing-box's local SOCKS5.
+     * The app's own package is excluded from the tun, so the sing-box
+     * subprocess (same uid) reaches the real network without looping.
+     */
+    private fun bindSingBoxSocks(raw: String, port: Int): String {
+        require(port in 1..65535) { "sing-box published no SOCKS port" }
+        val root = org.json.JSONObject(raw)
+        val outbounds = root.optJSONArray("outbounds") ?: org.json.JSONArray().also { root.put("outbounds", it) }
+        val socks = org.json.JSONObject().put("tag", "proxy").put("protocol", "socks")
+            .put("settings", org.json.JSONObject().put("servers", org.json.JSONArray()
+                .put(org.json.JSONObject().put("address", "127.0.0.1").put("port", port))))
+        var replaced = false
+        for (i in 0 until outbounds.length()) {
+            if (outbounds.optJSONObject(i)?.optString("tag") == "proxy") { outbounds.put(i, socks); replaced = true }
+        }
+        if (!replaced) root.put("outbounds", org.json.JSONArray().put(socks).also { a -> for (i in 0 until outbounds.length()) a.put(outbounds.get(i)) })
+        return root.toString()
+    }
+
     private fun startAutoSelect() {
         if (autoJob?.isActive == true) return
         val store = ConfigStore.get(applicationContext)
@@ -448,6 +473,8 @@ class GozarVpnService : VpnService() {
         torSpec = if (config.protocol == "tor")
             TorController.spec(config) else null
         configName = config.name
+        VpnState.setActiveId(config.id)
+        VpnState.setActiveName(config.name)
         describe(config)
         configAddress = config.address
         configPort = config.port
@@ -550,8 +577,8 @@ class GozarVpnService : VpnService() {
                 // counters are meaningless; zeptun's own are the real ones
                 // (rx = read from the tun = sent by apps, tx = written back).
                 val z = if (zeptunOwnsTun) ZeptunEngine.counters() else null
-                val up = when { z != null -> z.rxBytes; oblivionOptions?.proxyOnly == true || singboxSpec != null -> 0L; else -> Gozarcore.queryUplink() }
-                val down = when { z != null -> z.txBytes; oblivionOptions?.proxyOnly == true || singboxSpec != null -> 0L; else -> Gozarcore.queryDownlink() }
+                val up = when { z != null -> z.rxBytes; oblivionOptions?.proxyOnly == true -> 0L; else -> Gozarcore.queryUplink() }
+                val down = when { z != null -> z.txBytes; oblivionOptions?.proxyOnly == true -> 0L; else -> Gozarcore.queryDownlink() }
                 val upSpeed = (up - lastUp).coerceAtLeast(0L)
                 val downSpeed = (down - lastDown).coerceAtLeast(0L)
                 lastUp = up; lastDown = down
@@ -563,7 +590,12 @@ class GozarVpnService : VpnService() {
                     val verdict = net.gozar.app.gsb2.Gsb2.check(meta,
                         net.gozar.app.gsb2.Gsb2Store.used(applicationContext, meta.shareId),
                         net.gozar.app.gsb2.Gsb2Store.now(applicationContext))
-                    if (verdict is net.gozar.app.gsb2.Gsb2.Verdict.Blocked) { die(verdict.reason); return@launch }
+                    if (verdict is net.gozar.app.gsb2.Gsb2.Verdict.Blocked) {
+                        die(verdict.reason)
+                        net.gozar.app.gsb2.Gvpn.finish(applicationContext, meta, verdict.reason)
+                        return@launch
+                    }
+                    net.gozar.app.gsb2.Gvpn.tick(applicationContext, meta)
                 }
 
                 VpnBridge.sendCounters(applicationContext, up, down, upSpeed, downSpeed)
@@ -602,7 +634,7 @@ class GozarVpnService : VpnService() {
     private fun postEndEvent(error: String?) {
         val nm = getSystemService(NotificationManager::class.java) ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL_EVENTS, "رویدادهای اتصال", NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(CHANNEL_EVENTS, "رویدادهای اتصال", NotificationManager.IMPORTANCE_HIGH))
             nm.createNotificationChannel(NotificationChannel(CHANNEL_ERRORS, "خطای اتصال", NotificationManager.IMPORTANCE_HIGH))
         }
         val pi = PendingIntent.getActivity(this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE)
@@ -613,7 +645,10 @@ class GozarVpnService : VpnService() {
             .setAutoCancel(true)
         if (error != null) b.setContentText(GhajarLog.redact(error).take(160))
         if (error == null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) b.setTimeoutAfter(5000)
-        runCatching { nm.notify(EVENT_NOTIF_ID, b.build()) }
+        // With the persistent "off" notification on, it already says the VPN
+        // is off and carries the Connect button; only an error is posted too.
+        if (error != null || !GhajarIdleNotification.enabled(this)) runCatching { nm.notify(EVENT_NOTIF_ID, b.build()) }
+        GhajarIdleNotification.post(applicationContext)
     }
 
     private fun die(error: String?) {
@@ -767,7 +802,9 @@ class GozarVpnService : VpnService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             // Same id as always, so the user's own choices for it survive.
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "اتصال VPN", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, "اتصال VPN", NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(null, null); enableVibration(false)
+                }
             )
         }
         val pi = PendingIntent.getActivity(
@@ -785,11 +822,15 @@ class GozarVpnService : VpnService() {
             this, 4, Intent(this, GozarVpnService::class.java).setAction(ACTION_NEXT),
             PendingIntent.FLAG_IMMUTABLE
         )
+        val pingPi = PendingIntent.getService(
+            this, 5, Intent(this, GozarVpnService::class.java).setAction(ACTION_PING),
+            PendingIntent.FLAG_IMMUTABLE
+        )
         // First line: live instantaneous speed (updates every second). Second
         // line: total data used this session so far. Both, not one replacing
         // the other.
-        val speedLine = "↓ ${fmt(downSpeed)}/s   ↑ ${fmt(upSpeed)}/s"
-        val usageLine = "${fmt(totalDown)} دانلود  •  ${fmt(totalUp)} آپلود"
+        val speedLine = "سرعت دانلود ${fmt(downSpeed)}/s · آپلود ${fmt(upSpeed)}/s"
+        val usageLine = "مصرف: دانلود ${fmt(totalDown)} · آپلود ${fmt(totalUp)}"
         val up = VpnState.state.value == Connection.CONNECTED
         val since = VpnState.connectedAt.value
         val duration = if (up && since > 0) {
@@ -798,7 +839,7 @@ class GozarVpnService : VpnService() {
         } else ""
         // Server, protocol, core and the last real ping; never a location
         // from the device - only what the server's own name carries.
-        val detail = listOf(configName, configProtocol.uppercase(), configCore, lastPingMs?.let { "${it}ms" }.orEmpty())
+        val detail = listOf(configName, configProtocol.uppercase(), configCore, lastPingMs?.let { "پینگ ${it}ms" }.orEmpty())
             .filter { it.isNotBlank() }.joinToString(" · ")
         return Notification.Builder(this, CHANNEL_ID)
             .setContentTitle(if (up) "قاجار VPN روشن شد" else "قاجار VPN در حال اتصال…")
@@ -811,12 +852,12 @@ class GozarVpnService : VpnService() {
             .setContentIntent(pi)
             .addAction(
                 Notification.Action.Builder(
-                    android.R.drawable.ic_media_next, "سرور بعدی", nextPi
+                    android.R.drawable.ic_menu_rotate, lastPingMs?.let { "پینگ: ${it}ms" } ?: "پینگ", pingPi
                 ).build()
             )
             .addAction(
                 Notification.Action.Builder(
-                    android.R.drawable.ic_menu_rotate, "اتصال مجدد", reconnectPi
+                    android.R.drawable.ic_media_next, "سرور بعدی", nextPi
                 ).build()
             )
             .addAction(
@@ -833,7 +874,9 @@ class GozarVpnService : VpnService() {
         val nm = getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
-                NotificationChannel(CHANNEL_ID, "GozarNet", NotificationManager.IMPORTANCE_LOW)
+                NotificationChannel(CHANNEL_ID, "اتصال VPN", NotificationManager.IMPORTANCE_HIGH).apply {
+                    setSound(null, null); enableVibration(false)
+                }
             )
         }
         val pi = PendingIntent.getActivity(
@@ -869,7 +912,7 @@ class GozarVpnService : VpnService() {
 
     companion object {
         private const val TAG = "GozarVpnService"
-        private const val CHANNEL_ID = "gozarnet_vpn"
+        private const val CHANNEL_ID = "ghajar_vpn_live_v2"
         private const val NOTIF_ID = 1
         // Shared across every GozarVpnService instance in the process, not
         // per-instance. Android creates a brand-new instance (fresh onCreate())
@@ -888,7 +931,7 @@ class GozarVpnService : VpnService() {
         const val ACTION_PING = "net.gozar.app.PING"
         const val ACTION_RECONNECT = "net.gozar.app.RECONNECT"
         const val ACTION_NEXT = "net.gozar.app.NEXT_SERVER"
-        private const val CHANNEL_EVENTS = "ghajar_vpn_events"
+        private const val CHANNEL_EVENTS = "ghajar_vpn_events_v2"
         private const val CHANNEL_ERRORS = "ghajar_vpn_errors"
         private const val EVENT_NOTIF_ID = 4711
         const val EXTRA_CONFIG = "net.gozar.app.CONFIG"

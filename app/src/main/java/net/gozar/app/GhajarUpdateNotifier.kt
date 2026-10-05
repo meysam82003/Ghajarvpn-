@@ -16,7 +16,7 @@ import android.os.Build
  */
 object GhajarUpdateNotifier {
     private const val PREFS = "ghajar_update_reminder"
-    private const val CHANNEL = "ghajar_updates"
+    private const val CHANNEL = "ghajar_updates_v2"
     private const val NOTIF_ID = 0x51A7
     private const val CHECK_EVERY = 12L * 60 * 60 * 1000
     private const val REMIND_EVERY = 24L * 60 * 60 * 1000
@@ -54,7 +54,7 @@ object GhajarUpdateNotifier {
     private fun post(context: Context, version: String) {
         val nm = context.getSystemService(NotificationManager::class.java) ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            nm.createNotificationChannel(NotificationChannel(CHANNEL, "یادآوری بروزرسانی‌ها", NotificationManager.IMPORTANCE_DEFAULT))
+            nm.createNotificationChannel(NotificationChannel(CHANNEL, "یادآوری بروزرسانی‌ها", NotificationManager.IMPORTANCE_HIGH))
         }
         val open = PendingIntent.getActivity(
             context, 7, Intent(context, MainActivity::class.java).putExtra(EXTRA_OPEN_UPDATE, true)

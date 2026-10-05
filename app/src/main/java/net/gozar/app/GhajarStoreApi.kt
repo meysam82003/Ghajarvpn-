@@ -320,7 +320,11 @@ data class GhajarMarketOrderStatus(
     val amount: Long,
     val username: String,
     val configs: List<String>,
-    val subscription: String
+    val subscription: String,
+    /** purchase, renew, wallet or test; "wallet" means a top-up with no service. */
+    val kind: String = "purchase",
+    /** The buyer's balance at this shop after a top-up. */
+    val walletBalance: Long = 0
 )
 
 data class GhajarMarketOwnShop(
@@ -541,7 +545,9 @@ data class GhajarPurchaseRequest(
     val customTimeDays: Int? = null,
     val customUsername: String? = null,
     val note: String? = null,
-    val discountCode: String? = null
+    val discountCode: String? = null,
+    /** The panel's dollar-pricing quote that came with the product list. */
+    val fxQuote: String? = null
 )
 
 data class GhajarPurchaseResult(
@@ -562,6 +568,8 @@ class GhajarApiException(message: String, val httpCode: Int = 0, val details: JS
 /** Native client matched to the API shipped in Ghajar_vpnbot_-3-1.zip. */
 class GhajarStoreApi(context: Context) {
     private val appContext = context.applicationContext
+    /** The last dollar-pricing quote seen per panel, from the product list. */
+    private val fxQuoteCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val account = GhajarAccountStore(appContext)
 
     val isLinked: Boolean get() = account.token().isNotBlank()
@@ -723,6 +731,7 @@ class GhajarStoreApi(context: Context) {
         val all = action("services", params = params).payloadArray().objects().mapNotNull { row ->
             val id = row.optString("id")
             if (id.isBlank()) return@mapNotNull null
+            row.optString("fx_quote").takeUnless { it.isBlank() || it == "null" }?.let { fxQuoteCache[countryId] = it }
             GhajarProduct(
                 id = id,
                 name = visible(row.optString("name", "سرویس قاجار")),
@@ -748,6 +757,7 @@ class GhajarStoreApi(context: Context) {
                 "time_days" to timeDays.toString()
             )
         ).payloadObject()
+        payload.optString("fx_quote").takeUnless { it.isBlank() || it == "null" }?.let { fxQuoteCache[countryId] = it }
         return GhajarCustomQuote(
             price = payload.optNullableDouble("price")?.toLong(),
             trafficMin = payload.optInt("traffic_min"),
@@ -1076,8 +1086,19 @@ class GhajarStoreApi(context: Context) {
         request.customUsername?.takeIf { it.isNotBlank() }?.let { body.put("custom_username", it) }
         request.note?.takeIf { it.isNotBlank() }?.let { body.put("custom_note", it) }
         request.discountCode?.takeIf { it.isNotBlank() }?.let { body.put("discount_code", it) }
-
-        val root = action("purchase", method = "POST", body = body, allowPaymentRequired = true)
+        // Dollar-priced panels sign every quote; the purchase used to go out
+        // without one, so the server answered "price changed" every time.
+        // The quote is sent, and when the rate moved since the list was
+        // read, the purchase is sent once more with the server's fresh quote.
+        (request.fxQuote ?: fxQuoteCache[request.countryId])?.takeIf { it.isNotBlank() }?.let { body.put("fx_quote", it) }
+        val root = try {
+            action("purchase", method = "POST", body = body, allowPaymentRequired = true)
+        } catch (e: GhajarApiException) {
+            val fresh = e.details?.takeIf { e.httpCode == 409 && it.optString("code") == "price_changed" }
+                ?.optString("fx_quote")?.takeUnless { it.isBlank() || it == "null" } ?: throw e
+            fxQuoteCache[request.countryId] = fresh
+            action("purchase", method = "POST", body = body.put("fx_quote", fresh), allowPaymentRequired = true)
+        }
         val payload = root.payloadObject()
         val paymentObject = when {
             root.optBoolean("requires_payment") -> root
@@ -1268,17 +1289,24 @@ class GhajarStoreApi(context: Context) {
         // seller panel blocked from this network, or not answering yet) the
         // configs the server already sent are imported instead, so a paid
         // service is never left undelivered.
-        val url = service.subscriptionUrl?.takeIf { it.startsWith("https://") }
+        // Stored with its scheme: a link saved as "panel.example/sub/x" made
+        // every later «آپدیت ساب» fail with "no protocol".
+        val url = service.subscriptionUrl?.trim()?.takeIf { it.isNotBlank() }
+            ?.let { if (Regex("^https?://", RegexOption.IGNORE_CASE).containsMatchIn(it)) it else "https://" + it.removePrefix("//") }
         val fetched = url?.let { runCatching { SubscriptionFetcher.fetchFull(it) }.getOrNull() }
             ?.takeIf { it.configs.isNotEmpty() }
         if (url != null && fetched == null && joined.isBlank()) {
             throw GhajarApiException("سرویس صادر شد، اما ساب هنوز کانفیگ ندارد؛ از «سرویس‌های من» دوباره دریافت کن.")
         }
-        val imported = if (url != null && fetched != null) {
+        // Each service is its own group, even when two share a plan name.
+        val groupName = listOf(service.productName.ifBlank { "سرویس قاجار" }, service.username)
+            .filter { it.isNotBlank() }.distinct().joinToString(" · ")
+        val imported = if (url != null && (fetched != null || joined.isNotBlank())) {
+            val list = fetched?.configs ?: ConfigParser.parseBundle(joined)
             withContext(Dispatchers.Main) {
                 val existing = store.subscriptions.value.firstOrNull { it.url == url }
-                val subscription = existing ?: Subscription(name = service.productName.ifBlank { "سرویس قاجار" }, url = url)
-                val info = fetched.userInfo
+                val subscription = existing ?: Subscription(name = groupName, url = url)
+                val info = fetched?.userInfo
                 store.upsertSubscription(subscription.copy(
                     used = info?.used ?: subscription.used,
                     total = info?.total ?: subscription.total,
@@ -1288,8 +1316,8 @@ class GhajarStoreApi(context: Context) {
                     // the app knows which panel service a subscription is,
                     // and it is what makes one-tap renewal possible later.
                     serviceUsername = service.username
-                ), fetched.configs)
-                fetched.configs.size
+                ), list)
+                list.size
             }
         } else {
             val configs = ConfigParser.parseBundle(joined)
@@ -1299,7 +1327,7 @@ class GhajarStoreApi(context: Context) {
                     existing.protocol == candidate.protocol && existing.address == candidate.address &&
                         existing.port == candidate.port && existing.uuid == candidate.uuid && existing.password == candidate.password
                 } }
-                if (missing.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, missing)
+                if (missing.isNotEmpty()) store.addToLocalSub(groupName, missing)
             }
             configs.size
         }
@@ -1641,7 +1669,9 @@ class GhajarStoreApi(context: Context) {
             configs = payload.optJSONArray("configs").orEmpty().let { array ->
                 (0 until array.length()).mapNotNull { array.optString(it).takeIf { s -> s.isNotBlank() } }
             },
-            subscription = payload.optString("subscription")
+            subscription = payload.optString("subscription"),
+            kind = payload.optString("kind", "purchase"),
+            walletBalance = payload.optNullableDouble("wallet_balance")?.toLong() ?: 0
         )
     }
 

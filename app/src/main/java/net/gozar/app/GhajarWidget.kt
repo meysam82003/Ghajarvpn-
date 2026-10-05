@@ -165,9 +165,9 @@ class GhajarWidget : AppWidgetProvider() {
                         GhajarOpenVpnBridge.profiles(app).firstOrNull { it.uuid == uuid }?.name
                     }.getOrNull() ?: "OpenVPN"
                 else -> store?.let { s ->
-                    val id = activeId ?: s.selectedId.value
-                    s.configs.value.firstOrNull { it.id == id }?.name
-                }
+                    s.configs.value.firstOrNull { it.id == activeId }?.name
+                        ?: s.configs.value.firstOrNull { it.id == s.selectedId.value }?.name
+                } ?: VpnState.activeName.value.takeIf { VpnState.state.value == Connection.CONNECTED }
             }
             // The server line, and the reason it used to be wrong.
             //
