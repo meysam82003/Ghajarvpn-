@@ -358,7 +358,7 @@ if ($bootstrapLoaded && function_exists('getCronJobDefinitions')) {
     }
 
 
-    $extraScripts = ['index.php'];
+    $extraScripts = ['index.php', 'webpush.php'];
     $definedScripts = [];
     foreach ($definitions as $definition) {
         if (isset($definition['script']) && is_string($definition['script'])) {
