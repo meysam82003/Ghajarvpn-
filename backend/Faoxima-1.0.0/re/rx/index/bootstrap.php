@@ -845,6 +845,24 @@ if (preg_match('/^(?:\/start(?:@[A-Za-z0-9_]+)?\s+link_|\/link(?:@[A-Za-z0-9_]+)
     return;
 }
 
+// One tap into the Ghajar web app (PWA), already signed in: a single-use
+// ticket in a plain URL button, so it opens in the real browser where the
+// app can be installed and show notifications. /app, /start app, or the text.
+if (preg_match('/^(?:\/app(?:@[A-Za-z0-9_]+)?|\/start(?:@[A-Za-z0-9_]+)?\s+app|📲\s*اپ قاجار|اپ قاجار|ورود به اپ)\s*$/u', trim((string)$text))) {
+    require_once REFACTORED_LEGACY_ROOT . '/api/lib/WebLink.php';
+    $pwaHost = rtrim(preg_replace('#^https?://#', '', (string)($GLOBALS['domainhosts'] ?? '')), '/');
+    $pwaTicket = $pwaHost !== '' ? FaoximaWebLink::issueTicket((int)$from_id, 1800) : null;
+    if ($pwaTicket === null) {
+        sendmessage($from_id, "ورود به اپ الان ممکن نیست؛ چند دقیقه دیگر دوباره بزن.", $keyboard, 'html');
+        return;
+    }
+    sendmessage($from_id,
+        "📲 <b>اپ قاجار</b>\n\nدکمه را بزن؛ مستقیم با همین حساب وارد می‌شوی.\nداخل اپ «نصب» را بزن تا روی صفحهٔ گوشی بماند و اعلان‌ها بیاید.\n\n⏳ این دکمه یک‌بار مصرف است و تا ۳۰ دقیقه کار می‌کند.",
+        json_encode(['inline_keyboard' => [[['text' => '🚀 ورود به اپ قاجار', 'url' => 'https://' . $pwaHost . '/pwa/?ticket=' . $pwaTicket]]]], JSON_UNESCAPED_UNICODE),
+        'html');
+    return;
+}
+
 if (strpos($text, "/start ") !== false && $user['step'] != "gettextSystemMessage") {
     $affiliatesid = explode(" ", $text)[1];
     if (!in_array($affiliatesid, ['start', "usertest", "/start", "buy", "help"])) {

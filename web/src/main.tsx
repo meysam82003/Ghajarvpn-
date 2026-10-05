@@ -14,13 +14,13 @@ import { tokenStore } from './api/account'
 applyTheme()
 
 async function boot() {
-  // A one-time ticket from the Android app's "open the full panel": spend it
+  // A one-time ticket (the bot's "open the app" button, or the Android app's panel): spend it
   // for this same account and take it out of the address bar at once.
   const params = new URLSearchParams(location.search)
   const ticket = params.get('ticket')
   if (ticket) {
     history.replaceState(null, '', location.pathname + location.hash)
-    try { if (await redeemTicket(ticket)) toast('حساب از برنامه وارد شد') } catch { /* ticket expired: the sign-in card is there */ }
+    try { if (await redeemTicket(ticket)) toast('وارد حسابت شدی') } catch { /* ticket expired: the sign-in card is there */ }
   }
   applyHash()
   if (!location.hash) goTab('home')
