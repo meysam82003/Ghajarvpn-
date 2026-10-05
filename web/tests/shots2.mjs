@@ -1,0 +1,45 @@
+import { chromium } from 'playwright'
+
+const base = process.env.BASE || 'http://localhost:4173/Faoxima/Ghajarvpn/pwa/'
+const out = process.argv[2] || '/tmp/claude-0/shots'
+const exe = process.env.CHROME || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
+const browser = await chromium.launch({ executablePath: exe })
+const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, locale: 'fa-IR',
+  userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1' })
+await ctx.addInitScript(() => { localStorage.setItem('ghajar.token.v1', 'a'.repeat(40)) })
+const page = await ctx.newPage()
+page.on('pageerror', e => console.log('pageerror:', e.message))
+const shot = async (name, full = false) => { await page.waitForTimeout(800); await page.screenshot({ path: `${out}/${name}.png`, fullPage: full }) }
+
+await page.goto(base)
+await page.waitForTimeout(1500)
+await shot('10-home-linked')
+await page.locator('button.orb').click()
+await shot('11-add-to-app')
+await page.keyboard.press('Escape')
+await page.locator('nav .cell').nth(1).click()
+await page.getByText('فروشگاه قاجار').first().click()
+await page.waitForTimeout(800)
+await page.getByRole('tab', { name: /سرویس‌ها/ }).click()
+await shot('12-services', true)
+await page.getByRole('tab', { name: /خرید/ }).click()
+await page.getByText('خرید این پلن').first().click()
+await shot('13-confirm')
+await page.getByText('تأیید و ادامه').click()
+await page.waitForTimeout(800)
+await page.getByText('کارت به کارت').first().click()
+await shot('14-card', true)
+await page.locator('nav .cell').nth(2).click()
+await shot('15-settings')
+await page.getByText('شخصی‌سازی و ظاهر').first().click()
+await shot('16-personalize', true)
+await page.locator('header button[aria-label="بازگشت"]').click()
+await page.getByText('اعلان‌ها').first().click()
+await shot('17-notifications')
+await page.locator('header button[aria-label="تغییر تم"]').click()
+await page.locator('nav .cell').nth(0).click()
+await shot('18-home-light')
+await page.setViewportSize({ width: 1280, height: 800 })
+await page.locator('nav .cell').nth(1).click()
+await shot('19-desktop-shop')
+await browser.close()

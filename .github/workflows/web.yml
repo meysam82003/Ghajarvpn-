@@ -1,0 +1,46 @@
+name: Web PWA
+
+on:
+  push:
+    branches: [main]
+    paths: ['web/**', 'backend/Faoxima-1.0.0/pwa/**', 'backend/Faoxima-1.0.0/api/push.php', 'backend/Faoxima-1.0.0/api/lib/WebPush.php', 'backend/Faoxima-1.0.0/cronbot/webpush.php', '.github/workflows/web.yml']
+  pull_request:
+    branches: [main]
+    paths: ['web/**', 'backend/Faoxima-1.0.0/pwa/**', 'backend/Faoxima-1.0.0/api/push.php', 'backend/Faoxima-1.0.0/api/lib/WebPush.php', 'backend/Faoxima-1.0.0/cronbot/webpush.php', '.github/workflows/web.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+      - name: Typecheck and build
+        run: npm run build
+      - name: PHP syntax
+        working-directory: backend/Faoxima-1.0.0
+        run: for f in api/push.php api/lib/WebPush.php cronbot/webpush.php; do php -l "$f"; done
+      - name: No host in the bundle
+        working-directory: backend/Faoxima-1.0.0/pwa
+        run: |
+          if grep -rEl 'https?://[a-z0-9.-]+\.(ir|com|net|org|xyz|top|site|online)/(Faoxima|api)' .; then
+            echo "an absolute API address leaked into the bundle"; exit 1
+          fi
+      - run: npx playwright install --with-deps chromium
+      - name: End-to-end (flows + overflow on 16 viewports)
+        run: |
+          node tests/mock-server.mjs &
+          for i in $(seq 1 30); do curl -sf http://localhost:4173/Faoxima/Ghajarvpn/pwa/ >/dev/null && break; sleep 1; done
+          npm run e2e

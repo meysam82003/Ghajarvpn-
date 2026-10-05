@@ -1,0 +1,25 @@
+{
+  "name": "ghajarvpn-pwa",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "e2e": "node tests/e2e.mjs"
+  },
+  "dependencies": {
+    "preact": "^10.27.0",
+    "qrcode-generator": "^2.0.4"
+  },
+  "devDependencies": {
+    "@material-design-icons/svg": "^0.14.15",
+    "@preact/preset-vite": "^2.10.2",
+    "playwright": "^1.63.0",
+    "typescript": "~5.8.3",
+    "vite": "^6.3.5",
+    "vitest": "^3.2.4"
+  }
+}

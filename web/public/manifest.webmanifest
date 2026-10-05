@@ -1,0 +1,32 @@
+{
+  "id": "./",
+  "name": "قاجار وی پی ان",
+  "short_name": "قاجار",
+  "description": "فروشگاه و سرویس‌های قاجار وی پی ان؛ خرید، پرداخت، اعلان‌ها و افزودن سرویس به اپ VPN با یک لمس.",
+  "lang": "fa",
+  "dir": "rtl",
+  "start_url": "./?source=pwa",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#050807",
+  "theme_color": "#050807",
+  "categories": ["utilities", "productivity", "shopping"],
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/badge-96.png", "sizes": "96x96", "type": "image/png", "purpose": "monochrome" }
+  ],
+  "shortcuts": [
+    { "name": "فروشگاه", "short_name": "فروشگاه", "url": "./#/shop", "icons": [{ "src": "icons/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "پیام‌ها و اعلان‌ها", "short_name": "پیام‌ها", "url": "./#/notices", "icons": [{ "src": "icons/icon-96.png", "sizes": "96x96", "type": "image/png" }] },
+    { "name": "تنظیمات اعلان", "short_name": "اعلان‌ها", "url": "./#/settings/notifications", "icons": [{ "src": "icons/icon-96.png", "sizes": "96x96", "type": "image/png" }] }
+  ],
+  "protocol_handlers": [
+    { "protocol": "web+ghajar", "url": "./#/shop?link=%s" }
+  ]
+}
