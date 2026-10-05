@@ -72,7 +72,7 @@ object SubscriptionRefresher {
                         FreeConfigs.refresh(store, FreeConfigs.CONFIG_NAME)
                         return@forEach
                     }
-                    if (sub.url.isBlank()) return@forEach
+                    if (sub.url.isBlank() || net.gozar.app.gsb2.Gvpn.isGvpnUrl(sub.url)) return@forEach
                     val result = SubscriptionFetcher.fetchFull(sub.url)
                     if (result.configs.isNotEmpty()) {
                         val info = result.userInfo

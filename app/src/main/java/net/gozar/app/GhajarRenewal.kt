@@ -117,7 +117,10 @@ internal suspend fun checkedRenewal(
 ): GhajarRenewAttempt {
     val options = latest()
     var quote = options.quote(displayed.selection)
-    if (quote.price != displayed.price) return GhajarRenewAttempt(options, quote)
+    // A dollar-priced panel moves its toman price with every rate update;
+    // a drift of up to one percent goes through without a second question.
+    fun changed(q: GhajarRenewQuote) = kotlin.math.abs(q.price - displayed.price) > maxOf(1L, displayed.price / 100)
+    if (changed(quote)) return GhajarRenewAttempt(options, quote)
     repeat(2) { attempt ->
         try {
             return GhajarRenewAttempt(options, quote, confirm(quote))
@@ -128,7 +131,7 @@ internal suspend fun checkedRenewal(
                 renewalDiscountedPrice(rejected.price, options.discountPercent, options.custom.fxRoundStep)
             else rejected.price
             quote = quote.copy(price = price, fxQuote = rejected.fxQuote)
-            if (quote.price != displayed.price) return GhajarRenewAttempt(options, quote)
+            if (changed(quote)) return GhajarRenewAttempt(options, quote)
             if (attempt == 1 || rejected.fxQuote == null)
                 error("دریافت تأیید معتبر قیمت ممکن نشد؛ دوباره تلاش کنید")
         }

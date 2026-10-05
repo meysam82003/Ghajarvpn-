@@ -77,7 +77,9 @@ object SubscriptionFetcher {
     }
 
     private fun openFollowingRedirects(startUrl: String, proxy: java.net.Proxy, strictTls: Boolean): HttpURLConnection {
-        var current = startUrl
+        // A link stored without its scheme ("panel.example.com/sub/x", which
+        // some shops hand out) made URL() throw "no protocol" on every update.
+        var current = startUrl.trim().let { if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://").containsMatchIn(it)) it else "https://" + it.removePrefix("//") }
         var hops = 0
         while (true) {
             val conn = (URL(current).openConnection(proxy) as HttpURLConnection).apply {

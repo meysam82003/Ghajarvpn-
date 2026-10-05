@@ -363,7 +363,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                 if (selectedPanel == null || panels.none { it.id == selectedPanel?.id }) selectedPanel = panels.firstOrNull()
                 ownedNoticesDeferred.await()
             }
-        }.onFailure { error = BrandConfig.sanitizePublicText(it.message ?: "خطا در دریافت فروشگاه") }
+        }.onFailure { error = BrandConfig.sanitizePublicText(shopError(it, "خطا در دریافت فروشگاه")) }
         busy = false
     }
 
@@ -619,7 +619,7 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
                                 // what actually failed.
                                 error = GhajarCommerceRules.publicMessage(failure)
                             } catch (failure: Exception) {
-                                error = failure.message ?: "ساخت کد اتصال انجام نشد؛ دوباره تلاش کن."
+                                error = shopError(failure, "ساخت کد اتصال انجام نشد؛ دوباره تلاش کن.")
                             } finally { busy = false }
                         }
                     },
@@ -1469,7 +1469,7 @@ private fun RenewServiceDialog(
                     ?: result.products.firstOrNull()?.code
                 useCustom = result.custom.forced || (result.products.isEmpty() && result.custom.enabled)
             }
-            .onFailure { loadError = it.message ?: "دریافت گزینه‌های تمدید ناموفق بود" }
+            .onFailure { loadError = shopError(it, "دریافت گزینه‌های تمدید ناموفق بود") }
         loading = false
     }
 
@@ -1599,7 +1599,7 @@ private fun RenewServiceDialog(
                     } catch (e: Exception) {
                         actionError = if (e is java.io.IOException)
                             "پاسخ تمدید دریافت نشد؛ پیش از تلاش دوباره، وضعیت سرویس و کیف پول را بررسی کنید."
-                        else e.message ?: "تمدید ناموفق بود"
+                        else shopError(e, "تمدید ناموفق بود")
                     } finally {
                         busy = false
                     }

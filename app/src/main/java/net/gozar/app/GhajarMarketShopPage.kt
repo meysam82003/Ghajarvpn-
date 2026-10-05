@@ -225,7 +225,7 @@ internal fun MarketShopHome(
         busy = true
         runCatching { api.marketHome(shopId, appliedCode) }
             .onSuccess { home = it; error = null }
-            .onFailure { error = it.message ?: "این فروشگاه باز نشد" }
+            .onFailure { error = shopError(it, "این فروشگاه باز نشد") }
         busy = false
     }
 
@@ -316,7 +316,7 @@ internal fun MarketShopHome(
         if (showReport) {
             MarketReportDialog(shop.name, onDismiss = { showReport = false }) { reason, body ->
                 runCatching { api.marketReport(shop.id, reason, body) }
-                    .fold({ it }, { it.message ?: "گزارش ثبت نشد" })
+                    .fold({ it }, { shopError(it, "گزارش ثبت نشد") })
             }
         }
         if (showTick) {
@@ -433,7 +433,7 @@ private fun MarketBuyTab(
         scope.launch {
             runCatching { order() }
                 .onSuccess { pending = null; onOrdered(it) }
-                .onFailure { actionError = it.message ?: "ثبت سفارش انجام نشد" }
+                .onFailure { actionError = shopError(it, "ثبت سفارش انجام نشد") }
             starting = false
         }
     }
@@ -644,7 +644,7 @@ private fun MarketBuyTab(
                                 scope.launch {
                                     runCatching { api.marketDiscountCheck(shop.id, discountCode, order.price) }
                                         .onSuccess { (price, msg) -> discounted = price; discountNote = msg }
-                                        .onFailure { discounted = null; discountNote = it.message ?: "کد تخفیف معتبر نیست." }
+                                        .onFailure { discounted = null; discountNote = shopError(it, "کد تخفیف معتبر نیست.") }
                                 }
                             }
                         ) { Text("اعمال") }
@@ -759,7 +759,7 @@ private fun MarketReviews(api: GhajarStoreApi, shop: GhajarMarketShop, signedIn:
             scope.launch {
                 runCatching { api.marketReview(shop.id, myStars, note) }
                     .onSuccess { result = it.ifBlank { "نظر شما ثبت شد." } }
-                    .onFailure { result = it.message ?: "ثبت نظر انجام نشد" }
+                    .onFailure { result = shopError(it, "ثبت نظر انجام نشد") }
             }
         }, icon = Icons.Filled.Star)
     }
@@ -776,6 +776,7 @@ private fun MarketServicesTab(
     initialRenew: String = ""
 ) {
     val c = ghajarColors
+    val context = LocalContext.current
     val shopId = home.shop.id
     var services by remember(shopId) { mutableStateOf<List<GhajarMarketService>?>(null) }
     var renewHandled by remember(shopId, initialRenew) { mutableStateOf(initialRenew.isBlank()) }
@@ -800,7 +801,7 @@ private fun MarketServicesTab(
                         ?.let { renewing = it }
                 }
             }
-            .onFailure { error = it.message ?: "سرویس‌ها خوانده نشد" }
+            .onFailure { error = shopError(it, "سرویس‌ها خوانده نشد") }
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
@@ -818,6 +819,12 @@ private fun MarketServicesTab(
                 // bought.
                 val asOwned = list.map { it.toOwned() }
                 ServiceSortChips(asOwned, sort) { sort = it }
+                // What happened to the last tap, at the top where it is seen -
+                // not under a long list of services.
+                importing?.let { SkinLoading("در حال دریافت کانفیگ‌های $it") }
+                notice?.let { Text(it, color = c.primary, style = MaterialTheme.typography.labelMedium) }
+                error?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
+                delivery?.let { MarketDelivery(it, api, store) }
                 val shown = asOwned.sortedFor(sort)
                 if (shown.isEmpty()) {
                     Text("سرویسی در این دسته نیست.", color = c.textMuted)
@@ -836,11 +843,12 @@ private fun MarketServicesTab(
                                     if (d.subscription.isBlank() && d.configs.isEmpty()) {
                                         throw GhajarApiException("فروشنده هنوز کانفیگی برای این سرویس برنگردانده است؛ چند لحظه بعد دوباره بزنید.")
                                     }
+                                    MarketServiceIndex.remember(context, d.username.ifBlank { service.username }, shopId)
                                     api.importServiceOnce(store, marketServiceDetails(d, service.productName.ifBlank { "سرویس فروشگاه" }))
                                 }.onSuccess { count ->
                                     notice = if (count > 0) "✅ به لیست سرورها اضافه شد." else "این سرویس قبلاً اضافه شده است."
                                     error = null
-                                }.onFailure { error = it.message ?: "کانفیگ‌ها دریافت نشد" }
+                                }.onFailure { error = shopError(it, "کانفیگ‌ها دریافت نشد") }
                                 importing = null
                             }
                         },
@@ -850,10 +858,6 @@ private fun MarketServicesTab(
                             style = MaterialTheme.typography.labelSmall, color = c.warning)
                     }
                 }
-                importing?.let { SkinLoading("در حال دریافت کانفیگ‌های $it") }
-                notice?.let { Text(it, color = c.primary, style = MaterialTheme.typography.labelMedium) }
-                delivery?.let { MarketDelivery(it, api, store) }
-                error?.let { Text(it, color = c.error, style = MaterialTheme.typography.labelMedium) }
                 GhostPill("بازخوانی", { reload++ }, icon = Icons.Filled.Refresh)
             }
         }
@@ -1020,7 +1024,7 @@ private fun MarketRenewPanel(
                 runCatching {
                     api.marketOrderStart(home.shop.id, productCode.orEmpty(), "", method.orEmpty(), kind = "renew",
                         invoiceId = service.invoiceId, username = service.username)
-                }.onSuccess { onOrdered(it) }.onFailure { error = it.message ?: "تمدید ثبت نشد" }
+                }.onSuccess { onOrdered(it) }.onFailure { error = shopError(it, "تمدید ثبت نشد") }
                 busy = false
             }
         },
@@ -1048,7 +1052,7 @@ private fun MarketMessagesTab(api: GhajarStoreApi, shopId: Int, onRead: () -> Un
                     runCatching { api.marketMessagesRead(shopId) }.onSuccess { onRead() }
                 }
             }
-            .onFailure { error = it.message ?: "پیام‌ها خوانده نشد" }
+            .onFailure { error = shopError(it, "پیام‌ها خوانده نشد") }
     }
 
     val list = messages
@@ -1092,7 +1096,7 @@ private fun MarketWalletTab(api: GhajarStoreApi, home: GhajarMarketHome, onOrder
     LaunchedEffect(shopId, reload) {
         runCatching { api.marketWallet(shopId) }
             .onSuccess { wallet = it; error = null }
-            .onFailure { error = it.message ?: "کیف پول خوانده نشد" }
+            .onFailure { error = shopError(it, "کیف پول خوانده نشد") }
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
@@ -1146,7 +1150,7 @@ private fun MarketWalletTab(api: GhajarStoreApi, home: GhajarMarketHome, onOrder
                         runCatching {
                             api.marketOrderStart(shopId, "", "", method.orEmpty(), kind = "wallet",
                                 amount = amount.toLongOrNull() ?: 0)
-                        }.onSuccess { onOrdered(it) }.onFailure { error = it.message ?: "شارژ ثبت نشد" }
+                        }.onSuccess { onOrdered(it) }.onFailure { error = shopError(it, "شارژ ثبت نشد") }
                         busy = false
                     }
                 },
@@ -1198,7 +1202,7 @@ private fun MarketGiftRedeem(api: GhajarStoreApi, shopId: Int, onRedeemed: () ->
             busy = true; result = null
             scope.launch {
                 result = runCatching { api.marketGiftRedeem(shopId, code.trim()) }
-                    .getOrElse { false to (it.message ?: "کد ثبت نشد") }
+                    .getOrElse { false to (shopError(it, "کد ثبت نشد")) }
                 if (result?.first == true) { code = ""; onRedeemed() }
                 busy = false
             }
@@ -1237,7 +1241,7 @@ private fun MarketOwnerCodes(api: GhajarStoreApi, shopId: Int) {
             runCatching { api.marketCodes(shopId, action, fields) }
                 .onSuccess { (list, msg) -> codes = list; message = if (msg.isNotBlank()) true to msg else null
                     if (action == "code_add") { code = ""; value = ""; days = ""; hours = ""; maxUses = ""; perUser = ""; firstOnly = false; product = ""; panel = "" } }
-                .onFailure { message = false to (it.message ?: "انجام نشد") }
+                .onFailure { message = false to (shopError(it, "انجام نشد")) }
             busy = false
         }
     }
@@ -1367,7 +1371,7 @@ private fun MarketSupportTab(api: GhajarStoreApi, shopId: Int) {
     LaunchedEffect(shopId, reload) {
         runCatching { api.marketTickets(shopId) }
             .onSuccess { tickets = it; error = null }
-            .onFailure { error = it.message ?: "تیکت‌ها خوانده نشد" }
+            .onFailure { error = shopError(it, "تیکت‌ها خوانده نشد") }
     }
 
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
@@ -1397,7 +1401,7 @@ private fun MarketSupportTab(api: GhajarStoreApi, shopId: Int) {
                     scope.launch {
                         runCatching { api.marketTicketReply(thread.id, reply) }
                             .onSuccess { open = it; reply = ""; error = null }
-                            .onFailure { error = it.message ?: "ارسال نشد" }
+                            .onFailure { error = shopError(it, "ارسال نشد") }
                         busy = false
                     }
                 }, enabled = !busy && reply.isNotBlank(), icon = Icons.Filled.Send)
@@ -1422,7 +1426,7 @@ private fun MarketSupportTab(api: GhajarStoreApi, shopId: Int) {
                             subject = ""; body = ""; error = null; reload++
                             runCatching { api.marketTicketThread(id) }.onSuccess { open = it }
                         }
-                        .onFailure { error = it.message ?: "تیکت ثبت نشد" }
+                        .onFailure { error = shopError(it, "تیکت ثبت نشد") }
                     busy = false
                 }
             }, enabled = !busy && subject.isNotBlank() && body.isNotBlank(), icon = Icons.Filled.Send)
@@ -1471,7 +1475,7 @@ private fun MarketTransactionsTab(api: GhajarStoreApi, shopId: Int) {
     LaunchedEffect(shopId, reload) {
         runCatching { api.marketTransactions(shopId) }
             .onSuccess { rows = it; error = null }
-            .onFailure { error = it.message ?: "تراکنش‌ها خوانده نشد" }
+            .onFailure { error = shopError(it, "تراکنش‌ها خوانده نشد") }
     }
     val list = rows
     when {

@@ -52,6 +52,17 @@ class GozarApplication : org.strongswan.android.logic.StrongSwanApplication() {
         if (processName == packageName) scope.launch {
             VpnState.state.collect { GhajarWidget.refresh(this@GozarApplication) }
         }
+        // The "VPN is off" notification follows the state of every engine
+        // (Xray/sing-box, OpenVPN, IKEv2), not only the one service.
+        if (processName == packageName) scope.launch {
+            VpnState.state.collect { st ->
+                when (st) {
+                    Connection.CONNECTED, Connection.CONNECTING -> GhajarIdleNotification.cancel(this@GozarApplication)
+                    Connection.DISCONNECTED, Connection.ERROR -> GhajarIdleNotification.post(this@GozarApplication)
+                    else -> Unit
+                }
+            }
+        }
 
         registerActivityLifecycleCallbacks(object : ActivityLifecycleCallbacks {
             override fun onActivityStarted(activity: Activity) {

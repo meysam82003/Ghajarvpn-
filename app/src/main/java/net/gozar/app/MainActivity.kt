@@ -130,6 +130,7 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Error
@@ -191,6 +192,10 @@ import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.InsertDriveFile
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Key
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.UploadFile
 import androidx.compose.material.icons.filled.ContentPaste
 import androidx.compose.material.icons.filled.Delete
@@ -292,6 +297,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -1415,7 +1421,7 @@ private fun GozarApp(
     var backupDetail by remember { mutableStateOf(false) }
     // The per-protocol add-server form being filled, by ProtocolForms id.
     var protoForm by remember { mutableStateOf("") }
-    // New Settings pages share one slot: "geodata", "livemon", "safebox".
+    // New Settings pages share one slot: "geodata", "livemon", "sharing", "gvpn".
     var extraPage by remember { mutableStateOf("") }
     var exportConfigs by remember { mutableStateOf<List<ProxyConfig>?>(null) }
     val sortMode by store.sortMode.collectAsState()
@@ -1425,6 +1431,8 @@ private fun GozarApp(
     LaunchedEffect(Unit) {
         store.awaitReady()
         store.removeLegacyDefaultAetherSeed()
+        withContext(Dispatchers.IO) { runCatching { net.gozar.app.gsb2.Gvpn.sweep(updateCtx.applicationContext) } }
+        if (VpnState.state.value == Connection.DISCONNECTED) runCatching { GhajarIdleNotification.post(updateCtx.applicationContext) }
         while (true) {
             SubscriptionRefresher.refreshStale(store)
             delay(30 * 60 * 1000L)
@@ -1619,6 +1627,7 @@ private fun GozarApp(
         onSettingsTab && debugDetail -> "debugger"
         onSettingsTab && usageDetail -> "usage"
         onSettingsTab && stabilityDetail -> "stability"
+        onSettingsTab && notifDetail -> "notifications"
         onSettingsTab && aboutDetail -> "about"
         onSettingsTab && themeDetail -> "theme"
         onSettingsTab && cleanIpDetail -> "cleanip"
@@ -1628,7 +1637,6 @@ private fun GozarApp(
         onSettingsTab && netMonDetail -> "netmon"
         onSettingsTab && toolsDetail -> "tools"
         onSettingsTab && connDetail -> "connection_settings"
-        onSettingsTab && notifDetail -> "notifications"
         onSettingsTab && prefsDetail -> "preferences"
         else -> "settings"
     }
@@ -1652,6 +1660,7 @@ private fun GozarApp(
             backupDetail -> backupDetail = false
             usageDetail -> usageDetail = false
             stabilityDetail -> stabilityDetail = false
+            notifDetail -> notifDetail = false
             aboutDetail -> aboutDetail = false
             themeDetail -> themeDetail = false
             cleanIpDetail -> cleanIpDetail = false
@@ -1661,7 +1670,6 @@ private fun GozarApp(
             netMonDetail -> netMonDetail = false
             toolsDetail -> toolsDetail = false
             connDetail -> connDetail = false
-            notifDetail -> notifDetail = false
             prefsDetail -> prefsDetail = false
             // SSH owns its own inner navigation; let it handle its own back.
             sshDetail && sshSubScreen -> Unit
@@ -1743,7 +1751,7 @@ private fun GozarApp(
                                 "geodata" -> t("geodata_title")
                                 "sharing" -> t("set_tile_sharing")
                                 "livemon" -> t("livemon_title")
-                                "safebox" -> t("safebox_title")
+                                "gvpn" -> "ساخت اشتراک قاجار"
                                 "cores" -> t("set_tile_cores")
                                 "perapp" -> t("per_app")
                                 "logs" -> t("xray_logs")
@@ -1779,7 +1787,7 @@ private fun GozarApp(
                         "openvpnhub" -> BounceIconButton(onClick = { showOpenVpnHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "psiphonhub" -> BounceIconButton(onClick = { showPsiphonHub = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "scanqr" -> BounceIconButton(onClick = { showScanner = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
-                        "geodata", "livemon", "safebox", "sharing" -> BounceIconButton(onClick = { extraPage = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
+                        "geodata", "livemon", "sharing", "gvpn" -> BounceIconButton(onClick = { extraPage = "" }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "backup" -> BounceIconButton(onClick = { backupDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "usage" -> BounceIconButton(onClick = { usageDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
                         "perapp" -> BounceIconButton(onClick = { perAppDetail = false }) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back") }
@@ -1998,6 +2006,7 @@ private fun GozarApp(
                                 val marketShop = store.subscriptions.value
                                     .firstOrNull { it.serviceUsername == username }
                                     ?.let { GhajarShopOpenRequest.shopIdFromSubscription(it.url) }
+                                    ?: MarketServiceIndex.shopOf(updateCtx, username)
                                 if (marketShop != null && marketShop > 0) {
                                     GhajarShopOpenRequest.request(marketShop, "", renew = username)
                                 } else {
@@ -2050,6 +2059,7 @@ private fun GozarApp(
                     debugDetail -> "debugger"
                     usageDetail -> "usage"
                     stabilityDetail -> "stability"
+                    notifDetail -> "notifications"
                     aboutDetail -> "about"
                     themeDetail -> "theme"
                     cleanIpDetail -> "cleanip"
@@ -2061,7 +2071,6 @@ private fun GozarApp(
                     netMonDetail -> "netmon"
                     toolsDetail -> "tools"
                     connDetail -> "connection_settings"
-                    notifDetail -> "notifications"
                     prefsDetail -> "preferences"
                     else -> "settings"
                 }
@@ -2110,9 +2119,9 @@ private fun GozarApp(
                             onOpenExtra = { extraPage = it },
                             section = key.substringAfter(':')
                         )
+                        "gvpn" -> GvpnCreateScreen(store = store)
                         "cores" -> CoreHubScreen(onOpen = { extraPage = it })
                         "core" -> CoreDetailScreen(idName = key.substringAfter(':'), onOpen = { extraPage = it })
-                        "safebox" -> SafeboxScreen(store = store)
                         "sharing" -> SharingHubScreen(store = store, onSwitch = onSwitch)
                         "backup" -> Column(
                             Modifier.fillMaxSize().verticalScroll(rememberScrollState())
@@ -2122,7 +2131,7 @@ private fun GozarApp(
                         "perapp" -> AppProxyScreen(store = store)
                         "logs" -> LogsScreen(store = store)
                         "stability" -> StabilityTestScreen(store = store)
-                        "about" -> AboutScreen()
+                        "about" -> AboutScreen(onOpenNotifications = { notifDetail = true })
                         "theme" -> PersonalizeScreen(store = store)
                         "cleanip" -> CleanIpScreen()
                         "netmon" -> NetMonitorScreen(onOpenCategories = { netCatDetail = true })
@@ -2266,7 +2275,12 @@ private fun ConnectionScreen(
         if (conn != Connection.CONNECTED) delayResult = null
     }
 
-    val selectedConfig = configs.find { it.id == selectedId }
+    val activeIdNow by VpnState.activeId.collectAsState()
+    val activeNameNow by VpnState.activeName.collectAsState()
+    // While a tunnel is up the card names the server it carries, even when the
+    // selection moved (next server, auto-select) or a refresh re-keyed it.
+    val selectedConfig = (if (conn == Connection.CONNECTED || conn == Connection.CONNECTING) configs.find { it.id == activeIdNow } else null)
+        ?: configs.find { it.id == selectedId }
     val connected = conn == Connection.CONNECTED || conn == Connection.CONNECTING
 
     val connectedAt by VpnState.connectedAt.collectAsState()
@@ -2384,6 +2398,7 @@ private fun ConnectionScreen(
                                 onOpenVpn -> ovpnProfile?.name?.let(BrandConfig::sanitizePublicText)
                                     ?: "OpenVPN"
                                 else -> selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
+                                    ?: activeNameNow?.takeIf { conn == Connection.CONNECTED || conn == Connection.CONNECTING }?.let(BrandConfig::sanitizePublicText)
                                     ?: t("hub_no_server")
                             },
                             subtitle = routeSubtitle,
@@ -3521,6 +3536,7 @@ private fun ConfigPickerScreen(
                                     }
                                     return@launch
                                 }
+                                if (net.gozar.app.gsb2.Gvpn.isGvpnUrl(sub.url)) { subStatus = "این اشتراک قاجار است و به‌روزرسانی ندارد."; return@launch }
                                 try {
                                     val result = SubscriptionFetcher.fetchFull(sub.url)
                                     val info = result.userInfo
@@ -4542,9 +4558,11 @@ private fun AddServerPanel(
                             accent = c.highlight, chevron = true, enabled = !busy, onClick = onSsh)
                         // One entry per core: each opens its own form with the
                         // fields that protocol needs and an Advanced section.
-                        listOf("vpn" to t("add_group_vpn_forms"), "tunnel" to t("add_group_tunnel_forms"),
-                            "proxy" to t("add_group_proxy_forms")).forEach { (group, label) ->
-                            val forms = ProtocolForms.forms.filter { it.group == group && it.id != "openconnect" }
+                        // Only the hand-entry forms people use: WireGuard /
+                        // AmneziaWG and Tor bridges. Every other protocol still
+                        // imports and connects from links, files and subscriptions.
+                        listOf("vpn" to t("add_group_vpn_forms"), "tunnel" to t("add_group_tunnel_forms")).forEach { (group, label) ->
+                            val forms = ProtocolForms.forms.filter { it.group == group && it.id in setOf("wireguard", "tor") }
                             if (forms.isNotEmpty()) {
                                 Rail(label)
                                 forms.forEachIndexed { i, f ->
@@ -6752,7 +6770,7 @@ private fun SettingsScreen(
  * setting always exists.
  */
 object SettingsTiles {
-    val CRITICAL = setOf("personalize", "backup", "about", "conn_general", "cores")
+    val CRITICAL = setOf("preferences", "backup", "about", "conn_general")
 
     class Nav(
         val extra: (String) -> Unit, val connection: () -> Unit, val tools: () -> Unit, val usage: () -> Unit,
@@ -6764,9 +6782,9 @@ object SettingsTiles {
     /** (id, title key) of every tile, for the Personalization order editor. */
     val ALL: List<Pair<String, String>> = listOf(
         "conn_general" to "set_tile_general", "dns" to "sec_dns", "routing" to "routing", "geodata" to "geodata_title",
-        "cores" to "set_tile_cores", "sharing" to "set_tile_sharing", "personalize" to "theme_settings",
-        "preferences" to "preferences", "store" to "set_tile_store", "usage" to "data_usage",
-        "backup" to "backup_title", "safebox" to "safebox_title", "notifications" to "notif_settings",
+        "gvpn" to "gvpn_title", "sharing" to "set_tile_sharing",
+        "preferences" to "preferences", "usage" to "data_usage",
+        "backup" to "backup_title",
         "tools" to "tools", "speed" to "stab_title", "netmon" to "netmon_title", "livemon" to "livemon_title",
         "debugger" to "debugger", "ssh" to "ssh", "logs" to "log_title", "about" to "about"
     )
@@ -6779,14 +6797,12 @@ object SettingsTiles {
         "conn_general" to "kill switch killswitch کیل سوییچ اتصال خودکار mux ipv6 tun",
         "dns" to "dns doh dot دی ان اس",
         "routing" to "route routing bypass iran مسیریابی دور زدن",
-        "cores" to "core xray sing-box singbox psiphon tor aether ikev2 openvpn openconnect wireguard amnezia هسته پروتکل plugin پلاگین",
+        "gvpn" to "gvpn gsb2 share secure اشتراک قاجار امن حجم زمان",
         "sharing" to "share hotspot qr socks proxy lan اشتراک هات اسپات کیوآر آیفون ویندوز روتر",
-        "personalize" to "theme dark light amoled color accent icon تم رنگ تیره روشن ظاهر",
-        "store" to "shop store account renew wallet فروشگاه حساب تمدید کیف پول",
+        "preferences" to "theme dark light amoled color accent icon language تم رنگ تیره روشن ظاهر زبان",
         "backup" to "backup restore export import پشتیبان بکاپ بازگردانی",
-        "notifications" to "notification widget اعلان ویجت",
         "logs" to "log logcat debug crash لاگ خطا",
-        "about" to "about version update release github درباره نسخه بروزرسانی",
+        "about" to "about version update release github notification اعلان درباره نسخه بروزرسانی",
         "tools" to "tools ping speed test ابزار",
         "speed" to "speed test سرعت پایداری"
     )
@@ -6800,28 +6816,18 @@ object SettingsTiles {
                 tile("conn_general", "set_tile_general", "set_tile_general_sub", Icons.Filled.Router, active = killSwitch) { nav.extra("conn:general") },
                 tile("dns", "sec_dns", "set_tile_dns_sub", Icons.Filled.Dns) { nav.extra("conn:dns") },
                 tile("routing", "routing", "set_tile_routing_sub", Icons.Filled.CallSplit) { nav.extra("conn:routing") },
-                tile("geodata", "geodata_title", "geodata_sub", Icons.Filled.Public) { nav.extra("geodata") }
-            ),
-            t("sec_core") to listOf(
-                tile("cores", "set_tile_cores", "set_tile_cores_sub", Icons.Filled.Layers) { nav.extra("cores") }
+                tile("geodata", "geodata_title", "geodata_sub", Icons.Filled.Public) { nav.extra("geodata") },
+                tile("gvpn", "gvpn_title", "gvpn_sub", Icons.Filled.Lock) { nav.extra("gvpn") }
             ),
             t("sec_share") to listOf(
                 tile("sharing", "set_tile_sharing", "set_tile_sharing_sub", Icons.Filled.Share) { nav.extra("sharing") }
             ),
             t("sec_personal") to listOf(
-                tile("personalize", "theme_settings", "theme_settings_sub", Icons.Filled.Palette, onClick = nav.theme),
-                tile("preferences", "preferences", "preferences_sub", Icons.Filled.Tune, onClick = nav.preferences)
-            ),
-            t("sec_store") to listOf(
-                tile("store", "set_tile_store", "set_tile_store_sub", Icons.Filled.Storefront, onClick = nav.store),
+                tile("preferences", "preferences", "preferences_sub", Icons.Filled.Palette, onClick = nav.preferences),
                 tile("usage", "data_usage", null, Icons.Filled.DataUsage, badge = usage, onClick = nav.usage)
             ),
             t("sec_backup") to listOf(
-                tile("backup", "backup_title", "backup_sub", Icons.Filled.Backup, onClick = nav.backup),
-                tile("safebox", "safebox_title", "safebox_sub", Icons.Filled.Lock) { nav.extra("safebox") }
-            ),
-            t("sec_notifications") to listOf(
-                tile("notifications", "notif_settings", "notif_settings_sub", Icons.Filled.Notifications, onClick = nav.notifications)
+                tile("backup", "backup_title", "backup_sub", Icons.Filled.Backup, onClick = nav.backup)
             ),
             t("sec_diagnostics") to listOf(
                 tile("logs", "log_title", "set_tile_logs_sub", Icons.Filled.BugReport, onClick = nav.logs),
@@ -6880,6 +6886,8 @@ private fun BackupRow(store: ConfigStore) {
     // button is pressed, because the file picker comes back later and the field
     // may have been cleared by then.
     var exportPassword by remember { mutableStateOf<String?>(null) }
+    // Which parts go into the file; all of them unless unticked.
+    var parts by rememberSaveable { mutableStateOf(setOf("configs", "subs", "settings", "appearance", "perapp", "openvpn")) }
 
     LaunchedEffect(status) {
         if (status.isNotEmpty()) { delay(3500); status = "" }
@@ -6894,12 +6902,20 @@ private fun BackupRow(store: ConfigStore) {
             scope.launch {
                 val ok = withContext(Dispatchers.IO) {
                     runCatching {
+                        val subs = if ("subs" in parts) store.subscriptions.value.filterNot { net.gozar.app.gsb2.Gvpn.isGvpnUrl(it.url) } else emptyList()
+                        val subIds = subs.map { it.id }.toSet()
+                        val configs = store.configs.value.filter { cfg ->
+                            net.gozar.app.gsb2.Gsb2.Meta.of(cfg) == null &&
+                                (if (cfg.subId.isBlank()) "configs" in parts else cfg.subId in subIds)
+                        }
+                        val full = store.settingsSnapshot()
+                        val settings = if ("settings" in parts) org.json.JSONObject(full.toString()) else org.json.JSONObject()
+                        val perAppKeys = listOf("perAppMode", "perAppList", "perAppProfiles", "perAppActive")
+                        if ("perapp" in parts) perAppKeys.forEach { k -> if (full.has(k)) settings.put(k, full.get(k)) } else perAppKeys.forEach { settings.remove(it) }
+                        if ("appearance" in parts) { if (full.has("appearance")) settings.put("appearance", full.get("appearance")) } else settings.remove("appearance")
                         val data = ConfigFile.encodeBackup(
-                            context,
-                            store.configs.value.filter { net.gozar.app.gsb2.Gsb2.Meta.of(it) == null },
-                            store.subscriptions.value,
-                            store.settingsSnapshot(),
-                            password
+                            context, configs, subs, settings, password,
+                            includeOpenVpn = "openvpn" in parts
                         )
                         context.contentResolver.openOutputStream(uri)?.use { it.write(data) }
                         true
@@ -6996,6 +7012,24 @@ private fun BackupRow(store: ConfigStore) {
             color = c.textMuted
         )
 
+        SlabDivider()
+        Text("چه چیزهایی در بکاپ باشد", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+        listOf(
+            "configs" to "کانفیگ‌های دستی", "subs" to "اشتراک‌ها (Subscription) و کانفیگ‌هایشان",
+            "settings" to "تنظیمات اتصال", "appearance" to "ظاهر و شخصی‌سازی",
+            "perapp" to "پروکسی برنامه‌ها و پروفایل‌هایش", "openvpn" to "پروفایل‌های OpenVPN"
+        ).forEach { (key, label) ->
+            Row(
+                Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp))
+                    .clickable { parts = if (key in parts) parts - key else parts + key }
+                    .padding(vertical = 6.dp, horizontal = 4.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                SmoothCheckbox(checked = key in parts)
+                Spacer(Modifier.width(10.dp))
+                Text(label, style = MaterialTheme.typography.bodyMedium)
+            }
+        }
         SlabDivider()
 
         // The password. It is the file's only protection: a backup is not
@@ -7216,21 +7250,16 @@ private fun ToolsScreen(
         // Places to go are tiles; the privacy switches below stay a form.
         Rail(t("sec_measure"))
         TileGrid(listOf(
-            SettingsTileSpec("t_speed", t("stab_title"), t("stab_sub"), Icons.Filled.Speed, onClick = onOpenStability),
-            SettingsTileSpec("t_livemon", t("livemon_title"), t("livemon_sub"), Icons.Filled.MonitorHeart, onClick = { onOpenExtra("livemon") }),
             SettingsTileSpec("t_check", t("chk_title"), t("chk_sub"), Icons.Filled.NetworkCheck, onClick = onOpenCheckHost),
-            SettingsTileSpec("t_scan", t("scan_warp"), t("scan_sub"), iconRes = R.drawable.cloudflare, onClick = onOpenCleanIp),
-            SettingsTileSpec("t_geodata", t("geodata_title"), t("geodata_sub"), Icons.Filled.Public, onClick = { onOpenExtra("geodata") })
+            SettingsTileSpec("t_scan", t("scan_warp"), t("scan_sub"), iconRes = R.drawable.cloudflare, onClick = onOpenCleanIp)
         ))
 
         Rail(t("sec_sharing"))
         TileGrid(listOf(
             SettingsTileSpec("t_share", "اشتراک‌گذاری VPN", "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی", Icons.Filled.Wifi,
-                onClick = { vpnShareOpen = true }),
+                onClick = { onOpenExtra("sharing") }),
             SettingsTileSpec("t_history", "تاریخچهٔ اتصال", "زمان و وضعیت آخرین اتصال‌ها، قطعی‌ها و خطاها", Icons.Filled.History,
-                onClick = { connectionHistoryOpen = true }),
-            SettingsTileSpec("t_logs", "لاگ و اشکال‌زدایی", "مشاهده و دانلود گزارش کامل رویدادها و خطاها", Icons.Filled.BugReport,
-                onClick = { context.startActivity(Intent(context, GhajarLogActivity::class.java)) })
+                onClick = { connectionHistoryOpen = true })
         ))
 
         Rail(t("sec_privacy"))
@@ -8965,14 +8994,6 @@ private fun PreferencesScreen(
                 chevron = true,
                 onClick = onOpenTheme
             )
-            SlabDivider()
-            SlabRow(
-                title = t("notif_settings"),
-                subtitle = t("notif_settings_sub"),
-                icon = Icons.Filled.Notifications,
-                chevron = true,
-                onClick = onOpenNotifications
-            )
         }
 
         SettingsGroup {
@@ -9292,7 +9313,7 @@ private fun ThemeSwatch(palette: GhajarPalette) {
 }
 
 @Composable
-private fun AboutScreen(modifier: Modifier = Modifier) {
+private fun AboutScreen(modifier: Modifier = Modifier, onOpenNotifications: () -> Unit = {}) {
     val t = stringsFn()
     val lang = LocalLang.current
     val context = LocalContext.current
@@ -9318,136 +9339,88 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.spacedBy(12.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.padding(top = 2.dp)) {
-            Image(
-                painter = painterResource(logoRes),
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxWidth(0.78f).height(104.dp)
-            )
-        }
-
-        Text(
-            mixedText(t("about_tagline")),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            textAlign = TextAlign.Center
-        )
-
-        Row(
-            Modifier.padding(bottom = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // Hero: the wordmark on a soft brand glow, with the two versions under it.
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
+                .background(Brush.verticalGradient(listOf(primary.copy(alpha = 0.22f), primary.copy(alpha = 0.04f))))
+                .border(1.dp, primary.copy(alpha = 0.25f), RoundedCornerShape(28.dp))
+                .padding(vertical = 22.dp, horizontal = 16.dp),
+            contentAlignment = Alignment.Center
         ) {
-            AboutChip(t("app_version"), appVersion)
-            AboutChip(t("xray_version"), xrayVersion)
-        }
-
-        // What this build carries: every connection engine, its licence and
-        // whether it is present, read from the engine registry itself.
-        // Read off the main thread: the check loads native libraries.
-        var engineRows by remember { mutableStateOf<List<Triple<net.gozar.app.engine.VpnEngine, net.gozar.app.engine.Availability?, Int>>>(emptyList()) }
-        LaunchedEffect(Unit) {
-            engineRows = withContext(Dispatchers.IO) {
-                net.gozar.app.engine.CoreManager.engines.map { e ->
-                    Triple(e, runCatching { e.availability(context) }.getOrNull(), e.capabilities.protocols.size)
+            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Image(
+                    painter = painterResource(logoRes),
+                    contentDescription = null,
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxWidth(0.72f).height(92.dp)
+                )
+                Text(
+                    mixedText(t("about_tagline")),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    AboutChip(t("app_version"), appVersion)
+                    AboutChip(t("xray_version"), xrayVersion)
                 }
             }
         }
-        var enginesOpen by rememberSaveable { mutableStateOf(false) }
-        var engineReason by remember { mutableStateOf<String?>(null) }
-        Rail(t("about_engines"))
+
         Slab(spacing = 0.dp) {
-            val ready = engineRows.count { it.second is net.gozar.app.engine.Availability.Available || it.second is net.gozar.app.engine.Availability.Experimental }
             SlabRow(
-                title = t("about_engines"),
-                subtitle = if (engineRows.isEmpty()) "…" else localizeDigits("$ready / ${engineRows.size}", lang) + " " + t("about_engine_ready"),
-                icon = Icons.Filled.Hub,
-                modifier = Modifier.clickable { enginesOpen = !enginesOpen },
-                trailing = {
-                    Icon(if (enginesOpen) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore, null, tint = ghajarColors.textSecondary)
-                }
-            )
-            AnimatedVisibility(enginesOpen, enter = fadeIn(tween(200)) + expandVertically(tween(260, easing = FastOutSlowInEasing)),
-                exit = fadeOut(tween(150)) + shrinkVertically(tween(200, easing = FastOutSlowInEasing))) {
-                Column {
-                    engineRows.forEach { (e, a, count) ->
-                        SlabDivider()
-                        SlabRow(
-                            title = e.displayName,
-                            subtitle = e.capabilities.license + " · " + localizeDigits("$count", lang) + " " + t("about_protocols"),
-                            icon = Icons.Filled.Hub,
-                            modifier = Modifier.clickable {
-                                engineReason = when (a) {
-                                    is net.gozar.app.engine.Availability.Missing -> e.displayName + "\n" + a.why
-                                    is net.gozar.app.engine.Availability.Experimental -> e.displayName + "\n" + a.why
-                                    else -> null
+                title = t("check_updates"),
+                subtitle = updateStatus,
+                icon = Icons.Filled.Refresh,
+                chevron = !checking,
+                onClick = {
+                    if (checking) return@SlabRow
+                    val url = updateUrl
+                    if (url != null) {
+                        GhajarUpdateFlow.open()
+                    } else {
+                        checking = true
+                        updateStatus = t("checking_updates")
+                        scope.launch {
+                            when (val r = UpdateChecker.check(appVersion)) {
+                                is UpdateChecker.Result.Available -> {
+                                    updateStatus = t("update_available").format(r.version)
+                                    updateUrl = r.url
+                                    GhajarUpdateFlow.offer(r)
                                 }
-                            },
-                            accent = when (a) {
-                                is net.gozar.app.engine.Availability.Available -> ghajarColors.good
-                                is net.gozar.app.engine.Availability.Experimental -> ghajarColors.warning
-                                else -> ghajarColors.textMuted
-                            },
-                            value = when (a) {
-                                is net.gozar.app.engine.Availability.Available -> t("about_engine_ready")
-                                is net.gozar.app.engine.Availability.Experimental -> t("about_engine_experimental")
-                                else -> t("about_engine_missing")
+                                UpdateChecker.Result.UpToDate -> updateStatus = t("up_to_date")
+                                UpdateChecker.Result.Failed -> updateStatus = t("update_failed")
                             }
-                        )
+                            checking = false
+                        }
                     }
                 }
-            }
-        }
-        engineReason?.let { reason ->
-            AlertDialog(
-                onDismissRequest = { engineReason = null },
-                confirmButton = { TextButton(onClick = { engineReason = null }) { Text(t("close")) } },
-                text = { Text(reason, style = MaterialTheme.typography.bodySmall) }
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("notif_settings"),
+                subtitle = t("notif_settings_sub"),
+                icon = Icons.Filled.Notifications,
+                chevron = true,
+                onClick = onOpenNotifications
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("telegram_support"),
+                subtitle = "@Ghajarvpn",
+                icon = Icons.AutoMirrored.Filled.Send,
+                chevron = true,
+                onClick = { runCatching { uriHandler.openUri(BrandConfig.TELEGRAM_CHANNEL_URL) } }
+            )
+            SlabDivider()
+            SlabRow(
+                title = t("source_code"),
+                subtitle = BrandConfig.GITHUB_URL.removePrefix("https://"),
+                icon = Icons.Filled.Hub,
+                chevron = true,
+                onClick = { runCatching { uriHandler.openUri(BrandConfig.GITHUB_URL) } }
             )
         }
-        Rail(t("about_device"))
-        Slab(spacing = 0.dp) {
-            SlabRow(title = "Android", icon = Icons.Filled.Info,
-                value = localizeDigits("${android.os.Build.VERSION.RELEASE} (API ${android.os.Build.VERSION.SDK_INT})", lang))
-            SlabDivider()
-            SlabRow(title = "ABI", icon = Icons.Filled.Build, value = android.os.Build.SUPPORTED_ABIS.firstOrNull() ?: "—")
-        }
-
-        AboutCard(
-            icon = Icons.Filled.Hub,
-            title = t("source_code"),
-            value = BrandConfig.GITHUB_URL.removePrefix("https://"),
-            onClick = { runCatching { uriHandler.openUri(BrandConfig.GITHUB_URL) } }
-        )
-
-        AboutCard(
-            icon = Icons.Filled.Refresh,
-            title = t("check_updates"),
-            value = updateStatus,
-            busy = checking,
-            onClick = {
-                if (checking) return@AboutCard
-                val url = updateUrl
-                if (url != null) {
-                    GhajarUpdateFlow.open()
-                } else {
-                    checking = true
-                    updateStatus = t("checking_updates")
-                    scope.launch {
-                        when (val r = UpdateChecker.check(appVersion)) {
-                            is UpdateChecker.Result.Available -> {
-                                updateStatus = t("update_available").format(r.version)
-                                updateUrl = r.url
-                                GhajarUpdateFlow.offer(r)
-                            }
-                            UpdateChecker.Result.UpToDate -> updateStatus = t("up_to_date")
-                            UpdateChecker.Result.Failed -> updateStatus = t("update_failed")
-                        }
-                        checking = false
-                    }
-                }
-            }
-        )
 
         ReleaseHistorySection(installed = appVersion)
 
@@ -9496,13 +9469,6 @@ private fun AboutScreen(modifier: Modifier = Modifier) {
                 }
             }
         }
-
-        AboutCard(
-            iconVector = TelegramIcon,
-            title = t("telegram_support"),
-            value = "@Ghajarvpn",
-            onClick = { runCatching { uriHandler.openUri(BrandConfig.TELEGRAM_CHANNEL_URL) } }
-        )
 
         Spacer(Modifier.height(4.dp))
     }
@@ -13592,7 +13558,7 @@ private fun ConfigRow(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(5.dp)
                 ) {
-                    if (config.locked) {
+                    if (config.locked && !isGsb2) {
                         Icon(
                             Icons.Filled.Lock,
                             contentDescription = null,
@@ -13686,16 +13652,6 @@ private fun ConfigRow(
                 horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)
             ) {
                 if ("protocol" in fields) ProtocolTag(config.protocol, isActive)
-                net.gozar.app.gsb2.Gsb2.Meta.of(config)?.let { meta ->
-                    val used = remember(meta.shareId, ping) { net.gozar.app.gsb2.Gsb2Store.used(context, meta.shareId) }
-                    Text(
-                        "GSB2" + (if (meta.quotaBytes > 0) " · " + formatBytes((meta.quotaBytes - used).coerceAtLeast(0), lang) else "") +
-                            (if (meta.expiresAt > 0) " · " + localizeDigits(java.text.SimpleDateFormat("yyyy/MM/dd", java.util.Locale.US).format(java.util.Date(meta.expiresAt)), lang) else ""),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = c.info,
-                        maxLines = 1
-                    )
-                }
                 if (net.gozar.app.engine.RemovedCores.isRemoved(config)) {
                     Text(
                         t("removed_core_badge"),
@@ -13716,7 +13672,7 @@ private fun ConfigRow(
                 if ("country" in fields) countryOf(config.name)?.let { cc ->
                     Text(cc, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold, color = c.textSecondary)
                 }
-                if (!compact) {
+                if (!compact && !isGsb2) {
                     Text(
                         if (config.locked) AnnotatedString(t("locked_config"))
                         else scriptRuns("${config.address}:${config.port}", LexendFont),
@@ -14252,7 +14208,8 @@ private fun PingChip(ping: PingResult?) {
                 fontFamily = if (lang == Lang.FA) VazirFont else LexendFont,
                 fontWeight = FontWeight.SemiBold,
                 color = color,
-                maxLines = 1
+                maxLines = 1,
+                softWrap = false
             )
         }
     }
@@ -14293,6 +14250,7 @@ private fun perAppSummary(mode: PerAppMode, count: Int, lang: Lang): String = wh
     PerAppMode.BLOCKLIST -> localizeDigits("${Strings.get(lang, "per_app_block")} · $count", lang)
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun AppProxyScreen(
     store: ConfigStore,
@@ -14308,6 +14266,10 @@ private fun AppProxyScreen(
 
     var apps by remember { mutableStateOf<List<AppEntry>?>(null) }
     var query by remember { mutableStateOf("") }
+    val profiles by store.perAppProfiles.collectAsState()
+    val activeProfile by store.activePerAppProfile.collectAsState()
+    var profileEdit by remember { mutableStateOf<PerAppProfile?>(null) }
+    var profileNew by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) {
@@ -14335,10 +14297,80 @@ private fun AppProxyScreen(
         }
     }
 
+    if (profileNew || profileEdit != null) {
+        val editing = profileEdit
+        var pname by remember(editing) { mutableStateOf(editing?.name.orEmpty()) }
+        var pmode by remember(editing) { mutableStateOf(editing?.mode ?: PerAppMode.BLOCKLIST) }
+        GlassDialog(
+            onDismiss = { profileNew = false; profileEdit = null },
+            title = if (editing == null) "پروفایل جدید" else "ویرایش پروفایل",
+            confirmLabel = t("save"),
+            dismissLabel = t("cancel"),
+            onConfirm = {
+                val ok = store.savePerAppProfile(pname, pmode, editing?.apps ?: emptySet(), editing?.id)
+                if (!ok) Toast.makeText(context, if (pname.isBlank()) "نام پروفایل را بنویس" else "حداکثر ۱۰ پروفایل", Toast.LENGTH_SHORT).show()
+                else { profileNew = false; profileEdit = null }
+            }
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                OutlinedTextField(pname, { pname = it.take(40) }, label = { Text("نام (مثلاً بانک)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+                listOf(PerAppMode.BLOCKLIST to "این برنامه‌ها بدون VPN", PerAppMode.ALLOWLIST to "فقط این برنامه‌ها با VPN").forEach { (m, label) ->
+                    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { pmode = m }.padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        SmoothCheckbox(checked = pmode == m)
+                        Spacer(Modifier.width(8.dp))
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+                if (editing != null) GhostPill(text = "حذف پروفایل", accent = c.error, onClick = {
+                    store.deletePerAppProfile(editing.id); profileEdit = null
+                })
+            }
+        }
+    }
+
     Column(
         modifier.fillMaxSize().padding(GhajarSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
+        // Named profiles: one tap switches the whole rule; the list below
+        // edits whichever profile is active.
+        Slab(spacing = 6.dp) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("پروفایل‌ها", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                Text(localizeDigits("${profiles.size} / ${PerAppProfile.MAX}", lang), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+            }
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                GhostPill(text = "بدون پروفایل", fillWidth = false, minHeight = 40.dp,
+                    accent = if (activeProfile == null) c.primary else c.textMuted, onClick = { store.applyPerAppProfile(null) })
+                profiles.forEach { p ->
+                    val on = p.id == activeProfile
+                    Row(
+                        Modifier.clip(RoundedCornerShape(50))
+                            .background(if (on) c.primary.copy(alpha = 0.16f) else c.secondaryCard)
+                            .border(1.dp, if (on) c.primary else c.border, RoundedCornerShape(50))
+                            .combinedClickable(onClick = { store.applyPerAppProfile(p.id) }, onLongClick = { profileEdit = p })
+                            .padding(horizontal = 14.dp, vertical = 9.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(if (p.mode == PerAppMode.ALLOWLIST) Icons.Filled.CheckCircle else Icons.Filled.Block, null,
+                            tint = if (on) c.primary else c.textSecondary, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text(p.name + localizeDigits(" (${p.apps.size})", lang), style = MaterialTheme.typography.labelLarge,
+                            color = if (on) c.primary else c.textPrimary)
+                        if (on) {
+                            Spacer(Modifier.width(6.dp))
+                            Icon(Icons.Filled.Edit, "ویرایش", tint = c.textSecondary, modifier = Modifier.size(16.dp).clickable { profileEdit = p })
+                        }
+                    }
+                }
+                if (profiles.size < PerAppProfile.MAX) GhostPill(text = "پروفایل جدید", icon = Icons.Filled.Add, fillWidth = false, minHeight = 40.dp,
+                    onClick = { profileNew = true })
+            }
+            Text("روی هر پروفایل بزن تا فعال شود؛ برنامه‌های پایین همان پروفایل را ویرایش می‌کنند. نگه داشتن = ویرایش یا حذف.",
+                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+        }
+
         // The three modes, each with the sentence that says what it does.
         //
         // They were three words in a segmented capsule - "خاموش · فقط
@@ -14709,80 +14741,132 @@ private fun LiveMonitorScreen(store: ConfigStore, modifier: Modifier = Modifier)
             .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        ScreenHeader(title = t("livemon_title"), context = t("livemon_sub"))
-
-        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md), modifier = Modifier.height(IntrinsicSize.Max)) {
-            // Battery: level gauge and what the phone draws right now.
-            Slab(Modifier.weight(1f).fillMaxHeight()) {
-                Text(t("livemon_battery"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-                val pct = d?.batteryPct
-                Box(Modifier.fillMaxWidth().height(120.dp), contentAlignment = Alignment.Center) {
-                    Canvas(Modifier.size(112.dp)) {
-                        val stroke = 10.dp.toPx()
+        // Hero: the connection's pulse - live speed against the session peak,
+        // with the state, the server and how long it has run.
+        val speedNow = counters.downSpeed + counters.upSpeed
+        val peakNow = maxOf(1L, (down.zip(up) { x, y -> x + y }).maxOrNull() ?: 0L, speedNow)
+        val ringTarget = (speedNow.toFloat() / peakNow).coerceIn(0f, 1f)
+        val ring by animateFloatAsState(ringTarget, tween(700, easing = FastOutSlowInEasing), label = "obsRing")
+        val pulse = rememberInfiniteTransition(label = "obsPulse")
+        val glow by pulse.animateFloat(0.25f, 0.6f, infiniteRepeatable(tween(1400), RepeatMode.Reverse), label = "obsGlow")
+        val stateColor = when (conn) { Connection.CONNECTED -> c.good; Connection.CONNECTING -> c.warning; else -> c.textMuted }
+        Box(
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp))
+                .background(Brush.linearGradient(listOf(c.primary.copy(alpha = 0.30f), c.surface, c.info.copy(alpha = 0.18f))))
+                .border(1.dp, c.primary.copy(alpha = 0.35f), RoundedCornerShape(28.dp))
+                .padding(18.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Box(Modifier.size(132.dp), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val stroke = 12.dp.toPx()
                         val arc = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke)
                         val tl = Offset(stroke / 2, stroke / 2)
-                        drawArc(c.border, 135f, 270f, false, tl, arc, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = StrokeCap.Round))
-                        if (pct != null) drawArc(
-                            if (pct <= 15) c.error else c.primary, 135f, 270f * pct / 100f, false, tl, arc,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = StrokeCap.Round)
-                        )
+                        drawCircle(stateColor.copy(alpha = glow * 0.35f), radius = size.minDimension / 2)
+                        drawArc(c.border, 0f, 360f, false, tl, arc, style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                        drawArc(Brush.sweepGradient(listOf(c.info, c.primary, c.good, c.info)), -90f, 360f * ring, false, tl, arc,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(stroke, cap = StrokeCap.Round))
                     }
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Text(pct?.let { num(it.toString()) } ?: "—", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold, color = c.textPrimary)
-                        Text("%", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+                        Text(formatBytes(speedNow, lang), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                        Text("/s", style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
                     }
                 }
-                Text(
-                    (if (d?.charging == true) t("livemon_charging") else t("livemon_draw")) + " " +
-                        (d?.currentMa?.let { num("$it mA") } ?: "—"),
-                    style = MaterialTheme.typography.bodySmall, color = c.textSecondary
-                )
-            }
-            // Heat: the system's own thermal status and how close it is to throttling.
-            Slab(Modifier.weight(1f).fillMaxHeight(), accent = thermalColor(d?.thermalStatus)) {
-                Text(t("livemon_heat"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(thermalLabel(d?.thermalStatus, t), style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, color = thermalColor(d?.thermalStatus))
-                    d?.headroomPct?.let { Text(num(String.format(java.util.Locale.US, "%.1f%%", it)), style = MaterialTheme.typography.labelMedium, color = c.textSecondary) }
-                }
-                if (d?.headroomPct != null) {
-                    Text(t("livemon_headroom"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
-                    Box(Modifier.fillMaxWidth().height(8.dp).clip(RoundedCornerShape(4.dp)).background(c.border)) {
-                        Box(Modifier.fillMaxWidth((d.headroomPct / 100f).coerceIn(0.02f, 1f)).fillMaxHeight().clip(RoundedCornerShape(4.dp)).background(thermalColor(d.thermalStatus)))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(9.dp).clip(CircleShape).background(stateColor))
+                        Spacer(Modifier.width(6.dp))
+                        Text(when (conn) { Connection.CONNECTED -> t("livemon_connected"); Connection.CONNECTING -> t("livemon_connecting"); else -> t("livemon_idle") },
+                            style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold, color = stateColor)
                     }
-                }
-                d?.thermalStatus?.let { Text(t("livemon_throttle_" + it.coerceIn(0, 6)), style = MaterialTheme.typography.labelSmall, color = thermalColor(it)) }
-                Text(t("livemon_batt_temp"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Sparkline(tempHist, thermalColor(d?.thermalStatus), Modifier.weight(1f).height(36.dp))
-                    Text(d?.batteryTempC?.let { num(String.format(java.util.Locale.US, "%.1f°", it)) } ?: "—",
-                        style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, color = c.textPrimary)
+                    Text(active?.name?.let(BrandConfig::sanitizePublicText) ?: "—", style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold, color = c.textPrimary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(if (conn == Connection.CONNECTED) num(formatUptime(elapsed)) else "—", style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.Bold, color = c.primary)
+                    Text("↓ " + formatBytes(counters.downSpeed, lang) + "/s   ↑ " + formatBytes(counters.upSpeed, lang) + "/s",
+                        style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
                 }
             }
         }
 
-        // CPU of this app plus the engines it runs, as a share of the whole phone.
-        Slab {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
-                Column(Modifier.weight(1f)) {
-                    Text(t("livemon_cpu"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-                    Text(d?.cpuPct?.let { num(String.format(java.util.Locale.US, "%.1f%%", it)) } ?: "—",
-                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = c.primary)
-                    Text(t("livemon_cpu_of"), style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+        // The phone, four gauges: battery, heat, CPU and memory.
+        @Composable
+        fun Gauge(title: String, value: String, fraction: Float?, tone: Color, hist: List<Float>, foot: String, modifier: Modifier) {
+            val f by animateFloatAsState((fraction ?: 0f).coerceIn(0f, 1f), tween(600), label = "gauge$title")
+            Column(
+                modifier.clip(RoundedCornerShape(22.dp)).background(c.secondaryCard)
+                    .border(1.dp, tone.copy(alpha = 0.30f), RoundedCornerShape(22.dp)).padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Text(title, style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(54.dp), contentAlignment = Alignment.Center) {
+                        Canvas(Modifier.fillMaxSize()) {
+                            val st = 6.dp.toPx()
+                            val arc = androidx.compose.ui.geometry.Size(size.width - st, size.height - st)
+                            val tl = Offset(st / 2, st / 2)
+                            drawArc(c.border, 135f, 270f, false, tl, arc, style = androidx.compose.ui.graphics.drawscope.Stroke(st, cap = StrokeCap.Round))
+                            if (fraction != null) drawArc(tone, 135f, 270f * f, false, tl, arc, style = androidx.compose.ui.graphics.drawscope.Stroke(st, cap = StrokeCap.Round))
+                        }
+                        Text(value, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.Bold, color = c.textPrimary, maxLines = 1)
+                    }
+                    Spacer(Modifier.width(8.dp))
+                    Sparkline(hist, tone, Modifier.weight(1f).height(40.dp), filled = true)
                 }
-                Sparkline(cpuHist, c.primary, Modifier.weight(1.3f).height(56.dp))
+                Text(foot, style = MaterialTheme.typography.labelSmall, color = c.textMuted, maxLines = 2)
             }
         }
+        val battTone = if ((d?.batteryPct ?: 100) <= 15) c.error else c.good
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+            Gauge(t("livemon_battery"), d?.batteryPct?.let { num("$it%") } ?: "—", d?.batteryPct?.let { it / 100f }, battTone,
+                emptyList(), (if (d?.charging == true) t("livemon_charging") else t("livemon_draw")) + " " + (d?.currentMa?.let { num("$it mA") } ?: "—"),
+                Modifier.weight(1f))
+            Gauge(t("livemon_heat"), d?.batteryTempC?.let { num(String.format(java.util.Locale.US, "%.0f°", it)) } ?: "—",
+                d?.headroomPct?.let { it / 100f }, thermalColor(d?.thermalStatus), tempHist, thermalLabel(d?.thermalStatus, t), Modifier.weight(1f))
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
+            Gauge(t("livemon_cpu"), d?.cpuPct?.let { num(String.format(java.util.Locale.US, "%.0f%%", it)) } ?: "—",
+                d?.cpuPct?.let { it / 100f }, c.primary, cpuHist, t("livemon_cpu_of"), Modifier.weight(1f))
+            val memMax = (memHist.maxOrNull() ?: 1f).coerceAtLeast(1f)
+            Gauge(t("livemon_memory"), d?.memoryMb?.let { num("$it") } ?: "—", d?.memoryMb?.let { it / (memMax * 1.25f) }, c.info, memHist,
+                d?.let { num(t("livemon_procs").replace("%1", it.processes.toString()).replace("%2", (it.threads ?: 0).toString())) } ?: "MB",
+                Modifier.weight(1f))
+        }
+
+        // Session numbers: peaks, averages and how the traffic splits.
+        Rail("آمار جلسه")
+        val peakDown = down.maxOrNull() ?: 0L
+        val peakUp = up.maxOrNull() ?: 0L
+        val avgDown = if (down.isEmpty()) 0L else down.sum() / down.size
+        StatStrip(listOf(
+            StatCell("پیک دانلود", formatBytes(peakDown, lang) + "/s", c.primary),
+            StatCell("پیک آپلود", formatBytes(peakUp, lang) + "/s", c.info),
+            StatCell("میانگین", formatBytes(avgDown, lang) + "/s", c.premium)
+        ))
         Slab {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.md)) {
-                Column(Modifier.weight(1f)) {
-                    Text(t("livemon_memory"), style = MaterialTheme.typography.titleSmall, color = c.textSecondary)
-                    Text(d?.memoryMb?.let { num("$it MB") } ?: "—",
-                        style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold, color = c.primary)
-                    d?.let { Text(num(t("livemon_procs").replace("%1", it.processes.toString()).replace("%2", (it.threads ?: 0).toString())),
-                        style = MaterialTheme.typography.labelSmall, color = c.textSecondary) }
+            val totalD = counters.totalDown; val totalU = counters.totalUp
+            val all = (totalD + totalU).coerceAtLeast(1L)
+            val dShare by animateFloatAsState(totalD.toFloat() / all, tween(600), label = "obsSplit")
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                Canvas(Modifier.size(96.dp)) {
+                    val st = 14.dp.toPx()
+                    val arc = androidx.compose.ui.geometry.Size(size.width - st, size.height - st)
+                    val tl = Offset(st / 2, st / 2)
+                    drawArc(c.info, -90f + 360f * dShare, 360f * (1 - dShare), false, tl, arc, style = androidx.compose.ui.graphics.drawscope.Stroke(st))
+                    drawArc(c.primary, -90f, 360f * dShare, false, tl, arc, style = androidx.compose.ui.graphics.drawscope.Stroke(st))
                 }
-                Sparkline(memHist, c.primary, Modifier.weight(1.3f).height(56.dp), filled = true)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("مصرف این جلسه", style = MaterialTheme.typography.labelLarge, color = c.textSecondary)
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(c.primary)); Spacer(Modifier.width(6.dp))
+                        Text("دانلود " + formatBytes(totalD, lang), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    }
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(Modifier.size(10.dp).clip(CircleShape).background(c.info)); Spacer(Modifier.width(6.dp))
+                        Text("آپلود " + formatBytes(totalU, lang), style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.Bold)
+                    }
+                    Text(localizeDigits("${(dShare * 100).toInt()}٪ دانلود", lang), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                }
             }
         }
 
@@ -14951,166 +15035,6 @@ private fun cipherOf(c: ProxyConfig): String {
     return parts.joinToString(" · ")
 }
 
-/** Settings -> Safebox: configs moved into a password-locked vault. */
-@Composable
-private fun SafeboxScreen(store: ConfigStore, modifier: Modifier = Modifier) {
-    val t = stringsFn()
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    val c = ghajarColors
-    val configs by store.configs.collectAsState()
-    var exists by remember { mutableStateOf(Safebox.exists(context)) }
-    // The password lives only in this page's memory while it is open.
-    var password by remember { mutableStateOf("") }
-    var confirm by remember { mutableStateOf("") }
-    var vault by remember { mutableStateOf<List<ProxyConfig>?>(null) }
-    var message by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var picking by remember { mutableStateOf(false) }
-    val chosen = remember { mutableStateMapOf<String, Boolean>() }
-
-    fun persist(list: List<ProxyConfig>) {
-        busy = true
-        scope.launch {
-            val ok = withContext(Dispatchers.IO) { runCatching { Safebox.save(context, list, password.toCharArray()) }.isSuccess }
-            if (ok) { vault = list; exists = true } else message = t("safebox_io_error")
-            busy = false
-        }
-    }
-
-    val exporter = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
-        if (uri != null) scope.launch {
-            val ok = withContext(Dispatchers.IO) {
-                runCatching {
-                    val bytes = Safebox.raw(context) ?: error("no vault")
-                    context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } ?: error("no stream")
-                }.isSuccess
-            }
-            message = if (ok) t("safebox_exported") else t("safebox_io_error")
-        }
-    }
-    val importer = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        busy = true
-        scope.launch {
-            // Key derivation takes about a second: never on the UI thread.
-            val result = withContext(Dispatchers.IO) {
-                val bytes = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes() } }.getOrNull()
-                if (bytes == null || !Safebox.isVault(bytes)) null to false
-                else {
-                    val opened = Safebox.open(bytes, password.toCharArray())
-                    // Merge into the existing vault, never over it: open it first
-                    // with the same password when the page is still locked.
-                    val base = vault ?: Safebox.load(context, password.toCharArray())
-                    (if (opened == null || base == null) null else (base + opened).distinctBy { it.id }) to true
-                }
-            }
-            busy = false
-            val merged = result.first
-            when {
-                !result.second -> message = t("safebox_not_vault")
-                merged == null -> message = t("safebox_wrong_password")
-                else -> { persist(merged); message = t("safebox_imported") }
-            }
-        }
-    }
-
-    Column(
-        modifier.fillMaxSize().verticalScroll(rememberScrollState())
-            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
-        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
-    ) {
-        ScreenHeader(title = t("safebox_title"), context = t("safebox_header"))
-        val open = vault
-        if (open == null) {
-            SkinField(value = password, onValueChange = { password = it; message = "" }, label = t("safebox_password"),
-                visualTransformation = PasswordVisualTransformation(),
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-            if (!exists) {
-                SkinField(value = confirm, onValueChange = { confirm = it; message = "" }, label = t("safebox_password_again"),
-                    visualTransformation = PasswordVisualTransformation(),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password))
-            }
-            PillButton(
-                text = if (exists) t("safebox_unlock") else t("safebox_create"),
-                icon = Icons.Filled.Lock,
-                enabled = !busy && password.length >= 6 && (exists || confirm == password),
-                onClick = {
-                    busy = true
-                    scope.launch {
-                        val list = withContext(Dispatchers.IO) { Safebox.load(context, password.toCharArray()) }
-                        busy = false
-                        if (list == null) message = t("safebox_wrong_password")
-                        else { vault = list; if (!exists) persist(list) }
-                    }
-                }
-            )
-            if (!exists) Text(t("safebox_min_len"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-            if (exists) GhostPill(text = t("safebox_import"), icon = Icons.Filled.Download, enabled = password.length >= 6,
-                onClick = { importer.launch(arrayOf("*/*")) })
-        } else {
-            StatStrip(listOf(StatCell(t("safebox_count"), localizeDigits("${open.size}", LocalLang.current), c.primary)))
-            if (open.isEmpty()) Text(t("safebox_empty"), style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-            Slab(spacing = 0.dp) {
-                open.forEachIndexed { i, cfg ->
-                    if (i > 0) SlabDivider()
-                    SlabRow(
-                        title = cfg.name,
-                        subtitle = cfg.protocol.uppercase(),
-                        icon = Icons.Filled.Lock,
-                        trailing = {
-                            TextButton(onClick = {
-                                store.add(cfg)
-                                persist(open.filterNot { it.id == cfg.id })
-                            }) { Text(t("safebox_take_out")) }
-                        }
-                    )
-                }
-            }
-            if (picking) {
-                Rail(t("safebox_choose"))
-                Slab(spacing = 0.dp) {
-                    configs.forEachIndexed { i, cfg ->
-                        if (i > 0) SlabDivider()
-                        SlabRow(
-                            title = cfg.name,
-                            subtitle = cfg.protocol.uppercase(),
-                            trailing = { SkinSwitch(checked = chosen[cfg.id] == true, onCheckedChange = { chosen[cfg.id] = it }) }
-                        )
-                    }
-                }
-                PillButton(
-                    text = t("safebox_move_in"),
-                    icon = Icons.Filled.Lock,
-                    enabled = chosen.values.any { it },
-                    onClick = {
-                        val moving = configs.filter { chosen[it.id] == true }
-                        val next = (open + moving).distinctBy { it.id }
-                        busy = true
-                        scope.launch {
-                            // Removed from the list only once the vault holding
-                            // them is on disk.
-                            val ok = withContext(Dispatchers.IO) {
-                                runCatching { Safebox.save(context, next, password.toCharArray()) }.isSuccess
-                            }
-                            if (ok) { store.deleteConfigsByIds(moving.map { it.id }.toSet()); vault = next; exists = true }
-                            else message = t("safebox_io_error")
-                            busy = false; chosen.clear(); picking = false
-                        }
-                    }
-                )
-            } else {
-                PillButton(text = t("safebox_add"), icon = Icons.Filled.Add, onClick = { picking = true })
-            }
-            GhostPill(text = t("safebox_export"), icon = Icons.Filled.Share, onClick = { exporter.launch("ghajar-safebox.gsb") })
-            GhostPill(text = t("safebox_import"), icon = Icons.Filled.Download, onClick = { importer.launch(arrayOf("*/*")) })
-            GhostPill(text = t("safebox_lock"), accent = c.textSecondary, onClick = { vault = null; password = ""; confirm = "" })
-        }
-        if (busy) SkinLoading(t("safebox_working"))
-        if (message.isNotBlank()) InfoBox(message)
-        InfoBox(t("safebox_note"), accent = c.info)
-    }
-}
 
 
 /**
@@ -15418,9 +15342,10 @@ internal fun relativeTime(at: Long, lang: Lang): String {
 }
 
 /**
- * Settings -> Sharing: one config to another device in the format its apps
- * read, this phone's own connection to devices on its hotspot, and a
- * short-lived LAN page for a device that cannot scan a QR code.
+ * Settings -> Sharing: this phone's own connection, offered to devices on its
+ * hotspot as an authenticated SOCKS5/HTTP proxy. One page, top to bottom: the
+ * switch, what is missing (if anything), and the values to type on the other
+ * device - no dialog with its buttons scrolled out of reach.
  */
 @Composable
 private fun SharingHubScreen(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit, modifier: Modifier = Modifier) {
@@ -15428,42 +15353,29 @@ private fun SharingHubScreen(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit
     val clipboard = LocalClipboardManager.current
     val c = ghajarColors
     val configs by store.configs.collectAsState()
-    val selectedId by store.selectedId.collectAsState()
     val activeId by VpnState.activeId.collectAsState()
     val conn by VpnState.state.collectAsState()
-    val shareOn by store.vpnShareEnabled.collectAsState()
-    var pickedId by rememberSaveable { mutableStateOf<String?>(null) }
-    val picked = configs.firstOrNull { it.id == (pickedId ?: selectedId) } ?: configs.firstOrNull()
-    var pickerOpen by remember { mutableStateOf(false) }
-    var target by rememberSaveable { mutableStateOf(net.gozar.app.sharing.DirectShare.Target.ANDROID) }
-    var qr by remember { mutableStateOf<Pair<String, String>?>(null) }
-    var phoneShareOpen by remember { mutableStateOf(false) }
-    var portal by remember { mutableStateOf<net.gozar.app.sharing.LocalSharePortal?>(null) }
-    var portalUrl by remember { mutableStateOf("") }
-    var portalError by remember { mutableStateOf("") }
-    var tick by remember { mutableIntStateOf(0) }
-    DisposableEffect(Unit) { onDispose { portal?.revoke() } }
-    LaunchedEffect(portal) { while (portal != null) { delay(1000); tick++ } }
-    val exports = remember(picked, target) { picked?.let { net.gozar.app.sharing.DirectShare.exports(it, target) }.orEmpty() }
+    val enabled by store.vpnShareEnabled.collectAsState()
+    val shareUser by store.vpnShareUsername.collectAsState()
+    val sharePass by store.vpnSharePassword.collectAsState()
+    val expiresAt by store.vpnShareExpiresAt.collectAsState()
     val activeConfig = configs.firstOrNull { it.id == activeId }
+    val supported = !activeId.orEmpty().startsWith("ovpn:") && activeConfig != null &&
+        net.gozar.app.sharing.PhoneShare.supports(activeConfig)
+    val connected = conn == Connection.CONNECTED
+    var hotspotIp by remember { mutableStateOf<String?>(null) }
+    var showQr by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) { while (true) { hotspotIp = withContext(Dispatchers.IO) { hotspotInterfaceAddress() }; delay(3000) } }
+    LaunchedEffect(enabled) { if (enabled) store.ensureVpnShareCredential() }
+    val live = enabled && connected && supported
+    val ip = hotspotIp
+    val socksPort = MixedPort.value
+    val httpPort = HttpSharePort.value
 
-    fun copy(text: String) {
-        clipboard.setText(AnnotatedString(text))
-        Toast.makeText(context, "کپی شد", Toast.LENGTH_SHORT).show()
-    }
-    fun send(text: String, title: String) {
-        val i = Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, text)
-        context.startActivity(Intent.createChooser(i, title))
-    }
-    fun openPortal(text: String) {
-        portal?.revoke()
-        val addr = net.gozar.app.sharing.LocalSharePortal.lanAddresses().firstOrNull()
-        if (addr == null) { portalError = "به Wi-Fi وصل شو یا هات‌اسپات را روشن کن؛ آدرس شبکهٔ محلی پیدا نشد."; return }
-        val p = net.gozar.app.sharing.LocalSharePortal(text)
-        portalUrl = runCatching { p.start(addr) }.getOrElse { portalError = it.message.orEmpty(); return }
-        portalError = ""
-        p.onClosed = { portal = null }
-        portal = p
+    fun applyLive() { if (connected) activeConfig?.let(onSwitch) }
+    fun copy(label: String, value: String) {
+        clipboard.setText(AnnotatedString(value))
+        Toast.makeText(context, "$label کپی شد", Toast.LENGTH_SHORT).show()
     }
 
     Column(
@@ -15471,98 +15383,81 @@ private fun SharingHubScreen(store: ConfigStore, onSwitch: (ProxyConfig) -> Unit
             .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
         verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
     ) {
-        ScreenHeader(title = "اشتراک‌گذاری", context = "کانفیگ برای دستگاه دیگر، یا اتصال همین گوشی از طریق هات‌اسپات")
+        ScreenHeader(title = "اشتراک‌گذاری VPN", context = "اتصال دستگاه‌های دیگر از طریق هات‌اسپات همین گوشی")
 
-        Rail("اشتراک یک کانفیگ")
-        Slab(spacing = 6.dp) {
-            SlabRow(title = picked?.name ?: "کانفیگی ذخیره نشده", subtitle = picked?.protocol?.uppercase(),
-                icon = Icons.Filled.Dns, chevron = configs.isNotEmpty(), onClick = { pickerOpen = !pickerOpen })
-            if (pickerOpen) configs.take(200).forEach { cfg ->
-                Text(cfg.name, style = MaterialTheme.typography.bodySmall,
-                    color = if (cfg.id == picked?.id) c.primary else c.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.fillMaxWidth().clickable { pickedId = cfg.id; pickerOpen = false }.padding(vertical = 6.dp))
-            }
-        }
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            net.gozar.app.sharing.DirectShare.Target.entries.forEach { tg ->
-                GhostPill(text = tg.label, onClick = { target = tg }, accent = if (tg == target) c.primary else c.textMuted, fillWidth = false, minHeight = 40.dp)
-            }
-        }
-        if (picked != null && exports.isEmpty()) {
-            Text(if (picked.locked) "این کانفیگ قفل است و خروجی ندارد." else "برای ${picked.protocol} و ${target.label} قالب استانداردی وجود ندارد.",
-                style = MaterialTheme.typography.bodySmall, color = c.warning)
-        }
-        exports.forEach { ex ->
-            Slab(spacing = 6.dp) {
-                Text(ex.title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
-                Text("برنامه‌ها: " + ex.apps.joinToString("، "), style = MaterialTheme.typography.labelMedium, color = c.info)
-                ex.steps.forEachIndexed { i, step ->
-                    Text(localizeDigits("${i + 1}. ", Lang.FA) + step, style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-                }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    GhostPill(text = "کپی", icon = Icons.Filled.ContentCopy, onClick = { copy(ex.text) }, fillWidth = false)
-                    GhostPill(text = "ارسال", icon = Icons.Filled.Share, onClick = { send(ex.text, ex.title) }, fillWidth = false)
-                    if (ex.qr) GhostPill(text = "QR", icon = Icons.Filled.QrCodeScanner, onClick = { qr = ex.text to ex.title }, fillWidth = false)
-                    GhostPill(text = "پورتال شبکهٔ محلی", icon = Icons.Filled.Wifi, onClick = { openPortal(ex.text) }, fillWidth = false)
-                }
-            }
-        }
-
-        Rail("اشتراک امن GSB2")
-        Gsb2CreateSection(picked = picked, all = configs)
-
-        Rail("پورتال شبکهٔ محلی")
-        Slab(spacing = 6.dp) {
-            val p = portal
-            if (p != null && p.isOpen) {
-                Text("دستگاه دیگر در همین Wi-Fi/هات‌اسپات این آدرس را در مرورگر یا برنامه‌اش باز کند:", style = MaterialTheme.typography.bodySmall)
-                Text(portalUrl, fontFamily = MonoFont, style = MaterialTheme.typography.bodySmall, color = c.primary)
-                val left = remember(tick, p) { ((p.expiry - System.currentTimeMillis()) / 1000).coerceAtLeast(0) }
-                Text(localizeDigits("یک‌بار مصرف · ${left / 60}:${"%02d".format(left % 60)} تا بسته‌شدن", Lang.FA),
-                    style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
-                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    GhostPill(text = "کپی آدرس", onClick = { copy(portalUrl) }, fillWidth = false)
-                    GhostPill(text = "QR آدرس", onClick = { qr = portalUrl to "پورتال" }, fillWidth = false)
-                    GhostPill(text = "لغو", onClick = { p.revoke() }, accent = c.error, fillWidth = false)
-                }
-            } else {
-                Text("از دکمهٔ «پورتال شبکهٔ محلی» زیر هر خروجی استفاده کن. صفحه فقط روی آدرس شبکهٔ محلی باز می‌شود، با توکن تصادفی، ۱۰ دقیقه اعتبار و بعد از اولین دریافت بسته می‌شود.",
-                    style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
-            }
-            if (portalError.isNotBlank()) Text(portalError, style = MaterialTheme.typography.bodySmall, color = c.error)
-        }
-
-        Rail("اشتراک اتصال همین گوشی")
-        Slab(spacing = 6.dp) {
-            val supported = activeConfig?.let { net.gozar.app.sharing.PhoneShare.supports(it) } == true
+        Slab(spacing = 0.dp) {
             SlabRow(
-                title = "SOCKS5 / HTTP با رمز روی هات‌اسپات",
+                title = "اشتراک‌گذاری اتصال",
                 subtitle = when {
-                    conn != Connection.CONNECTED -> "اول به یک سرور وصل شو"
+                    live && ip != null -> "فعال است"
+                    !enabled -> "خاموش"
+                    !connected -> "اول از صفحهٔ اصلی به یک سرور وصل شو"
                     !supported -> net.gozar.app.sharing.PhoneShare.unsupportedReason(activeConfig)
-                    shareOn -> "روشن"
-                    else -> "خاموش"
+                    else -> "هات‌اسپات همین گوشی را روشن کن"
                 },
-                icon = Icons.Filled.Wifi, chevron = true, onClick = { phoneShareOpen = true }
+                icon = Icons.Filled.Wifi,
+                accent = if (live && ip != null) c.good else null,
+                trailing = { SkinSwitch(checked = enabled, onCheckedChange = { store.setVpnShareEnabled(it); applyLive() }) }
             )
-            Text("ترافیک دستگاه متصل فقط از تونل می‌رود؛ اگر VPN قطع شود درگاه هم بسته می‌شود و راه مستقیمی باقی نمی‌ماند. دسترسی به شبکهٔ محلی و localhost گوشی برای دستگاه مهمان بسته است.",
-                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
         }
 
-        Rail("چه چیزی قابل اشتراک است")
-        Slab(spacing = 4.dp) {
+        Rail("مراحل")
+        Slab(spacing = 6.dp) {
             listOf(
-                "VLESS / VMess / Trojan / Shadowsocks / Hysteria2 / TUIC / AnyTLS: لینک استاندارد برای همهٔ پلتفرم‌ها.",
-                "WireGuard: فایل .conf استاندارد (بدون reserved اختصاصی). AmneziaWG: فقط با برنامهٔ AmneziaWG.",
-                "TUIC، AnyTLS، Hysteria، NaiveProxy، ShadowTLS، MASQUE و دیگر پروتکل‌های sing-box: فایل کامل sing-box برای دسکتاپ و روتر.",
-                "IKEv2 و OpenVPN: کلید و گواهی هر دستگاه را از مدیر سرور بگیر؛ این برنامه رمز آن‌ها را بیرون نمی‌دهد.",
-                "Psiphon، Tor و Aether سرور ثابت ندارند؛ برای آن‌ها «اشتراک اتصال همین گوشی» را استفاده کن."
-            ).forEach { Text("• $it", style = MaterialTheme.typography.bodySmall, color = c.textSecondary) }
+                "به یک سرور وصل شو" to connected,
+                "اشتراک‌گذاری را روشن کن" to enabled,
+                "هات‌اسپات گوشی را روشن کن" to (ip != null),
+                "دستگاه دیگر را به هات‌اسپات وصل کن و مقادیر زیر را در تنظیمات پراکسی‌اش بزن" to (live && ip != null)
+            ).forEachIndexed { i, (text, done) ->
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(if (done) Icons.Filled.CheckCircle else Icons.Filled.RadioButtonUnchecked, null,
+                        tint = if (done) c.good else c.textMuted, modifier = Modifier.size(20.dp))
+                    Text(localizeDigits("${i + 1}. ", Lang.FA) + text, style = MaterialTheme.typography.bodySmall,
+                        color = if (done) c.textPrimary else c.textSecondary)
+                }
+            }
         }
+
+        if (live && ip != null) {
+            Rail("مقادیر اتصال")
+            Slab(spacing = 0.dp) {
+                SlabRow(title = "HTTP (تنظیمات Wi-Fi)", subtitle = "$ip:$httpPort", icon = Icons.Filled.Language,
+                    onClick = { copy("آدرس HTTP", "$ip:$httpPort") }, trailing = { Icon(Icons.Filled.ContentCopy, null, tint = c.textSecondary) })
+                SlabDivider()
+                SlabRow(title = "SOCKS5", subtitle = "$ip:$socksPort", icon = Icons.Filled.Hub,
+                    onClick = { copy("آدرس SOCKS5", "$ip:$socksPort") }, trailing = { Icon(Icons.Filled.ContentCopy, null, tint = c.textSecondary) })
+                SlabDivider()
+                SlabRow(title = "نام کاربری", subtitle = shareUser, icon = Icons.Filled.Person,
+                    onClick = { copy("نام کاربری", shareUser) }, trailing = { Icon(Icons.Filled.ContentCopy, null, tint = c.textSecondary) })
+                SlabDivider()
+                SlabRow(title = "رمز", subtitle = sharePass, icon = Icons.Filled.Key,
+                    onClick = { copy("رمز", sharePass) }, trailing = { Icon(Icons.Filled.ContentCopy, null, tint = c.textSecondary) })
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                GhostPill(text = "QR اتصال", icon = Icons.Filled.QrCodeScanner, onClick = { showQr = true }, modifier = Modifier.weight(1f))
+                GhostPill(text = "رمز جدید", icon = Icons.Filled.Refresh, onClick = { store.regenerateVpnShareCredential(); applyLive() }, modifier = Modifier.weight(1f))
+            }
+            Rail("پایان خودکار")
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                listOf(30 to "۳۰ دقیقه", 60 to "۱ ساعت", 240 to "۴ ساعت", 0 to "بدون پایان").forEach { (min, label) ->
+                    val on = if (min == 0) expiresAt <= 0L else expiresAt > 0L && kotlin.math.abs(expiresAt - System.currentTimeMillis() - min * 60_000L) < 60_000L
+                    GhostPill(text = label, fillWidth = false, minHeight = 40.dp, accent = if (on) c.primary else c.textMuted, onClick = {
+                        store.setVpnShareExpiresAt(if (min == 0) 0L else System.currentTimeMillis() + min * 60_000L)
+                    })
+                }
+            }
+            if (expiresAt > 0) Text("پایان: " + localizeDigits(java.text.SimpleDateFormat("HH:mm", java.util.Locale.US).format(java.util.Date(expiresAt)), Lang.FA),
+                style = MaterialTheme.typography.labelMedium, color = c.textSecondary)
+        }
+
+        Text("ترافیک دستگاه متصل فقط از تونل می‌رود؛ اگر VPN قطع شود درگاه هم بسته می‌شود. دسترسی دستگاه مهمان به شبکهٔ محلی گوشی بسته است.",
+            style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
     }
 
-    qr?.let { (text, title) -> QrDialog(link = text, title = title, onDismiss = { qr = null }) }
-    if (phoneShareOpen) VpnShareDialog(store = store, onSwitch = onSwitch, onDismiss = { phoneShareOpen = false })
+    LaunchedEffect(live) { if (!live) showQr = false }
+    if (showQr && live && ip != null && shareUser.isNotBlank() && sharePass.isNotBlank()) {
+        QrDialog(link = "socks5://$shareUser:$sharePass@$ip:$socksPort", title = "اشتراک‌گذاری VPN", onDismiss = { showQr = false })
+    }
 }
 
 
@@ -15639,113 +15534,168 @@ private fun ReleaseHistorySection(installed: String) {
 
 
 /**
- * Create a GSB2 share of one config or of its whole group: name, note,
- * optional password, a fixed end date and/or a validity counted from import,
- * a data quota, and whether the receiver may see the server details. The
- * receiving app enforces the date and the quota.
+ * Settings -> «ساخت اشتراک قاجار» (GVPN): pick the configs to share, a time
+ * and a data allowance, an optional password, and save or send the file. The
+ * time is counted from the moment the receiver imports it; the receiving app
+ * enforces both limits, warns at 50 / 25 / 10 percent and removes the share
+ * when it runs out.
  */
 @Composable
-private fun Gsb2CreateSection(picked: ProxyConfig?, all: List<ProxyConfig>) {
+private fun GvpnCreateScreen(store: ConfigStore, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val c = ghajarColors
     val scope = rememberCoroutineScope()
-    var open by rememberSaveable { mutableStateOf(false) }
-    var name by rememberSaveable(picked?.id) { mutableStateOf(picked?.name.orEmpty()) }
+    val configs by store.configs.collectAsState()
+    val subs by store.subscriptions.collectAsState()
+    val candidates = remember(configs) { configs.filter { !it.locked && net.gozar.app.gsb2.Gsb2.Meta.of(it) == null } }
+    var picked by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var name by rememberSaveable { mutableStateOf("") }
     var note by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var whole by rememberSaveable { mutableStateOf(false) }
-    var expiryDays by rememberSaveable { mutableIntStateOf(0) }
-    var durationDays by rememberSaveable { mutableIntStateOf(0) }
-    var quotaGb by rememberSaveable { mutableStateOf("") }
+    // Time in minutes, 0 = no limit; quota in megabytes, 0 = no limit.
+    var minutes by rememberSaveable { mutableLongStateOf(0L) }
+    var customTime by rememberSaveable { mutableStateOf("") }
+    var timeUnit by rememberSaveable { mutableIntStateOf(2) } // 0 min, 1 hour, 2 day
+    var megabytes by rememberSaveable { mutableLongStateOf(0L) }
+    var customQuota by rememberSaveable { mutableStateOf("") }
+    var quotaUnit by rememberSaveable { mutableIntStateOf(1) } // 0 MB, 1 GB
     var status by remember { mutableStateOf("") }
     var pending by remember { mutableStateOf<ByteArray?>(null) }
-    val group = remember(picked, all) {
-        if (picked == null) emptyList() else if (picked.subId.isNotBlank()) all.filter { it.subId == picked.subId } else listOf(picked)
-    }
+    var openGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+
     val saver = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         val bytes = pending
         if (uri != null && bytes != null) {
-            status = if (runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } }.isSuccess) "فایل GSB2 ذخیره شد." else "ذخیره نشد."
+            status = if (runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(bytes) } }.isSuccess) "فایل اشتراک ذخیره شد." else "ذخیره نشد."
         }
         pending = null
     }
+    fun fileName() = name.ifBlank { "ghajar" }.replace(Regex("[^\\p{L}\\p{N}_-]+"), "_").take(40) + ".gsb2"
+    fun effectiveMinutes(): Long = customTime.trim().toLongOrNull()?.takeIf { it > 0 }?.let { n ->
+        when (timeUnit) { 0 -> n; 1 -> n * 60; else -> n * 1440 }
+    } ?: minutes
+    fun effectiveMegabytes(): Long = customQuota.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 }?.let { n ->
+        if (quotaUnit == 0) n.toLong().coerceAtLeast(1) else (n * 1024).toLong()
+    } ?: megabytes
     fun build(): ByteArray? {
-        val items = (if (whole) group else listOfNotNull(picked)).filterNot { it.locked || net.gozar.app.gsb2.Gsb2.Meta.of(it) != null }
-        if (items.isEmpty()) { status = "کانفیگی برای اشتراک انتخاب نشده (کانفیگ قفل یا دریافتی از GSB2 قابل اشتراک دوباره نیست)."; return null }
-        val gb = quotaGb.trim().replace(',', '.').toDoubleOrNull()?.takeIf { it > 0 }
+        val items = candidates.filter { it.id in picked }
+        if (items.isEmpty()) { status = "حداقل یک کانفیگ انتخاب کن."; return null }
         val now = System.currentTimeMillis()
         val share = net.gozar.app.gsb2.Gsb2.Share(
             name = name.ifBlank { items.first().name }, note = note.trim(), createdAt = now,
-            expiresAt = if (expiryDays > 0) now + expiryDays * 86_400_000L else 0L,
-            durationMs = durationDays * 86_400_000L,
-            quotaBytes = gb?.let { (it * 1024 * 1024 * 1024).toLong() } ?: 0L,
+            expiresAt = 0L, durationMs = effectiveMinutes() * 60_000L,
+            quotaBytes = effectiveMegabytes() * 1024L * 1024L,
             hidden = true, configs = items.map { it.copy(subId = "") }
         )
         val (priv, pub) = net.gozar.app.gsb2.Gsb2Store.issuerKeys(context)
         return net.gozar.app.gsb2.Gsb2.seal(share, priv, pub, password.takeIf { it.isNotEmpty() }?.toCharArray())
     }
-    Slab(spacing = 6.dp) {
-        SlabRow(title = "ساخت اشتراک امن", subtitle = "رمز، تاریخ پایان، مدت اعتبار و سقف حجم؛ گیرنده فقط وصل می‌شود",
-            icon = Icons.Filled.Lock, chevron = true, onClick = { open = !open })
-        if (open) {
-            OutlinedTextField(name, { name = it.take(60) }, label = { Text("نام نمایشی") }, singleLine = true, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(note, { note = it.take(300) }, label = { Text("یادداشت (اختیاری)") }, modifier = Modifier.fillMaxWidth())
-            OutlinedTextField(password, { password = it.take(64) }, label = { Text("رمز (اختیاری)") }, singleLine = true,
-                visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-            if (password.isEmpty()) Text("بدون رمز، فایل فقط پنهان است و هر کسی که آن را داشته باشد می‌تواند واردش کند.",
-                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
-            Text("محتوا", style = MaterialTheme.typography.labelLarge)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                GhostPill(text = "همین کانفیگ", fillWidth = false, accent = if (!whole) c.primary else c.textMuted, onClick = { whole = false })
-                GhostPill(text = localizeDigits("کل گروه (${group.size})", Lang.FA), fillWidth = false, accent = if (whole) c.primary else c.textMuted, onClick = { whole = true })
-            }
-            Text("تاریخ پایان", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0 to "ندارد", 1 to "۱ روز", 7 to "۷ روز", 30 to "۳۰ روز", 90 to "۹۰ روز").forEach { (d, l) ->
-                    GhostPill(text = l, fillWidth = false, accent = if (expiryDays == d) c.primary else c.textMuted, onClick = { expiryDays = d })
-                }
-            }
-            Text("مدت اعتبار از لحظهٔ ورود", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf(0 to "ندارد", 1 to "۱ روز", 7 to "۷ روز", 30 to "۳۰ روز").forEach { (d, l) ->
-                    GhostPill(text = l, fillWidth = false, accent = if (durationDays == d) c.primary else c.textMuted, onClick = { durationDays = d })
-                }
-            }
-            Text("سقف حجم", style = MaterialTheme.typography.labelLarge)
-            Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                listOf("" to "نامحدود", "1" to "۱ گیگ", "2" to "۲ گیگ", "5" to "۵ گیگ", "10" to "۱۰ گیگ", "20" to "۲۰ گیگ").forEach { (v, l) ->
-                    GhostPill(text = l, fillWidth = false, accent = if (quotaGb == v) c.primary else c.textMuted, onClick = { quotaGb = v })
-                }
-            }
-            OutlinedTextField(quotaGb, { quotaGb = it.filter { ch -> ch.isDigit() || ch == '.' }.take(6) }, label = { Text("حجم دلخواه (گیگابایت)") },
-                singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.fillMaxWidth())
-            Text("گیرنده فقط می‌تواند وصل شود: سرور، رمزها، QR و لینک را نمی‌بیند و نمی‌تواند کپی، ویرایش یا دوباره ارسال کند.",
-                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
-            Text("تاریخ و حجم را برنامهٔ قاجار در گوشی گیرنده اعمال می‌کند: بعد از تمام شدن، اتصال برقرار نمی‌شود و اتصال فعال قطع می‌شود.",
-                style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                GhostPill(text = "ذخیرهٔ فایل", icon = Icons.Filled.Lock, fillWidth = false, onClick = {
-                    scope.launch {
-                        val bytes = withContext(Dispatchers.Default) { runCatching { build() }.getOrNull() } ?: return@launch
-                        pending = bytes
-                        saver.launch("${name.ifBlank { "ghajar" }.replace(Regex("[^\\p{L}\\p{N}_-]+"), "_").take(40)}.gsb2")
-                    }
-                })
-                GhostPill(text = "ارسال", icon = Icons.Filled.Share, fillWidth = false, onClick = {
-                    scope.launch {
-                        val bytes = withContext(Dispatchers.Default) { runCatching { build() }.getOrNull() } ?: return@launch
-                        runCatching {
-                            val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
-                            val f = java.io.File(dir, "${name.ifBlank { "ghajar" }.replace(Regex("[^\\p{L}\\p{N}_-]+"), "_").take(40)}.gsb2").apply { writeBytes(bytes) }
-                            val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
-                            context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/octet-stream")
-                                .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "اشتراک GSB2"))
-                        }.onFailure { status = "ارسال انجام نشد." }
-                    }
-                })
-            }
-            if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall, color = c.info)
+
+    Column(
+        modifier.fillMaxSize().verticalScroll(rememberScrollState())
+            .padding(horizontal = GhajarSpacing.lg, vertical = GhajarSpacing.lg),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md)
+    ) {
+        ScreenHeader(title = "ساخت اشتراک قاجار", context = "کانفیگ‌ها را با زمان و حجم مشخص بده؛ گیرنده فقط وصل می‌شود")
+
+        Rail(localizeDigits("کانفیگ‌ها (${picked.size} انتخاب‌شده)", Lang.FA))
+        if (candidates.isEmpty()) Text("کانفیگی برای اشتراک نداری.", style = MaterialTheme.typography.bodySmall, color = c.textSecondary)
+        val grouped = remember(candidates, subs) {
+            val names = subs.associate { it.id to it.name }
+            candidates.groupBy { it.subId }.toList().sortedBy { if (it.first.isBlank()) 0 else 1 }
+                .map { (sid, list) -> Triple(sid, if (sid.isBlank()) "کانفیگ‌های دستی" else names[sid] ?: "گروه", list) }
         }
+        grouped.forEach { (sid, title, list) ->
+            val allOn = list.all { it.id in picked }
+            val open = sid in openGroups || grouped.size == 1
+            Slab(spacing = 0.dp) {
+                SlabRow(
+                    title = title,
+                    subtitle = localizeDigits("${list.count { it.id in picked }} از ${list.size}", Lang.FA),
+                    icon = Icons.Filled.Layers,
+                    onClick = { openGroups = if (sid in openGroups) openGroups - sid else openGroups + sid },
+                    trailing = {
+                        Checkbox(checked = allOn, onCheckedChange = { on ->
+                            picked = if (on) picked + list.map { it.id } else picked - list.map { it.id }.toSet()
+                        })
+                    }
+                )
+                if (open) list.forEach { cfg ->
+                    SlabDivider()
+                    Row(
+                        Modifier.fillMaxWidth().clickable { picked = if (cfg.id in picked) picked - cfg.id else picked + cfg.id }
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Checkbox(checked = cfg.id in picked, onCheckedChange = { on -> picked = if (on) picked + cfg.id else picked - cfg.id })
+                        Text(cfg.name, style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Text(cfg.protocol.uppercase(), style = MaterialTheme.typography.labelSmall, color = c.textMuted)
+                    }
+                }
+            }
+        }
+
+        Rail("مدت اعتبار (از لحظهٔ ورود در گوشی گیرنده)")
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(0L to "نامحدود", 10L to "۱۰ دقیقه", 60L to "۱ ساعت", 360L to "۶ ساعت", 1440L to "۱ روز", 10080L to "۷ روز", 43200L to "۳۰ روز").forEach { (m, l) ->
+                GhostPill(text = l, fillWidth = false, minHeight = 40.dp, accent = if (customTime.isBlank() && minutes == m) c.primary else c.textMuted,
+                    onClick = { minutes = m; customTime = "" })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(customTime, { customTime = it.filter(Char::isDigit).take(5) }, label = { Text("مقدار دلخواه") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+            listOf("دقیقه", "ساعت", "روز").forEachIndexed { i, l ->
+                GhostPill(text = l, fillWidth = false, minHeight = 40.dp, accent = if (timeUnit == i) c.primary else c.textMuted, onClick = { timeUnit = i })
+            }
+        }
+
+        Rail("حجم")
+        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            listOf(0L to "نامحدود", 1L to "۱ مگ", 10L to "۱۰ مگ", 100L to "۱۰۰ مگ", 500L to "۵۰۰ مگ", 1024L to "۱ گیگ", 5120L to "۵ گیگ", 10240L to "۱۰ گیگ").forEach { (mb, l) ->
+                GhostPill(text = l, fillWidth = false, minHeight = 40.dp, accent = if (customQuota.isBlank() && megabytes == mb) c.primary else c.textMuted,
+                    onClick = { megabytes = mb; customQuota = "" })
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+            OutlinedTextField(customQuota, { customQuota = it.filter { ch -> ch.isDigit() || ch == '.' }.take(7) }, label = { Text("مقدار دلخواه") }, singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), modifier = Modifier.weight(1f))
+            listOf("مگابایت", "گیگابایت").forEachIndexed { i, l ->
+                GhostPill(text = l, fillWidth = false, minHeight = 40.dp, accent = if (quotaUnit == i) c.primary else c.textMuted, onClick = { quotaUnit = i })
+            }
+        }
+
+        Rail("مشخصات")
+        OutlinedTextField(name, { name = it.take(60) }, label = { Text("نام اشتراک") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(note, { note = it.take(300) }, label = { Text("یادداشت (اختیاری)") }, modifier = Modifier.fillMaxWidth())
+        OutlinedTextField(password, { password = it.take(64) }, label = { Text("رمز (اختیاری)") }, singleLine = true,
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
+
+        Text("گیرنده فقط می‌تواند وصل شود؛ سرور، لینک و QR را نمی‌بیند و نمی‌تواند کپی، ویرایش یا دوباره ارسال کند. در ۵۰، ۲۵ و ۱۰ درصد باقی‌مانده به او خبر داده می‌شود و وقتی تمام شود، اشتراک خودکار حذف می‌شود.",
+            style = MaterialTheme.typography.labelSmall, color = c.textSecondary)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            PillButton(text = "ارسال", icon = Icons.Filled.Share, modifier = Modifier.weight(1f), onClick = {
+                scope.launch {
+                    val bytes = withContext(Dispatchers.Default) { runCatching { build() }.getOrNull() } ?: return@launch
+                    runCatching {
+                        val dir = java.io.File(context.cacheDir, "shared").apply { mkdirs() }
+                        val f = java.io.File(dir, fileName()).apply { writeBytes(bytes) }
+                        val uri = androidx.core.content.FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", f)
+                        context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("application/octet-stream")
+                            .putExtra(Intent.EXTRA_STREAM, uri).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "ساخت اشتراک قاجار")
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    }.onFailure { status = "ارسال انجام نشد." }
+                }
+            })
+            GhostPill(text = "ذخیرهٔ فایل", icon = Icons.Filled.Download, modifier = Modifier.weight(1f), onClick = {
+                scope.launch {
+                    val bytes = withContext(Dispatchers.Default) { runCatching { build() }.getOrNull() } ?: return@launch
+                    pending = bytes
+                    runCatching { saver.launch(fileName()) }.onFailure { pending = null; status = "روی این گوشی برنامهٔ ذخیرهٔ فایل پیدا نشد؛ از «ارسال» استفاده کن." }
+                }
+            })
+        }
+        if (status.isNotBlank()) Text(status, style = MaterialTheme.typography.bodySmall, color = c.info)
     }
 }
 

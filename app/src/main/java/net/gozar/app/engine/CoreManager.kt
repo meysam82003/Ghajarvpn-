@@ -108,13 +108,10 @@ object CoreManager {
                 "MASQUE CONNECT-IP (RFC 9484, HTTP/3 · 2 · 1)",
                 "Tailscale / Headscale (userspace node, exit node)", "Tailcat (DERP relay)"),
                 ownsTun = false, providesSocks = true, license = "GPL-3.0-or-later",
-                integration = "executable libsingbox.so built in CI (scripts/build-singbox.sh), SOCKS5 -> zeptun"),
+                integration = "executable libsingbox.so built in CI (scripts/build-singbox.sh), SOCKS5 -> Xray tun"),
             availability = { ctx ->
                 when {
                     !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("libsingbox.so not in this build")
-                    !ZeptunEngine.available -> Availability.Missing(
-                        "zeptun (needed to carry sing-box) did not load" + (ZeptunEngine.loadError?.let { ": $it" } ?: "")
-                    )
                     else -> Availability.Available
                 }
             },

@@ -33,7 +33,8 @@ DNSTT، VayDNS، NoizDNS، MasterDNS، StormDNS، CottenDNS، Slipstream، صف�
 
 | | 1.0.10 | 1.1.1 (تخمین) |
 |---|---|---|
-| arm64-v8a | 114,788,659 بایت (۱۰۹٫۵ MiB) | حدود ۸۲ MiB |
+| arm64-v8a | 114,788,659 بایت (۱۰۹٫۵ MiB) | 87,406,153 بایت (۸۳٫۴ MiB) |
+| armeabi-v7a | — | 86,509,177 بایت (۸۲٫۵ MiB) |
 
 حذف‌شده‌ها در arm64 بر اساس حجم‌های فشرده در APK نسخهٔ 1.0.10:
 
@@ -44,7 +45,7 @@ DNSTT، VayDNS، NoizDNS، MasterDNS، StormDNS، CottenDNS، Slipstream، صف�
 | osslspeedtest | ۱٫۶ MiB |
 | nDPI | ۰٫۹ MiB |
 
-**هدف ۵۰ تا ۶۰ MiB با نگه داشتن هسته‌های محافظت‌شده دست‌یافتنی نیست.** فقط libsingbox (۲۵٫۳)، libgojni با Xray و Psiphon (۱۴٫۹)، ghajar-helper (۸٫۰)، lyrebird (۵٫۸)، Aether (۴٫۰)، Tor (۳٫۸) و OpenVPN (۵٫۵) روی هم بیش از ۶۷ MiB می‌شوند. حجم دقیق بعد از build نهایی CI در همین سند به‌روز می‌شود.
+**هدف ۵۰ تا ۶۰ MiB با نگه داشتن هسته‌های محافظت‌شده دست‌یافتنی نیست.** فقط libsingbox (۲۵٫۳)، libgojni با Xray و Psiphon (۱۴٫۹)، ghajar-helper (۸٫۰)، lyrebird (۵٫۸)، Aether (۴٫۰)، Tor (۳٫۸) و OpenVPN (۵٫۵) روی هم بیش از ۶۷ MiB می‌شوند.
 
 ## ۴. ماتریس ایمپورت
 
@@ -97,4 +98,6 @@ DNSTT، VayDNS، NoizDNS، MasterDNS، StormDNS، CottenDNS، Slipstream، صف�
 
 ## ۹. CI و انتشار
 
-(پس از اجرای CI به‌روز می‌شود.)
+- build، unit test و crash-hunt روی PR #18: سبز (run 37213368513)
+- انتشار از main با reuse همان build: سبز (run 37215827648)
+- ریلیز: https://github.com/meysam82003/Ghajarvpn-/releases/tag/1.1.1 (دو APK و SHA256SUMS.txt)

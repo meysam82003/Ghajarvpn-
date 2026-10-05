@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,8 +45,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
 /**
- * First-install setup: language, light/dark, theme, home cards, connect
- * button, navigation and server cards, then an optional one-minute tour.
+ * First-install setup: language, light/dark, a ready theme, home cards,
+ * every connect-button style, every navigation style, and server cards.
  * Seven steps, all skippable, every choice saved the moment it is made and
  * all of them changeable later in Settings -> Personalization.
  *
@@ -77,14 +78,14 @@ object Onboarding {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putInt("step", step).apply()
 }
 
-private val TOUR = listOf(
-    "اتصال" to "دکمهٔ بزرگ وسط صفحهٔ اصلی وصل و قطع می‌کند. نگه‌داشتنش وقتی وصل است، اتصال را از نو برقرار می‌کند.",
-    "انتخاب سرور" to "کارت سرور زیر دکمه را بزن تا فهرست سرورها، پینگ و تست واقعی هر کدام را ببینی.",
-    "افزودن سرور" to "در فهرست سرورها دکمهٔ + : لینک، QR، فایل، یا فرم پروتکل‌ها (OpenVPN، IKEv2، WireGuard، Psiphon، Tor و …).",
-    "اشتراک (Subscription)" to "لینک اشتراک را یک بار اضافه کن؛ با باز شدن برنامه خودکار به‌روز می‌شود.",
-    "فروشگاه" to "زبانهٔ فروشگاه: خرید، تمدید، کیف پول و پشتیبانی.",
-    "اشتراک‌گذاری" to "تنظیمات ← اشتراک‌گذاری: کانفیگ برای دستگاه دیگر، یا اتصال همین گوشی از طریق هات‌اسپات با رمز.",
-    "تنظیمات" to "همه چیز اینجا قابل تغییر است؛ از جستجوی بالای تنظیمات استفاده کن."
+private val ORB_NAMES = mapOf(
+    "circle" to "کلاسیک گرد", "ring" to "حلقه", "compact" to "فشرده", "pill" to "قرص گرد",
+    "capsule_glow" to "کپسول درخشان", "soft_square" to "مربع نرم", "double_ring" to "حلقهٔ دوتایی", "neon" to "حلقهٔ نئونی",
+    "minimal" to "مینیمال تخت", "segmented" to "بخش‌بخش", "shield" to "سپر", "power" to "پاور"
+)
+
+private val NAV_NAMES = mapOf(
+    "floating" to "کپسول شناور", "standard" to "استاندارد گرد", "minimal" to "مینیمال", "filled" to "پُر", "outline" to "خطی"
 )
 
 @Composable
@@ -95,14 +96,11 @@ fun OnboardingWizard(store: ConfigStore, onDone: () -> Unit) {
     val lang by store.lang.collectAsState()
     val uiTheme by store.uiTheme.collectAsState()
     var step by rememberSaveable { mutableIntStateOf(Onboarding.savedStep(context).coerceIn(0, Onboarding.STEPS - 1)) }
-    var tour by rememberSaveable { mutableIntStateOf(-1) }
     fun go(to: Int) { step = to; Onboarding.saveStep(context, to) }
     fun finish() { Onboarding.markDone(context); onDone() }
     fun setLook(f: (GhajarLook) -> GhajarLook) = GhajarLookStore.update(context, f)
 
-    BackHandler(enabled = step > 0 || tour >= 0) {
-        if (tour > 0) tour-- else if (tour == 0) tour = -1 else go(step - 1)
-    }
+    BackHandler(enabled = step > 0) { go(step - 1) }
 
     Box(
         Modifier.fillMaxSize().background(c.background)
@@ -122,7 +120,7 @@ fun OnboardingWizard(store: ConfigStore, onDone: () -> Unit) {
                     modifier = Modifier.clip(RoundedCornerShape(50)).clickable { finish() }.padding(horizontal = 12.dp, vertical = 8.dp))
             }
             Spacer(Modifier.height(16.dp))
-            AnimatedContent(targetState = if (tour >= 0) 100 + tour else step, label = "onboarding",
+            AnimatedContent(targetState = step, label = "onboarding",
                 transitionSpec = { fadeIn(tween(180)) togetherWith fadeOut(tween(120)) },
                 modifier = Modifier.weight(1f)) { s ->
                 Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -181,25 +179,58 @@ fun OnboardingWizard(store: ConfigStore, onDone: () -> Unit) {
                             Toggle("حجم سرویس", "quota" !in look.homeHidden) { on -> setLook { l -> l.copy(homeHidden = if (on) l.homeHidden - "quota" else l.homeHidden + "quota") } }
                         }
                         4 -> {
-                            Title("دکمهٔ اتصال", "جای دکمه ثابت است؛ فقط ظاهرش عوض می‌شود.")
-                            Options(listOf("circle" to "کلاسیک گرد", "ring" to "حلقه", "compact" to "فشرده", "pill" to "قرص / کارت"), look.orbStyle) { st ->
-                                setLook { l -> l.copy(orbStyle = st) }
-                            }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
-                                listOf(Connection.DISCONNECTED, Connection.CONNECTING, Connection.CONNECTED).forEach { st ->
-                                    ConnectOrb(state = st, picking = false, enabled = true, tunnelDead = false, netOffline = false,
-                                        onClick = {}, styleOverride = look.orbStyle, diameter = 92.dp)
+                            Title("دکمهٔ اتصال", "همهٔ سبک‌ها؛ جای دکمه ثابت است و فقط ظاهرش عوض می‌شود.")
+                            LookOrbStyles.chunked(2).forEach { row ->
+                                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    row.forEach { st ->
+                                        val on = look.orbStyle == st
+                                        Column(
+                                            Modifier.weight(1f).clip(RoundedCornerShape(20.dp))
+                                                .background(if (on) c.primary.copy(alpha = 0.14f) else c.secondaryCard)
+                                                .clickable { setLook { l -> l.copy(orbStyle = st) } }
+                                                .padding(vertical = 10.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            ConnectOrb(state = Connection.DISCONNECTED, picking = false, enabled = true, tunnelDead = false, netOffline = false,
+                                                onClick = { setLook { l -> l.copy(orbStyle = st) } }, styleOverride = st, diameter = 84.dp)
+                                            Text(ORB_NAMES[st] ?: st, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold,
+                                                color = if (on) c.primary else c.textPrimary)
+                                        }
+                                    }
+                                    if (row.size == 1) Spacer(Modifier.weight(1f))
                                 }
                             }
                         }
                         5 -> {
-                            Title("نوار پایین و کارت سرورها", "")
-                            Label("نوار پایین")
-                            Options(listOf("floating" to "معمولی", "minimal" to "فشرده"), if (look.navStyle == "minimal") "minimal" else "floating") { st ->
-                                setLook { l -> l.copy(navStyle = st) }
+                            Title("نوار پایین", "همهٔ سبک‌های نوار ناوبری؛ روی هر کدام بزن.")
+                            LookNavStyles.forEach { st ->
+                                val on = look.navStyle == st
+                                Column(
+                                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
+                                        .background(if (on) c.primary.copy(alpha = 0.14f) else c.secondaryCard)
+                                        .clickable { setLook { l -> l.copy(navStyle = st) } }
+                                        .padding(10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(NAV_NAMES[st] ?: st, fontWeight = FontWeight.Bold, color = if (on) c.primary else c.textPrimary)
+                                    LookScope(look.copy(navStyle = st)) {
+                                        SkinNavBar(
+                                            items = listOf(
+                                                SkinNavItem(R.drawable.ic_royal_home, "خانه") { setLook { l -> l.copy(navStyle = st) } },
+                                                SkinNavItem(R.drawable.ic_royal_shop, "فروشگاه") { setLook { l -> l.copy(navStyle = st) } },
+                                                SkinNavItem(R.drawable.ic_royal_settings, "تنظیمات") { setLook { l -> l.copy(navStyle = st) } }
+                                            ),
+                                            selected = 0,
+                                            systemInsets = false
+                                        )
+                                    }
+                                }
                             }
                             Toggle("نام زیر آیکن‌ها", look.navLabels) { on -> setLook { l -> l.copy(navLabels = on) } }
-                            Label("کارت سرور")
+                        }
+                        6 -> {
+                            Title("کارت سرورها", "اندازه و اطلاعاتی که روی هر سرور دیده می‌شود.")
                             Options(listOf("compact" to "فشرده", "list" to "معمولی", "large" to "با جزئیات"), look.serverView.takeIf { it != "grid" } ?: "list") { v ->
                                 setLook { l -> l.copy(serverView = v) }
                             }
@@ -209,36 +240,18 @@ fun OnboardingWizard(store: ConfigStore, onDone: () -> Unit) {
                                 }
                             }
                         }
-                        6 -> {
-                            Title("آموزش را ببینم؟", "حدود یک دقیقه، هفت نکتهٔ کوتاه.")
-                            Options(listOf("show" to "نشانم بده", "skip" to "رد کن"), "") { if (it == "show") tour = 0 else finish() }
-                        }
-                        else -> {
-                            val i = s - 100
-                            val (title, body) = TOUR[i]
-                            Text(localizeDigits("${i + 1} از ${TOUR.size}", Lang.FA), color = c.textMuted, style = MaterialTheme.typography.labelMedium)
-                            Title(title, "")
-                            Text(body, style = MaterialTheme.typography.bodyLarge, color = c.textPrimary)
-                        }
+                        else -> Unit
                     }
                 }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                val canBack = step > 0 || tour >= 0
-                if (canBack) GhostPill(text = "قبلی", fillWidth = false, onClick = {
-                    if (tour > 0) tour-- else if (tour == 0) tour = -1 else go(step - 1)
-                })
+                if (step > 0) GhostPill(text = "قبلی", fillWidth = false, onClick = { go(step - 1) })
                 Spacer(Modifier.weight(1f))
                 GhostPill(
-                    text = when { tour == TOUR.lastIndex -> "پایان"; tour >= 0 -> "بعدی"; step == Onboarding.STEPS - 1 -> "شروع"; else -> "بعدی" },
+                    text = if (step == Onboarding.STEPS - 1) "شروع" else "بعدی",
                     accent = c.primary, fillWidth = false,
                     onClick = {
-                        when {
-                            tour == TOUR.lastIndex -> finish()
-                            tour >= 0 -> tour++
-                            step == Onboarding.STEPS - 1 -> finish()
-                            else -> go(step + 1)
-                        }
+                        if (step == Onboarding.STEPS - 1) finish() else go(step + 1)
                     }
                 )
             }

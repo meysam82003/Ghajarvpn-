@@ -763,6 +763,10 @@ object ConfigBuilder {
             .put("publicKey", config.publicKey)
             .put("endpoint", "$epAddress:$epPort")
             .put("allowedIPs", JSONArray().put("0.0.0.0/0").put("::/0"))
+            .put("keepAlive", 25)
+        // The [Peer] PresharedKey of a .conf is kept in `password`. Leaving it
+        // out makes every handshake with a PSK server fail silently.
+        if (config.password.isNotBlank()) peer.put("preSharedKey", config.password)
 
         val addrs = JSONArray()
         config.localAddress.split(",").map { it.trim() }.filter { it.isNotEmpty() }
@@ -773,6 +777,9 @@ object ConfigBuilder {
             .put("address", addrs)
             .put("peers", JSONArray().put(peer))
         if (config.mtu > 0) settings.put("mtu", config.mtu)
+        // Android without root has no kernel WireGuard; the userspace stack is
+        // the only one that works, and the endpoint may be a hostname.
+        settings.put("noKernelTun", true).put("domainStrategy", "ForceIP")
 
         val reserved = config.reserved.split(",").map { it.trim() }.mapNotNull { it.toIntOrNull() }
         if (reserved.size == 3) {
