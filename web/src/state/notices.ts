@@ -116,9 +116,13 @@ export async function fingerprint(n: Notice): Promise<string> {
 
 /** Posts one notice to the device's notification shade, through the service worker. */
 export async function postSystemNotification(n: Notice): Promise<boolean> {
-  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
   const prefs = notifyPrefs.get()
   if (!prefs[channelOf(n)]) return false
+  const android = (window as Window & { ghajarNative?: { notify?: (id: string, t: string, b: string, r: string, imp: boolean) => void } }).ghajarNative
+  if (android?.notify) {
+    try { android.notify(n.id, n.title, n.message, noticeRoute(n), n.important); return true } catch { return false }
+  }
+  if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
   if ((window as Window & { ghajarDesktop?: unknown }).ghajarDesktop) {
     // The desktop app: a native notification; a click brings the window back where the notice points.
     try {

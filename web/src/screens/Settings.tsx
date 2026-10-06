@@ -11,7 +11,7 @@ import { checkout, resetCheckout } from '../state/checkout'
 import { lookStore, setLook, resetLook, LookPresets, LookTransitions, LookNavStyles, LookOrbStyles } from '../theme/look'
 import { Palettes, ThemeNames, ThemeId, paletteFor } from '../theme/palette'
 import { installPrompt, installed, promptInstall, pushState, enablePush, disablePush, testPush, syncPushPrefs, pushSupported, refreshPushState, updateReady, applyUpdate } from '../lib/pwa'
-import { detectPlatform, isDesktopApp, isIosSafari, iosVersion, isStandalone, inTelegram, PlatformNames } from '../lib/platform'
+import { detectPlatform, isDesktopApp, isAndroidApp, isIosSafari, iosVersion, isStandalone, inTelegram, PlatformNames } from '../lib/platform'
 import { fa, formatPrice } from '../lib/format'
 import { APP_VERSION, TELEGRAM_CHANNEL_URL, TELEGRAM_BOT_URL, GITHUB_URL } from '../api/config'
 import { openExternal } from './Market'
@@ -59,7 +59,7 @@ function SettingsHome() {
   const inst = useStore(installed)
   const upd = useStore(updateReady)
   return (
-    <div class="page pad-lg">
+    <div class="page pad-lg flow">
       <ScreenHeader title="تنظیمات" context="ظاهر، اعلان‌ها، حساب و نصب برنامه" />
       <StatStrip cells={[
         { label: 'سرویس‌ها', value: fa(owned.length), accent: 'var(--primary)', onClick: () => goTab('shop') },
@@ -117,7 +117,7 @@ function PersonalizeScreen() {
   const themes: ThemeId[] = ['PREMIUM_GREEN_DARK', 'PREMIUM_GREEN_LIGHT', 'MIDNIGHT_BLUE', 'GRAPHITE_GOLD', 'SYSTEM']
   const [confirmReset, setConfirmReset] = useState(false)
   return (
-    <div class="page pad-lg">
+    <div class="page pad-lg flow">
       <ScreenHeader title="شخصی‌سازی و ظاهر" context="تم‌ها، رنگ‌ها و تایپوگرافی" />
       <Section title="تم پایه">
         <div class="swatches">
@@ -201,7 +201,8 @@ function NotificationSettingsScreen() {
   const iosTooOld = platform === 'ios' && (iosVersion() ?? 99) < 16.4
   useEffect(() => { void refreshPushState() }, [])
   const desktop = isDesktopApp()
-  const status = desktop ? 'اعلان‌ها روی این کامپیوتر فعال است؛ تا وقتی قاجار باز است یا در سینی سیستم (کنار ساعت) است، می‌آیند.' : push === 'subscribed' ? 'اعلان‌های این دستگاه فعال هستند' : push === 'denied' ? 'اعلان برای این برنامه در تنظیمات دستگاه یا مرورگر بسته شده است.'
+  const android = isAndroidApp()
+  const status = android ? 'اعلان‌ها روی این گوشی فعال است؛ وقتی برنامه بسته است هم هر چند دقیقه بررسی می‌شوند و روی نوار اعلان می‌آیند.' : desktop ? 'اعلان‌ها روی این کامپیوتر فعال است؛ تا وقتی قاجار باز است یا در سینی سیستم (کنار ساعت) است، می‌آیند.' : push === 'subscribed' ? 'اعلان‌های این دستگاه فعال هستند' : push === 'denied' ? 'اعلان برای این برنامه در تنظیمات دستگاه یا مرورگر بسته شده است.'
     : push === 'unsupported' ? (iosNeedsInstall ? 'در آیفون، اعلان فقط بعد از «افزودن به صفحهٔ اصلی» کار می‌کند.' : 'این مرورگر اعلان پس‌زمینه را پشتیبانی نمی‌کند.')
       : 'برای دریافت پیام‌ها خارج از برنامه، اعلان‌های دستگاه را فعال کن.'
   async function enable() {
@@ -219,7 +220,7 @@ function NotificationSettingsScreen() {
     void syncPushPrefs(next as unknown as Record<string, boolean>)
   }
   return (
-    <div class="page pad-lg">
+    <div class="page pad-lg flow">
       <ScreenHeader title="اعلان‌ها" context="مجوز، دسته‌ها و هشدارهای هر دسته" />
       <Slab spacing={10}>
         <span class="c-text">{status}</span>
@@ -232,7 +233,7 @@ function NotificationSettingsScreen() {
           <GhostPill text="ارسال اعلان آزمایشی" icon="send" onClick={async () => toast((await testPush()) ? 'اعلان آزمایشی فرستاده شد' : 'سرور اعلان هنوز نصب نشده؛ اعلان‌ها هنگام باز بودن برنامه می‌آیند')} />
           <GhostPill text="خاموش کردن اعلان این دستگاه" icon="notifications_off" accent="var(--error)" onClick={async () => { await disablePush(); toast('اعلان این دستگاه خاموش شد') }} />
         </> : null}
-        {!inst && !desktop && platform !== 'ios' ? <span class="label-small c-text2">برای دریافت مطمئن‌تر در پس‌زمینه، برنامه را نصب کن.</span> : null}
+        {!inst && !desktop && !android && platform !== 'ios' ? <span class="label-small c-text2">برای دریافت مطمئن‌تر در پس‌زمینه، برنامه را نصب کن.</span> : null}
       </Slab>
       <Rail label="دسته‌های اعلان" />
       <Slab spacing={4}>
@@ -261,7 +262,7 @@ function InstallScreen() {
     other: ['از منوی مرورگر، «نصب برنامه» یا «افزودن به صفحهٔ اصلی» را بزن.']
   }
   return (
-    <div class="page pad-lg">
+    <div class="page pad-lg flow">
       <ScreenHeader title={inst ? 'برنامه نصب شده' : 'نصب برنامه'} context={`روی ${PlatformNames[platform]}، مثل یک اپ واقعی`} />
       {inst ? (
         <Slab accent="var(--good)" spacing={8}>
@@ -294,7 +295,7 @@ function AccountScreen() {
   const linked = useStore(tokenStore) !== ''
   const [confirm, setConfirm] = useState(false)
   return (
-    <div class="page pad-lg">
+    <div class="page pad-lg flow">
       <ScreenHeader title="حساب فروشگاه" context={linked ? 'این دستگاه به حساب تلگرام تو متصل است' : 'متصل نیست'} />
       <Slab spacing={0} padding={8}>
         <SlabRow title={linked ? 'حساب متصل و همگام است' : 'اتصال با ربات تلگرام'} subtitle={linked ? 'خرید، تمدید، کیف پول و اعلان‌ها فعال است' : 'برای خرید و دیدن سرویس‌ها'}
@@ -313,7 +314,7 @@ function AccountScreen() {
 
 function AboutScreen() {
   return (
-    <div class="page pad-lg">
+    <div class="page pad-lg flow">
       <ScreenHeader title="درباره" context="نسخه، توسعه‌دهنده و حریم خصوصی" />
       <Slab spacing={8}>
         <span class="title-medium bold c-text">قاجار وی پی ان</span>

@@ -41,12 +41,15 @@ export function HomeScreen() {
 
   const gap = look.density === 'compact' ? 8 : look.density === 'spacious' ? 24 : 12
   return (
-    <div class="page pad-lg centered" style={{ gap: `${gap}px` }}>
+    <div class="page pad-lg centered home" style={{ gap: `${gap}px`, ['--home-gap' as any]: `${gap}px` }}>
+      <div class="home-hero">
       <ConnectOrb style={look.orbStyle} enabled={canAct || !linked || owned.length > 0} working={busy} onClick={act}
         label={!linked ? 'ورود و خرید' : service ? 'اتصال' : owned.length ? 'انتخاب سرویس' : 'خرید سرویس'}
         hint={!linked ? 'برای شروع، حساب را وصل کن' : !service && !owned.length ? 'سرویسی انتخاب نشده' : null} />
       <span class="label-small c-muted center">{canAct ? 'با یک لمس، همین سرویس به اپ VPN این دستگاه اضافه می‌شود' : linked ? 'از فروشگاه سرویس بخر؛ همین‌جا به اپ VPN اضافه می‌شود' : 'حساب تلگرام را یک‌بار متصل کن تا سرویس‌هایت اینجا بیایند'}</span>
+      </div>
 
+      <div class="home-side">
       <div class="full" style={{ maxWidth: '560px' }}>
         <Slab spacing={0} padding={8}>
           <SlabRow title={service ? service.productName : linked ? 'سرویسی انتخاب نشده' : 'حساب متصل نیست'}
@@ -59,6 +62,7 @@ export function HomeScreen() {
       {service ? <div class="full" style={{ maxWidth: '560px' }}><QuotaCard service={service} /></div> : null}
       {error ? <div class="full" style={{ maxWidth: '560px' }}><Slab accent="var(--error)" spacing={12}><span class="label-large c-error">{error}</span><GhostPill text="تلاش دوباره" accent="var(--error)" onClick={act} /></Slab></div> : null}
       {busy ? <div class="full" style={{ maxWidth: '560px' }}><LinearProgress /></div> : null}
+      </div>
 
       {picker ? (
         <Sheet title="انتخاب سرویس" onDismiss={() => setPicker(false)}>

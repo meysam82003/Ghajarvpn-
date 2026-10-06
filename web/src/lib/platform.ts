@@ -19,13 +19,27 @@ export const PlatformNames: Record<Platform, string> = {
   ios: 'آیفون و آیپد', android: 'اندروید', windows: 'ویندوز', mac: 'مک', linux: 'لینوکس', other: 'سایر'
 }
 
+/** The Android app's bridge (window.ghajarNative), when the page runs inside it. */
+export interface NativeBridge {
+  platform?: string
+  notify?: (id: string, title: string, body: string, route: string, important: boolean) => void
+  setToken?: (token: string) => void
+  saveFile?: (name: string, mime: string, text: string) => void
+  share?: (title: string, text: string) => void
+}
+export function nativeBridge(): NativeBridge | null {
+  return (window as Window & { ghajarNative?: NativeBridge }).ghajarNative ?? null
+}
+/** Inside the Ghajar Android app. */
+export function isAndroidApp(): boolean { return !!nativeBridge() }
+
 /** Running inside the Ghajar desktop app (Windows/macOS/Linux), which sets this from its preload. */
 export function isDesktopApp(): boolean {
   return !!(window as Window & { ghajarDesktop?: unknown }).ghajarDesktop
 }
 
 export function isStandalone(): boolean {
-  if (isDesktopApp()) return true
+  if (isDesktopApp() || isAndroidApp()) return true
   try {
     return window.matchMedia('(display-mode: standalone)').matches ||
       window.matchMedia('(display-mode: window-controls-overlay)').matches ||

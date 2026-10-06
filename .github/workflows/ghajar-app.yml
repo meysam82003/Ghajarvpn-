@@ -1,13 +1,13 @@
-name: Ghajar App (Windows / macOS / Linux / iPhone)
+name: Ghajar App (Windows / macOS / Linux / Android / iPhone)
 
 # Installable files of the Ghajar web app, published to one GitHub Release
 # (never marked "latest", so the Android release stays the latest one):
 #   GhajarVPN-win-x64.exe, GhajarVPN-mac-arm64.dmg, GhajarVPN-mac-x64.dmg,
-#   GhajarVPN-linux-x86_64.AppImage, GhajarVPN-iPhone.mobileconfig
+#   GhajarVPN-linux-x86_64.AppImage, GhajarVPN-android.apk, GhajarVPN-iPhone.mobileconfig
 on:
   push:
     branches: [main, 'claude/happy-ritchie-r51k5d']
-    paths: ['web-desktop/**', '.github/workflows/ghajar-app.yml']
+    paths: ['web-desktop/**', 'web-android/**', '.github/workflows/ghajar-app.yml']
   workflow_dispatch:
 
 permissions:
@@ -58,8 +58,54 @@ jobs:
             web-desktop/dist/*.mobileconfig
           if-no-files-found: error
 
+  android:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web-android
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: android-actions/setup-android@v3
+      - name: Signing key (same secrets as the Android app; debug key when absent)
+        env:
+          SIGNING_BUNDLE: ${{ secrets.SIGNING_BUNDLE }}
+          SIGNING_ALIAS: ${{ secrets.SIGNING_ALIAS }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          JKS="$RUNNER_TEMP/release.jks"
+          if [ -n "$SIGNING_BUNDLE" ]; then
+            PW="${SIGNING_BUNDLE%%:*}"; B64="${SIGNING_BUNDLE#*:}"; ALIAS="${SIGNING_ALIAS:-ghajar}"; KP="$PW"
+          elif [ -n "$KEYSTORE_BASE64" ]; then
+            PW="$KEYSTORE_PASSWORD"; B64="$KEYSTORE_BASE64"; ALIAS="$KEY_ALIAS"; KP="$KEY_PASSWORD"
+          else
+            echo "No signing secrets: the APK is signed with a debug key."; exit 0
+          fi
+          echo "::add-mask::$PW"; echo "::add-mask::$KP"
+          printf '%s' "$B64" | base64 -d > "$JKS"
+          if keytool -list -keystore "$JKS" -storepass "$PW" -alias "$ALIAS" >/dev/null 2>&1; then
+            printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$JKS" "$PW" "$ALIAS" "$KP" > keystore.properties
+            echo "Signing with the release key."
+          else
+            echo "::warning::The signing secrets did not open; using a debug key."
+          fi
+      - run: chmod +x gradlew && ./gradlew --no-daemon assembleRelease
+      - run: mkdir -p out && cp app/build/outputs/apk/release/*.apk out/GhajarVPN-android.apk && ls -la out
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghajar-app-android
+          path: web-android/out/GhajarVPN-android.apk
+          if-no-files-found: error
+
   release:
-    needs: build
+    needs: [build, android]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -75,7 +121,7 @@ jobs:
           set -euo pipefail
           VERSION=$(node -p "require('./web-desktop/package.json').version")
           TAG="ghajar-app-v${VERSION}"
-          TITLE="قاجار وی پی ان — نسخهٔ نصبی ویندوز، مک، لینوکس و آیفون ${VERSION}"
+          TITLE="قاجار وی پی ان — نسخهٔ نصبی ویندوز، مک، لینوکس، اندروید و آیفون ${VERSION}"
           cat > notes.md <<'NOTES'
           ## نصب
 
@@ -86,7 +132,7 @@ jobs:
           | مک (اینتل) | `GhajarVPN-mac-x64.dmg` | مثل بالا. |
           | لینوکس | `GhajarVPN-linux-x86_64.AppImage` | اجازهٔ اجرا بده (Properties ← Allow executing) و باز کن. |
           | آیفون / آیپد | `GhajarVPN-iPhone.mobileconfig` | با Safari دانلود کن ← Allow ← Settings ← «Profile Downloaded» ← Install. آیکن قاجار روی صفحهٔ اصلی می‌آید. |
-          | اندروید | فایل APK اپ قاجار | از آخرین نسخهٔ اپ اندروید. |
+          | اندروید | `GhajarVPN-android.apk` | دانلود کن و باز کن ← نصب (اگر خواست، «اجازه از این منبع» را روشن کن). اعلان‌ها حتی وقتی برنامه بسته است می‌آیند. |
 
           نسخهٔ کامپیوتر در سینی سیستم (کنار ساعت) می‌ماند تا اعلان‌ها برسند و با روشن شدن کامپیوتر خودش اجرا می‌شود؛ از منوی همان آیکن قابل خاموش کردن است.
           NOTES

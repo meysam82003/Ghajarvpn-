@@ -125,7 +125,7 @@ function MarketList(props: { feed: M.MarketFeed; signedIn: boolean; onOpen: (id:
       {props.feed.shops.length ? <>
         {shown.length === 0 ? <SkinEmpty icon="shopping_bag" hint="یکی از فیلترهای بالا را عوض کنید."
           title={sort === 'DISCOUNTED' ? 'هیچ فروشگاهی کد تخفیف فعال ندارد' : sort === 'WORST' ? 'هنوز هیچ فروشگاهی نظر ثبت‌شده ندارد' : 'چیزی با این فیلتر پیدا نشد'} /> : null}
-        {shown.map(s => <MarketShopCard shop={s} onOpen={() => props.onOpen(s.id)} />)}
+        {shown.length ? <div class="card-grid">{shown.map(s => <MarketShopCard shop={s} onOpen={() => props.onOpen(s.id)} />)}</div> : null}
       </> : null}
       {!props.signedIn ? (
         <Slab accent="var(--primary)" spacing={4}>
@@ -429,12 +429,14 @@ function BuyTab(props: { home: M.MarketHome; signedIn: boolean; onSignIn: () => 
       </> : <>
         {shown.length === 0 ? <SkinEmpty title="پلنی با این فیلترها پیدا نشد" hint="دستهٔ دیگری انتخاب کن یا فیلتر مدت را بردار." icon="shopping_cart"
           actionText={category || duration ? 'برداشتن فیلترها' : null} onAction={category || duration ? () => { setCategory(null); setDuration(null) } : null} /> : null}
+        {shown.length ? <div class="card-grid">
         {shown.map(p => (
           <ProductCard bestValue={p.code === bestValue} enabled={!starting && shop.canSell && !home.blocked}
             product={{ id: p.code, name: p.name, price: p.price, trafficGb: p.volumeGb > 0 ? p.volumeGb : null, days: p.timeDays > 0 ? p.timeDays : null, countryId: panelCode ?? '',
               description: [p.priceBefore > p.price ? `🎟 با کد ${home.appliedCode} — قیمت قبل: ${formatPrice(p.priceBefore)} تومان` : null, p.note || null].filter(Boolean).join('\n') }}
             onBuy={() => { setPending({ title: p.name, price: p.price, productCode: p.code }); setMethod(null); setDiscounted(null); setDiscountNote(null) }} />
         ))}
+        </div> : null}
       </>}
       <Reviews shop={shop} signedIn={props.signedIn} onSignIn={props.onSignIn} />
       {pending ? (

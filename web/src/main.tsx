@@ -9,7 +9,7 @@ import { startNoticeMonitor } from './state/notices'
 import { registerServiceWorker } from './lib/pwa'
 import { redeemTicket } from './api/client'
 import { refreshOwned } from './state/shop'
-import { tokenStore } from './api/account'
+import { tokenStore, syncNativeToken } from './api/account'
 
 applyTheme()
 
@@ -29,6 +29,7 @@ async function boot() {
   // The splash is gone for good once faded: nothing invisible stays over the page.
   setTimeout(() => document.getElementById('boot')?.remove(), 400)
   void registerServiceWorker()
+  syncNativeToken()
   startNoticeMonitor()
   void refreshOwned().catch(() => undefined)
   tokenStore.subscribe(() => { void refreshOwned().catch(() => undefined) })

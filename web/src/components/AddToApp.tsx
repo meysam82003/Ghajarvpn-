@@ -3,7 +3,7 @@ import { Sheet } from './Overlay'
 import { Icon } from './Icon'
 import { GhostPill, PillButton, TextButton, LinearProgress, Rail } from './Skin'
 import { AppLinks, appsFor, launchUrl, openScheme, AppLink, Sub } from '../lib/applinks'
-import { detectPlatform, PlatformNames } from '../lib/platform'
+import { detectPlatform, PlatformNames, nativeBridge } from '../lib/platform'
 import { qrSvg } from '../lib/qr'
 import { copyText, toast } from '../state/ui'
 import { fa, ltr } from '../lib/format'
@@ -47,7 +47,9 @@ export function AddToAppSheet(props: {
   async function share() {
     if (!payload) return
     try {
-      if (navigator.share) await navigator.share({ title: props.productName, text: payload })
+      const native = nativeBridge()
+      if (native?.share) native.share(props.productName, payload)
+      else if (navigator.share) await navigator.share({ title: props.productName, text: payload })
       else await copyText(payload, 'لینک')
     } catch { /* cancelled */ }
   }
@@ -146,6 +148,11 @@ function fileFor(text: string): FileOut | null {
 }
 
 function download(f: FileOut) {
+  const native = nativeBridge()
+  if (native?.saveFile) {
+    try { native.saveFile(f.name, f.mime, f.text); toast(`${f.name} در پوشهٔ Download ذخیره شد`) } catch { toast('دریافت فایل انجام نشد؛ متن کانفیگ را کپی کن.') }
+    return
+  }
   try {
     const blob = new Blob([f.text], { type: f.mime })
     const url = URL.createObjectURL(blob)

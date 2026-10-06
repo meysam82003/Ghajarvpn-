@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Ghajar" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/ghajar_bg</item>
+        <item name="android:colorBackground">@color/ghajar_bg</item>
+        <item name="android:colorAccent">@color/ghajar_primary</item>
+        <item name="android:statusBarColor">@color/ghajar_bg</item>
+        <item name="android:navigationBarColor">@color/ghajar_bg</item>
+    </style>
+    <color name="ghajar_bg">#050807</color>
+    <color name="ghajar_primary">#00A86B</color>
+</resources>

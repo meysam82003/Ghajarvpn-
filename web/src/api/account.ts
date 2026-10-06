@@ -23,7 +23,13 @@ export const tokenStore = createStore<string>(safeStorage.get(TOKEN_KEY) ?? '')
 export function token(): string { return tokenStore.get() }
 export function isLinked(): boolean { return token().trim() !== '' }
 
+/** The Android app keeps its own copy, for checking notices while the app is closed. */
+export function syncNativeToken(value = tokenStore.get()): void {
+  try { (window as Window & { ghajarNative?: { setToken?: (t: string) => void } }).ghajarNative?.setToken?.(value) } catch { /* not in the app */ }
+}
+
 export function saveToken(value: string): boolean {
+  syncNativeToken(value)
   safeStorage.set(TOKEN_KEY, value)
   tokenStore.set(value)
   void idbSet('token', value)
@@ -34,6 +40,7 @@ export function clearAccount(): void {
   safeStorage.remove(TOKEN_KEY)
   safeStorage.remove(LINK_KEY)
   tokenStore.set('')
+  syncNativeToken('')
   void idbDelete('token')
 }
 

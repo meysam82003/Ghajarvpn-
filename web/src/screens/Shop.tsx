@@ -420,7 +420,7 @@ export function ShopScreen(props: { active: boolean }) {
 
         {section === 2 ? <>
           {notices.length === 0 && !busy ? <span style={{ padding: '16px' }}>پیام تازه‌ای ندارید</span> : null}
-          {notices.map(n => <NoticeCard notice={n} />)}
+          {notices.length ? <div class="card-grid">{notices.map(n => <NoticeCard notice={n} />)}</div> : null}
         </> : null}
 
         {section === 1 ? <>
@@ -428,7 +428,7 @@ export function ShopScreen(props: { active: boolean }) {
           {owned.length ? <ServiceSortChips services={owned} selected={ownedSort} onSelect={setOwnedSort} /> : null}
           {owned.length === 0 && !busy ? <span>هنوز سرویسی برای این حساب ثبت نشده است.</span> : null}
           {owned.length > 0 && shownOwned.length === 0 ? <span class="c-muted">سرویسی در این دسته نیست.</span> : null}
-          {shownOwned.map(s => <OwnedServiceCard service={s} onImport={() => void co.importOwned(s.username)} onRenew={() => setRenewUsername(s.username)} />)}
+          {shownOwned.length ? <div class="card-grid">{shownOwned.map(s => <OwnedServiceCard service={s} onImport={() => void co.importOwned(s.username)} onRenew={() => setRenewUsername(s.username)} />)}</div> : null}
         </> : null}
 
         {section === 0 ? <>
@@ -468,10 +468,10 @@ export function ShopScreen(props: { active: boolean }) {
                 actionText={selectedCategory || selectedTime ? 'برداشتن فیلترها' : null}
                 onAction={selectedCategory || selectedTime ? () => { setSelectedCategory(null); setSelectedTime(null) } : null} /> : null}
               {products.length === 0 && busy ? <SkinLoading label="در حال دریافت پلن‌ها از پنل…" /> : null}
-              {products.map(p => (
+              {products.length ? <div class="card-grid">{products.map(p => (
                 <ProductCard product={p} enabled={!busy && !ck.busy} bestValue={p.id === bestValueId}
                   onBuy={() => { setConfirmationTitle(p.name); setConfirmationPrice(p.price); setConfirmation({ countryId: p.countryId, serviceId: p.id }) }} />
-              ))}
+              ))}</div> : null}
             </>}
             {comparePlans ? <PlanComparisonDialog products={products} onDismiss={() => setComparePlans(false)} /> : null}
             {selectedPanel && customMode ? (

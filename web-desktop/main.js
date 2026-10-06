@@ -14,11 +14,18 @@ const TRAY_ICON = path.join(__dirname, 'icons', 'tray.png')
 const BLOCKED_SCHEMES = new Set(['file:', 'javascript:', 'data:', 'blob:', 'about:', 'chrome:', 'devtools:'])
 
 let win = null
+// Connection attempts: through the system proxy first (a VPN client often
+// sets one), then directly, since Iranian hosts commonly refuse foreign exits.
+const ROUTES = [{ mode: 'system' }, { mode: 'direct' }]
+let route = 0
 let tray = null
 let quitting = false
 const startHidden = process.argv.includes('--hidden') || (app.getLoginItemSettings().wasOpenedAsHidden ?? false)
 
 app.setAppUserModelId(APP_ID)
+// The server sees an ordinary Chrome, not "Electron/…": some hosts and
+// firewalls drop requests from unknown clients.
+app.userAgentFallback = app.userAgentFallback.replace(/ (?:Electron|ghajar-app|GhajarVPN)\/\S+/g, '')
 if (!app.requestSingleInstanceLock()) app.quit()
 
 const inApp = url => typeof url === 'string' && url.startsWith(APP_URL)
@@ -45,10 +52,11 @@ function show() {
 
 function createWindow(hidden) {
   win = new BrowserWindow({
-    width: 440,
-    height: 880,
-    minWidth: 360,
-    minHeight: 560,
+    width: 1200,
+    height: 800,
+    minWidth: 380,
+    minHeight: 600,
+    center: true,
     title: 'قاجار وی پی ان',
     backgroundColor: '#050807',
     icon: ICON,
@@ -78,9 +86,18 @@ function createWindow(hidden) {
     event.preventDefault()
     openOutside(url)
   })
-  win.webContents.on('did-fail-load', (_e, code, _desc, url, isMainFrame) => {
+  win.webContents.on('did-fail-load', async (_e, code, desc, url, isMainFrame) => {
     // -3 is an aborted load (a redirect or a new navigation), not a failure.
-    if (isMainFrame && code !== -3 && inApp(url)) win.loadFile(path.join(__dirname, 'offline.html'))
+    if (!isMainFrame || code === -3 || !inApp(url)) return
+    if (route < ROUTES.length - 1) {
+      route++
+      await useRoute()
+      win.loadURL(APP_URL)
+      return
+    }
+    route = 0
+    await useRoute()
+    win.loadFile(path.join(__dirname, 'offline.html'), { query: { code: String(code), desc: String(desc || '') } })
   })
   win.on('close', event => {
     if (quitting) return
@@ -122,7 +139,20 @@ app.on('window-all-closed', () => { /* stays in the tray */ })
 
 ipcMain.on('ghajar:focus', show)
 ipcMain.on('ghajar:open-external', (_e, url) => openOutside(String(url)))
-ipcMain.on('ghajar:retry', () => win && win.loadURL(APP_URL))
+ipcMain.on('ghajar:retry', async () => {
+  if (!win) return
+  route = 0
+  await useRoute()
+  win.loadURL(APP_URL)
+})
+
+async function useRoute() {
+  const ses = session.fromPartition('persist:ghajar')
+  try {
+    await ses.setProxy(ROUTES[route])
+    await ses.closeAllConnections()
+  } catch { /* older runtime: keep the current route */ }
+}
 
 app.whenReady().then(() => {
   const ses = session.fromPartition('persist:ghajar')

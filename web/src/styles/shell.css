@@ -175,10 +175,57 @@
 .toast { max-width: 520px; background: var(--text); color: var(--bg); border-radius: 14px; padding: 10px 16px; font-size: calc(13px * var(--font-scale)); box-shadow: 0 6px 24px rgba(0,0,0,.35); animation: toast-in 200ms var(--decel) both; overflow-wrap: anywhere; }
 @keyframes toast-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 
-/* Wide screens: the same column, centred, with room to breathe. */
-@media (min-width: 900px) {
-  :root { --content-max: 720px; }
+/* Card lists: one column on phones, a grid when there is room. */
+.card-grid { display: flex; flex-direction: column; gap: var(--gap, 12px); width: 100%; min-width: 0; }
+.home-hero, .home-side { display: flex; flex-direction: column; align-items: center; gap: var(--home-gap, 12px); width: 100%; min-width: 0; }
+
+/* Tablets: a wider column. */
+@media (min-width: 720px) {
+  :root { --content-max: 860px; }
+  .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); align-items: start; }
 }
+
+/*
+ * Laptops and desktops: a standard wide layout. The bottom capsule becomes a
+ * navigation rail on the side (the right, reading start), the content spans
+ * the window, cards sit in a grid, home splits into the button and the
+ * service, and settings pages flow in two columns.
+ */
+@media (min-width: 1000px) {
+  /* Edge to edge: the whole window is used, only a margin is kept. */
+  :root { --content-max: 100%; --rail-w: 104px; }
+  .app { padding-inline-start: var(--rail-w); }
+  .navbar {
+    top: 0; bottom: 0; left: auto; right: auto; inset-inline-start: 0; inset-inline-end: auto;
+    width: var(--rail-w); padding: calc(12px + var(--safe-top)) 10px calc(12px + var(--safe-bottom));
+    display: flex; flex-direction: column; justify-content: center;
+  }
+  .navbar .capsule, .navbar.standard .capsule { max-width: none; margin: 0; padding: 8px 6px; border-radius: var(--nav-radius); }
+  .navbar .track { flex-direction: column; gap: 6px; }
+  .navbar .indicator { display: none; }
+  .navbar .cell { flex: none; height: 72px; width: 100%; gap: 4px; transition: background var(--m-base), color var(--m-base); }
+  .navbar .cell:hover { background: color-mix(in srgb, var(--primary) 10%, transparent); }
+  .navbar .cell.active { background: var(--primary); color: var(--on-primary); }
+  .navbar.filled .cell.active { background: color-mix(in srgb, var(--on-primary) 18%, transparent); }
+  .navbar.minimal .cell.active, .navbar.outline .cell.active, .navbar.ind-outline .cell.active, .navbar.ind-dot .cell.active { background: var(--primary-14); color: var(--primary); }
+  .navbar .cell .lbl { font-size: calc(12px * var(--font-scale)); }
+  .page { padding-bottom: calc(32px + var(--safe-bottom)); }
+  .page.pad-lg { padding-left: 32px; padding-right: 32px; padding-top: 20px; }
+  .page.centered { min-height: calc(100dvh - 64px - var(--safe-top) - 40px); }
+  .toast-host { bottom: calc(24px + var(--safe-bottom)); }
+
+  .page.home { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: center; column-gap: 48px; }
+  .page.home .home-side .full { max-width: none !important; }
+
+  .card-grid { grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); }
+  .tile-grid { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 14px; }
+
+  .page.flow { display: block; column-count: 2; column-gap: 20px; }
+  .page.flow > * { break-inside: avoid; margin-bottom: 14px; }
+  .page.flow > .screen-header { column-span: all; }
+  .page.flow > .rail { break-after: avoid; margin-bottom: 8px; }
+}
+
 
 /* QR */
 .qr-box { width: 100%; max-width: min(300px, 70vw); margin: 0 auto; aspect-ratio: 1; background: #F7FAFC; border-radius: 16px; padding: 10px; }

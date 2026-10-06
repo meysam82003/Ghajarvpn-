@@ -5,18 +5,26 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'">
 <title>قاجار وی پی ان</title>
 <style>
-  html, body { margin: 0; height: 100%; background: #050807; color: #E9F4EF; font-family: Tahoma, "Segoe UI", system-ui, sans-serif; }
-  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; box-sizing: border-box; text-align: center; }
+  html, body { margin: 0; width: 100%; min-height: 100vh; background: #050807; color: #E9F4EF; font-family: Tahoma, "Segoe UI", system-ui, sans-serif; }
+  body { display: grid; place-items: center; padding: 24px; box-sizing: border-box; text-align: center; }
+  main { display: flex; flex-direction: column; align-items: center; gap: 16px; width: 100%; max-width: 420px; }
+  small { color: #6B807A; direction: ltr; font-family: monospace; }
   img { width: 96px; height: 96px; border-radius: 24px; }
   p { margin: 0; color: #9DB3AA; line-height: 1.9; max-width: 320px; }
   button { background: #00A86B; color: #02120B; border: 0; border-radius: 999px; padding: 12px 28px; font: inherit; font-weight: bold; cursor: pointer; }
 </style>
 </head>
 <body>
+<main>
   <img src="icons/icon.png" alt="">
   <h2 style="margin:0">اتصال برقرار نشد</h2>
-  <p>اینترنت را بررسی کن و دوباره تلاش کن. اگر VPN روشن است، یک بار خاموش و روشنش کن.</p>
+  <p>اینترنت را بررسی کن و دوباره تلاش کن. اگر VPN روشن است، یک بار آن را خاموش کن و «تلاش دوباره» را بزن.</p>
   <button onclick="window.ghajarDesktop && window.ghajarDesktop.retry()">تلاش دوباره</button>
-  <script>window.addEventListener('online', () => window.ghajarDesktop && window.ghajarDesktop.retry())</script>
+  <small id="code"></small>
+</main>
+  <script>
+    const q = new URLSearchParams(location.search)
+    if (q.get('code')) document.getElementById('code').textContent = 'error ' + q.get('code') + ' ' + (q.get('desc') || '')
+    window.addEventListener('online', () => window.ghajarDesktop && window.ghajarDesktop.retry())</script>
 </body>
 </html>

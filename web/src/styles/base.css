@@ -41,7 +41,10 @@
 
 *, *::before, *::after { box-sizing: border-box; }
 /* Only `clip` sideways: `hidden` on html (or a fixed height) turns it into a scroll box that iOS Safari will not scroll by touch. */
-html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; overflow-x: clip; }
+html { -webkit-text-size-adjust: 100%; text-size-adjust: 100%; overflow-x: clip;
+  /* Anything scrolled into view (a focused field, a tab) clears the sticky top bar and the floating bottom bar. */
+  scroll-padding-top: calc(72px + var(--safe-top, 0px)); scroll-padding-bottom: calc(112px + var(--safe-bottom, 0px)); }
+@media (min-width: 1000px) { html { scroll-padding-bottom: 24px; } }
 html, body { margin: 0; padding: 0; background: var(--bg); }
 body {
   min-height: 100vh;

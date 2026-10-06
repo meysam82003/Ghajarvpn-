@@ -85,7 +85,7 @@ export function applyUpdate(): void {
 
 export function pushSupported(): boolean {
   // The desktop app shows notices itself while it runs in the tray.
-  if ((window as Window & { ghajarDesktop?: unknown }).ghajarDesktop) return false
+  if ((window as Window & { ghajarDesktop?: unknown; ghajarNative?: unknown }).ghajarDesktop || (window as Window & { ghajarNative?: unknown }).ghajarNative) return false
   return 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window
 }
 
