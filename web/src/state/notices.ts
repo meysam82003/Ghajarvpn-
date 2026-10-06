@@ -119,6 +119,19 @@ export async function postSystemNotification(n: Notice): Promise<boolean> {
   if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return false
   const prefs = notifyPrefs.get()
   if (!prefs[channelOf(n)]) return false
+  if ((window as Window & { ghajarDesktop?: unknown }).ghajarDesktop) {
+    // The desktop app: a native notification; a click brings the window back where the notice points.
+    try {
+      const shown = new Notification(n.title, { body: n.message, tag: n.id, icon: new URL('icons/icon-192.png', document.baseURI).toString(), dir: 'rtl', lang: 'fa', requireInteraction: n.important })
+      shown.onclick = () => {
+        window.focus()
+        ;(window as Window & { ghajarDesktop?: { focus?: () => void } }).ghajarDesktop?.focus?.()
+        const route = noticeRoute(n)
+        if (route) location.hash = route.replace(/^[^#]*/, '')
+      }
+      return true
+    } catch { return false }
+  }
   try {
     const reg = await navigator.serviceWorker?.ready
     if (!reg) return false

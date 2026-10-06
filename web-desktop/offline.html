@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src 'self'">
+<title>قاجار وی پی ان</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #050807; color: #E9F4EF; font-family: Tahoma, "Segoe UI", system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 24px; box-sizing: border-box; text-align: center; }
+  img { width: 96px; height: 96px; border-radius: 24px; }
+  p { margin: 0; color: #9DB3AA; line-height: 1.9; max-width: 320px; }
+  button { background: #00A86B; color: #02120B; border: 0; border-radius: 999px; padding: 12px 28px; font: inherit; font-weight: bold; cursor: pointer; }
+</style>
+</head>
+<body>
+  <img src="icons/icon.png" alt="">
+  <h2 style="margin:0">اتصال برقرار نشد</h2>
+  <p>اینترنت را بررسی کن و دوباره تلاش کن. اگر VPN روشن است، یک بار خاموش و روشنش کن.</p>
+  <button onclick="window.ghajarDesktop && window.ghajarDesktop.retry()">تلاش دوباره</button>
+  <script>window.addEventListener('online', () => window.ghajarDesktop && window.ghajarDesktop.retry())</script>
+</body>
+</html>

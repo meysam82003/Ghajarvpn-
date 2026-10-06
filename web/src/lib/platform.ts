@@ -19,7 +19,13 @@ export const PlatformNames: Record<Platform, string> = {
   ios: 'آیفون و آیپد', android: 'اندروید', windows: 'ویندوز', mac: 'مک', linux: 'لینوکس', other: 'سایر'
 }
 
+/** Running inside the Ghajar desktop app (Windows/macOS/Linux), which sets this from its preload. */
+export function isDesktopApp(): boolean {
+  return !!(window as Window & { ghajarDesktop?: unknown }).ghajarDesktop
+}
+
 export function isStandalone(): boolean {
+  if (isDesktopApp()) return true
   try {
     return window.matchMedia('(display-mode: standalone)').matches ||
       window.matchMedia('(display-mode: window-controls-overlay)').matches ||

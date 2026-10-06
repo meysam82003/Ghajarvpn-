@@ -1,0 +1,101 @@
+name: Ghajar App (Windows / macOS / Linux / iPhone)
+
+# Installable files of the Ghajar web app, published to one GitHub Release
+# (never marked "latest", so the Android release stays the latest one):
+#   GhajarVPN-win-x64.exe, GhajarVPN-mac-arm64.dmg, GhajarVPN-mac-x64.dmg,
+#   GhajarVPN-linux-x86_64.AppImage, GhajarVPN-iPhone.mobileconfig
+on:
+  push:
+    branches: [main, 'claude/happy-ritchie-r51k5d']
+    paths: ['web-desktop/**', '.github/workflows/ghajar-app.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ghajar-app-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: win
+          - os: macos-latest
+            target: mac
+          - os: ubuntu-latest
+            target: linux
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 40
+    defaults:
+      run:
+        working-directory: web-desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-desktop/package-lock.json
+      - run: npm ci
+      - run: npm run dist:${{ matrix.target }}
+      - name: iPhone profile
+        if: matrix.target == 'linux'
+        run: npm run ios-profile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghajar-app-${{ matrix.target }}
+          path: |
+            web-desktop/dist/*.exe
+            web-desktop/dist/*.dmg
+            web-desktop/dist/*.AppImage
+            web-desktop/dist/*.mobileconfig
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          VERSION=$(node -p "require('./web-desktop/package.json').version")
+          TAG="ghajar-app-v${VERSION}"
+          TITLE="قاجار وی پی ان — نسخهٔ نصبی ویندوز، مک، لینوکس و آیفون ${VERSION}"
+          cat > notes.md <<'NOTES'
+          ## نصب
+
+          | دستگاه | فایل | روش |
+          |---|---|---|
+          | ویندوز | `GhajarVPN-win-x64.exe` | دانلود کن و باز کن؛ خودش نصب و اجرا می‌شود. اگر ویندوز هشدار داد: «More info» ← «Run anyway». |
+          | مک (M1/M2/M3/M4) | `GhajarVPN-mac-arm64.dmg` | باز کن و قاجار را داخل Applications بکش. بار اول: روی برنامه راست‌کلیک ← Open ← Open (یا System Settings ← Privacy & Security ← Open Anyway). |
+          | مک (اینتل) | `GhajarVPN-mac-x64.dmg` | مثل بالا. |
+          | لینوکس | `GhajarVPN-linux-x86_64.AppImage` | اجازهٔ اجرا بده (Properties ← Allow executing) و باز کن. |
+          | آیفون / آیپد | `GhajarVPN-iPhone.mobileconfig` | با Safari دانلود کن ← Allow ← Settings ← «Profile Downloaded» ← Install. آیکن قاجار روی صفحهٔ اصلی می‌آید. |
+          | اندروید | فایل APK اپ قاجار | از آخرین نسخهٔ اپ اندروید. |
+
+          نسخهٔ کامپیوتر در سینی سیستم (کنار ساعت) می‌ماند تا اعلان‌ها برسند و با روشن شدن کامپیوتر خودش اجرا می‌شود؛ از منوی همان آیکن قابل خاموش کردن است.
+          NOTES
+          sed -i 's/^          //' notes.md
+          ls -la files
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" files/* --clobber
+            gh release edit "$TAG" --title "$TITLE" --notes-file notes.md --latest=false
+          else
+            gh release create "$TAG" files/* --target "$GITHUB_SHA" --title "$TITLE" --notes-file notes.md --latest=false
+          fi
+          gh release view "$TAG" --json url,assets --jq '.url, (.assets[] | .name)'

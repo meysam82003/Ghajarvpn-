@@ -11,7 +11,7 @@ import { checkout, resetCheckout } from '../state/checkout'
 import { lookStore, setLook, resetLook, LookPresets, LookTransitions, LookNavStyles, LookOrbStyles } from '../theme/look'
 import { Palettes, ThemeNames, ThemeId, paletteFor } from '../theme/palette'
 import { installPrompt, installed, promptInstall, pushState, enablePush, disablePush, testPush, syncPushPrefs, pushSupported, refreshPushState, updateReady, applyUpdate } from '../lib/pwa'
-import { detectPlatform, isIosSafari, iosVersion, isStandalone, inTelegram, PlatformNames } from '../lib/platform'
+import { detectPlatform, isDesktopApp, isIosSafari, iosVersion, isStandalone, inTelegram, PlatformNames } from '../lib/platform'
 import { fa, formatPrice } from '../lib/format'
 import { APP_VERSION, TELEGRAM_CHANNEL_URL, TELEGRAM_BOT_URL, GITHUB_URL } from '../api/config'
 import { openExternal } from './Market'
@@ -200,7 +200,8 @@ function NotificationSettingsScreen() {
   const iosNeedsInstall = platform === 'ios' && !isStandalone()
   const iosTooOld = platform === 'ios' && (iosVersion() ?? 99) < 16.4
   useEffect(() => { void refreshPushState() }, [])
-  const status = push === 'subscribed' ? 'اعلان‌های این دستگاه فعال هستند' : push === 'denied' ? 'اعلان برای این برنامه در تنظیمات دستگاه یا مرورگر بسته شده است.'
+  const desktop = isDesktopApp()
+  const status = desktop ? 'اعلان‌ها روی این کامپیوتر فعال است؛ تا وقتی قاجار باز است یا در سینی سیستم (کنار ساعت) است، می‌آیند.' : push === 'subscribed' ? 'اعلان‌های این دستگاه فعال هستند' : push === 'denied' ? 'اعلان برای این برنامه در تنظیمات دستگاه یا مرورگر بسته شده است.'
     : push === 'unsupported' ? (iosNeedsInstall ? 'در آیفون، اعلان فقط بعد از «افزودن به صفحهٔ اصلی» کار می‌کند.' : 'این مرورگر اعلان پس‌زمینه را پشتیبانی نمی‌کند.')
       : 'برای دریافت پیام‌ها خارج از برنامه، اعلان‌های دستگاه را فعال کن.'
   async function enable() {
@@ -231,7 +232,7 @@ function NotificationSettingsScreen() {
           <GhostPill text="ارسال اعلان آزمایشی" icon="send" onClick={async () => toast((await testPush()) ? 'اعلان آزمایشی فرستاده شد' : 'سرور اعلان هنوز نصب نشده؛ اعلان‌ها هنگام باز بودن برنامه می‌آیند')} />
           <GhostPill text="خاموش کردن اعلان این دستگاه" icon="notifications_off" accent="var(--error)" onClick={async () => { await disablePush(); toast('اعلان این دستگاه خاموش شد') }} />
         </> : null}
-        {!inst && platform !== 'ios' ? <span class="label-small c-text2">برای دریافت مطمئن‌تر در پس‌زمینه، برنامه را نصب کن.</span> : null}
+        {!inst && !desktop && platform !== 'ios' ? <span class="label-small c-text2">برای دریافت مطمئن‌تر در پس‌زمینه، برنامه را نصب کن.</span> : null}
       </Slab>
       <Rail label="دسته‌های اعلان" />
       <Slab spacing={4}>
