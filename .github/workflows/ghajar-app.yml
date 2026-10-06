@@ -71,6 +71,9 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
       - name: Signing key (same secrets as the Android app; debug key when absent)
         env:
           SIGNING_BUNDLE: ${{ secrets.SIGNING_BUNDLE }}
