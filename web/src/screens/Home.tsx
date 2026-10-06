@@ -1,4 +1,5 @@
-import { useState } from 'preact/hooks'
+import { useEffect, useState } from 'preact/hooks'
+import { desktopCore, coreError, CoreStatus, CoreServer } from '../lib/platform'
 import * as api from '../api/client'
 import * as M from '../api/models'
 import { useStore } from '../lib/store'
@@ -32,9 +33,40 @@ export function HomeScreen() {
   const service = owned.find(s => s.username === selected) ?? null
   const canAct = linked && service != null
 
+  // In the desktop app the control connects for real: its core is a local
+  // proxy, and the Ghajar browser extension sends the browser through it.
+  const core = desktopCore()
+  const [coreState, setCoreState] = useState<CoreStatus | null>(null)
+  const [servers, setServers] = useState<CoreServer[]>([])
+  const [serverSheet, setServerSheet] = useState(false)
+  const [pings, setPings] = useState<Record<number, number>>({})
+  useEffect(() => {
+    if (!core) return
+    core.status().then(setCoreState).catch(() => undefined)
+    core.servers().then(setServers).catch(() => undefined)
+    return core.onStatus(st => { setCoreState(st); core.servers().then(setServers).catch(() => undefined) })
+  }, [])
+  const connected = !!coreState?.connected
+
+  async function loadServers(): Promise<boolean> {
+    if (!core || !service) return false
+    const d = await api.service(service.username)
+    const list = await core.setService({ name: d.productName || service.productName, configs: d.outputs, subscriptionUrl: d.subscriptionUrl ?? '' })
+    setServers(list)
+    return list.length > 0
+  }
+
   async function act() {
     if (!linked) { goTab('shop'); return }
     if (!service) { if (owned.length) setPicker(true); else goTab('shop'); return }
+    if (core) {
+      setBusy(true); setError(null)
+      try {
+        if (connected) await core.disconnect()
+        else { await loadServers(); await core.connect() }
+      } catch (e) { setError(coreError(e)) } finally { setBusy(false) }
+      return
+    }
     setBusy(true); setError(null)
     try { setDetails(await api.service(service.username)) } catch (e) { setError(api.publicMessage(e)) } finally { setBusy(false) }
   }
@@ -43,10 +75,13 @@ export function HomeScreen() {
   return (
     <div class="page pad-lg centered home" style={{ gap: `${gap}px`, ['--home-gap' as any]: `${gap}px` }}>
       <div class="home-hero">
-      <ConnectOrb style={look.orbStyle} enabled={canAct || !linked || owned.length > 0} working={busy} onClick={act}
-        label={!linked ? 'ورود و خرید' : service ? 'اتصال' : owned.length ? 'انتخاب سرویس' : 'خرید سرویس'}
-        hint={!linked ? 'برای شروع، حساب را وصل کن' : !service && !owned.length ? 'سرویسی انتخاب نشده' : null} />
-      <span class="label-small c-muted center">{canAct ? 'با یک لمس، همین سرویس به اپ VPN این دستگاه اضافه می‌شود' : linked ? 'از فروشگاه سرویس بخر؛ همین‌جا به اپ VPN اضافه می‌شود' : 'حساب تلگرام را یک‌بار متصل کن تا سرویس‌هایت اینجا بیایند'}</span>
+      <ConnectOrb style={look.orbStyle} enabled={canAct || !linked || owned.length > 0} working={busy || !!coreState?.connecting || connected} onClick={act}
+        label={!linked ? 'ورود و خرید' : core && connected ? 'متصل' : service ? 'اتصال' : owned.length ? 'انتخاب سرویس' : 'خرید سرویس'}
+        hint={!linked ? 'برای شروع، حساب را وصل کن' : core && connected ? 'برای قطع بزن' : !service && !owned.length ? 'سرویسی انتخاب نشده' : null} />
+      <span class="label-small c-muted center">{core && canAct
+        ? (connected ? `مرورگر با افزونهٔ قاجار از این اتصال استفاده می‌کند · فقط مرورگر، نه کل سیستم` : 'با اتصال، مرورگری که افزونهٔ قاجار دارد از VPN استفاده می‌کند؛ بقیهٔ سیستم دست نمی‌خورد')
+        : canAct ? 'با یک لمس، همین سرویس به اپ VPN این دستگاه اضافه می‌شود' : linked ? 'از فروشگاه سرویس بخر؛ همین‌جا به اپ VPN اضافه می‌شود' : 'حساب تلگرام را یک‌بار متصل کن تا سرویس‌هایت اینجا بیایند'}</span>
+      {core && coreState && !coreState.available ? <span class="label-small c-warning center">هستهٔ اتصال در این نسخه نیست؛ نسخهٔ تازهٔ برنامه را نصب کن.</span> : null}
       </div>
 
       <div class="home-side">
@@ -58,6 +93,18 @@ export function HomeScreen() {
             onClick={() => (linked && owned.length ? setPicker(true) : goTab('shop'))} />
         </Slab>
       </div>
+
+      {core && canAct ? (
+        <div class="full" style={{ maxWidth: '560px' }}>
+          <Slab spacing={0} padding={8}>
+            <SlabRow title={coreState?.server?.name || servers[coreState?.selected ?? 0]?.name || 'سرور خودکار'} subtitle={connected && coreState?.socks ? `پروکسی محلی ${coreState.socks.host}:${coreState.socks.port} · فقط مرورگر` : 'انتخاب سرور برای مرورگر'}
+              icon="dns" chevron onClick={async () => { setServerSheet(true); if (!servers.length) { try { await loadServers() } catch (e) { setError(coreError(e)) } } }} />
+          </Slab>
+          <div class="row gap-sm" style={{ marginTop: '8px' }}>
+            <GhostPill text="افزودن به اپ دیگر" icon="add_to_home_screen" onClick={async () => { setBusy(true); try { setDetails(await api.service(service!.username)) } catch (e) { setError(api.publicMessage(e)) } finally { setBusy(false) } }} />
+          </div>
+        </div>
+      ) : null}
 
       {service ? <div class="full" style={{ maxWidth: '560px' }}><QuotaCard service={service} /></div> : null}
       {error ? <div class="full" style={{ maxWidth: '560px' }}><Slab accent="var(--error)" spacing={12}><span class="label-large c-error">{error}</span><GhostPill text="تلاش دوباره" accent="var(--error)" onClick={act} /></Slab></div> : null}
@@ -78,6 +125,23 @@ export function HomeScreen() {
           })}
           <GhostPill text="بروزرسانی فهرست" icon="refresh" onClick={() => void refreshOwned()} />
           <GhostPill text="خرید سرویس تازه" icon="shopping_cart" onClick={() => { setPicker(false); goTab('shop') }} />
+        </Sheet>
+      ) : null}
+
+      {serverSheet && core ? (
+        <Sheet title="سرور مرورگر" onDismiss={() => setServerSheet(false)}>
+          {servers.length === 0 ? <span class="c-muted">سروری برای این سرویس دریافت نشد.</span> : null}
+          {servers.map(s => (
+            <Slab spacing={0} padding={8} accent={s.index === coreState?.selected ? 'var(--primary)' : undefined}>
+              <SlabRow title={s.name} subtitle={`${s.protocol.toUpperCase()}${pings[s.index] != null ? ' · ' + (pings[s.index] < 0 ? 'در دسترس نیست' : fa(pings[s.index]) + ' ms') : ''}`}
+                icon={s.index === coreState?.selected ? 'check_circle' : 'dns'}
+                onClick={async () => { setServerSheet(false); setBusy(true); setError(null); try { await core.connect(s.index) } catch (e) { setError(coreError(e)) } finally { setBusy(false) } }} />
+            </Slab>
+          ))}
+          <GhostPill text="سنجش سرعت سرورها" icon="speed" onClick={async () => { try { const r = await core.ping(); setPings(Object.fromEntries(r.map(x => [x.index, x.ms]))) } catch { /* offline */ } }} />
+          <GhostPill text="بروزرسانی سرورها" icon="refresh" onClick={async () => { try { await loadServers() } catch (e) { setError(coreError(e)) } }} />
+          <SlabRow title="سایت‌های ایرانی بدون VPN" subtitle="سریع‌تر؛ سایت‌هایی که IP خارجی را نمی‌پذیرند هم باز می‌شوند" icon="language"
+            value={coreState?.directIran ? 'روشن' : 'خاموش'} onClick={async () => setCoreState(await core.setDirectIran(!coreState?.directIran))} />
         </Sheet>
       ) : null}
 

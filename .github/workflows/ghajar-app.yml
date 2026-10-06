@@ -7,7 +7,7 @@ name: Ghajar App (Windows / macOS / Linux / Android / iPhone)
 on:
   push:
     branches: [main, 'claude/happy-ritchie-r51k5d']
-    paths: ['web-desktop/**', 'web-android/**', '.github/workflows/ghajar-app.yml']
+    paths: ['web-desktop/**', 'web-android/**', 'web-extension/**', '.github/workflows/ghajar-app.yml']
   workflow_dispatch:
 
 permissions:
@@ -25,10 +25,13 @@ jobs:
         include:
           - os: windows-latest
             target: win
+            cores: win-x64
           - os: macos-latest
             target: mac
+            cores: mac-x64 mac-arm64
           - os: ubuntu-latest
             target: linux
+            cores: linux-x64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 40
     defaults:
@@ -44,6 +47,8 @@ jobs:
           cache: npm
           cache-dependency-path: web-desktop/package-lock.json
       - run: npm ci
+      - name: Xray core (bundled per OS and CPU)
+        run: node scripts/fetch-core.mjs ${{ matrix.cores }}
       - run: npm run dist:${{ matrix.target }}
       - name: iPhone profile
         if: matrix.target == 'linux'
@@ -56,6 +61,38 @@ jobs:
             web-desktop/dist/*.dmg
             web-desktop/dist/*.AppImage
             web-desktop/dist/*.mobileconfig
+          if-no-files-found: error
+
+  extension:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: web-extension
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node build.mjs
+      - name: Firefox lint
+        run: npx --yes web-ext@8 lint -s dist/firefox
+      - name: Firefox signing (when the AMO keys are set)
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
+            echo "No AMO keys: the Firefox package stays unsigned (installable in Developer Edition / Nightly)."; exit 0
+          fi
+          npx --yes web-ext@8 sign -s dist/firefox --channel unlisted --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET" --artifacts-dir signed
+          f=$(ls signed/*.xpi | head -1) && cp "$f" dist/GhajarVPN-firefox-extension.xpi && echo "Signed by Mozilla."
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghajar-app-extension
+          path: |
+            web-extension/dist/GhajarVPN-chrome-extension.zip
+            web-extension/dist/GhajarVPN-firefox-extension.xpi
           if-no-files-found: error
 
   android:
@@ -108,7 +145,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [build, android]
+    needs: [build, android, extension]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -135,6 +172,8 @@ jobs:
           | مک (اینتل) | `GhajarVPN-mac-x64.dmg` | مثل بالا. |
           | لینوکس | `GhajarVPN-linux-x86_64.AppImage` | اجازهٔ اجرا بده (Properties ← Allow executing) و باز کن. |
           | آیفون / آیپد | `GhajarVPN-iPhone.mobileconfig` | با Safari دانلود کن ← Allow ← Settings ← «Profile Downloaded» ← Install. آیکن قاجار روی صفحهٔ اصلی می‌آید. |
+          | کروم / اج / بریو | `GhajarVPN-chrome-extension.zip` | افزونه: فقط مرورگر به VPN وصل می‌شود. فایل را باز کن، در `chrome://extensions` «Developer mode» را روشن کن و «Load unpacked» را روی پوشه بزن. برنامهٔ دسکتاپ قاجار باید اجرا باشد. |
+          | فایرفاکس | `GhajarVPN-firefox-extension.xpi` | افزونه: فقط مرورگر به VPN وصل می‌شود. فایل را روی پنجرهٔ فایرفاکس بکش. برنامهٔ دسکتاپ قاجار باید اجرا باشد. |
           | اندروید | `GhajarVPN-android.apk` | دانلود کن و باز کن ← نصب (اگر خواست، «اجازه از این منبع» را روشن کن). اعلان‌ها حتی وقتی برنامه بسته است می‌آیند. |
 
           نسخهٔ کامپیوتر در سینی سیستم (کنار ساعت) می‌ماند تا اعلان‌ها برسند و با روشن شدن کامپیوتر خودش اجرا می‌شود؛ از منوی همان آیکن قابل خاموش کردن است.

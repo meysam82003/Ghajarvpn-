@@ -1,7 +1,7 @@
 {
   "name": "ghajar-app",
   "productName": "GhajarVPN",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Ghajar VPN shop and account, as a desktop app",
   "author": "Ghajar VPN",
   "license": "UNLICENSED",
@@ -12,7 +12,8 @@
     "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never",
     "dist:linux": "electron-builder --linux --publish never",
-    "ios-profile": "node ios/make-profile.mjs"
+    "ios-profile": "node ios/make-profile.mjs",
+    "fetch-core": "node scripts/fetch-core.mjs"
   },
   "devDependencies": {
     "electron": "^44.5.1",
@@ -29,6 +30,7 @@
     "files": [
       "main.js",
       "preload.js",
+      "core.js",
       "offline.html",
       "icons/**"
     ],
@@ -80,7 +82,20 @@
       "category": "Network",
       "syncDesktopName": true
     },
-    "publish": null
+    "publish": null,
+    "extraResources": [
+      {
+        "from": "core/${os}-${arch}",
+        "to": "core",
+        "filter": [
+          "xray",
+          "xray.exe",
+          "geoip.dat",
+          "geosite.dat",
+          "LICENSE"
+        ]
+      }
+    ]
   },
   "desktopName": "ghajarvpn.desktop"
 }

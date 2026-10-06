@@ -1,0 +1,7 @@
+{
+  "name": "ghajar-extension",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ghajar VPN for Chrome and Firefox: connects only the browser, through the Ghajar desktop app's core",
+  "scripts": { "build": "node build.mjs" }
+}

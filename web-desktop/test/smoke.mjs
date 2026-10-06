@@ -44,6 +44,16 @@ if (pay) {
   check(app.windows().length === 1, 'returning from the gateway closes the payment window')
   check(await win.evaluate(() => location.hash) === '#/shop', 'the app goes to the order check after payment')
 }
+// The packaged connection core and the extension's control port.
+const coreStatus = await win.evaluate(() => window.ghajarDesktop.core.status())
+check(coreStatus.available === true, 'the Xray core ships inside the app')
+const api = await fetch('http://127.0.0.1:47823/status', { headers: { 'X-Ghajar-Client': 'extension' } }).then(r => r.json()).catch(() => null)
+check(!!api && api.app === 'ghajar' && api.available === true, 'the extension control port answers')
+const pageApi = await fetch('http://127.0.0.1:47823/status', { headers: { 'X-Ghajar-Client': 'extension', Origin: 'https://evil.example' } }).then(r => r.status).catch(() => 0)
+check(pageApi === 403, 'a web origin is refused by the control port')
+await win.evaluate(() => { location.hash = '#/' })
+await win.waitForTimeout(800)
+check((await win.locator('text=مرورگری که افزونهٔ قاجار دارد').count()) + (await win.locator('text=حساب تلگرام را یک').count()) > 0, 'home explains the browser-only connection')
 await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
 await win.waitForTimeout(500)
 check(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length === 1 && !BrowserWindow.getAllWindows()[0].isVisible()), 'closing hides to the tray')

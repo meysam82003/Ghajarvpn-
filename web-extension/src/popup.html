@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>قاجار وی پی ان</title>
+<link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <header>
+    <img class="mark" src="icons/icon-48.png" alt="">
+    <img class="word" src="icons/wordmark.webp" alt="قاجار VPN">
+    <span class="scope" id="scope">فقط مرورگر</span>
+  </header>
+
+  <main id="main" hidden>
+    <button class="orb" id="orb" aria-live="polite">
+      <svg viewBox="0 0 24 24" class="bolt" aria-hidden="true"><path d="M11 21h-1l1-7H7.5c-.88 0-.33-.75-.31-.78C8.48 10.94 10.42 7.54 13.01 3h1l-1 7h3.51c.4 0 .62.19.4.66C12.97 17.55 11 21 11 21z"/></svg>
+      <span class="label" id="orbLabel">اتصال</span>
+      <span class="hint" id="orbHint"></span>
+    </button>
+
+    <p class="line" id="line">فقط همین مرورگر از VPN استفاده می‌کند؛ بقیهٔ برنامه‌های کامپیوتر دست نمی‌خورند.</p>
+    <p class="error" id="error" hidden></p>
+
+    <section class="card">
+      <div class="card-head">
+        <span class="title" id="service">سرورها</span>
+        <span class="actions">
+          <button class="mini" id="ping" title="سنجش سرعت">⚡ سرعت</button>
+          <button class="mini" id="refresh" title="بروزرسانی">↻</button>
+        </span>
+      </div>
+      <ul class="servers" id="servers"></ul>
+      <p class="empty" id="empty" hidden>سروری نیست. در برنامهٔ دسکتاپ قاجار یک سرویس انتخاب کن و یک بار «اتصال» را بزن.</p>
+    </section>
+
+    <label class="switch-row">
+      <span>
+        <b>سایت‌های ایرانی بدون VPN</b>
+        <small>سریع‌تر؛ سایت‌هایی که IP خارجی را نمی‌پذیرند هم باز می‌شوند</small>
+      </span>
+      <input type="checkbox" id="iran">
+      <i class="switch"></i>
+    </label>
+  </main>
+
+  <main id="missing" hidden>
+    <div class="missing">
+      <img src="icons/icon-96.png" alt="">
+      <h2>برنامهٔ دسکتاپ قاجار اجرا نیست</h2>
+      <p>اتصال VLESS و Reality را هستهٔ برنامهٔ دسکتاپ قاجار انجام می‌دهد و این افزونه فقط مرورگر را به آن وصل می‌کند. برنامه را نصب و اجرا کن (کنار ساعت می‌ماند)، در آن یک سرویس انتخاب کن و دوباره همین‌جا را باز کن.</p>
+      <a class="pill" id="download" href="https://github.com/meysam82003/Ghajarvpn-/releases" target="_blank" rel="noopener">دانلود برنامهٔ دسکتاپ قاجار</a>
+      <button class="ghost" id="retry">دوباره بررسی کن</button>
+    </div>
+  </main>
+
+  <footer>
+    <a href="https://httpuser87890.ir/Faoxima/Ghajarvpn/pwa/#/shop" target="_blank" rel="noopener" id="shop">🛒 فروشگاه و سرویس‌ها</a>
+    <a href="https://t.me/Ghajarvpn" target="_blank" rel="noopener">کانال</a>
+  </footer>
+  <script src="popup.js"></script>
+</body>
+</html>

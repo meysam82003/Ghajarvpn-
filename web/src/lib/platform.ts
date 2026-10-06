@@ -34,6 +34,32 @@ export function nativeBridge(): NativeBridge | null {
 /** Inside the Ghajar Android app. */
 export function isAndroidApp(): boolean { return !!nativeBridge() }
 
+/** The desktop app's connection core (a browser-only local proxy), when the page runs inside it. */
+export interface CoreStatus {
+  available: boolean; connected: boolean; connecting: boolean; error: string
+  socks: { host: string; port: number } | null; http: { host: string; port: number } | null
+  server: { name: string; protocol: string } | null; service: string; selected: number; directIran: boolean
+}
+export interface CoreServer { index: number; name: string; protocol: string; host: string; port: number }
+export interface DesktopCore {
+  status(): Promise<CoreStatus>
+  servers(): Promise<CoreServer[]>
+  setService(s: { name: string; configs: string[]; subscriptionUrl: string }): Promise<CoreServer[]>
+  connect(index?: number): Promise<CoreStatus>
+  disconnect(): Promise<CoreStatus>
+  ping(): Promise<{ index: number; ms: number }[]>
+  setDirectIran(on: boolean): Promise<CoreStatus>
+  onStatus(cb: (s: CoreStatus) => void): () => void
+}
+export function desktopCore(): DesktopCore | null {
+  return (window as Window & { ghajarDesktop?: { core?: DesktopCore } }).ghajarDesktop?.core ?? null
+}
+/** An Electron IPC error reads "Error invoking remote method …: Error: <message>"; the message alone. */
+export function coreError(e: unknown): string {
+  const m = String((e as Error)?.message ?? e ?? '')
+  return m.replace(/^Error invoking remote method '[^']*': (Error: )?/, '') || 'اتصال برقرار نشد'
+}
+
 /** Running inside the Ghajar desktop app (Windows/macOS/Linux), which sets this from its preload. */
 export function isDesktopApp(): boolean {
   return !!(window as Window & { ghajarDesktop?: unknown }).ghajarDesktop

@@ -5,6 +5,7 @@
 const { app, BrowserWindow, Tray, Menu, shell, ipcMain, session, nativeImage } = require('electron')
 const fs = require('fs')
 const path = require('path')
+const { Core } = require('./core.js')
 
 const APP_URL = process.env.GHAJAR_URL || 'https://httpuser87890.ir/Faoxima/Ghajarvpn/pwa/'
 const APP_ID = 'com.ghajarvpn.desktop'
@@ -14,6 +15,9 @@ const TRAY_ICON = path.join(__dirname, 'icons', 'tray.png')
 const BLOCKED_SCHEMES = new Set(['file:', 'javascript:', 'data:', 'blob:', 'about:', 'chrome:', 'devtools:'])
 
 let win = null
+let core = null
+// Xray ships next to the app (resources/core); in development it can be pointed at with GHAJAR_CORE_DIR.
+const CORE_DIR = process.env.GHAJAR_CORE_DIR || (app.isPackaged ? path.join(process.resourcesPath, 'core') : path.join(__dirname, 'core', `${process.platform}-${process.arch}`))
 // Connection attempts: through the system proxy first (a VPN client often
 // sets one), then directly, since Iranian hosts commonly refuse foreign exits.
 const ROUTES = [{ mode: 'system' }, { mode: 'direct' }]
@@ -166,22 +170,31 @@ function createWindow(hidden) {
   win.loadURL(APP_URL)
 }
 
-function createTray() {
-  const image = nativeImage.createFromPath(TRAY_ICON)
-  tray = new Tray(image)
-  tray.setToolTip('قاجار وی پی ان')
-  const menu = () => Menu.buildFromTemplate([
+function trayMenu() {
+  const st = core ? core.status() : { connected: false }
+  return Menu.buildFromTemplate([
+    { label: st.connected ? `🟢 مرورگر متصل است · ${st.server ? st.server.name.slice(0, 40) : ''}` : '⚪️ قطع', enabled: false },
+    st.connected
+      ? { label: 'قطع اتصال', click: () => core.disconnect().catch(() => undefined) }
+      : { label: 'اتصال مرورگر', enabled: !!core && core.servers().length > 0, click: () => core.connect().catch(() => undefined) },
+    { type: 'separator' },
     { label: 'باز کردن قاجار', click: show },
     {
       label: 'اجرا با روشن شدن کامپیوتر',
       type: 'checkbox',
       checked: app.getLoginItemSettings().openAtLogin,
-      click: item => { setLogin(item.checked); tray.setContextMenu(menu()) }
+      click: item => { setLogin(item.checked); tray.setContextMenu(trayMenu()) }
     },
     { type: 'separator' },
     { label: 'خروج کامل', click: () => { quitting = true; app.quit() } }
   ])
-  tray.setContextMenu(menu())
+}
+
+function createTray() {
+  const image = nativeImage.createFromPath(TRAY_ICON)
+  tray = new Tray(image)
+  tray.setToolTip('قاجار وی پی ان')
+  tray.setContextMenu(trayMenu())
   tray.on('click', show)
 }
 
@@ -192,10 +205,24 @@ function setLogin(on) {
 
 app.on('second-instance', show)
 app.on('activate', show)
-app.on('before-quit', () => { quitting = true })
+app.on('before-quit', () => { quitting = true; if (core) core.disconnect(true).catch(() => undefined) })
 app.on('window-all-closed', () => { /* stays in the tray */ })
 
 ipcMain.on('ghajar:focus', show)
+// The web app's connect control, in this app: the core, browser-only.
+ipcMain.handle('ghajar:core', async (_e, op, arg) => {
+  if (!core) throw new Error('core not ready')
+  switch (op) {
+    case 'status': return core.status()
+    case 'servers': return core.servers()
+    case 'setService': return core.setService(arg || {})
+    case 'connect': return core.connect(Number.isInteger(arg) ? arg : undefined)
+    case 'disconnect': return core.disconnect()
+    case 'ping': return core.ping()
+    case 'directIran': core.setDirectIran(!!arg); return core.status()
+    default: throw new Error('unknown')
+  }
+})
 ipcMain.on('ghajar:open-external', (_e, url) => openOutside(String(url)))
 ipcMain.on('ghajar:open-payment', (_e, url) => { if (isPaymentPage(String(url))) openPayment(String(url)) })
 ipcMain.on('ghajar:retry', async () => {
@@ -227,6 +254,17 @@ app.whenReady().then(() => {
     setLogin(true)
     try { fs.writeFileSync(marker, '1') } catch { /* read-only profile */ }
   }
+
+  core = new Core({
+    dataDir: app.getPath('userData'),
+    binDir: CORE_DIR,
+    onChange: st => {
+      if (win && !win.isDestroyed()) win.webContents.send('ghajar:core-status', st)
+      if (tray) { tray.setContextMenu(trayMenu()); tray.setToolTip(st.connected ? 'قاجار وی پی ان · مرورگر متصل' : 'قاجار وی پی ان') }
+    }
+  })
+  // The control port the Ghajar browser extension talks to (127.0.0.1 only).
+  core.serve()
 
   createTray()
   createWindow(startHidden)
