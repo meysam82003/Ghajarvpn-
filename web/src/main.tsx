@@ -26,6 +26,8 @@ async function boot() {
   if (!location.hash) goTab('home')
   render(<App />, document.getElementById('app')!)
   document.documentElement.classList.add('ready')
+  // The splash is gone for good once faded: nothing invisible stays over the page.
+  setTimeout(() => document.getElementById('boot')?.remove(), 400)
   void registerServiceWorker()
   startNoticeMonitor()
   void refreshOwned().catch(() => undefined)

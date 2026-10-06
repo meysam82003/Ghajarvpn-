@@ -35,7 +35,7 @@
 .bounce:active { transform: scale(.86); }
 
 /* Page area */
-.pages { flex: 1 1 auto; position: relative; min-width: 0; overflow-x: hidden; overflow-x: clip; }
+.pages { flex: 1 1 auto; position: relative; min-width: 0; overflow-x: clip; }
 .pages > section { min-width: 0; }
 .page {
   width: 100%; max-width: var(--content-max); margin: 0 auto;

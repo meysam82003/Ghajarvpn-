@@ -14,18 +14,15 @@ const stack: ModalEntry[] = []
 let suppressPops = 0
 let nextId = 1
 
-let navBack: (() => void) | null = null
-/** What the back gesture does when no dialog is open: the shell's own back(). */
-export function setNavBackHandler(f: () => void): void { navBack = f }
 /** Ignores the next popstate (the shell rewinding its own history entry). */
 export function suppressNextPop(): void { suppressPops++ }
 
 window.addEventListener('popstate', () => {
   if (suppressPops > 0) { suppressPops--; return }
   const top = stack[stack.length - 1]
-  if (!top) { navBack?.(); return }
+  if (!top) return // page moves are read from the hash (hashchange)
   if (top.dismissible) { top.popped = true; top.dismiss() }
-  else history.pushState({ ghajarModal: top.id }, '')
+  else history.pushState({ ...(history.state ?? {}), ghajarModal: top.id }, '')
 })
 
 /** Locks page scroll under a dialog and closes it on Escape / the system back gesture. */
@@ -38,12 +35,14 @@ function useModal(onDismiss: () => void, dismissible: boolean) {
     document.documentElement.style.overflow = 'hidden'
     const key = (e: KeyboardEvent) => { if (e.key === 'Escape' && dismissible && stack[stack.length - 1] === entry) dismissRef.current() }
     window.addEventListener('keydown', key)
-    history.pushState({ ghajarModal: entry.id }, '')
+    history.pushState({ ...(history.state ?? {}), ghajarModal: entry.id }, '')
     return () => {
       window.removeEventListener('keydown', key)
       const i = stack.indexOf(entry)
       if (i >= 0) stack.splice(i, 1)
-      if (!entry.popped) { suppressPops++; history.back() }
+      // Step back only off this dialog's own entry: if a link inside it already
+      // moved the page, going back would undo that move instead.
+      if (!entry.popped && (history.state as any)?.ghajarModal === entry.id) { suppressPops++; history.back() }
       if (stack.length === 0) document.documentElement.style.overflow = ''
     }
   }, [])

@@ -6,7 +6,7 @@
  *  - On Chromium, refreshes the notice feed in the background (periodic sync),
  *    exactly like the app's 15-minute JobScheduler job.
  */
-const VERSION = 'ghajar-pwa-v2'
+const VERSION = 'ghajar-pwa-v3'
 const SHELL = VERSION + '-shell'
 const ASSETS = VERSION + '-assets'
 const SCOPE = self.registration.scope

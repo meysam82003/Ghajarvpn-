@@ -12,35 +12,59 @@ export interface Nav { tab: Tab; settings: SettingsPage; forward: boolean }
 
 export const navStore = createStore<Nav>({ tab: 'home', settings: '', forward: true })
 
+/*
+ * The address bar is the single source of truth: every move writes the hash,
+ * and `hashchange` turns the hash into the screen. The back gesture is then
+ * just the browser's own history - one entry above home for a tab, one more
+ * for a settings page - so nothing ever replays an old address on its own.
+ */
+interface NavEntry { ghajarDepth?: number; belowHash?: string }
+const entry = (): NavEntry => (history.state as NavEntry | null) ?? {}
+const depthOf = (n: Pick<Nav, 'tab' | 'settings'>): number => n.tab === 'home' ? 0 : n.tab === 'settings' && n.settings ? 2 : 1
+const here = (): string => location.hash || '#/'
+
+/**
+ * Goes to `target`. When the entry right under this one is exactly the
+ * target (home under a tab, a settings list under its page) this is a real
+ * step back; deeper goes on a new entry; anything else replaces this entry.
+ */
+function navigate(target: Pick<Nav, 'tab' | 'settings'>): void {
+  const hash = navHash({ ...target, forward: true })
+  if (here() === hash) return
+  const cur = entry(), want = depthOf(target), depthHere = cur.ghajarDepth ?? depthOf(navStore.get())
+  const onDialog = (cur as { ghajarModal?: number }).ghajarModal != null
+  if (want < depthHere && cur.belowHash === hash && !onDialog) { history.back(); return }
+  if (want > depthHere) history.pushState({ ghajarDepth: want, belowHash: here() }, '', hash)
+  else { const { ghajarModal: _m, ...rest } = cur as NavEntry & { ghajarModal?: number }; history.replaceState({ ...rest, ghajarDepth: want }, '', hash) }
+  applyHash(hash)
+}
+
 export function goTab(tab: Tab): void {
-  const cur = navStore.get()
-  navStore.set({ tab, settings: tab === 'settings' ? '' : cur.settings, forward: order(tab) >= order(cur.tab) })
-  syncHash()
+  navigate({ tab, settings: '' })
 }
 
 export function openSettings(page: SettingsPage): void {
-  navStore.set({ tab: 'settings', settings: page, forward: true })
-  syncHash()
+  navigate({ tab: 'settings', settings: page })
 }
 
 export function back(): boolean {
   const cur = navStore.get()
-  if (cur.tab === 'settings' && cur.settings) { navStore.set({ ...cur, settings: '', forward: false }); syncHash(); return true }
-  if (cur.tab !== 'home') { navStore.set({ tab: 'home', settings: '', forward: false }); syncHash(); return true }
+  if (cur.tab === 'settings' && cur.settings) { navigate({ tab: 'settings', settings: '' }); return true }
+  if (cur.tab !== 'home') { navigate({ tab: 'home', settings: '' }); return true }
   return false
 }
 
 function order(t: Tab): number { return t === 'home' ? 0 : t === 'shop' ? 1 : 2 }
 
-let applyingHash = false
 /** The address the current place in the app is written as. */
 export function navHash(n: Nav = navStore.get()): string {
   return n.tab === 'home' ? '#/' : n.tab === 'shop' ? '#/shop' : n.settings ? `#/settings/${n.settings}` : '#/settings'
 }
-function syncHash(): void {
-  if (applyingHash) return
+/** Drops one-shot parameters (?renew=, ?code=) from the entry, so going back never repeats them. */
+function cleanHash(): void {
   const hash = navHash()
-  if (location.hash !== hash) history.replaceState(history.state, '', hash)
+  const cur = entry()
+  if (location.hash !== hash || cur.ghajarDepth == null) history.replaceState({ ...cur, ghajarDepth: depthOf(navStore.get()) }, '', hash)
 }
 
 /** A renewal asked for from outside the shop: a notification or the banner. */
@@ -54,14 +78,14 @@ export const openNoticesRequest = createStore<number>(0)
 
 /** Deep links: #/shop?renew=u, #/shop?shop=3&code=X, #/notices, #/settings/notifications. */
 export function applyHash(hash = location.hash): void {
-  applyingHash = true
+  const before = navStore.get()
   try {
     const raw = hash.replace(/^#\/?/, '')
     const [path, qs] = raw.split('?')
     const q = new URLSearchParams(qs ?? '')
     const parts = path.split('/').filter(Boolean)
     if (parts[0] === 'shop' || parts[0] === 'notices' || parts[0] === 'pay') {
-      navStore.set({ tab: 'shop', settings: '', forward: true })
+      navStore.set({ tab: 'shop', settings: '', forward: order('shop') >= order(before.tab) })
       const renew = q.get('renew')
       if (renew) renewRequest.set(renew)
       const shop = q.get('shop')
@@ -70,14 +94,14 @@ export function applyHash(hash = location.hash): void {
       if (parts[0] === 'pay') paymentReturn.set(Date.now())
     } else if (parts[0] === 'settings') {
       const page = (parts[1] ?? '') as SettingsPage
-      navStore.set({ tab: 'settings', settings: ['personalize', 'notifications', 'about', 'install', 'account'].includes(page) ? page : '', forward: true })
+      const settings = ['personalize', 'notifications', 'about', 'install', 'account'].includes(page) ? page : ''
+      navStore.set({ tab: 'settings', settings, forward: before.tab !== 'settings' || (!!settings && !before.settings) })
     } else if (parts.length === 0) {
       navStore.set({ tab: 'home', settings: '', forward: false })
     }
   } finally {
-    applyingHash = false
+    cleanHash()
   }
-  syncHash()
 }
 
 // ---------------------------------------------------------------- toast

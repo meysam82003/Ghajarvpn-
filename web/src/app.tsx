@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'preact/hooks'
 import { useStore } from './lib/store'
-import { navStore, goTab, back, applyHash, navHash } from './state/ui'
+import { navStore, goTab, back, applyHash } from './state/ui'
 import { lookStore } from './theme/look'
 import { TopBar, NavBar, NoticeBanner } from './components/Shell'
-import { ToastHost, setNavBackHandler, suppressNextPop } from './components/Overlay'
+import { ToastHost } from './components/Overlay'
 import { HomeScreen } from './screens/Home'
 import { ShopScreen } from './screens/Shop'
 import { SettingsScreen } from './screens/Settings'
@@ -35,26 +35,6 @@ export function App() {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
 
-  // The back gesture: an inner page goes back to its parent, a tab goes
-  // home, and on home the app is left - one history entry stands for
-  // "somewhere other than home".
-  useEffect(() => {
-    setNavBackHandler(() => {
-      // A fragment navigation (a notification, a link) also fires popstate:
-      // that is a new destination, not the back gesture.
-      if ((location.hash || '#/') !== navHash() && !(location.hash === '' && navHash() === '#/')) { applyHash(); return }
-      back()
-      const n = navStore.get()
-      if (n.tab !== 'home' || n.settings) history.pushState({ ghajarNav: 1 }, '')
-    })
-  }, [])
-  const atRoot = nav.tab === 'home' && !nav.settings
-  useEffect(() => {
-    const marked = (history.state as any)?.ghajarNav === 1
-    if (!atRoot && !marked) history.pushState({ ghajarNav: 1 }, '')
-    else if (atRoot && marked) { suppressNextPop(); history.back() }
-  }, [atRoot])
-
   useEffect(() => { window.scrollTo({ top: 0 }) }, [nav.tab, nav.settings])
 
   const title = nav.tab === 'home' ? null : nav.tab === 'shop' ? 'فروشگاه' : nav.settings ? TITLES[nav.settings] : 'تنظیمات'
@@ -75,7 +55,7 @@ export function App() {
       <NavBar selected={nav.tab === 'home' ? 0 : nav.tab === 'shop' ? 1 : 2} items={[
         { icon: 'home', label: 'خانه', onSelect: () => goTab('home') },
         { icon: 'shop', label: 'فروشگاه', badge: unread > 0, onSelect: () => goTab('shop') },
-        { icon: 'settings', label: 'تنظیمات', onSelect: () => { navStore.set({ tab: 'settings', settings: '', forward: true }); goTab('settings') } }
+        { icon: 'settings', label: 'تنظیمات', onSelect: () => goTab('settings') }
       ]} />
       <ToastHost />
     </div>
