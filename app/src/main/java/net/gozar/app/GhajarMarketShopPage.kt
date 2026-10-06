@@ -970,9 +970,11 @@ private fun MarketRenewPanel(
     val c = ghajarColors
     val lang = LocalLang.current
     val scope = rememberCoroutineScope()
-    val products = home.catalog.products.filter {
+    // Every plan of the shop, the ones for this service's server first: a
+    // renewal can move to a bigger or smaller plan.
+    val products = home.catalog.products.partition {
         it.location.isBlank() || it.location == "/all" || it.location == service.panelName
-    }.ifEmpty { home.catalog.products }
+    }.let { (fits, others) -> fits + others }
     var productCode by remember(service.invoiceId) {
         mutableStateOf(products.firstOrNull { it.name == service.productName }?.code ?: products.firstOrNull()?.code)
     }

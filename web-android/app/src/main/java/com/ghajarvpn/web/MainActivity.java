@@ -31,6 +31,9 @@ import org.json.JSONObject;
 public class MainActivity extends Activity {
     static final String EXTRA_ROUTE = "route";
     private static final int FILE_REQUEST = 7;
+    private static final int PAY_REQUEST = 8;
+    /** Pages of other apps and stores; every other web page is a payment page and stays in the app. */
+    private static final String EXTERNAL_HOSTS = "(?i)^https?://([^/]*\\.)?(t\\.me|telegram\\.me|telegram\\.org|github\\.com|githubusercontent\\.com|google\\.com|apple\\.com|happ\\.su)(/.*)?$";
     private static final int NOTIFY_REQUEST = 3;
 
     private WebView web;
@@ -146,7 +149,20 @@ public class MainActivity extends Activity {
         return url != null && url.startsWith(Config.APP_URL);
     }
 
+    static boolean isPaymentPage(String url) {
+        return url != null && (url.startsWith("https://") || url.startsWith("http://")) && !inApp(url) && !url.matches(EXTERNAL_HOSTS);
+    }
+
+    @SuppressWarnings("deprecation")
+    void openPayment(String url) {
+        runOnUiThread(() -> startActivityForResult(new Intent(this, PaymentActivity.class).putExtra(PaymentActivity.EXTRA_URL, url), PAY_REQUEST));
+    }
+
     void openOutside(String url) {
+        if (isPaymentPage(url)) {
+            openPayment(url);
+            return;
+        }
         runOnUiThread(() -> {
             try {
                 if (url.startsWith("intent:")) {
@@ -216,6 +232,11 @@ public class MainActivity extends Activity {
     @SuppressWarnings("deprecation")
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == PAY_REQUEST && web != null) {
+            // Back from the payment screen: the app checks the order, as after the Android app's payment page.
+            web.evaluateJavascript("location.hash='#/pay'", null);
+            return;
+        }
         if (requestCode == FILE_REQUEST && fileCallback != null) {
             fileCallback.onReceiveValue(WebChromeClient.FileChooserParams.parseResult(resultCode, data));
             fileCallback = null;

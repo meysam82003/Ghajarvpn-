@@ -564,7 +564,9 @@ function ServicesTab(props: { home: M.MarketHome; onOrdered: (o: M.MarketOrder) 
 
 function RenewPanel(props: { home: M.MarketHome; service: M.MarketService; onCancel: () => void; onOrdered: (o: M.MarketOrder) => void }) {
   const { home, service } = props
-  const products = (() => { const l = home.catalog.products.filter(p => !p.location || p.location === '/all' || p.location === service.panelName); return l.length ? l : home.catalog.products })()
+  // Every plan of the shop, the ones for this service's server first: renewal can move to a bigger or smaller plan.
+  const fits = (p: M.MarketProduct) => !p.location || p.location === '/all' || p.location === service.panelName
+  const products = [...home.catalog.products.filter(fits), ...home.catalog.products.filter(p => !fits(p))]
   const [code, setCode] = useState<string | null>(products.find(p => p.name === service.productName)?.code ?? products[0]?.code ?? null)
   const [method, setMethod] = useState<string | null>(home.catalog.methods[0]?.id ?? null)
   const [busy, setBusy] = useState(false)

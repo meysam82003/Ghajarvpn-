@@ -164,6 +164,8 @@
 }
 .sheet .handle { width: 32px; height: 4px; border-radius: 999px; background: var(--border-strong); margin: 8px auto 12px; flex: none; }
 .sheet .sheet-body { overflow-y: auto; overscroll-behavior: contain; min-height: 0; display: flex; flex-direction: column; gap: 12px; padding-bottom: 4px; }
+/* Items keep their height and the body scrolls: a card (overflow: hidden) would otherwise be squeezed to nothing when a long list fills the sheet. */
+.sheet .sheet-body > *, .dialog .body > *, .dialog .actions > * { flex-shrink: 0; }
 @keyframes sheet-in { from { transform: translateY(100%); } to { transform: none; } }
 @media (min-width: 700px) {
   .scrim.sheet-scrim { align-items: center; padding: 24px; }

@@ -5,6 +5,28 @@ import android.util.Base64
 
 /** Imports public Happ/Xray-compatible links without depending on proprietary encryption keys. */
 object GhajarCompatibilityImport {
+    /**
+     * The subscription a link carries, when it carries one: `url=` /
+     * `subscription=` (plain or base64), or a link after `add/`. The web app
+     * sends it so a purchase arrives as a subscription that keeps itself
+     * updated, not as loose configs.
+     */
+    fun subscriptionOf(raw: String): Pair<String, String>? {
+        val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return null
+        val name = uri.getQueryParameter("name")?.trim().orEmpty()
+        val candidates = buildList {
+            listOf("url", "subscription", "sub").forEach { key -> uri.getQueryParameter(key)?.let(::add) }
+            val afterAdd = raw.substringAfter("://add/", "")
+            if (afterAdd.isNotBlank()) add(afterAdd.substringBefore('#'))
+        }
+        val url = candidates.asSequence()
+            .flatMap { sequenceOf(it.trim(), decodeBase64(it)?.trim()).filterNotNull() }
+            .map { Uri.decode(it).trim() }
+            .firstOrNull { it.startsWith("https://") || it.startsWith("http://") }
+            ?: return null
+        return url to name
+    }
+
     fun parseDeepLink(raw: String): List<ProxyConfig> {
         val uri = runCatching { Uri.parse(raw) }.getOrNull() ?: return emptyList()
         val candidates = buildList {

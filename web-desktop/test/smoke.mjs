@@ -32,6 +32,18 @@ const before = win.url()
 await win.evaluate(() => window.open('https://t.me/Ghajarvpn', '_blank'))
 await win.waitForTimeout(600)
 check(win.url() === before && app.windows().length === 1, 'outside link kept out of the app window')
+// Payment opens in the app's own window and closes back into the order check.
+const payUrl = new URL('../payment/checkout.php?ticket=t', url).toString()
+await win.evaluate(u => window.ghajarDesktop.openPayment(u), payUrl)
+await win.waitForTimeout(1500)
+check(app.windows().length === 2, 'payment opens in an in-app window')
+const pay = app.windows().find(w => w !== win)
+if (pay) {
+  await pay.evaluate(u => { location.href = u }, url + '#/').catch(() => undefined)
+  await win.waitForTimeout(1500)
+  check(app.windows().length === 1, 'returning from the gateway closes the payment window')
+  check(await win.evaluate(() => location.hash) === '#/shop', 'the app goes to the order check after payment')
+}
 await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].close())
 await win.waitForTimeout(500)
 check(await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().length === 1 && !BrowserWindow.getAllWindows()[0].isVisible()), 'closing hides to the tray')

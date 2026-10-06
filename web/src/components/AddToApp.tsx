@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'preact/hooks'
+import { useEffect, useMemo, useState } from 'preact/hooks'
 import { Sheet } from './Overlay'
 import { Icon } from './Icon'
 import { GhostPill, PillButton, TextButton, LinearProgress, Rail } from './Skin'
@@ -7,6 +7,7 @@ import { detectPlatform, PlatformNames, nativeBridge } from '../lib/platform'
 import { qrSvg } from '../lib/qr'
 import { copyText, toast } from '../state/ui'
 import { fa, ltr } from '../lib/format'
+import { relaySubscription } from '../api/client'
 
 /**
  * GhajarDeliveryDialog, for a device without the app's own engines: the
@@ -32,7 +33,18 @@ export function AddToAppSheet(props: {
   const [missing, setMissing] = useState<AppLink | null>(null)
   const payload = payloads[index] ?? null
   const qr = useMemo(() => (payload ? qrSvg(payload) : null), [payload])
-  const sub: Sub = { url: props.subscriptionUrl, name: props.productName || 'Ghajar VPN', configs: props.configs.filter(c => /^[a-z0-9+.-]+:\/\//i.test(c.trim())) }
+  // Desktop clients draw a server's flag only when the name starts with it:
+  // they get the subscription through the relay that moves flags first.
+  const desktop = platform === 'windows' || platform === 'mac' || platform === 'linux'
+  const [relayed, setRelayed] = useState<string | null>(null)
+  useEffect(() => {
+    setRelayed(null)
+    if (!desktop || !props.subscriptionUrl) return
+    let alive = true
+    relaySubscription(props.subscriptionUrl).then(u => { if (alive) setRelayed(u) }).catch(() => undefined)
+    return () => { alive = false }
+  }, [props.subscriptionUrl, desktop])
+  const sub: Sub = { url: relayed ?? props.subscriptionUrl, name: props.productName || 'Ghajar VPN', configs: props.configs.filter(c => /^[a-z0-9+.-]+:\/\//i.test(c.trim())) }
   const local = appsFor(platform)
   const others = AppLinks.filter(a => !local.includes(a))
   const files = props.configs.map(fileFor).filter((f): f is FileOut => f != null)

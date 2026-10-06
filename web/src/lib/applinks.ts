@@ -8,8 +8,8 @@ import { Platform } from './platform'
  *  - v2rayNG     v2rayng://install-sub?url=   (2dust/v2rayNG AndroidManifest + UrlSchemeActivity)
  *  - Hiddify     hiddify://install-config?url=&name=  (hiddify-app lib/utils/link_parsers.dart: any host + url=)
  *  - sing-box    sing-box://import-remote-profile?url=#name (sing-box docs, SFA/SFI)
- *  - Ghajar      intent with scheme happ → com.ghajarvpn.app, configs in data= as base64
- *                (GhajarCompatibilityImport.parseDeepLink reads url/config/data/fragment, base64 or plain)
+ *  - Ghajar      intent with scheme happ → com.ghajarvpn.app: url= the subscription (subscriptionOf),
+ *                data= the configs as base64 for older versions (parseDeepLink)
  *  - the rest follow each app's published import link; see web/APP_LINKS.md.
  */
 
@@ -47,8 +47,14 @@ const GHAJAR_RELEASES = 'https://github.com/meysam82003/Ghajarvpn-/releases/late
 export const AppLinks: AppLink[] = [
   {
     id: 'ghajar-android', name: 'قاجار وی پی ان', platforms: ['android'], androidPackage: 'com.ghajarvpn.app',
-    store: { android: GHAJAR_RELEASES }, needsConfigs: true,
-    build: s => s.configs.length ? `happ://add?data=${e(b64(s.configs.join('\n')))}#${e(s.name)}` : null
+    store: { android: GHAJAR_RELEASES },
+    // The subscription first (added as a self-updating subscription); the
+    // configs ride along in data= for app versions that only read configs.
+    build: s => {
+      if (!s.url && !s.configs.length) return null
+      const parts = [s.url ? `url=${e(s.url)}` : '', s.name ? `name=${e(s.name)}` : '', s.configs.length ? `data=${e(b64(s.configs.join('\n')))}` : ''].filter(Boolean)
+      return `happ://add?${parts.join('&')}`
+    }
   },
   { id: 'streisand', name: 'Streisand', platforms: ['ios', 'mac'], store: { ios: APPSTORE('Streisand'), mac: APPSTORE('Streisand') },
     build: s => s.url ? `streisand://import/${s.url}#${e(s.name)}` : null },

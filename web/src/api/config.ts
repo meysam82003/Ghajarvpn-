@@ -19,6 +19,8 @@ export const NOTICES_API = API_BASE + 'notices.php'
 export const MARKET_API = API_BASE + 'market.php'
 /** Notification registration ships inside the app's own folder (pwa/push.php). */
 export const PUSH_API = new URL('./push.php', document.baseURI).toString()
+/** The subscription relay for desktop clients (pwa/sub.php). */
+export const SUB_RELAY_API = new URL('./sub.php', document.baseURI).toString()
 
 export const APP_NAME_FA = 'قاجار وی پی ان'
 export const APP_NAME_EN = 'Ghajarvpn'

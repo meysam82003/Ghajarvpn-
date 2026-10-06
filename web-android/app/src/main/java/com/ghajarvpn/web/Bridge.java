@@ -68,6 +68,12 @@ final class Bridge {
         });
     }
 
+    /** The checkout page or gateway, in the app's payment screen. */
+    @JavascriptInterface
+    public void openPayment(String url) {
+        if (MainActivity.isPaymentPage(url)) activity.openPayment(url);
+    }
+
     @JavascriptInterface
     public void retry() {
         activity.reload();

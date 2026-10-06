@@ -735,6 +735,25 @@ class MainActivity : ComponentActivity() {
         lifecycleScope.launch {
             if (uri.scheme.equals("happ", true) || uri.scheme.equals("happ-proxy", true)) {
                 store.awaitReady()
+                // A subscription link first: added as a subscription that keeps
+                // itself updated, exactly as a purchase from the in-app shop.
+                GhajarCompatibilityImport.subscriptionOf(uri.toString())?.let { (url, name) ->
+                    val fetched = runCatching { SubscriptionFetcher.fetchFull(url) }.getOrNull()
+                        ?.takeIf { it.configs.isNotEmpty() }
+                    if (fetched != null) {
+                        val existing = store.subscriptions.value.firstOrNull { it.url == url }
+                        val subscription = existing ?: Subscription(name = BrandConfig.sanitizePublicText(name).ifBlank { "سرویس قاجار" }, url = url)
+                        val info = fetched.userInfo
+                        store.upsertSubscription(subscription.copy(
+                            used = info?.used ?: subscription.used,
+                            total = info?.total ?: subscription.total,
+                            expire = info?.expire ?: subscription.expire,
+                            lastUpdated = System.currentTimeMillis()
+                        ), fetched.configs)
+                        Toast.makeText(this@MainActivity, "اشتراک با ${fetched.configs.size} سرور به قاجار اضافه شد", Toast.LENGTH_LONG).show()
+                        return@launch
+                    }
+                }
                 val imported = GhajarCompatibilityImport.parseDeepLink(uri.toString())
                 val count = store.addImported(imported)
                 Toast.makeText(

@@ -29,6 +29,62 @@ app.userAgentFallback = app.userAgentFallback.replace(/ (?:Electron|ghajar-app|G
 if (!app.requestSingleInstanceLock()) app.quit()
 
 const inApp = url => typeof url === 'string' && url.startsWith(APP_URL)
+// Pages that belong to other apps or stores open there; every other web page
+// (the checkout page, the bank gateway, its return page) opens in the
+// in-app payment window, with no address bar, like the Android app.
+const EXTERNAL_HOSTS = /(^|\.)(t\.me|telegram\.me|telegram\.org|github\.com|githubusercontent\.com|google\.com|apple\.com|happ\.su|microsoft\.com)$/i
+function isPaymentPage(url) {
+  try {
+    const u = new URL(url)
+    return (u.protocol === 'https:' || u.protocol === 'http:') && !inApp(url) && !EXTERNAL_HOSTS.test(u.hostname)
+  } catch { return false }
+}
+
+let payWin = null
+/** The payment window: closes itself and refreshes the order when the gateway sends the buyer back. */
+function openPayment(url) {
+  if (!win) return
+  if (payWin && !payWin.isDestroyed()) { payWin.loadURL(url); payWin.focus(); return }
+  payWin = new BrowserWindow({
+    parent: win,
+    modal: process.platform !== 'darwin',
+    width: 560,
+    height: 820,
+    minWidth: 360,
+    minHeight: 500,
+    title: 'پرداخت امن قاجار',
+    backgroundColor: '#ffffff',
+    icon: ICON,
+    autoHideMenuBar: true,
+    webPreferences: { partition: 'persist:ghajar', contextIsolation: true, sandbox: true, nodeIntegration: false }
+  })
+  payWin.removeMenu()
+  payWin.on('page-title-updated', e => e.preventDefault())
+  const finish = () => {
+    if (payWin && !payWin.isDestroyed()) payWin.close()
+  }
+  const route = target => {
+    if (inApp(target) || /^ghajarvpn:/i.test(target)) { finish(); return true }
+    if (/^https?:\/\/(t\.me|telegram\.me)\//i.test(target) || /^tg:/i.test(target)) { finish(); return true }
+    if (!/^https?:/i.test(target)) { openOutside(target); return true }
+    return false
+  }
+  payWin.webContents.setWindowOpenHandler(({ url: next }) => {
+    if (!route(next)) payWin.loadURL(next)
+    return { action: 'deny' }
+  })
+  payWin.webContents.on('will-navigate', (event, next) => { if (route(next)) event.preventDefault() })
+  payWin.webContents.on('will-redirect', (event, next) => { if (route(next)) event.preventDefault() })
+  payWin.on('closed', () => {
+    payWin = null
+    if (win && !win.isDestroyed()) {
+      win.focus()
+      // The app checks the order as it does when the Android payment screen closes.
+      win.webContents.executeJavaScript("location.hash = '#/pay'").catch(() => undefined)
+    }
+  })
+  payWin.loadURL(url)
+}
 
 let lastExternal = { url: '', at: 0 }
 function openOutside(url) {
@@ -78,13 +134,15 @@ function createWindow(hidden) {
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (inApp(url)) win.loadURL(url)
+    else if (isPaymentPage(url)) openPayment(url)
     else openOutside(url)
     return { action: 'deny' }
   })
   win.webContents.on('will-navigate', (event, url) => {
     if (inApp(url) || url.startsWith('file:')) return
     event.preventDefault()
-    openOutside(url)
+    if (isPaymentPage(url)) openPayment(url)
+    else openOutside(url)
   })
   win.webContents.on('did-fail-load', async (_e, code, desc, url, isMainFrame) => {
     // -3 is an aborted load (a redirect or a new navigation), not a failure.
@@ -139,6 +197,7 @@ app.on('window-all-closed', () => { /* stays in the tray */ })
 
 ipcMain.on('ghajar:focus', show)
 ipcMain.on('ghajar:open-external', (_e, url) => openOutside(String(url)))
+ipcMain.on('ghajar:open-payment', (_e, url) => { if (isPaymentPage(String(url))) openPayment(String(url)) })
 ipcMain.on('ghajar:retry', async () => {
   if (!win) return
   route = 0

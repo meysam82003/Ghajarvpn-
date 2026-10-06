@@ -26,6 +26,7 @@ export interface NativeBridge {
   setToken?: (token: string) => void
   saveFile?: (name: string, mime: string, text: string) => void
   share?: (title: string, text: string) => void
+  openPayment?: (url: string) => void
 }
 export function nativeBridge(): NativeBridge | null {
   return (window as Window & { ghajarNative?: NativeBridge }).ghajarNative ?? null

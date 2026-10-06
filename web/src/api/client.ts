@@ -1,4 +1,4 @@
-import { CLIENT_HEADER, CLIENT_ID, MARKET_API, MINIAPP_API, NOTICES_API, WEBLINK_API, APP_VERSION, isHttps, visible } from './config'
+import { CLIENT_HEADER, CLIENT_ID, MARKET_API, MINIAPP_API, NOTICES_API, WEBLINK_API, SUB_RELAY_API, APP_VERSION, isHttps, visible } from './config'
 import { clearAccount, token, savePendingLink, pendingLink, LinkSession, clearPendingLink, saveToken } from './account'
 import * as M from './models'
 import { LinkState, bearerOf, responseState, invalidatesAccount } from './linkflow'
@@ -431,6 +431,19 @@ async function stampNotices(what: string, ids: string[]): Promise<void> {
 }
 
 export const markNoticesShown = (ids: string[]) => stampNotices('shown', ids)
+
+/** A signed relay address for a subscription (flags first, for desktop clients); null when unavailable. */
+export async function relaySubscription(url: string): Promise<string | null> {
+  try {
+    const res = await fetch(`${SUB_RELAY_API}?action=sign`, {
+      method: 'POST', cache: 'no-store',
+      headers: { 'Content-Type': 'application/json', Accept: 'application/json', Authorization: `Bearer ${requireToken()}`, [CLIENT_HEADER]: CLIENT_ID },
+      body: JSON.stringify({ url })
+    })
+    const json = await res.json().catch(() => null)
+    return res.ok && json?.status === true && typeof json.url === 'string' && /^https?:\/\//.test(json.url) ? json.url : null
+  } catch { return null }
+}
 
 export async function dismissNotice(id: string): Promise<void> {
   if (id.startsWith('notice:')) return stampNotices('dismiss', [id])

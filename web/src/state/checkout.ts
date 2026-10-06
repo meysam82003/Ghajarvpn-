@@ -337,6 +337,13 @@ export function openCheckout(url: string): boolean {
     set({ error: 'صفحهٔ پرداخت امن باز نشد؛ «ادامهٔ همین پرداخت» را دوباره بزن.' })
     return false
   }
+  // Inside the desktop or Android app: the app's own payment window, no address bar.
+  const shell = (window as Window & { ghajarDesktop?: { openPayment?: (u: string) => void }; ghajarNative?: { openPayment?: (u: string) => void } })
+  // Called on the object itself: an Android bridge method cannot be called detached.
+  try {
+    if (shell.ghajarNative?.openPayment) { shell.ghajarNative.openPayment(url); return true }
+    if (shell.ghajarDesktop?.openPayment) { shell.ghajarDesktop.openPayment(url); return true }
+  } catch { /* fall back to the browser */ }
   // Not 'noopener' in the features string: with it window.open always returns
   // null, and a blocked popup could not be told apart from an opened one.
   const w = window.open(url, '_blank')

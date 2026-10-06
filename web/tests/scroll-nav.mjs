@@ -65,6 +65,21 @@ for (const dev of ['Pixel 7', 'iPhone 13']) {
     const active = (await page.locator('section:not([hidden]) .tab-rail .tab.active').first().textContent()).trim()
     if (active !== name) fail(`${dev}: shop tab ${name} jumped to ${active}`)
   }
+  // The service picker keeps every card visible when the list is longer than the sheet.
+  await tab('خانه').tap(); await page.waitForTimeout(700)
+  await page.locator('section:not([hidden]) .home-side button.slab-row').first().tap(); await page.waitForTimeout(700)
+  const cards = await page.evaluate(() => {
+    const body = document.querySelector('.sheet .sheet-body')
+    if (!body) return null
+    const first = body.querySelector('.slab')
+    for (let i = 0; i < 12 && first; i++) body.insertBefore(first.cloneNode(true), first)
+    document.querySelector('.sheet').style.maxHeight = '360px'
+    return [...body.querySelectorAll('.slab')].map(e => Math.round(e.getBoundingClientRect().height))
+  })
+  if (!cards) fail(`${dev}: service picker did not open`)
+  else if (cards.some(h => h < 50)) fail(`${dev}: service cards squeezed in a long list (${cards.join(',')})`)
+  await page.goBack(); await page.waitForTimeout(500)
+
   // Back gesture from a tab goes home; from home the app is left alone.
   await tab('تنظیمات').tap(); await page.waitForTimeout(600)
   await page.goBack(); await page.waitForTimeout(800)
