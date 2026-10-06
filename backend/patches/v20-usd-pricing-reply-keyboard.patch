@@ -1,0 +1,26 @@
+--- a/re/rx/admin/pricing.php
++++ b/re/rx/admin/pricing.php
+@@ -1,5 +1,23 @@
+ <?php
+ 
++// "💵 قیمت‌گذاری دلاری پنل‌ها" on a reply keyboard sends its label, not the
++// fxall_menu callback the inline keyboard sends (and the label may arrive with
++// its style emoji stripped). Either way it opens the same bulk menu.
++if ((!isset($datain) || !is_string($datain) || $datain === '')
++    && isset($text) && is_string($text) && $text !== ''
++    && isset($adminrulecheck['rule']) && $adminrulecheck['rule'] == "administrator") {
++    $rxFxBulkLabel = "💵 قیمت‌گذاری دلاری پنل‌ها";
++    $rxFxNorm = static function (string $s): string {
++        $s = str_replace(["\u{200C}", "\u{200F}", "\u{200E}"], '', $s);
++        $s = function_exists('rx_cleanEmojiAndSymbols') ? rx_cleanEmojiAndSymbols($s) : $s;
++        return trim((string)preg_replace('/\s+/u', ' ', $s));
++    };
++    if (trim($text) === $rxFxBulkLabel || $rxFxNorm($text) === $rxFxNorm($rxFxBulkLabel)) {
++        $datain = 'fxall_menu';
++    }
++    unset($rxFxBulkLabel, $rxFxNorm);
++}
++
+ if (function_exists('fx_admin_button_label') && $text == fx_admin_button_label() && $adminrulecheck['rule'] == "administrator") {
+     $rxFxPanelName = function_exists('nmResolvePanelNameForUser') ? nmResolvePanelNameForUser($user) : (string)($user['Processing_value'] ?? '');
+     $rxFxPanel = $rxFxPanelName !== '' ? select("marzban_panel", "*", "name_panel", $rxFxPanelName, "select", ['cache' => false]) : false;
