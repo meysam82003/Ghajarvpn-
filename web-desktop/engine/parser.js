@@ -19,6 +19,7 @@
  */
 
 const crypto = require('crypto')
+const openvpn = require('./openvpn.js')
 
 // ======================================================================
 // ProxyConfig (ProxyConfig.kt)
@@ -2183,6 +2184,12 @@ function parseConfigBundle(text, source = 'PERSONAL') {
     if (looksLikeClash(trimmed)) {
       const clash = importClash(trimmed, source).configs
       if (clash.length) return clash
+    }
+    // An .ovpn profile (MainActivity: a .ovpn file, or text with a client /
+    // remote line, goes to GhajarOpenVpnBridge): one config, protocol "openvpn".
+    if (openvpn.isOvpn(trimmed)) {
+      const ovpn = openvpn.ovpnToConfig(trimmed, { source, make })
+      if (ovpn) return [ovpn]
     }
     // Kotlin quirk kept: each line is parsed alone, so a pasted block of N Tor
     // bridge lines becomes N single-bridge configs here (parseLink keeps them together).

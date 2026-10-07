@@ -122,6 +122,16 @@ class Store {
     this.save()
   }
 
+  /** Changes fields of one config (e.g. the username / password an .ovpn asks for). */
+  updateConfig(id, patch) {
+    const c = this.config(id)
+    if (!c) return null
+    const { id: _id, subId: _sub, ...rest } = patch || {}
+    Object.assign(c, rest)
+    this.save()
+    return c
+  }
+
   removeConfig(id) { this.data.configs = this.data.configs.filter(c => c.id !== id); this.save() }
   removeSubscription(id) {
     this.data.subscriptions = this.data.subscriptions.filter(s => s.id !== id)

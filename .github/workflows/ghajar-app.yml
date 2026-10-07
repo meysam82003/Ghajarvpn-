@@ -1,17 +1,20 @@
-name: Ghajar App (Windows / macOS / Linux / Android / iPhone)
+name: Ghajar App (Windows / macOS / Linux / Android TV / LG webOS / iPhone)
 
-# Installable files of the Ghajar web app, published to one GitHub Release
+# Installable files of the Ghajar app, published to one GitHub Release
 # (never marked "latest", so the Android release stays the latest one):
 #   GhajarVPN-win-x64.exe, GhajarVPN-mac-arm64.dmg, GhajarVPN-mac-x64.dmg,
-#   GhajarVPN-linux-x86_64.AppImage, GhajarVPN-android.apk, GhajarVPN-iPhone.mobileconfig
+#   GhajarVPN-linux-x86_64.AppImage, GhajarVPN-webos.ipk,
+#   GhajarVPN-AndroidTV-<abi>.apk (the main app from android.yml, which runs on TV),
+#   GhajarVPN-iPhone.mobileconfig
 on:
   push:
     branches: [main, 'claude/happy-ritchie-r51k5d']
-    paths: ['web-desktop/**', 'web-android/**', 'native/ghajar-helper/**', 'app/src/main/assets/geo*.dat', '.github/workflows/ghajar-app.yml']
+    paths: ['web-desktop/**', 'web-webos/**', 'native/ghajar-helper/**', 'app/src/main/assets/geo*.dat', '.github/workflows/ghajar-app.yml']
   workflow_dispatch:
 
 permissions:
   contents: write
+  actions: read   # the release job reads android.yml's artifacts
 
 concurrency:
   group: ghajar-app-${{ github.ref }}
@@ -137,7 +140,9 @@ jobs:
             target: mac
             cores: mac-x64 mac-arm64
             rust: aarch64-apple-darwin,x86_64-apple-darwin
-          - os: ubuntu-latest
+          # 22.04, not latest: slipstream (and Aether) link the build host's
+          # glibc, so the oldest supported Ubuntu keeps the AppImage portable.
+          - os: ubuntu-22.04
             target: linux
             cores: linux-x64
             rust: x86_64-unknown-linux-gnu
@@ -239,57 +244,30 @@ jobs:
           path: web-desktop/dist/*.exe
           if-no-files-found: error
 
-  android:
+  # LG webOS: the Ghajar web app in TV mode, packaged with ares-package.
+  webos:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
     defaults:
       run:
-        working-directory: web-android
+        working-directory: web-webos
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-node@v4
         with:
-          distribution: temurin
-          java-version: '17'
-      - uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - run: sdkmanager --install "platforms;android-36" "build-tools;36.0.0"
-      - name: Signing key (same secrets as the Android app; debug key when absent)
-        env:
-          SIGNING_BUNDLE: ${{ secrets.SIGNING_BUNDLE }}
-          SIGNING_ALIAS: ${{ secrets.SIGNING_ALIAS }}
-          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-        run: |
-          JKS="$RUNNER_TEMP/release.jks"
-          if [ -n "$SIGNING_BUNDLE" ]; then
-            PW="${SIGNING_BUNDLE%%:*}"; B64="${SIGNING_BUNDLE#*:}"; ALIAS="${SIGNING_ALIAS:-ghajar}"; KP="$PW"
-          elif [ -n "$KEYSTORE_BASE64" ]; then
-            PW="$KEYSTORE_PASSWORD"; B64="$KEYSTORE_BASE64"; ALIAS="$KEY_ALIAS"; KP="$KEY_PASSWORD"
-          else
-            echo "No signing secrets: the APK is signed with a debug key."; exit 0
-          fi
-          echo "::add-mask::$PW"; echo "::add-mask::$KP"
-          printf '%s' "$B64" | base64 -d > "$JKS"
-          if keytool -list -keystore "$JKS" -storepass "$PW" -alias "$ALIAS" >/dev/null 2>&1; then
-            printf 'storeFile=%s\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' "$JKS" "$PW" "$ALIAS" "$KP" > keystore.properties
-            echo "Signing with the release key."
-          else
-            echo "::warning::The signing secrets did not open; using a debug key."
-          fi
-      - run: chmod +x gradlew && ./gradlew --no-daemon assembleRelease
-      - run: mkdir -p out && cp app/build/outputs/apk/release/*.apk out/GhajarVPN-android.apk && ls -la out
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-webos/package-lock.json
+      - run: npm ci
+      - run: node build.mjs
       - uses: actions/upload-artifact@v4
         with:
-          name: ghajar-app-android
-          path: web-android/out/GhajarVPN-android.apk
+          name: ghajar-app-webos
+          path: web-webos/dist/GhajarVPN-webos.ipk
           if-no-files-found: error
 
   release:
-    needs: [build, build-win, android]
+    needs: [build, build-win, webos]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -300,6 +278,35 @@ jobs:
           pattern: ghajar-app-*
           path: files
           merge-multiple: true
+      # Android TV: the main app (app/, built by android.yml) runs on TV, so its
+      # latest successful preview APKs from this branch (else the default
+      # branch) are attached. Not fatal: without such a run there is no TV file.
+      - name: Android TV APKs from android.yml
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          run=""
+          for branch in "$GITHUB_REF_NAME" "${{ github.event.repository.default_branch }}"; do
+            run=$(gh run list -R "$GITHUB_REPOSITORY" --workflow android.yml --branch "$branch" --status success -L1 --json databaseId --jq '.[0].databaseId // empty')
+            [ -n "$run" ] && { echo "Android TV: android.yml run $run on $branch"; break; }
+            echo "Android TV: no successful android.yml run on $branch"
+          done
+          if [ -z "$run" ]; then echo "::warning::No successful android.yml run found; the release has no Android TV APK."; exit 0; fi
+          if ! gh run download "$run" -R "$GITHUB_REPOSITORY" -n Ghajarvpn-Android-preview -D tv; then
+            echo "::warning::android.yml run $run has no Ghajarvpn-Android-preview artifact (expired?); no Android TV APK."; exit 0
+          fi
+          find tv -name '*.apk' -print
+          for apk in $(find tv -name '*.apk'); do
+            name=$(basename "$apk")
+            abi=""
+            for a in arm64-v8a armeabi-v7a x86_64 x86; do
+              case "$name" in *"$a"*) abi=$a; break ;; esac
+            done
+            if [ -n "$abi" ]; then dest="files/GhajarVPN-AndroidTV-$abi.apk"; else dest="files/GhajarVPN-AndroidTV.apk"; fi
+            cp "$apk" "$dest" && echo "Android TV: $name -> $(basename "$dest")"
+          done
       - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -307,7 +314,7 @@ jobs:
           set -euo pipefail
           VERSION=$(node -p "require('./web-desktop/package.json').version")
           TAG="ghajar-app-v${VERSION}"
-          TITLE="قاجار وی پی ان — نسخهٔ نصبی ویندوز، مک، لینوکس، اندروید و آیفون ${VERSION}"
+          TITLE="قاجار وی پی ان — نسخهٔ نصبی ویندوز، مک، لینوکس، اندروید تی‌وی، ال‌جی و آیفون ${VERSION}"
           cat > notes.md <<'NOTES'
           ## نصب
 
@@ -318,13 +325,19 @@ jobs:
           | مک (اینتل) | `GhajarVPN-mac-x64.dmg` | مثل بالا. |
           | لینوکس | `GhajarVPN-linux-x86_64.AppImage` | اجازهٔ اجرا بده (Properties ← Allow executing) و باز کن. |
           | آیفون / آیپد | `GhajarVPN-iPhone.mobileconfig` | با Safari دانلود کن ← Allow ← Settings ← «Profile Downloaded» ← Install. آیکن قاجار روی صفحهٔ اصلی می‌آید. |
-          | اندروید | `GhajarVPN-android.apk` | دانلود کن و باز کن ← نصب (اگر خواست، «اجازه از این منبع» را روشن کن). اعلان‌ها حتی وقتی برنامه بسته است می‌آیند. |
+          | اندروید تی‌وی (ARM 64 بیتی، بیشتر تلویزیون‌ها) | `GhajarVPN-AndroidTV-arm64-v8a.apk` | با یک فایل‌منیجر یا «Send Files to TV» روی تلویزیون بریز و نصب کن (نصب از منابع ناشناس را روشن کن). |
+          | اندروید تی‌وی (ARM 32 بیتی) | `GhajarVPN-AndroidTV-armeabi-v7a.apk` | مثل بالا، برای تلویزیون‌ها و باکس‌های قدیمی‌تر. |
+          | تلویزیون ال‌جی (webOS) | `GhajarVPN-webos.ipk` | Developer Mode را روی تلویزیون فعال کن و با `ares-install GhajarVPN-webos.ipk` (یا webOS Dev Manager) نصب کن. |
 
           نسخهٔ کامپیوتر در سینی سیستم (کنار ساعت) می‌ماند تا اعلان‌ها برسند و با روشن شدن کامپیوتر خودش اجرا می‌شود؛ از منوی همان آیکن قابل خاموش کردن است.
           NOTES
           sed -i 's/^          //' notes.md
           ls -la files
           if gh release view "$TAG" >/dev/null 2>&1; then
+            # Files this release no longer ships.
+            for gone in GhajarVPN-android.apk GhajarVPN-chrome-extension.zip GhajarVPN-firefox-extension.xpi; do
+              gh release delete-asset "$TAG" "$gone" -y 2>/dev/null || true
+            done
             gh release upload "$TAG" files/* --clobber
             gh release edit "$TAG" --title "$TITLE" --notes-file notes.md --latest=false
           else

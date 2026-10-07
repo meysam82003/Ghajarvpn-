@@ -1,10 +1,14 @@
 // The desktop VPN engine: picks the core a config needs (Xray, sing-box with
-// its sidecars, Psiphon), runs it on 127.0.0.1, and connects one of three ways:
+// its sidecars and OpenVPN, Psiphon, Tor, Aether), runs it on 127.0.0.1, and
+// connects one of three ways:
 //
 //   proxy   only what is pointed at the local ports (the browser extension)
 //   system  the operating system's proxy settings point at the local ports
 //   tun     a sing-box TUN (run with administrator rights) captures the
 //           whole device and forwards it to the core: every app, every port
+//
+// IKEv2 is the exception: it is the operating system's own VPN client
+// (ikev2.js), always the whole device, with no local port.
 //
 // It mirrors the Android CoreManager: one connection at a time, real-delay
 // tests through the core itself, "fastest server" selection, free servers.
@@ -20,6 +24,10 @@ const free = require('./free.js')
 const { Store } = require('./store.js')
 const { setSystemProxy } = require('./sysproxy.js')
 const { runElevated } = require('./elevate.js')
+const tor = require('./tor.js')
+const aether = require('./aether.js')
+const ikev2 = require('./ikev2.js')
+const openvpn = require('./openvpn.js')
 
 const DEFAULT_SOCKS = 10808
 const DEFAULT_HTTP = 10809
@@ -71,6 +79,7 @@ function tail(text, n = 4) { return String(text || '').trim().split(/\r?\n/).sli
 /** A child process with its output kept for error messages. */
 function runChild(binary, args, { env, cwd } = {}) {
   const proc = spawn(binary, args, { env: { ...process.env, ...env }, cwd, windowsHide: true })
+  proc.stdin.on('error', () => { /* the child closed its input */ })
   proc.log = ''
   const keep = d => { proc.log = (proc.log + d).slice(-4000) }
   proc.stdout.on('data', keep)
@@ -78,6 +87,29 @@ function runChild(binary, args, { env, cwd } = {}) {
   proc.exited = new Promise(r => proc.once('exit', code => r(code)))
   proc.once('error', e => { proc.log += '\n' + e.message })
   return proc
+}
+
+/**
+ * Waits until onLine(line) returns true for a line of the child's output
+ * (stdout and stderr), or throws: onLine throwing, the child exiting, or ms passing.
+ */
+function waitForLine(proc, onLine, ms, timeoutMessage) {
+  return new Promise((resolve, reject) => {
+    let buf = ''
+    const timer = setTimeout(() => done(new Error(timeoutMessage)), ms)
+    const done = e => { clearTimeout(timer); proc.stderr.off('data', onData); proc.stdout.off('data', onData); e ? reject(e) : resolve() }
+    const onData = d => {
+      buf += d
+      let i
+      while ((i = buf.search(/\r?\n/)) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1).replace(/^\n/, '')
+        try { if (onLine(line)) return done() } catch (e) { return done(e) }
+      }
+    }
+    proc.stderr.on('data', onData)
+    proc.stdout.on('data', onData)
+    proc.exited.then(() => done(new Error(tail(proc.log) || 'exited')))
+  })
 }
 
 async function killChild(proc) {
@@ -104,6 +136,8 @@ class Engine {
     this.onChange = onChange || (() => {})
     this.children = []
     this.tun = null
+    this.osVpn = null
+    this.osVpnTimer = null
     this.systemProxy = false
     this.state = { connected: false, connecting: false, error: '', mode: '', socksPort: 0, httpPort: 0, server: null, engine: '', since: 0 }
     this.store.onChange(() => this.emit())
@@ -116,6 +150,7 @@ class Engine {
       ...xray.DEFAULT_SETTINGS,
       mode: 'tun',                // tun | apps | system | proxy (the whole device, like the phone app)
       apps: [],                   // mode 'apps': only these programs use the VPN
+      torrcExtra: '',             // advanced: more torrc lines for Tor profiles
       bypassApps: [],             // mode 'tun': these programs stay off the VPN
       iranDirect: true,
       autoFastest: false,
@@ -135,8 +170,11 @@ class Engine {
   /** What this build can run, for the UI to grey out the rest. */
   capabilities() {
     const helpers = ['ghajar-helper', 'juicity', 'dnstt', 'vaydns', 'noizdns', 'slipstream', 'masterdns', 'stormdns', 'cottendns']
+    const t = tor.torLayout(this.binDir)
     return {
-      xray: this.has('xray'), singbox: this.has('sing-box'), psiphon: this.has('psiphon'), tor: this.has('tor'),
+      xray: this.has('xray'), singbox: this.has('sing-box'), psiphon: this.has('psiphon'),
+      tor: !!t, torBridges: !!(t && (t.lyrebird || t.snowflake)), torCountries: !!(t && t.geoip && t.geoip6),
+      aether: this.has('aether'), openvpn: this.has('sing-box'), ikev2: ikev2.supported(),
       tun: this.has('sing-box'), apps: this.has('sing-box'), helpers: Object.fromEntries(helpers.map(h => [h, this.has(h)]))
     }
   }
@@ -149,8 +187,12 @@ class Engine {
     return {
       available: this.available(), connected: s.connected, connecting: s.connecting, error: s.error,
       mode: s.mode || this.settings().mode, engine: s.engine, since: s.since,
-      socks: s.connected ? { host: '127.0.0.1', port: s.socksPort } : null,
-      http: s.connected ? { host: '127.0.0.1', port: s.httpPort } : null,
+      socks: s.connected && s.socksPort ? { host: '127.0.0.1', port: s.socksPort } : null,
+      http: s.connected && s.httpPort ? { host: '127.0.0.1', port: s.httpPort } : null,
+      // IKEv2: the operating system's VPN carries the whole device; no local port.
+      osVpn: s.engine === 'ikev2',
+      // Tor's progress while it connects (0-100).
+      bootstrap: s.connecting && Number.isInteger(s.bootstrap) ? s.bootstrap : undefined,
       server: s.server ? { id: s.server.id, name: s.server.name, protocol: s.server.protocol } : null,
       selectedId: sel ? sel.id : '', service: this.serviceName(), directIran: this.settings().iranDirect !== false,
       // The extension still addresses servers by index in the active group.
@@ -180,7 +222,11 @@ class Engine {
     const delays = this.store.delays()
     return this.store.groups().map(g => ({
       ...g,
-      configs: g.configs.map(c => ({ id: c.id, name: c.name, protocol: c.protocol, address: c.address, port: c.port, favorite: !!c.favorite, delay: delays[c.id] ?? null, family: parser.protocolFamily(c) }))
+      configs: g.configs.map(c => ({
+        id: c.id, name: c.name, protocol: c.protocol, address: c.address, port: c.port, favorite: !!c.favorite, delay: delays[c.id] ?? null, family: parser.protocolFamily(c),
+        // An .ovpn with auth-user-pass and no credentials yet: the UI asks for them (setCredentials).
+        ...(c.protocol === 'openvpn' ? { needsCredentials: openvpn.needsCredentials(c) } : {})
+      }))
     }))
   }
 
@@ -190,6 +236,12 @@ class Engine {
   planFor(config) {
     const family = parser.protocolFamily(config)
     if (family === 'psiphon') return { engine: 'psiphon' }
+    // A Psiphon profile with Oblivion core "aether" / "chain" is reported as 'aether' here.
+    if (family === 'aether') return { engine: 'aether' }
+    if (family === 'tor') return { engine: 'tor' }
+    if (family === 'ikev2') return { engine: 'ikev2' }
+    // An .ovpn runs as sing-box's openvpn-client endpoint (openvpn.js).
+    if (family === 'openvpn') return { engine: 'singbox' }
     if (family === 'xray') {
       if (xray.supportsXray(config)) return { engine: 'xray' }
       throw new Error('این ترنسپورت (h2/quic قدیمی) در هستهٔ جدید Xray حذف شده؛ کانفیگ تازه از پنل بگیر')
@@ -212,6 +264,8 @@ class Engine {
 
     await this.disconnect(true)
     const settings = this.settings()
+    const plan0 = (() => { try { return this.planFor(config) } catch { return null } })()
+    if (plan0 && plan0.engine === 'ikev2') return this.connectOsVpn(config)
     const mode = settings.mode
     this.state = { ...this.state, connecting: true, error: '', mode, server: config }
     this.emit()
@@ -233,8 +287,147 @@ class Engine {
     }
   }
 
-  async startCore(engine, config, settings, socksPort, httpPort) {
-    const cfgPath = path.join(this.runDir, `${engine}.json`)
+  /**
+   * IKEv2 through the operating system's VPN client: connect, then poll it so
+   * a drop shows as "disconnected" like any other engine. The mode is always
+   * the whole device ('tun'); there is no local port.
+   */
+  async connectOsVpn(config) {
+    this.state = { ...this.state, connecting: true, error: '', mode: 'tun', server: config }
+    this.emit()
+    try {
+      const vpn = ikev2.osVpn(config, { dir: path.join(this.runDir, 'ikev2') })
+      this.osVpn = vpn
+      await vpn.connect()
+      this.state = { connected: true, connecting: false, error: '', mode: 'tun', socksPort: 0, httpPort: 0, server: config, engine: 'ikev2', since: Date.now() }
+      this.osVpnTimer = setInterval(async () => {
+        if (this.osVpn !== vpn || !this.state.connected) return
+        if (await vpn.connected()) return
+        if (this.osVpn !== vpn) return
+        await this.disconnect(true)
+        this.state = { ...this.state, error: 'اتصال قطع شد' }
+        this.emit()
+      }, 5000)
+      if (this.osVpnTimer.unref) this.osVpnTimer.unref()
+      this.emit()
+      return this.status()
+    } catch (e) {
+      await this.disconnect(true)
+      this.state = { ...this.state, connected: false, connecting: false, error: tail(e.message || e, 3) }
+      this.emit()
+      throw new Error(this.state.error)
+    }
+  }
+
+  /** The username / password an .ovpn (or an IKEv2 profile) asks for. */
+  setCredentials(id, username, password) {
+    return this.store.updateConfig(id, { uuid: String(username || ''), password: String(password || '') })
+  }
+
+  /** Aether's Zero Trust sign-in: the six-digit code from the email (AetherController.submitEmailCode). */
+  submitAetherCode(code) {
+    if (!/^[0-9]{6}$/.test(String(code))) throw new Error('کد ایمیل باید ۶ رقم باشد')
+    const p = this.children.find(c => c.aether && c.exitCode === null)
+    if (p) p.stdin.write(String(code) + '\n')
+    return !!p
+  }
+
+  /**
+   * Starts Xray on socksPort/httpPort in front of a local SOCKS upstream
+   * (Psiphon, Tor, Aether), the same routing as every other server.
+   */
+  chainXray(upstream, settings, socksPort, httpPort, cfgPath) {
+    fs.writeFileSync(cfgPath, JSON.stringify(xray.buildChainToSocks('127.0.0.1', upstream, settings, { socksPort, httpPort })))
+    return runChild(this.bin('xray'), ['run', '-c', cfgPath], { env: { XRAY_LOCATION_ASSET: this.binDir } })
+  }
+
+  /** A side process the engine owns: stopped on disconnect, a crash ends the connection. */
+  own(proc) {
+    this.children.push(proc)
+    this.watch(proc)
+    return proc
+  }
+
+  /**
+   * psiphon-tunnel-core with its SOCKS on `port`. Like the Android controller:
+   * up only once the SOCKS port AND a first tunnel exist (90 s). upstreamUrl:
+   * the "chain" core, Psiphon dialling through Aether.
+   */
+  async startPsiphon(config, port, upstreamUrl = '') {
+    if (!this.has('psiphon')) throw new Error('هستهٔ Psiphon در این نسخه نیست')
+    const pDir = path.join(this.dataDir, 'psiphon')
+    fs.mkdirSync(pDir, { recursive: true })
+    const pCfg = path.join(this.runDir, 'psiphon.json')
+    fs.writeFileSync(pCfg, JSON.stringify(free.psiphonConfig({
+      mode: config.psiphonMode || 'auto', country: config.psiphonCountry || '', cdnIps: config.psiphonCdnIps || '',
+      cdnSni: config.psiphonCdnSni || '', dataDir: pDir, socksPort: port, upstreamProxyUrl: upstreamUrl
+    })))
+    const ps = this.own(runChild(this.bin('psiphon'), free.psiphonArgs(pCfg, { dataDir: pDir }), { cwd: pDir }))
+    let up = false, tunnel = false
+    await waitForLine(ps, line => {
+      const ev = free.psiphonNoticeEvent(line)
+      if (!ev) return false
+      if (ev.fatal) throw new Error('Psiphon: ' + ev.message)
+      if (ev.type === 'socksPort') up = true
+      if (ev.type === 'connected') tunnel = true
+      return up && tunnel
+    }, free.PSIPHON.READY_TIMEOUT_MS || 90000, 'Psiphon در ۹۰ ثانیه راهی پیدا نکرد').catch(e => {
+      throw new Error(e.message.startsWith('Psiphon') ? e.message : 'Psiphon بسته شد: ' + e.message)
+    })
+  }
+
+  /** Aether (aether.js) with its SOCKS on `port`: up when the port answers (180 s, as on Android). */
+  async startAether(config, port) {
+    if (!this.has('aether')) throw new Error('هستهٔ Aether در این نسخه نیست')
+    const spec = aether.aetherSpec(config)
+    const workDir = path.join(this.dataDir, 'aether')
+    fs.mkdirSync(workDir, { recursive: true })
+    const proc = this.own(runChild(this.bin('aether'), aether.aetherArgs(spec, port), {
+      cwd: workDir, env: aether.aetherEnv(spec, { workDir, tmpDir: require('os').tmpdir(), port })
+    }))
+    proc.aether = true
+    const up = await Promise.race([waitForPort(port, aether.READY_TIMEOUT_MS), proc.exited.then(() => false)])
+    if (!up || proc.exitCode !== null) throw new Error('Aether اجرا نشد: ' + (tail(proc.log) || 'در ۱۸۰ ثانیه راهی پیدا نکرد'))
+  }
+
+  /**
+   * Tor (tor.js) with its SOCKS on `port`, up at "Bootstrapped 100%" (120 s).
+   * torThroughVpn: the base server (torBaseId) runs first on its own local
+   * port and Tor reaches its relays through it (the phone's tor-in → torbase).
+   */
+  async startTor(config, settings, port) {
+    const layout = tor.torLayout(this.binDir)
+    if (!layout) throw new Error('Tor در این نسخه نیست')
+    let upstreamPort = 0
+    if (config.torThroughVpn && config.torBaseId) {
+      const base = this.store.config(config.torBaseId)
+      if (!base) throw new Error('سرور پایهٔ Tor پیدا نشد؛ Tor را دوباره بساز')
+      const engine = this.planFor(base).engine
+      if (!['xray', 'singbox'].includes(engine)) throw new Error('سرور پایهٔ Tor باید یک سرور معمولی باشد')
+      upstreamPort = await freePort(port + 10)
+      const baseHttp = await freePort(upstreamPort + 1)
+      await this.startCore(engine, base, { ...settings, iranDirect: false, splitRouting: false }, upstreamPort, baseHttp, 'tor-base')
+    }
+    const dataDir = path.join(this.dataDir, 'tor')
+    fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })
+    const plan = tor.torPlan(config, { layout, socksPort: port, dataDir, upstreamPort, extra: settings.torrcExtra })
+    fs.writeFileSync(plan.torrcPath, plan.torrc)
+    const proc = this.own(runChild(plan.binary, plan.args, { cwd: plan.cwd, env: plan.env }))
+    let percent = 0
+    await waitForLine(proc, line => {
+      const err = tor.fatalLine(line)
+      if (err) throw new Error('Tor: ' + err)
+      const p = tor.bootstrapPercent(line)
+      if (p !== null) { percent = p; this.state = { ...this.state, bootstrap: p }; this.emit() }
+      return percent >= 100
+    }, tor.READY_TIMEOUT_MS, 'Tor در ۱۲۰ ثانیه وصل نشد').catch(e => {
+      throw new Error(e.message.startsWith('Tor') ? `${e.message} (${percent}%)` : 'Tor بسته شد: ' + e.message)
+    })
+    if (!(await waitForPort(port, 5000))) throw new Error('Tor پورت SOCKS را باز نکرد')
+  }
+
+  async startCore(engine, config, settings, socksPort, httpPort, name = engine) {
+    const cfgPath = path.join(this.runDir, `${name}.json`)
     let proc
     if (engine === 'xray') {
       fs.writeFileSync(cfgPath, JSON.stringify(xray.buildXrayConfig(config, settings, { socksPort, httpPort, logLevel: 'warning' })))
@@ -245,43 +438,28 @@ class Engine {
       fs.writeFileSync(cfgPath, JSON.stringify(singbox.buildProxyOnlyConfig({ outbound, socksPort, httpPort, settings: { iranDirect: settings.iranDirect, iranRuleSet: this.iranRuleSet(), remoteDns: settings.remoteDns } })))
       proc = runChild(this.bin('sing-box'), ['run', '-c', cfgPath, '-D', this.runDir])
     } else if (engine === 'psiphon') {
-      if (!this.has('psiphon')) throw new Error('هستهٔ Psiphon در این نسخه نیست')
       // Psiphon opens its own local SOCKS; Xray in front keeps the routing rules
       // (Iran direct, ads) the same as every other server, like buildPsiphon.
       const upstream = await freePort(socksPort + 20)
-      const pDir = path.join(this.dataDir, 'psiphon')
-      fs.mkdirSync(pDir, { recursive: true })
-      const pCfg = path.join(this.runDir, 'psiphon.json')
-      fs.writeFileSync(pCfg, JSON.stringify(free.psiphonConfig({
-        mode: config.psiphonMode || 'auto', country: config.psiphonCountry || '', cdnIps: config.psiphonCdnIps || '',
-        cdnSni: config.psiphonCdnSni || '', dataDir: pDir, socksPort: upstream
-      })))
-      const ps = runChild(this.bin('psiphon'), free.psiphonArgs(pCfg, { dataDir: pDir }), { cwd: pDir })
-      this.children.push(ps)
-      this.watch(ps)
-      // Like the Android controller: up only once the SOCKS port AND a first tunnel exist (90 s).
-      await new Promise((resolve, reject) => {
-        let port = false, tunnel = false, buf = ''
-        const timer = setTimeout(() => done(new Error('Psiphon در ۹۰ ثانیه راهی پیدا نکرد')), free.PSIPHON.READY_TIMEOUT_MS || 90000)
-        const done = e => { clearTimeout(timer); ps.stderr.off('data', onData); ps.stdout.off('data', onData); e ? reject(e) : resolve() }
-        const onData = d => {
-          buf += d
-          let i
-          while ((i = buf.indexOf('\n')) >= 0) {
-            const ev = free.psiphonNoticeEvent(buf.slice(0, i)); buf = buf.slice(i + 1)
-            if (!ev) continue
-            if (ev.fatal) return done(new Error('Psiphon: ' + ev.message))
-            if (ev.type === 'socksPort') port = true
-            if (ev.type === 'connected') tunnel = true
-            if (port && tunnel) return done()
-          }
-        }
-        ps.stderr.on('data', onData)
-        ps.stdout.on('data', onData)
-        ps.exited.then(() => done(new Error('Psiphon بسته شد: ' + tail(ps.log))))
-      })
-      fs.writeFileSync(cfgPath, JSON.stringify(xray.buildChainToSocks('127.0.0.1', upstream, settings, { socksPort, httpPort })))
-      proc = runChild(this.bin('xray'), ['run', '-c', cfgPath], { env: { XRAY_LOCATION_ASSET: this.binDir } })
+      await this.startPsiphon(config, upstream)
+      proc = this.chainXray(upstream, settings, socksPort, httpPort, cfgPath)
+    } else if (engine === 'aether') {
+      // Aether's SOCKS, or for Oblivion's "chain" core Aether and then Psiphon
+      // dialled through it (PsiphonConfig: UpstreamProxyURL socks5://…aetherPort).
+      const aetherPort = await freePort(socksPort + 30)
+      await this.startAether(config, aetherPort)
+      let upstream = aetherPort
+      if (config.protocol === 'psiphon' && aether.oblivion(config.oblivionJson).chain) {
+        upstream = await freePort(aetherPort + 2)
+        await this.startPsiphon(config, upstream, `socks5://127.0.0.1:${aetherPort}`)
+      }
+      proc = this.chainXray(upstream, settings, socksPort, httpPort, cfgPath)
+    } else if (engine === 'tor') {
+      const torPort = await freePort(socksPort + 40)
+      await this.startTor(config, settings, torPort)
+      proc = this.chainXray(torPort, settings, socksPort, httpPort, cfgPath)
+    } else {
+      throw new Error('موتور ناشناخته: ' + engine)
     }
     this.children.push(proc)
     this.watch(proc)
@@ -356,10 +534,12 @@ class Engine {
   async disconnect(quiet) {
     const children = this.children
     this.children = []
+    if (this.osVpnTimer) { clearInterval(this.osVpnTimer); this.osVpnTimer = null }
+    if (this.osVpn) { const v = this.osVpn; this.osVpn = null; await v.disconnect() }
     if (this.tun) { const t = this.tun; this.tun = null; await t.stop() }
     if (this.systemProxy) { this.systemProxy = false; await setSystemProxy(false).catch(() => undefined) }
     await Promise.all(children.map(killChild))
-    this.state = { ...this.state, connected: false, connecting: false, socksPort: 0, httpPort: 0, engine: '', since: 0 }
+    this.state = { ...this.state, connected: false, connecting: false, socksPort: 0, httpPort: 0, engine: '', since: 0, bootstrap: undefined }
     if (!quiet) this.emit()
     return this.status()
   }
@@ -532,6 +712,44 @@ class Engine {
     }
     const own = new Set([...singbox.CORE_PROCESSES].map(x => String(x).toLowerCase()))
     return [...new Set(names)].filter(n => !own.has(n.toLowerCase().replace(/\.exe$/, ''))).sort((a, b) => a.localeCompare(b)).map(name => ({ name }))
+  }
+
+  /**
+   * Tor as a server entry, like the app's Tor nodes screen: one per exit
+   * country ('' = automatic). throughVpn: Tor reaches its relays through
+   * baseId (default: the selected server when it is a plain one).
+   */
+  addTor({ country = '', throughVpn = false, baseId = '', bridges = '' } = {}) {
+    const label = (tor.COUNTRIES.find(c => c[0] === country) || [])[1]
+    let base = ''
+    if (throughVpn) {
+      const sel = this.store.config(baseId) || this.store.selected()
+      const ok = c => c && !['tor', 'aether', 'psiphon', 'ikev2'].includes(c.protocol)
+      base = ok(sel) ? sel.id : ((this.store.data.configs.find(ok) || {}).id || '')
+      if (!base) throw new Error('برای Tor از راه VPN اول یک سرور معمولی اضافه کن')
+    }
+    const lines = String(bridges || '').trim()
+    const pt = lines ? lines.replace(/^bridge\s+/i, '').split(/\s/)[0].toLowerCase() : ''
+    const c = {
+      ...parser.defaults(), protocol: 'tor', name: country ? `Tor - ${label || country}` : 'Tor', address: '127.0.0.1', port: 9150,
+      torCountry: country, torThroughVpn: !!base, torBaseId: base, extra: lines ? JSON.stringify({ pt, bridges: lines }) : '',
+      id: require('crypto').randomUUID(), subId: 'manual', source: 'COMMUNITY'
+    }
+    this.store.data.configs.push(c)
+    this.store.save()
+    return c
+  }
+
+  /** Aether as a server entry (the app's Aether screen): mode masque | wg | gool | mim. */
+  addAether({ mode = 'masque', scan = 'balanced', noise = '', http2 = false, exitLoc = '', fragment = false, ipv6 = false } = {}) {
+    const c = {
+      ...parser.defaults(), protocol: 'aether', name: `Aether (${String(mode).toUpperCase()})`, address: '127.0.0.1', port: 1819,
+      aetherMode: mode, aetherScan: scan, aetherNoise: noise, aetherHttp2: !!http2, aetherExitLoc: String(exitLoc).trim().toUpperCase(),
+      aetherFragment: !!fragment && !!http2, aetherIpv6: !!ipv6, id: require('crypto').randomUUID(), subId: 'manual', source: 'COMMUNITY'
+    }
+    this.store.data.configs.push(c)
+    this.store.save()
+    return c
   }
 
   /** Psiphon as a server entry, like the app's built-in one. */

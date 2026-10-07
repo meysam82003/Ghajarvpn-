@@ -116,6 +116,7 @@
           "cottendns.exe",
           "tor",
           "tor.exe",
+          "tor/**",
           "lyrebird",
           "lyrebird.exe",
           "aether",
