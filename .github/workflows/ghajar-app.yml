@@ -51,6 +51,14 @@ jobs:
           restore-keys: desktop-cores-go-win-${{ env.GO_VERSION }}-
       - name: Cores for win-x64 (cross-compiled)
         run: bash web-desktop/scripts/build-cores.sh win-x64
+      # After build-cores.sh, which starts each core directory afresh.
+      - name: Tor and Aether for win-x64 (optional, when their scripts exist)
+        continue-on-error: true
+        run: |
+          for s in fetch-tor.sh build-aether-desktop.sh; do
+            [ -f "web-desktop/scripts/$s" ] || continue
+            bash "web-desktop/scripts/$s" win-x64 || echo "::warning::$s failed for win-x64; its protocols stay greyed out"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: cores-win-x64
@@ -167,6 +175,14 @@ jobs:
           targets: ${{ matrix.rust }}
       - name: Cores (${{ matrix.cores }})
         run: bash scripts/build-cores.sh ${{ matrix.cores }}
+      # After build-cores.sh, which starts each core directory afresh.
+      - name: Tor and Aether (optional, when their scripts exist)
+        continue-on-error: true
+        run: |
+          for s in fetch-tor.sh build-aether-desktop.sh; do
+            [ -f "scripts/$s" ] || continue
+            bash "scripts/$s" ${{ matrix.cores }} || echo "::warning::$s failed for ${{ matrix.cores }}; its protocols stay greyed out"
+          done
       - run: npm run dist:${{ matrix.target }}
       - name: iPhone profile
         if: matrix.target == 'linux'
@@ -278,8 +294,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+      # Only the installers: the cores-* artifacts are build inputs, not release files.
       - uses: actions/download-artifact@v4
         with:
+          pattern: ghajar-app-*
           path: files
           merge-multiple: true
       - name: Publish release
