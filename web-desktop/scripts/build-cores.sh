@@ -199,6 +199,9 @@ prepare_singbox() {
     log "sing-box sources at $SINGBOX_COMMIT"
     fetch_git "$singbox_src" "$SINGBOX_REPO" "$SINGBOX_COMMIT" &&
         ( cd "$singbox_src" && go_download ) || return 1
+    # What `sing-box version` prints, e.g. 1.15.0-alpha.9 (a shallow clone has no tags).
+    singbox_version=$(git -C "$singbox_src" describe --tags 2>/dev/null | sed 's/^v//')
+    singbox_version=${singbox_version:-${SINGBOX_COMMIT%"${SINGBOX_COMMIT#???????}"}}
     singbox_ready=1
 }
 
@@ -353,7 +356,8 @@ build_singbox() { # target
     echo "  tags: $tags (CGO_ENABLED=$cgo)"
     if ( cd "$singbox_src" && CGO_ENABLED=$cgo GOOS=$(goos "$t") GOARCH=$(goarch "$t") \
             MACOSX_DEPLOYMENT_TARGET=${MACOSX_DEPLOYMENT_TARGET:-12.0} \
-            go build -trimpath -tags "$tags" -ldflags "$SINGBOX_LDFLAGS" -o "$f" ./cmd/sing-box ); then
+            go build -trimpath -tags "$tags" -ldflags "-X github.com/sagernet/sing-box/constant.Version=$singbox_version $SINGBOX_LDFLAGS" \
+            -o "$f" ./cmd/sing-box ); then
         finish "$t" sing-box "$f" "$note" || true
         [ -f "$out/libcronet.so" ] && record "$t" libcronet.so ok "for naive"
         [ -f "$out/libcronet.dll" ] && record "$t" libcronet.dll ok "for naive"
