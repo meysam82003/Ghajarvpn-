@@ -1377,7 +1377,13 @@ private fun SvSquare(hue: Float, sat: Float, value: Float, onChange: (Float, Flo
     var h by remember { mutableFloatStateOf(1f) }
     fun at(p: Offset) = onChange((p.x / w).coerceIn(0f, 1f), 1f - (p.y / h).coerceIn(0f, 1f))
     Canvas(
-        Modifier.fillMaxWidth().aspectRatio(1.6f).clip(RoundedCornerShape(GhajarRadius.md))
+        Modifier.fillMaxWidth().aspectRatio(1.6f)
+            // TV: left/right adjusts saturation (the hex field sets any colour).
+            .tvDpadAdjust(
+                onLeft = { onChange((sat - 0.05f).coerceIn(0f, 1f), value) },
+                onRight = { onChange((sat + 0.05f).coerceIn(0f, 1f), value) }
+            )
+            .clip(RoundedCornerShape(GhajarRadius.md))
             .pointerInput(Unit) { detectTapGestures { at(it) } }
             .pointerInput(Unit) { detectDragGestures(onDragStart = { at(it) }) { ch, _ -> at(ch.position) } }
     ) {
@@ -1396,7 +1402,14 @@ private fun HueBar(hue: Float, onChange: (Float) -> Unit) {
     fun at(x: Float) = onChange((x / w).coerceIn(0f, 1f) * 360f)
     val hues = remember { (0..6).map { Color.hsv(it * 60f % 360f, 1f, 1f) }.let { it.dropLast(1) + Color.hsv(359.9f, 1f, 1f) } }
     Canvas(
-        Modifier.fillMaxWidth().height(28.dp).clip(RoundedCornerShape(GhajarRadius.pill))
+        Modifier.fillMaxWidth().height(28.dp)
+            // TV: left/right moves the hue with the remote.
+            .tvDpadAdjust(
+                onLeft = { onChange((hue - 6f).coerceIn(0f, 360f)) },
+                onRight = { onChange((hue + 6f).coerceIn(0f, 360f)) },
+                radius = GhajarRadius.pill
+            )
+            .clip(RoundedCornerShape(GhajarRadius.pill))
             .pointerInput(Unit) { detectTapGestures { at(it.x) } }
             .pointerInput(Unit) { detectDragGestures(onDragStart = { at(it.x) }) { ch, _ -> at(ch.position.x) } }
     ) {
@@ -1412,7 +1425,13 @@ private fun AlphaBar(color: Color, alpha: Float, onChange: (Float) -> Unit) {
     var w by remember { mutableFloatStateOf(1f) }
     fun at(x: Float) = onChange((x / w).coerceIn(0f, 1f))
     Canvas(
-        Modifier.fillMaxWidth().height(22.dp).clip(RoundedCornerShape(GhajarRadius.pill))
+        Modifier.fillMaxWidth().height(22.dp)
+            .tvDpadAdjust(
+                onLeft = { onChange((alpha - 0.05f).coerceIn(0f, 1f)) },
+                onRight = { onChange((alpha + 0.05f).coerceIn(0f, 1f)) },
+                radius = GhajarRadius.pill
+            )
+            .clip(RoundedCornerShape(GhajarRadius.pill))
             .pointerInput(Unit) { detectTapGestures { at(it.x) } }
             .pointerInput(Unit) { detectDragGestures(onDragStart = { at(it.x) }) { ch, _ -> at(ch.position.x) } }
     ) {

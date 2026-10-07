@@ -122,6 +122,7 @@ fun SettingsTile(tile: SettingsTileSpec, modifier: Modifier = Modifier) {
     Column(
         modifier
             .heightIn(min = if (compact) 88.dp else if (large) 132.dp else 110.dp)
+            .tvFocusGlow(look.cardRadius.coerceAtMost(28).dp)
             .clip(shape)
             .background(c.secondaryCard)
             .border(1.dp, c.border.copy(alpha = 0.6f), shape)

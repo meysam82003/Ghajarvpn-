@@ -2041,7 +2041,8 @@ private fun GozarApp(
                             onAddManually = { showManual = true },
                             onFreeProjects = { showProjects = true },
                             onWindscribe = { showWindscribe = true },
-                            onScanQr = { showScanner = true },
+                            // No camera on a TV; the panel offers "add from link" there.
+                            onScanQr = { if (!isTv) showScanner = true },
                             onShareFile = { exportConfigs = it },
                             onOpenVpnHub = { showOpenVpnHub = true },
                             onPsiphonHub = { showPsiphonHub = true },
@@ -3922,7 +3923,6 @@ private fun ConfigPickerScreen(
     }
 
     if (linkDialog) {
-        val linkFocus = LocalFocusManager.current
         GlassDialog(
             onDismiss = { linkDialog = false },
             title = t("tv_add_link"),
@@ -3940,6 +3940,8 @@ private fun ConfigPickerScreen(
                 }
             }
         ) {
+            // The dialog is its own window, so its own focus manager.
+            val linkFocus = LocalFocusManager.current
             Text(
                 t("tv_add_link_sub"),
                 style = MaterialTheme.typography.bodySmall,
@@ -5930,6 +5932,7 @@ private fun WindscribeLocationsHeader(
         Column(Modifier.fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth()
+                    .tvFocusGlow(22.dp, ring = true, scaleTo = 1f)
                     .clip(RoundedCornerShape(22.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -6069,6 +6072,9 @@ private fun WindscribeServerRow(
             .pointerInput(Unit) {
                 detectTapGestures(onPress = { center = it }, onTap = { onClick() })
             }
+            // TV: the tap gesture above is touch-only; this makes the row a
+            // focus stop that OK selects.
+            .tvClickable(14.dp) { onClick() }
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 11.dp),
@@ -6126,6 +6132,7 @@ private fun WindscribeCountryCard(
         Column(Modifier.fillMaxWidth()) {
             Row(
                 Modifier.fillMaxWidth()
+                    .tvFocusGlow(20.dp, ring = true, scaleTo = 1f)
                     .clip(RoundedCornerShape(20.dp))
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
@@ -6398,12 +6405,18 @@ private fun CheckHostScreen(modifier: Modifier = Modifier) {
         }
     }
 
+    // Tapping the empty page dismisses the keyboard on a phone. On TV that
+    // tap target would be one huge focus stop wrapping the whole screen.
+    val checkHostIsTv = LocalIsTv.current
     Column(
         modifier.fillMaxSize()
-            .clickable(
-                interactionSource = remember { MutableInteractionSource() },
-                indication = null
-            ) { focus.clearFocus() }
+            .then(
+                if (checkHostIsTv) Modifier
+                else Modifier.clickable(
+                    interactionSource = remember { MutableInteractionSource() },
+                    indication = null
+                ) { focus.clearFocus() }
+            )
             .verticalScroll(rememberScrollState())
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -8211,7 +8224,7 @@ private fun CollapsibleGroup(
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 14.dp)) {
             Row(
-                Modifier.fillMaxWidth().clickable(
+                Modifier.fillMaxWidth().tvFocusGlow(GhajarRadius.sm, ring = true, scaleTo = 1f).clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null
                 ) { onToggle() },
@@ -8758,6 +8771,8 @@ private fun ConnectionSettingsScreen(
                 }
                 Spacer(Modifier.width(12.dp))
                 val focus = LocalFocusManager.current
+                // TV: Done moves on to the next control instead of dropping focus.
+                val doneMovesOn = LocalIsTv.current
                 var portText by remember(mixedPort) { mutableStateOf(mixedPort.toString()) }
                 BasicTextField(
                     value = portText,
@@ -8777,7 +8792,7 @@ private fun ConnectionSettingsScreen(
                         keyboardType = KeyboardType.Number,
                         imeAction = ImeAction.Done
                     ),
-                    keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                    keyboardActions = KeyboardActions(onDone = { if (doneMovesOn) focus.moveFocus(FocusDirection.Down) else focus.clearFocus() }),
                     modifier = Modifier.width(78.dp).height(36.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(MaterialTheme.colorScheme.surfaceVariant)
@@ -11592,6 +11607,12 @@ private fun UsageBarChart(bars: List<UsageStore.Bar>) {
                         .fillMaxWidth()
                         .height(140.dp)
                         .onSizeChanged { rowWidth = it.width }
+                        // TV: left/right steps the inspected bar, the remote's
+                        // version of scrubbing the chart with a finger.
+                        .tvDpadAdjust(
+                            onLeft = { if (bars.isNotEmpty()) focused = ((focused ?: bars.size) - 1).coerceIn(0, bars.lastIndex) },
+                            onRight = { if (bars.isNotEmpty()) focused = ((focused ?: -1) + 1).coerceIn(0, bars.lastIndex) }
+                        )
                         .pointerInput(bars.size) {
                             awaitPointerEventScope {
                                 while (true) {
@@ -11883,6 +11904,9 @@ private fun FillButton(
 
     Box(
         modifier
+            // TV: this button draws no indication of its own, so it carries
+            // the full focus ring.
+            .tvFocusGlow(GhajarRadius.pill, ring = true)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(shape)
             .background(
@@ -11969,7 +11993,7 @@ private fun BounceIconButton(
     IconButton(
         onClick = onClick,
         enabled = enabled,
-        modifier = modifier.pressBounce(scale, scope),
+        modifier = modifier.tvFocusGlow(GhajarRadius.pill, ring = true).pressBounce(scale, scope),
         content = content
     )
 }
@@ -14432,6 +14456,8 @@ private fun AppProxyScreen(
     val lang = LocalLang.current
     val context = LocalContext.current
     val focus = LocalFocusManager.current
+    // TV: Done moves on to the next control instead of dropping focus.
+    val doneMovesOn = LocalIsTv.current
     val mode by store.perAppMode.collectAsState()
     val selected by store.perAppList.collectAsState()
     val c = ghajarColors
@@ -14442,9 +14468,16 @@ private fun AppProxyScreen(
     LaunchedEffect(Unit) {
         apps = withContext(Dispatchers.IO) {
             val pm = context.packageManager
+            // TV apps (YouTube for TV, Netflix, ...) are launched from the TV
+            // home screen, not the phone launcher, so on a television an app
+            // with only a leanback entry is a real app to route too.
+            val tvDevice = GhajarTv.isTv(context)
             pm.getInstalledApplications(PackageManager.GET_META_DATA)
                 .asSequence()
-                .filter { pm.getLaunchIntentForPackage(it.packageName) != null }
+                .filter {
+                    pm.getLaunchIntentForPackage(it.packageName) != null ||
+                        (tvDevice && pm.getLeanbackLaunchIntentForPackage(it.packageName) != null)
+                }
                 .filter { it.packageName != context.packageName }
                 .map { ai ->
                     AppEntry(
@@ -14543,7 +14576,7 @@ private fun AppProxyScreen(
                     }
                 },
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                keyboardActions = KeyboardActions(onDone = { focus.clearFocus() }),
+                keyboardActions = KeyboardActions(onDone = { if (doneMovesOn) focus.moveFocus(FocusDirection.Down) else focus.clearFocus() }),
                 shape = RoundedCornerShape(GhajarRadius.md),
                 modifier = Modifier.fillMaxWidth()
             )

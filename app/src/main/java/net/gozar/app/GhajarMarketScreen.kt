@@ -190,6 +190,17 @@ fun GhajarMarketScreen(
         }
     }
 
+    // Android TV: the remote's Back walks back through the marketplace (an
+    // order to its shop, a shop or the registration page to the list) instead
+    // of leaving the whole shop tab. Phones keep their existing behaviour.
+    val marketIsTv = LocalIsTv.current
+    androidx.activity.compose.BackHandler(enabled = marketIsTv && active && route !is MarketRoute.List) {
+        route = when (val r = route) {
+            is MarketRoute.Order -> MarketRoute.Shop(r.shopId)
+            else -> MarketRoute.List
+        }
+    }
+
     val current = feed
     val onRegister: () -> Unit = { if (signedIn) route = MarketRoute.Register else onSignIn() }
     when {

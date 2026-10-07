@@ -332,6 +332,8 @@ private fun TermKey(
                 pressed = false
             }
         }
+            // TV: the hold-to-repeat gesture is touch-only; OK presses it once.
+            .tvClickable(12.dp) { action() }
     } else {
         keyBase.clickable { action() }
     }

@@ -256,6 +256,13 @@ fun GhajarShopScreen(modifier: Modifier = Modifier, active: Boolean = true) {
         GhajarRenewRequest.consume()
     }
 
+    // Android TV: Back inside Ghajar's own storefront returns to the list of
+    // shops before it leaves the shop tab. Phones keep their behaviour.
+    val shopIsTv = LocalIsTv.current
+    androidx.activity.compose.BackHandler(enabled = shopIsTv && active && inGhajar) {
+        inGhajar = false
+    }
+
     val checkout = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) {
         checkoutModel.checkPayment()
         refreshKey++

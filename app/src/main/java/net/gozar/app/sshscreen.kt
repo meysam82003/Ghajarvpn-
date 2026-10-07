@@ -919,6 +919,7 @@ internal fun SshFillButton(
 
     Box(
         modifier
+            .tvFocusGlow(GhajarRadius.md, ring = true)
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(shape)
             .background(accent.copy(alpha = 0.10f))

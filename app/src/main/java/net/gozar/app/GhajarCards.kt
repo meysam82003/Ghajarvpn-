@@ -52,7 +52,7 @@ fun GhajarCard(
         )
     }
     if (onClick != null) {
-        Card(onClick = onClick, modifier = modifier, shape = shape, colors = colors,
+        Card(onClick = onClick, modifier = modifier.tvFocusGlow(radius, ring = true), shape = shape, colors = colors,
             border = border, elevation = elevation) { body() }
     } else {
         Card(modifier = modifier, shape = shape, colors = colors,
