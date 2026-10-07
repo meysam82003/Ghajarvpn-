@@ -145,14 +145,15 @@ function torPlan(config, { layout, socksPort, dataDir, upstreamPort = 0, extra =
   if (needsPt && !layout.lyrebird && !(usesSnowflake && layout.snowflake && bridges.lines.every(l => /^snowflake\s/i.test(l)))) {
     throw new Error('پل‌های Tor به lyrebird نیاز دارند که در این نسخه نیست')
   }
-  const ptDir = path.dirname(layout.lyrebird || layout.snowflake || layout.tor)
-  const rel = f => (platform === 'win32' ? '.\\' : './') + path.basename(f)
+  const P = platform === 'win32' ? path.win32 : path.posix
+  const ptDir = P.dirname(layout.lyrebird || layout.snowflake || layout.tor)
+  const rel = f => (platform === 'win32' ? '.\\' : './') + P.basename(f)
   const ptExec = needsPt ? { lyrebird: rel(layout.lyrebird || layout.snowflake), snowflake: layout.snowflake ? rel(layout.snowflake) : '' } : {}
   const torrc = buildTorrc({
     socksPort, dataDir, country: config.torCountry, geoip: layout.geoip, geoip6: layout.geoip6,
     upstreamPort, bridges, ptExec, extra
   })
-  const torrcPath = path.join(dataDir, 'torrc')
+  const torrcPath = P.join(dataDir, 'torrc')
   const env = { HOME: dataDir }
   // The Linux bundle's tor sits next to its libevent / OpenSSL; macOS's next to libevent.
   if (platform === 'linux') env.LD_LIBRARY_PATH = [layout.dir, process.env.LD_LIBRARY_PATH].filter(Boolean).join(':')

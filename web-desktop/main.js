@@ -250,6 +250,11 @@ ipcMain.handle('ghajar:core', async (_e, op, arg) => {
     case 'addWarp': return (await core.addWarp({ fetchImpl: await viaVpnFetch() })).id
     case 'addPsiphon': return core.addPsiphon(String(arg || '')).id
     case 'runningApps': return core.runningApps()
+    case 'setCredentials': core.setCredentials(String(arg.id), String(arg.username || ''), String(arg.password || '')); return core.groups()
+    case 'addTor': return core.addTor(arg && typeof arg === 'object' ? arg : {}).id
+    case 'torCountries': return require('./engine/tor.js').COUNTRIES
+    case 'addAether': return core.addAether(arg && typeof arg === 'object' ? arg : {}).id
+    case 'submitAetherCode': return core.submitAetherCode(String(arg || ''))
     case 'directIran': core.setSettings({ iranDirect: !!arg }); return core.status()
     default: throw new Error('unknown')
   }

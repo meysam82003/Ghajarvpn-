@@ -38,15 +38,15 @@ export function isAndroidApp(): boolean { return !!nativeBridge() }
 export type CoreMode = 'proxy' | 'system' | 'apps' | 'tun'
 export interface CoreStatus {
   available: boolean; connected: boolean; connecting: boolean; error: string
-  mode?: CoreMode; engine?: string; since?: number; selectedId?: string
+  mode?: CoreMode; engine?: string; since?: number; selectedId?: string; osVpn?: boolean; bootstrap?: number
   socks: { host: string; port: number } | null; http: { host: string; port: number } | null
   server: { id?: string; name: string; protocol: string } | null; service: string; selected: number; directIran: boolean
 }
 export interface CoreServer { index: number; id?: string; name: string; protocol: string; host: string; port: number }
-export interface CoreConfig { id: string; name: string; protocol: string; address: string; port: number; favorite: boolean; delay: number | null; family: string }
+export interface CoreConfig { id: string; name: string; protocol: string; address: string; port: number; favorite: boolean; delay: number | null; family: string; needsCredentials?: boolean }
 export interface CoreGroup { id: string; name: string; url?: string; kind: string; used?: number; total?: number; expire?: number; lastUpdated?: number; configs: CoreConfig[] }
 export interface CoreSettings { mode: CoreMode; iranDirect: boolean; autoFastest: boolean; apps?: string[]; bypassApps?: string[]; [key: string]: unknown }
-export interface CoreCapabilities { xray: boolean; singbox: boolean; psiphon: boolean; tor: boolean; tun: boolean; apps?: boolean; helpers: Record<string, boolean> }
+export interface CoreCapabilities { xray: boolean; singbox: boolean; psiphon: boolean; tor: boolean; tun: boolean; apps?: boolean; torBridges?: boolean; aether?: boolean; openvpn?: boolean; ikev2?: boolean; helpers: Record<string, boolean> }
 export interface DesktopCore {
   version?: number
   status(): Promise<CoreStatus>
@@ -77,6 +77,11 @@ export interface DesktopCore {
   addWarp?(): Promise<string>
   addPsiphon?(country?: string): Promise<string>
   runningApps?(): Promise<{ name: string }[]>
+  setCredentials?(id: string, username: string, password: string): Promise<CoreGroup[]>
+  addTor?(opts: { country?: string; throughVpn?: boolean; bridges?: string }): Promise<string>
+  torCountries?(): Promise<[string, string][]>
+  addAether?(opts: { mode?: string; exitLoc?: string; http2?: boolean; fragment?: boolean }): Promise<string>
+  submitAetherCode?(code: string): Promise<boolean>
 }
 export function desktopCore(): DesktopCore | null {
   return (window as Window & { ghajarDesktop?: { core?: DesktopCore } }).ghajarDesktop?.core ?? null

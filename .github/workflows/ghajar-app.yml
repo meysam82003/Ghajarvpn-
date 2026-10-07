@@ -230,6 +230,20 @@ jobs:
         with:
           name: cores-win-x64-slipstream
           path: web-desktop/core/win-x64
+      # Aether (WARP MASQUE/WireGuard) needs a native MSVC build: BoringSSL
+      # is compiled for the host, so it cannot come from the Linux cross job.
+      - name: Aether toolchain (optional)
+        continue-on-error: true
+        shell: bash
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\\Program Files\\NASM" >> "$GITHUB_PATH"
+          rustup target add x86_64-pc-windows-msvc
+      - name: Aether (optional)
+        continue-on-error: true
+        timeout-minutes: 25
+        shell: bash
+        run: bash scripts/build-aether-desktop.sh win-x64
       - name: Cores present
         shell: bash
         run: |

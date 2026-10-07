@@ -31,6 +31,7 @@ const openvpn = require('./openvpn.js')
 
 const DEFAULT_SOCKS = 10808
 const DEFAULT_HTTP = 10809
+const OPENVPN_TIMEOUT_MS = 40000
 const EXE = process.platform === 'win32' ? '.exe' : ''
 
 // ------------------------------------------------------------------ helpers
@@ -253,18 +254,19 @@ class Engine {
   // -------------------------------------------------------------- connect
 
   async connect(target) {
-    if (!this.available()) throw new Error('هستهٔ اتصال در این نسخه نیست؛ نسخهٔ تازهٔ برنامه را نصب کن')
     let config = null
     if (typeof target === 'string') config = this.store.config(target)
     else if (Number.isInteger(target)) config = this.activeGroup().configs[target] || null
     if (!config && this.settings().autoFastest) config = await this.fastest()
     if (!config) config = this.store.selected()
     if (!config) throw new Error('سروری انتخاب نشده؛ اول یک سرویس یا کانفیگ اضافه کن')
+    const plan0 = (() => { try { return this.planFor(config) } catch { return null } })()
+    // IKEv2 needs no core of ours: the operating system's VPN client carries it.
+    if (!this.available() && !(plan0 && plan0.engine === 'ikev2')) throw new Error('هستهٔ اتصال در این نسخه نیست؛ نسخهٔ تازهٔ برنامه را نصب کن')
     this.store.select(config.id)
 
     await this.disconnect(true)
     const settings = this.settings()
-    const plan0 = (() => { try { return this.planFor(config) } catch { return null } })()
     if (plan0 && plan0.engine === 'ikev2') return this.connectOsVpn(config)
     const mode = settings.mode
     this.state = { ...this.state, connecting: true, error: '', mode, server: config }
@@ -406,7 +408,11 @@ class Engine {
       if (!['xray', 'singbox'].includes(engine)) throw new Error('سرور پایهٔ Tor باید یک سرور معمولی باشد')
       upstreamPort = await freePort(port + 10)
       const baseHttp = await freePort(upstreamPort + 1)
-      await this.startCore(engine, base, { ...settings, iranDirect: false, splitRouting: false }, upstreamPort, baseHttp, 'tor-base')
+      // A plain hop, like the phone's tor-in → torbase: no Iran-direct split and
+      // no sniffing (Tor's TLS names are made up; overriding the destination
+      // with them would send Tor nowhere), no ad blocking, no fake DNS.
+      const plain = { ...settings, iranDirect: false, splitRouting: false, sniffing: false, adBlock: false, fakeDns: false, shareOnLan: false }
+      await this.startCore(engine, base, plain, upstreamPort, baseHttp, 'tor-base')
     }
     const dataDir = path.join(this.dataDir, 'tor')
     fs.mkdirSync(dataDir, { recursive: true, mode: 0o700 })
@@ -426,9 +432,28 @@ class Engine {
     if (!(await waitForPort(port, 5000))) throw new Error('Tor پورت SOCKS را باز نکرد')
   }
 
+  /**
+   * OpenVPN is up when the endpoint says "tunnel established"; a refused
+   * login or a dead server is an error now, not a connection that carries
+   * nothing (GhajarOpenVpnBridge's CONNECTED / AUTH_FAILED states).
+   */
+  openvpnUp(proc) {
+    const plainLine = l => l.replace(/\x1b\[[0-9;]*m/g, '')
+    return waitForLine(proc, raw => {
+      const line = plainLine(raw)
+      if (!/openvpn-client/.test(line)) return false
+      const end = /client terminated: (.*)$/.exec(line)
+      if (end) throw new Error(/authentication failed|AUTH_FAILED/i.test(end[1]) ? 'نام کاربری یا رمز OpenVPN رد شد (AUTH_FAILED)' : 'OpenVPN: ' + end[1])
+      return /tunnel established/.test(line)
+    }, OPENVPN_TIMEOUT_MS, 'سرور OpenVPN پاسخ نداد').catch(e => {
+      throw new Error(/^(OpenVPN|نام|سرور)/.test(e.message) ? e.message : 'OpenVPN: ' + e.message)
+    })
+  }
+
   async startCore(engine, config, settings, socksPort, httpPort, name = engine) {
     const cfgPath = path.join(this.runDir, `${name}.json`)
     let proc
+    let tunnel = null
     if (engine === 'xray') {
       fs.writeFileSync(cfgPath, JSON.stringify(xray.buildXrayConfig(config, settings, { socksPort, httpPort, logLevel: 'warning' })))
       proc = runChild(this.bin('xray'), ['run', '-c', cfgPath], { env: { XRAY_LOCATION_ASSET: this.binDir } })
@@ -437,6 +462,7 @@ class Engine {
       const outbound = await this.sidecarFor(config)
       fs.writeFileSync(cfgPath, JSON.stringify(singbox.buildProxyOnlyConfig({ outbound, socksPort, httpPort, settings: { iranDirect: settings.iranDirect, iranRuleSet: this.iranRuleSet(), remoteDns: settings.remoteDns } })))
       proc = runChild(this.bin('sing-box'), ['run', '-c', cfgPath, '-D', this.runDir])
+      if (config.protocol === 'openvpn') { tunnel = this.openvpnUp(proc); tunnel.catch(() => { /* awaited below */ }) }
     } else if (engine === 'psiphon') {
       // Psiphon opens its own local SOCKS; Xray in front keeps the routing rules
       // (Iran direct, ads) the same as every other server, like buildPsiphon.
@@ -466,6 +492,7 @@ class Engine {
     if (!(await waitForPort(socksPort, 10000)) || proc.exitCode !== null) {
       throw new Error(tail(proc.log) || 'هسته اجرا نشد')
     }
+    if (tunnel) await tunnel
   }
 
   /**
@@ -557,7 +584,8 @@ class Engine {
     const xs = configs.filter(c => engineOf(c) === 'xray')
     // sing-box protocols that need no helper are tested through sing-box itself.
     const sbs = this.has('sing-box') ? configs.filter(c => engineOf(c) === 'singbox' && !singbox.sidecarSpec(c)) : []
-    const rest = configs.filter(c => !xs.includes(c) && !sbs.includes(c))
+    // IKEv2 answers on UDP 500 only, so a TCP ping would always say "dead": it gets no number.
+    const rest = configs.filter(c => !xs.includes(c) && !sbs.includes(c) && engineOf(c) !== 'ikev2')
     if (xs.length && this.available()) {
       for (let i = 0; i < xs.length; i += 64) Object.assign(results, await this.xrayBatch(xs.slice(i, i + 64)))
     }

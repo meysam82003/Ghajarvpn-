@@ -17,10 +17,12 @@
 // sing-box protocol. That endpoint has its own userspace network stack, so no
 // TUN driver or administrator rights are needed for the OpenVPN part.
 //
-// buildOpenvpnEndpoint() maps the OpenVPN client directives onto the sing-box
+// buildOpenvpnSpec() maps the OpenVPN client directives onto the sing-box
 // fields one by one; a directive sing-box cannot honour (dev tap, PKCS#12, an
-// encrypted key, a file that is not embedded) is an error with the reason,
-// never silently dropped. Directives that only change the local machine's
+// encrypted key, a file that is not embedded) is an error with the reason
+// rather than silently dropped. The one exception is an inline <crl-verify>
+// (sing-box takes a CRL by path only), which is ignored; crl-verify <file> is
+// kept as an absolute path. Directives that only change the local machine's
 // routing table (redirect-gateway, route, dhcp-option, block-outside-dns, …)
 // do not apply to a proxy endpoint and are ignored, as are the ones that only
 // steer the openvpn process itself (verb, persist-*, nobind, resolv-retry, …).
@@ -113,7 +115,7 @@ function isOvpn(text) {
  * Rewrites directives that point at files (ca ca.crt, tls-auth ta.key 1, …)
  * into inline blocks, reading the files relative to baseDir, so the stored
  * profile no longer depends on where it was imported from. Files that cannot
- * be read are left as they are (buildOpenvpnEndpoint then says which).
+ * be read are left as they are (buildOpenvpnSpec then says which).
  */
 function embedFiles(text, baseDir, readFile = f => fs.readFileSync(f, 'utf8')) {
   if (!baseDir) return String(text)
@@ -121,7 +123,9 @@ function embedFiles(text, baseDir, readFile = f => fs.readFileSync(f, 'utf8')) {
   for (const line of String(text).split(/\r\n|\n|\r/)) {
     const w = words(line.trim())
     const name = (w[0] || '').replace(/^--/, '').toLowerCase()
-    if (FILE_DIRECTIVES.includes(name) && w[1] && !INLINE.test(w[1]) && !(name === 'peer-fingerprint' && /^[0-9a-f:]{64,}$/i.test(w[1]))) {
+    // sing-box reads a CRL by path only: keep it a path, made absolute.
+    if (name === 'crl-verify' && w[1] && !INLINE.test(w[1]) && !path.isAbsolute(w[1])) { out.push(`crl-verify "${path.join(baseDir, w[1]).replace(/\\/g, '\\\\')}"`); continue }
+    if (name !== 'crl-verify' && FILE_DIRECTIVES.includes(name) && w[1] && !INLINE.test(w[1]) && !(name === 'peer-fingerprint' && /^[0-9a-f:]{64,}$/i.test(w[1]))) {
       let content = null
       try { content = readFile(path.isAbsolute(w[1]) ? w[1] : path.join(baseDir, w[1])) } catch { content = null }
       if (content != null && String(content).trim()) {

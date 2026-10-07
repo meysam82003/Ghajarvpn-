@@ -35,6 +35,11 @@ contextBridge.exposeInMainWorld('ghajarDesktop', {
     addWarp: () => ipcRenderer.invoke('ghajar:core', 'addWarp'),
     addPsiphon: country => ipcRenderer.invoke('ghajar:core', 'addPsiphon', country || ''),
     runningApps: () => ipcRenderer.invoke('ghajar:core', 'runningApps'),
+    setCredentials: (id, username, password) => ipcRenderer.invoke('ghajar:core', 'setCredentials', { id: String(id), username: String(username || ''), password: String(password || '') }),
+    addTor: opts => ipcRenderer.invoke('ghajar:core', 'addTor', opts || {}),
+    torCountries: () => ipcRenderer.invoke('ghajar:core', 'torCountries'),
+    addAether: opts => ipcRenderer.invoke('ghajar:core', 'addAether', opts || {}),
+    submitAetherCode: code => ipcRenderer.invoke('ghajar:core', 'submitAetherCode', String(code)),
     setDirectIran: on => ipcRenderer.invoke('ghajar:core', 'directIran', !!on),
     onStatus: callback => {
       const listener = (_e, st) => callback(st)

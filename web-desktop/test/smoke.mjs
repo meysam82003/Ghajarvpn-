@@ -93,7 +93,7 @@ if (coreDir) {
   await win.waitForTimeout(400)
   await win.keyboard.press('Escape'); await win.waitForTimeout(400)
   const groups = await win.evaluate(() => window.ghajarDesktop.core.groups())
-  const smoke = groups.flatMap(g => g.configs).find(c => c.name.startsWith('Smoke'))
+  const smoke = groups.flatMap(g => g.configs).filter(c => c.name.startsWith('Smoke') && c.port === vport).pop()
   const delays = await win.evaluate(i => window.ghajarDesktop.core.test([i]), smoke.id)
   check(typeof delays[smoke.id] === 'number', `delay test ran (${delays[smoke.id]} ms; real internet probe may be offline here)`)
   const st = await win.evaluate(i => window.ghajarDesktop.core.connect(i), smoke.id)

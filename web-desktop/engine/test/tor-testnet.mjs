@@ -27,10 +27,12 @@ const TESTING = [
   'V3AuthDistDelay 4'
 ]
 
-export async function startTorTestnet({ tor = 'tor', torGencert = 'tor-gencert', dir, freePort }) {
+export async function startTorTestnet({ tor = 'tor', torGencert = 'tor-gencert', dir, freePort, lyrebird = '' }) {
   const procs = []
   const nodes = []
   for (let i = 0; i < 3; i++) nodes.push({ name: `test${i}`, dir: join(dir, `relay${i}`), orPort: await freePort(), dirPort: await freePort() })
+  // With lyrebird: a fourth relay that is an unpublished obfs4 bridge.
+  if (lyrebird) nodes.push({ name: 'bridge0', dir: join(dir, 'bridge0'), orPort: await freePort(), dirPort: await freePort(), bridge: true, ptPort: await freePort() })
   for (const n of nodes) mkdirSync(join(n.dir, 'keys'), { recursive: true, mode: 0o700 })
   const auth = nodes[0]
   // The authority's v3 identity, then every relay's identity fingerprint.
@@ -49,7 +51,9 @@ export async function startTorTestnet({ tor = 'tor', torGencert = 'tor-gencert',
       `DataDirectory ${n.dir}`, `Nickname ${n.name}`, 'Address 127.0.0.1', `ORPort 127.0.0.1:${n.orPort}`, `DirPort 127.0.0.1:${n.dirPort}`,
       'SocksPort 0', 'AssumeReachable 1', 'ExitRelay 1', 'ExitPolicy accept *:*', 'ExitPolicyRejectPrivate 0', 'ExitPolicyRejectLocalInterfaces 0',
       'ContactInfo test@localhost', 'Log notice stdout', 'ShutdownWaitLength 0',
-      ...(n === auth ? ['AuthoritativeDirectory 1', 'V3AuthoritativeDirectory 1'] : [])
+      ...(n === auth ? ['AuthoritativeDirectory 1', 'V3AuthoritativeDirectory 1'] : []),
+      ...(n.bridge ? ['BridgeRelay 1', 'PublishServerDescriptor 0', `ServerTransportPlugin obfs4 exec ${lyrebird}`,
+        `ServerTransportListenAddr obfs4 127.0.0.1:${n.ptPort}`, 'ExtORPort auto'] : [])
     ]
     writeFileSync(join(n.dir, 'torrc'), torrc.join('\n') + '\n')
     const p = spawn(tor, ['-f', join(n.dir, 'torrc')], { stdio: ['ignore', 'pipe', 'pipe'] })
@@ -57,7 +61,21 @@ export async function startTorTestnet({ tor = 'tor', torGencert = 'tor-gencert',
     p.stdout.on('data', d => { p.log = (p.log + d).slice(-4000) })
     procs.push(p)
   }
+  // The bridge line lyrebird writes once it has its keys.
+  const bridgeLine = async () => {
+    const b = nodes.find(n => n.bridge)
+    if (!b) return ''
+    for (let i = 0; i < 100; i++) {
+      try {
+        const cert = /cert=(\S+)/.exec(readFileSync(join(b.dir, 'pt_state', 'obfs4_bridgeline.txt'), 'utf8'))
+        if (cert) return `obfs4 127.0.0.1:${b.ptPort} ${b.fp} cert=${cert[1]} iat-mode=0`
+      } catch { /* not yet */ }
+      await new Promise(r => setTimeout(r, 200))
+    }
+    return ''
+  }
   return {
+    bridgeLine,
     clientTorrc: [...TESTING.filter(l => !/^(TestingDirAuth|TestingMinExit|V3Auth|TestingV3Auth)/.test(l)), dirAuth].join('\n'),
     procs,
     stop() { for (const p of procs) { try { p.kill('SIGKILL') } catch { /* gone */ } } }

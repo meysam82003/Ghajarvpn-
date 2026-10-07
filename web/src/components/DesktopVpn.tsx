@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'preact/hooks'
-import { DesktopCore, CoreStatus, CoreGroup, CoreSettings, CoreMode, coreError } from '../lib/platform'
+import { DesktopCore, CoreStatus, CoreGroup, CoreSettings, CoreMode, CoreConfig, coreError } from '../lib/platform'
 import { Slab, SlabRow, GhostPill, PillButton, SkinField, SkinSwitch, SlidingSegments, LinearProgress, TextButton } from './Skin'
 import { Sheet, Dialog } from './Overlay'
 import { Icon } from './Icon'
@@ -52,8 +52,19 @@ export function DesktopServersSheet(props: { core: DesktopCore; status: CoreStat
   const [busy, setBusy] = useState<string>('')
   const [adding, setAdding] = useState(false)
   const [open, setOpen] = useState<Record<string, boolean>>({})
-  const [menu, setMenu] = useState<{ id: string; name: string } | null>(null)
+  const [menu, setMenu] = useState<CoreConfig | null>(null)
   const [picking, setPicking] = useState(false)
+  const [creds, setCreds] = useState<CoreConfig | null>(null)
+  const [torOpen, setTorOpen] = useState(false)
+  const [aetherOpen, setAetherOpen] = useState(false)
+  const [codeOpen, setCodeOpen] = useState(false)
+
+  /** Connects, asking first for the username/password an OpenVPN profile needs. */
+  function connectTo(c: CoreConfig) {
+    if (c.needsCredentials) { setCreds(c); return }
+    props.onDismiss()
+    void core.connect(c.id).catch(e => props.onError(coreError(e)))
+  }
   const selectedId = props.status?.selectedId ?? ''
 
   async function reload() {
@@ -104,6 +115,8 @@ export function DesktopServersSheet(props: { core: DesktopCore; status: CoreStat
           onClick={() => run('ساخت WARP', async () => { const id = await core.addWarp!(); await core.select!(id) }, 'WARP اضافه شد')} />
         <SlabRow title="Psiphon رایگان" subtitle="بدون نیاز به سرور؛ خودش راه عبور پیدا می‌کند" icon="vpn_key" enabled={!busy}
           onClick={() => run('افزودن Psiphon', async () => { const id = await core.addPsiphon!(''); await core.select!(id) }, 'Psiphon اضافه شد')} />
+        {core.addTor ? <SlabRow title="Tor" subtitle="شبکهٔ تور، با پل‌های obfs4 / snowflake / webtunnel و انتخاب کشور خروجی" icon="security" enabled={!busy} onClick={() => setTorOpen(true)} /> : null}
+        {core.addAether ? <SlabRow title="Aether (WARP)" subtitle="WARP کلادفلر با MASQUE / WireGuard و اسکن خودکار" icon="bolt" enabled={!busy} onClick={() => setAetherOpen(true)} /> : null}
       </Slab>
 
       {busy ? <><span class="label-small c-muted">{busy}…</span><LinearProgress /></> : null}
@@ -127,10 +140,10 @@ export function DesktopServersSheet(props: { core: DesktopCore; status: CoreStat
               <SlabRow title={c.name || c.address} mixed
                 subtitle={<span class="row gap-sm"><span dir="ltr">{c.protocol.toUpperCase()}</span>{c.delay != null ? <span style={{ color: delayColor(c.delay) }}>{delayText(c.delay)}</span> : null}</span>}
                 icon={c.id === selectedId ? 'check_circle' : 'dns'} accent={c.id === selectedId ? 'var(--glow)' : 'var(--primary)'}
-                onClick={() => { props.onDismiss(); void core.connect(c.id).catch(e => props.onError(coreError(e))) }}
+                onClick={() => connectTo(c)}
                 trailing={<span class="row gap-sm">
                   <button class="icon-btn" aria-label="ستاره" onClick={e => { e.stopPropagation(); void core.favorite!(c.id).then(setGroups) }}><Icon name={c.favorite ? 'star' : 'star_border'} size={20} color={c.favorite ? 'var(--warning)' : 'var(--muted)'} /></button>
-                  <button class="icon-btn" aria-label="بیشتر" onClick={e => { e.stopPropagation(); setMenu({ id: c.id, name: c.name }) }}><Icon name="more_vert" size={20} color="var(--muted)" /></button>
+                  <button class="icon-btn" aria-label="بیشتر" onClick={e => { e.stopPropagation(); setMenu(c) }}><Icon name="more_vert" size={20} color="var(--muted)" /></button>
                 </span>} />
             )) : null}
           </Slab>
@@ -151,11 +164,30 @@ export function DesktopServersSheet(props: { core: DesktopCore; status: CoreStat
           if (props.status?.connected && props.status.mode === 'apps') await run('اتصال دوباره', () => core.connect())
         }
       }} /> : null}
+      {creds ? <CredentialsDialog config={creds} onDone={async (u, p) => {
+        const c = creds; setCreds(null)
+        if (u == null) return
+        try { await core.setCredentials!(c.id, u, p ?? ''); props.onDismiss(); await core.connect(c.id) } catch (e) { props.onError(coreError(e)) }
+      }} /> : null}
+      {torOpen ? <TorDialog core={core} onDone={async opts => {
+        setTorOpen(false)
+        if (opts) await run('افزودن Tor', async () => { const id = await core.addTor!(opts); await core.select!(id) }, 'Tor اضافه شد')
+      }} /> : null}
+      {aetherOpen ? <AetherDialog onDone={async opts => {
+        setAetherOpen(false)
+        if (opts) await run('افزودن Aether', async () => { const id = await core.addAether!(opts); await core.select!(id) }, 'Aether اضافه شد')
+      }} /> : null}
+      {codeOpen ? <CodeDialog onDone={async code => {
+        setCodeOpen(false)
+        if (code) { try { const ok = await core.submitAetherCode!(code); toast(ok ? 'کد فرستاده شد' : 'اول به Aether وصل شو، بعد کد را بزن') } catch (e) { props.onError(coreError(e)) } }
+      }} /> : null}
       {adding ? <AddDialog core={core} onDone={async msg => { setAdding(false); if (msg) toast(msg); await reload() }} onError={props.onError} /> : null}
       {menu ? (
         <Dialog title={menu.name} onDismiss={() => setMenu(null)} actions={<TextButton onClick={() => setMenu(null)}>بستن</TextButton>}>
           <div class="col gap-sm">
-            <GhostPill text="اتصال" icon="bolt" onClick={() => { const id = menu.id; setMenu(null); props.onDismiss(); void core.connect(id).catch(e => props.onError(coreError(e))) }} />
+            <GhostPill text="اتصال" icon="bolt" onClick={() => { const c = menu; setMenu(null); connectTo(c) }} />
+            {menu.protocol === 'openvpn' || menu.protocol === 'ikev2' ? <GhostPill text="نام کاربری و رمز" icon="vpn_key" onClick={() => { const c = menu; setMenu(null); setCreds(c) }} /> : null}
+            {menu.protocol === 'aether' ? <GhostPill text="کد ایمیل Zero Trust" icon="lock" onClick={() => { setMenu(null); setCodeOpen(true) }} /> : null}
             <GhostPill text="تست همین سرور" icon="speed" onClick={() => { const id = menu.id; setMenu(null); void run('در حال تست', () => core.test!([id])) }} />
             <GhostPill text="کپی لینک" icon="content_copy" onClick={async () => { const l = await core.shareLink!(menu.id); setMenu(null); if (l) void copyText(l, 'لینک'); else toast('این کانفیگ لینک اشتراک ندارد') }} />
             <GhostPill text="حذف" icon="delete" accent="var(--error)" onClick={() => { const id = menu.id; setMenu(null); void run('حذف', () => core.removeConfig!(id)) }} />
@@ -230,6 +262,72 @@ function AppsDialog(props: { core: DesktopCore; selected: string[]; onDone: (app
           <GhostPill text="افزودن" icon="add" fillWidth={false} enabled={!!custom.trim()} onClick={() => { setChosen([...new Set([...chosen, custom.trim()])]); setCustom('') }} />
         </div>
       </div>
+    </Dialog>
+  )
+}
+
+function CredentialsDialog(props: { config: CoreConfig; onDone: (user?: string, pass?: string) => void }) {
+  const [user, setUser] = useState('')
+  const [pass, setPass] = useState('')
+  return (
+    <Dialog title={`ورود به ${props.config.name}`} onDismiss={() => props.onDone()}
+      actions={<><TextButton onClick={() => props.onDone()}>انصراف</TextButton><PillButton text="ذخیره و اتصال" fillWidth={false} enabled={!!user.trim()} onClick={() => props.onDone(user.trim(), pass)} /></>}>
+      <div class="col gap-sm">
+        <span class="label-small c-muted">این پروفایل {props.config.protocol === 'ikev2' ? 'IKEv2' : 'OpenVPN'} نام کاربری و رمز می‌خواهد؛ یک‌بار ذخیره می‌شود.</span>
+        <SkinField label="نام کاربری" value={user} onInput={setUser} dir="ltr" autoFocus />
+        <SkinField label="رمز" value={pass} onInput={setPass} dir="ltr" type="password" />
+      </div>
+    </Dialog>
+  )
+}
+
+function TorDialog(props: { core: DesktopCore; onDone: (opts?: { country: string; throughVpn: boolean; bridges: string }) => void }) {
+  const [countries, setCountries] = useState<[string, string][]>([['', 'Automatic']])
+  const [country, setCountry] = useState('')
+  const [throughVpn, setThroughVpn] = useState(false)
+  const [bridges, setBridges] = useState('')
+  useEffect(() => { props.core.torCountries?.().then(setCountries).catch(() => undefined) }, [])
+  return (
+    <Dialog title="افزودن Tor" onDismiss={() => props.onDone()}
+      actions={<><TextButton onClick={() => props.onDone()}>انصراف</TextButton><PillButton text="افزودن" fillWidth={false} onClick={() => props.onDone({ country, throughVpn, bridges })} /></>}>
+      <div class="col gap-sm">
+        <label class="field"><span class="flabel">کشور خروجی</span>
+          <span class="fbox"><select value={country} onChange={e => setCountry((e.target as HTMLSelectElement).value)} style={{ width: '100%', background: 'transparent', color: 'inherit', border: 0, font: 'inherit' }}>
+            {countries.map(([code, name]) => <option value={code}>{code ? `${name} (${code.toUpperCase()})` : 'خودکار'}</option>)}
+          </select></span></label>
+        <SlabRow title="Tor از راه VPN" subtitle="اول به سرور انتخاب‌شده وصل می‌شود، بعد Tor از داخل آن" icon="layers"
+          trailing={<SkinSwitch checked={throughVpn} onChange={setThroughVpn} />} />
+        <SkinField label="پل‌ها (اختیاری)" value={bridges} onInput={setBridges} multiline minLines={3} dir="ltr"
+          placeholder="obfs4 1.2.3.4:443 FINGERPRINT cert=... iat-mode=0" helper="خالی = اتصال مستقیم به تور؛ «snowflake» = پل‌های پیش‌فرض اسنوفلیک" />
+      </div>
+    </Dialog>
+  )
+}
+
+function AetherDialog(props: { onDone: (opts?: { mode: string; exitLoc: string; http2: boolean; fragment: boolean }) => void }) {
+  const modes = [['masque', 'MASQUE'], ['wg', 'WireGuard'], ['gool', 'WARP-in-WARP'], ['mim', 'MIM']]
+  const [mode, setMode] = useState(0)
+  const [exitLoc, setExitLoc] = useState('')
+  const [http2, setHttp2] = useState(false)
+  return (
+    <Dialog title="افزودن Aether (WARP)" onDismiss={() => props.onDone()}
+      actions={<><TextButton onClick={() => props.onDone()}>انصراف</TextButton><PillButton text="افزودن" fillWidth={false} onClick={() => props.onDone({ mode: modes[mode][0], exitLoc: exitLoc.trim().toUpperCase(), http2, fragment: http2 })} /></>}>
+      <div class="col gap-sm">
+        <SlidingSegments labels={modes.map(m => m[1])} selected={mode} onSelect={setMode} />
+        <SkinField label="کشور خروجی (اختیاری، مثلاً DE)" value={exitLoc} onInput={setExitLoc} dir="ltr" maxLength={2} />
+        <SlabRow title="HTTP/2 با فرگمنت" subtitle="برای شبکه‌هایی که QUIC را می‌بندند" icon="tune"
+          trailing={<SkinSwitch checked={http2} onChange={setHttp2} />} />
+      </div>
+    </Dialog>
+  )
+}
+
+function CodeDialog(props: { onDone: (code?: string) => void }) {
+  const [code, setCode] = useState('')
+  return (
+    <Dialog title="کد ایمیل Zero Trust" onDismiss={() => props.onDone()}
+      actions={<><TextButton onClick={() => props.onDone()}>انصراف</TextButton><PillButton text="فرستادن" fillWidth={false} enabled={/^[0-9]{6}$/.test(code)} onClick={() => props.onDone(code)} /></>}>
+      <SkinField label="کد ۶ رقمی" value={code} onInput={v => setCode(v.replace(/[^0-9]/g, '').slice(0, 6))} dir="ltr" inputMode="numeric" autoFocus />
     </Dialog>
   )
 }
