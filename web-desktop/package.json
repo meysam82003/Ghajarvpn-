@@ -30,7 +30,7 @@
     "files": [
       "main.js",
       "preload.js",
-      "core.js",
+      "engine/*.js",
       "offline.html",
       "icons/**"
     ],
@@ -90,9 +90,35 @@
         "filter": [
           "xray",
           "xray.exe",
+          "sing-box",
+          "sing-box.exe",
+          "libcronet.so",
+          "libcronet.dll",
+          "psiphon",
+          "psiphon.exe",
+          "ghajar-helper",
+          "ghajar-helper.exe",
+          "juicity",
+          "juicity.exe",
+          "dnstt",
+          "dnstt.exe",
+          "vaydns",
+          "vaydns.exe",
+          "noizdns",
+          "noizdns.exe",
+          "slipstream",
+          "slipstream.exe",
+          "masterdns",
+          "masterdns.exe",
+          "stormdns",
+          "stormdns.exe",
+          "cottendns",
+          "cottendns.exe",
           "geoip.dat",
           "geosite.dat",
-          "LICENSE"
+          "geoip-ir.srs",
+          "LICENSE",
+          "licenses/**"
         ]
       }
     ]

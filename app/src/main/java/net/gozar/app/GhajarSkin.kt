@@ -117,6 +117,7 @@ fun Slab(
     Box(
         modifier
             .fillMaxWidth()
+            .then(if (onClick != null) Modifier.tvFocusGlow(look.cardRadius.dp) else Modifier)
             .then(
                 if (look.elevation > 0) Modifier.shadow(look.elevation.dp, shape, clip = false)
                 else Modifier
@@ -170,6 +171,7 @@ fun SlabRow(
     Row(
         modifier
             .fillMaxWidth()
+            .then(if (onClick != null && enabled) Modifier.tvFocusGlow(GhajarRadius.md) else Modifier)
             .clip(RoundedCornerShape(GhajarRadius.md))
             .then(if (onClick != null && enabled) Modifier.clickable { onClick() } else Modifier)
             .padding(vertical = GhajarSpacing.sm),
@@ -373,6 +375,7 @@ fun StatStrip(
                 Column(
                     Modifier
                         .weight(1f)
+                        .then(if (cell.onClick != null) Modifier.tvFocusGlow(GhajarRadius.md) else Modifier)
                         .clip(RoundedCornerShape(GhajarRadius.md))
                         .then(
                             cell.onClick?.let { go -> Modifier.clickable { go() } } ?: Modifier
@@ -435,6 +438,7 @@ fun PillButton(
         modifier
             .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
             .heightIn(min = minHeight)
+            .tvFocusGlow(GhajarRadius.pill)
             .clip(RoundedCornerShape(GhajarRadius.pill))
             .background(tint)
             .clickable(enabled = enabled) { onClick() }
@@ -481,6 +485,7 @@ fun GhostPill(
         modifier
             .then(if (fillWidth) Modifier.fillMaxWidth() else Modifier)
             .heightIn(min = minHeight)
+            .tvFocusGlow(GhajarRadius.pill)
             .clip(RoundedCornerShape(GhajarRadius.pill))
             .border(1.5.dp, tint.copy(alpha = 0.7f), RoundedCornerShape(GhajarRadius.pill))
             .clickable(enabled = enabled) { onClick() }
@@ -523,6 +528,7 @@ fun GlyphTile(
     val tint = if (enabled) (accent ?: c.primary) else c.onDisabled
     Column(
         modifier
+            .tvFocusGlow(GhajarRadius.lg)
             .clip(RoundedCornerShape(GhajarRadius.lg))
             .background(c.secondaryCard)
             .clickable(enabled = enabled) { onClick() }
@@ -580,6 +586,7 @@ fun SkinSwitch(
     Box(
         modifier
             .size(width = 44.dp, height = 26.dp)
+            .tvFocusGlow(GhajarRadius.pill, ring = true)
             .clip(RoundedCornerShape(GhajarRadius.pill))
             .background(track)
             .then(
@@ -633,6 +640,9 @@ fun SkinField(
         focused -> c.primary
         else -> Color.Transparent
     }
+    // On TV the keyboard's action key moves on to the next control instead of
+    // only closing the keyboard, so a form can be filled with the remote.
+    val imeOptions = tvImeOptions(keyboardOptions, singleLine)
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(GhajarSpacing.xs)) {
         Text(
             label,
@@ -645,6 +655,7 @@ fun SkinField(
         Row(
             Modifier
                 .fillMaxWidth()
+                .tvFocusGlow(GhajarRadius.md, ring = true, scaleTo = 1f)
                 .clip(RoundedCornerShape(GhajarRadius.md))
                 .background(if (enabled) c.secondaryCard else c.disabled.copy(alpha = 0.25f))
                 .drawBehind {
@@ -677,7 +688,7 @@ fun SkinField(
                     enabled = enabled,
                     singleLine = singleLine,
                     minLines = minLines,
-                    keyboardOptions = keyboardOptions,
+                    keyboardOptions = imeOptions,
                     visualTransformation = visualTransformation,
                     textStyle = MaterialTheme.typography.bodyMedium.copy(color = c.textPrimary),
                     cursorBrush = SolidColor(c.primary),
@@ -741,6 +752,7 @@ fun TabRail(
             val ink = if (active && filled) c.onPrimary else if (active) c.primary else c.textSecondary
             Row(
                 Modifier
+                    .tvFocusGlow(if (style == "boxed") GhajarRadius.sm else GhajarRadius.pill)
                     .clip(RoundedCornerShape(if (style == "boxed") GhajarRadius.sm else GhajarRadius.pill))
                     .then(
                         when (style) {
@@ -849,6 +861,7 @@ fun SlidingSegments(
                     Modifier
                         .weight(1f)
                         .height(38.dp)
+                        .tvFocusGlow(GhajarRadius.pill)
                         .clip(RoundedCornerShape(GhajarRadius.pill))
                         .clickable { onSelect(index) },
                     contentAlignment = Alignment.Center
@@ -1116,6 +1129,7 @@ fun SkinNavBar(
                             .weight(1f)
                             .padding(horizontal = inset)
                             .height(cellH)
+                            .tvFocusGlow(GhajarRadius.md)
                             .clip(cellShape)
                             .clickable { item.onSelect() },
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -1140,6 +1154,64 @@ fun SkinNavBar(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/**
+ * The navigation on Android TV: the same destinations as [SkinNavBar], as a
+ * vertical rail at the start edge of a wide screen instead of a capsule along
+ * the bottom of a tall one. Each destination is a focus stop for the remote's
+ * D-pad; OK selects it.
+ */
+@Composable
+fun TvNavRail(
+    items: List<SkinNavItem>,
+    selected: Int,
+    modifier: Modifier = Modifier
+) {
+    val c = ghajarColors
+    if (items.isEmpty()) return
+    // The background is drawn with a shape rather than clipped, so the focus
+    // halo of an item can extend past the rail's edge.
+    Column(
+        modifier
+            .width(104.dp)
+            .padding(vertical = GhajarSpacing.md, horizontal = GhajarSpacing.sm)
+            .background(c.card, RoundedCornerShape(GhajarRadius.lg))
+            .padding(vertical = GhajarSpacing.md, horizontal = GhajarSpacing.sm),
+        verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        items.forEachIndexed { index, item ->
+            val active = index == selected
+            val tint = if (active) c.onPrimary else c.textSecondary
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .tvFocusGlow(GhajarRadius.md, ring = true, scaleTo = 1.06f)
+                    .clip(RoundedCornerShape(GhajarRadius.md))
+                    .background(if (active) c.primary else Color.Transparent)
+                    .clickable { item.onSelect() }
+                    .padding(vertical = GhajarSpacing.md, horizontal = GhajarSpacing.xs),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    androidx.compose.ui.res.painterResource(item.iconRes),
+                    contentDescription = item.label,
+                    tint = tint,
+                    modifier = Modifier.size(26.dp)
+                )
+                Text(
+                    item.label,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = if (active) FontWeight.Bold else FontWeight.Medium,
+                    color = tint,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
             }
         }
     }

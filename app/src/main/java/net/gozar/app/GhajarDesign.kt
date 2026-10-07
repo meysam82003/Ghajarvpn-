@@ -418,19 +418,25 @@ fun GhajarTheme(
     val scaled = remember(density, look.fontScale) {
         androidx.compose.ui.unit.Density(density.density, density.fontScale * look.fontScale)
     }
+    // Android TV: the remote's focus has to be visible from across the room,
+    // so on a television the theme installs the focus ring and a stronger
+    // focus state for Material's components. Phones never take this branch.
+    val isTv = remember(context) { GhajarTv.isTv(context) }
     CompositionLocalProvider(
         LocalGhajarPalette provides palette,
         LocalReduceMotion provides reduceMotion,
         LocalListDensity provides listDensity,
         LocalGhajarLook provides look,
+        LocalIsTv provides isTv,
         androidx.compose.ui.platform.LocalDensity provides scaled
     ) {
         MaterialTheme(
             colorScheme = palette.toColorScheme(),
             typography = typography,
-            shapes = shapes,
-            content = content
-        )
+            shapes = shapes
+        ) {
+            if (isTv) TvFocusTheme(palette, content) else content()
+        }
     }
 }
 

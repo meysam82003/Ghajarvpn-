@@ -144,6 +144,7 @@ internal fun OutlinedTextField(
         Row(
             Modifier
                 .fillMaxWidth()
+                .tvFocusGlow(GhajarRadius.md, ring = true, scaleTo = 1f)
                 .clip(RoundedCornerShape(GhajarRadius.md))
                 .background(if (enabled) c.secondaryCard else c.disabled.copy(alpha = 0.25f))
                 .drawBehind {
@@ -178,7 +179,7 @@ internal fun OutlinedTextField(
                     singleLine = singleLine,
                     minLines = minLines,
                     maxLines = maxLines,
-                    keyboardOptions = keyboardOptions,
+                    keyboardOptions = tvImeOptions(keyboardOptions, singleLine),
                     keyboardActions = keyboardActions,
                     visualTransformation = visualTransformation,
                     textStyle = (textStyle ?: MaterialTheme.typography.bodyMedium).copy(color = c.textPrimary),

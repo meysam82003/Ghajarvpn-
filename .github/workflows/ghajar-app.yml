@@ -7,7 +7,7 @@ name: Ghajar App (Windows / macOS / Linux / Android / iPhone)
 on:
   push:
     branches: [main, 'claude/happy-ritchie-r51k5d']
-    paths: ['web-desktop/**', 'web-android/**', 'web-extension/**', '.github/workflows/ghajar-app.yml']
+    paths: ['web-desktop/**', 'web-android/**', 'native/ghajar-helper/**', 'app/src/main/assets/geo*.dat', '.github/workflows/ghajar-app.yml']
   workflow_dispatch:
 
 permissions:
@@ -17,22 +17,174 @@ concurrency:
   group: ghajar-app-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  # sing-box's own release builds use 1.26.8; native/Psiphon asks for >= 1.26.3.
+  GO_VERSION: '1.26.8'
+
 jobs:
+  # The VPN cores the desktop engine runs (web-desktop/engine/), built from
+  # pinned sources by web-desktop/scripts/build-cores.sh into
+  # web-desktop/core/<os>-<arch>/, which electron-builder packages as
+  # Resources/core. Windows' Go cores are cross-compiled on Linux here; its
+  # slipstream (Rust + MSVC-only picoquic) is built natively in
+  # slipstream-win; the macOS cores are built on the macOS job itself, because
+  # sing-box's NaiveProxy (static Cronet, cgo) and slipstream need Xcode.
+  cores-win:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Go module and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+          key: desktop-cores-go-win-${{ env.GO_VERSION }}-${{ hashFiles('web-desktop/scripts/build-cores.sh', 'native/ghajar-helper/go.sum') }}
+          restore-keys: desktop-cores-go-win-${{ env.GO_VERSION }}-
+      - name: Cores for win-x64 (cross-compiled)
+        run: bash web-desktop/scripts/build-cores.sh win-x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cores-win-x64
+          path: web-desktop/core/win-x64
+          retention-days: 3
+          if-no-files-found: error
+
+  # slipstream-client for Windows: upstream builds picoquic for Windows only
+  # with MSVC and OpenSSL from vcpkg (its build.rs refuses anything else), so
+  # this follows Mygod/slipstream-rust's own .github/actions/build-binary.
+  # Optional: when it fails the app ships without slipstream on Windows.
+  slipstream-win:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: Mygod/slipstream-rust
+          ref: 7de506b222c83ae97a19a618e33fe26899af1bd5 # same pin as scripts/build-slipstream.sh
+          submodules: recursive
+          path: slipstream
+      - name: OpenSSL from vcpkg
+        shell: pwsh
+        run: |
+          $vcpkgRoot = if ($env:VCPKG_INSTALLATION_ROOT) { $env:VCPKG_INSTALLATION_ROOT } else { "C:\vcpkg" }
+          $vcpkg = Join-Path $vcpkgRoot "vcpkg.exe"
+          & $vcpkg install "pkgconf:x64-windows" "openssl:x64-windows-static-md"
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg failed" }
+          $opensslRoot = Join-Path $vcpkgRoot "installed\x64-windows-static-md"
+          $pkgConfig = @((Join-Path $vcpkgRoot "installed\x64-windows\tools\pkgconf\pkgconf.exe"), (Join-Path $vcpkgRoot "installed\x64-windows\tools\pkgconf\pkg-config.exe")) | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (!$pkgConfig) { throw "pkgconf not found" }
+          "PKG_CONFIG=$pkgConfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PKG_CONFIG_EXECUTABLE=$pkgConfig" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "PKG_CONFIG_PATH=$(Join-Path $opensslRoot 'lib\pkgconfig')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "OPENSSL_ROOT_DIR=$opensslRoot" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "OPENSSL_INCLUDE_DIR=$(Join-Path $opensslRoot 'include')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "OPENSSL_LIB_DIR=$(Join-Path $opensslRoot 'lib')" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: picoquic (MSVC)
+        shell: pwsh
+        working-directory: slipstream
+        run: .\scripts\build_picoquic_windows.ps1 -Platform x64
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-pc-windows-msvc
+      - name: slipstream-client
+        shell: bash
+        working-directory: slipstream
+        run: |
+          cargo build --release --locked -p slipstream-client --target x86_64-pc-windows-msvc
+          mkdir -p ../out/licenses
+          cp target/x86_64-pc-windows-msvc/release/slipstream-client.exe ../out/slipstream.exe
+          cp LICENSE ../out/licenses/slipstream.txt
+          ls -la ../out
+      - name: No DLLs beyond Windows' own
+        shell: pwsh
+        working-directory: slipstream
+        run: |
+          New-Item -ItemType Directory -Force -Path check | Out-Null
+          Copy-Item ..\out\slipstream.exe check\slipstream-client.exe
+          ./scripts/verify_windows_artifact_deps.ps1 -DistDir check -TargetPlatform x64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cores-win-x64-slipstream
+          path: out
+          retention-days: 3
+          if-no-files-found: error
+
+  # macOS and Linux: each job builds its own cores, then the installers.
   build:
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            target: win
-            cores: win-x64
           - os: macos-latest
             target: mac
             cores: mac-x64 mac-arm64
+            rust: aarch64-apple-darwin,x86_64-apple-darwin
           - os: ubuntu-latest
             target: linux
             cores: linux-x64
+            rust: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 75
+    defaults:
+      run:
+        working-directory: web-desktop
+    env:
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web-desktop/package-lock.json
+      - run: npm ci
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: false
+      - name: Go module and build cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/pkg/mod
+            ~/.cache/go-build
+            ~/Library/Caches/go-build
+          key: desktop-cores-go-${{ matrix.target }}-${{ env.GO_VERSION }}-${{ hashFiles('web-desktop/scripts/build-cores.sh', 'native/ghajar-helper/go.sum') }}
+          restore-keys: desktop-cores-go-${{ matrix.target }}-${{ env.GO_VERSION }}-
+      # slipstream: Rust, with picoquic built by CMake and OpenSSL vendored.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust }}
+      - name: Cores (${{ matrix.cores }})
+        run: bash scripts/build-cores.sh ${{ matrix.cores }}
+      - run: npm run dist:${{ matrix.target }}
+      - name: iPhone profile
+        if: matrix.target == 'linux'
+        run: npm run ios-profile
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ghajar-app-${{ matrix.target }}
+          path: |
+            web-desktop/dist/*.dmg
+            web-desktop/dist/*.AppImage
+            web-desktop/dist/*.mobileconfig
+          if-no-files-found: error
+
+  # Windows: the cores come from cores-win (and slipstream-win, when it built).
+  build-win:
+    needs: [cores-win, slipstream-win]
+    if: ${{ !cancelled() && needs.cores-win.result == 'success' }}
+    runs-on: windows-latest
     timeout-minutes: 40
     defaults:
       run:
@@ -47,52 +199,28 @@ jobs:
           cache: npm
           cache-dependency-path: web-desktop/package-lock.json
       - run: npm ci
-      - name: Xray core (bundled per OS and CPU)
-        run: node scripts/fetch-core.mjs ${{ matrix.cores }}
-      - run: npm run dist:${{ matrix.target }}
-      - name: iPhone profile
-        if: matrix.target == 'linux'
-        run: npm run ios-profile
-      - uses: actions/upload-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: ghajar-app-${{ matrix.target }}
-          path: |
-            web-desktop/dist/*.exe
-            web-desktop/dist/*.dmg
-            web-desktop/dist/*.AppImage
-            web-desktop/dist/*.mobileconfig
-          if-no-files-found: error
-
-  extension:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: web-extension
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+          name: cores-win-x64
+          path: web-desktop/core/win-x64
+      - name: slipstream (optional)
+        continue-on-error: true
+        uses: actions/download-artifact@v4
         with:
-          node-version: 22
-      - run: node build.mjs
-      - name: Firefox lint
-        run: npx --yes web-ext@8 lint -s dist/firefox
-      - name: Firefox signing (when the AMO keys are set)
-        env:
-          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
-          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+          name: cores-win-x64-slipstream
+          path: web-desktop/core/win-x64
+      - name: Cores present
+        shell: bash
         run: |
-          if [ -z "$AMO_JWT_ISSUER" ] || [ -z "$AMO_JWT_SECRET" ]; then
-            echo "No AMO keys: the Firefox package stays unsigned (installable in Developer Edition / Nightly)."; exit 0
-          fi
-          npx --yes web-ext@8 sign -s dist/firefox --channel unlisted --api-key "$AMO_JWT_ISSUER" --api-secret "$AMO_JWT_SECRET" --artifacts-dir signed
-          f=$(ls signed/*.xpi | head -1) && cp "$f" dist/GhajarVPN-firefox-extension.xpi && echo "Signed by Mozilla."
+          ls -la core/win-x64 core/win-x64/licenses
+          for f in xray.exe sing-box.exe geoip.dat geosite.dat; do
+            test -s "core/win-x64/$f" || { echo "::error::core/win-x64/$f missing"; exit 1; }
+          done
+      - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
-          name: ghajar-app-extension
-          path: |
-            web-extension/dist/GhajarVPN-chrome-extension.zip
-            web-extension/dist/GhajarVPN-firefox-extension.xpi
+          name: ghajar-app-win
+          path: web-desktop/dist/*.exe
           if-no-files-found: error
 
   android:
@@ -145,7 +273,7 @@ jobs:
           if-no-files-found: error
 
   release:
-    needs: [build, android, extension]
+    needs: [build, build-win, android]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -172,8 +300,6 @@ jobs:
           | مک (اینتل) | `GhajarVPN-mac-x64.dmg` | مثل بالا. |
           | لینوکس | `GhajarVPN-linux-x86_64.AppImage` | اجازهٔ اجرا بده (Properties ← Allow executing) و باز کن. |
           | آیفون / آیپد | `GhajarVPN-iPhone.mobileconfig` | با Safari دانلود کن ← Allow ← Settings ← «Profile Downloaded» ← Install. آیکن قاجار روی صفحهٔ اصلی می‌آید. |
-          | کروم / اج / بریو | `GhajarVPN-chrome-extension.zip` | افزونه: فقط مرورگر به VPN وصل می‌شود. فایل را باز کن، در `chrome://extensions` «Developer mode» را روشن کن و «Load unpacked» را روی پوشه بزن. برنامهٔ دسکتاپ قاجار باید اجرا باشد. |
-          | فایرفاکس | `GhajarVPN-firefox-extension.xpi` | افزونه: فقط مرورگر به VPN وصل می‌شود. فایل را روی پنجرهٔ فایرفاکس بکش. برنامهٔ دسکتاپ قاجار باید اجرا باشد. |
           | اندروید | `GhajarVPN-android.apk` | دانلود کن و باز کن ← نصب (اگر خواست، «اجازه از این منبع» را روشن کن). اعلان‌ها حتی وقتی برنامه بسته است می‌آیند. |
 
           نسخهٔ کامپیوتر در سینی سیستم (کنار ساعت) می‌ماند تا اعلان‌ها برسند و با روشن شدن کامپیوتر خودش اجرا می‌شود؛ از منوی همان آیکن قابل خاموش کردن است.

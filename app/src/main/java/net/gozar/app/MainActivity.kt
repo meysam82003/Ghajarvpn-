@@ -345,6 +345,12 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
@@ -525,6 +531,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         GhajarLog.i("Startup", "phase: main activity onCreate begin")
+        if (GhajarTv.isTv(this)) enterTvFullScreen()
         ConfigQuickConnectBridge.activity = this
         store = ConfigStore.get(applicationContext)
         GhajarLog.i("Startup", "phase: config store loaded")
@@ -691,6 +698,61 @@ class MainActivity : ComponentActivity() {
         handleImportIntent(intent)
         handleRenewIntent(intent)
         handleOpenShopIntent(intent)
+    }
+
+    /**
+     * Android TV: the whole 16:9 panel, no status or navigation bar. A TV has
+     * no gesture to pull them back, and they are re-hidden whenever the
+     * window regains focus (a dialog or the VPN consent screen can show them).
+     */
+    private fun enterTvFullScreen() {
+        runCatching {
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            controller.systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+        }.onFailure { GhajarLog.e("Tv", "full screen failed: ${it.javaClass.simpleName}") }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus && GhajarTv.isTv(this)) enterTvFullScreen()
+    }
+
+    /**
+     * Android TV builds often lack activities a phone always has: a document
+     * picker, a gallery, a browser, some system settings pages, and on a few
+     * boxes even the VPN consent dialog. Starting one of those throws, which
+     * used to crash the app from whatever button asked for it. On TV the
+     * missing screen is reported instead, and a launcher waiting for a result
+     * is told "cancelled" so its flow ends cleanly (a VPN connect falls back
+     * to disconnected rather than spinning). Phones are untouched.
+     */
+    @Deprecated("Deprecated in Java")
+    @Suppress("DEPRECATION")
+    override fun startActivityForResult(intent: Intent, requestCode: Int, options: Bundle?) {
+        if (!GhajarTv.isTv(this)) {
+            super.startActivityForResult(intent, requestCode, options)
+            return
+        }
+        try {
+            super.startActivityForResult(intent, requestCode, options)
+        } catch (missing: android.content.ActivityNotFoundException) {
+            GhajarLog.e("Tv", "no activity for ${intent.action ?: intent.component}: ${missing.message}")
+            val vpnConsent = intent.component?.packageName == "com.android.vpndialogs" ||
+                intent.action == "android.net.vpn.action.CONFIRM"
+            val lang = if (::store.isInitialized) store.lang.value else Lang.FA
+            Toast.makeText(
+                this,
+                Strings.get(lang, if (vpnConsent) "tv_vpn_consent_missing" else "tv_no_activity"),
+                Toast.LENGTH_LONG
+            ).show()
+            if (requestCode >= 0) {
+                window.decorView.post {
+                    activityResultRegistry.dispatchResult(requestCode, Activity.RESULT_CANCELED, null)
+                }
+            }
+        }
     }
 
     /** An announcement's "go to shop" / "use discount code" notification action. */
@@ -1323,6 +1385,10 @@ private fun GozarApp(
     val t = stringsFn()
     val scope = rememberCoroutineScope()
     val effectiveDark = ghajarColors.dark
+    // Android TV: a side rail instead of the bottom bar, no swiping between
+    // tabs, and the remote's focus carried into each screen as it opens.
+    val isTv = LocalIsTv.current
+    val tvContentFocus = remember { FocusRequester() }
     val pagerState = rememberPagerState(initialPage = PAGE_HOME, pageCount = { PAGE_COUNT })
     val settingsScroll = rememberScrollState()
 
@@ -1684,6 +1750,18 @@ private fun GozarApp(
     val contentScale = 1f - backProgress * 0.08f
     val contentAlpha = 1f - backProgress * 0.25f
 
+    // On TV, a screen that replaces the one holding focus would leave the
+    // remote pointing at nothing. Once the page transition has settled, focus
+    // enters the new screen (its first control). Home focuses its connect
+    // control itself.
+    if (isTv) {
+        LaunchedEffect(screenKey) {
+            if (screenKey == "connection") return@LaunchedEffect
+            delay(450)
+            runCatching { tvContentFocus.requestFocus() }
+        }
+    }
+
     val gradBg = MaterialTheme.colorScheme.background
     // The canvas wash follows the theme's brand tone; it used to be a fixed
     // blue, which is why every theme still had a blue cast at the top.
@@ -1697,10 +1775,48 @@ private fun GozarApp(
         ) else SolidColor(gradBg)
     }
 
+    // The three destinations, shared by the phone's bottom bar and the TV rail.
+    val navItems = listOf(
+        SkinNavItem(R.drawable.ic_royal_home, t("home")) {
+            showPicker = false; showManual = false; showProjects = false; protoForm = ""
+            showTorNodes = false; showWindscribe = false; editingConfig = null
+            scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
+        },
+        SkinNavItem(R.drawable.ic_royal_shop, t("shop")) {
+            scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
+        },
+        SkinNavItem(R.drawable.ic_royal_settings, t("settings")) {
+            usageDetail = false
+            backupDetail = false
+            extraPage = ""
+            perAppDetail = false
+            logsDetail = false
+            stabilityDetail = false
+            aboutDetail = false
+            themeDetail = false
+            cleanIpDetail = false
+            dnsLabDetail = false
+            netMonDetail = false
+            netCatDetail = false
+            netCatIndex = -1
+            checkHostDetail = false
+            toolsDetail = false
+            connDetail = false
+            prefsDetail = false
+            sshDetail = false
+            debugDetail = false
+            notifDetail = false
+            scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
+        }
+    )
+
     Scaffold(
         containerColor = Color.Transparent,
         contentColor = MaterialTheme.colorScheme.onBackground,
-        modifier = Modifier.background(gradient),
+        // TV: a small safe margin from the panel's edges (overscan); the wash
+        // still fills the whole screen.
+        modifier = Modifier.background(gradient)
+            .then(if (isTv) Modifier.padding(horizontal = 20.dp, vertical = 8.dp) else Modifier),
         topBar = {
             Column {
             CenterAlignedTopAppBar(
@@ -1820,54 +1936,28 @@ private fun GozarApp(
         bottomBar = {
             // A floating capsule with one filled indicator that slides between
             // the three destinations. Same three destinations, same reset
-            // behaviour on tap.
-            SkinNavBar(
-                selected = page,
-                items = listOf(
-                    SkinNavItem(R.drawable.ic_royal_home, t("home")) {
-                        showPicker = false; showManual = false; showProjects = false; protoForm = ""
-                        showTorNodes = false; showWindscribe = false; editingConfig = null
-                        scope.launch { pagerState.animateScrollToPage(PAGE_HOME) }
-                    },
-                    SkinNavItem(R.drawable.ic_royal_shop, t("shop")) {
-                        scope.launch { pagerState.animateScrollToPage(PAGE_SHOP) }
-                    },
-                    SkinNavItem(R.drawable.ic_royal_settings, t("settings")) {
-                        usageDetail = false
-                        backupDetail = false
-                        extraPage = ""
-                        perAppDetail = false
-                        logsDetail = false
-                        stabilityDetail = false
-                        aboutDetail = false
-                        themeDetail = false
-                        cleanIpDetail = false
-                        dnsLabDetail = false
-                        netMonDetail = false
-                        netCatDetail = false
-                        netCatIndex = -1
-                        checkHostDetail = false
-                        toolsDetail = false
-                        connDetail = false
-                        prefsDetail = false
-                        sshDetail = false
-                        debugDetail = false
-                        notifDetail = false
-                        scope.launch { pagerState.animateScrollToPage(PAGE_SETTINGS) }
-                    }
+            // behaviour on tap. On TV the rail beside the content replaces it.
+            if (!isTv) {
+                SkinNavBar(
+                    selected = page,
+                    items = navItems
                 )
-            )
+            }
         }
     ) { padding ->
         val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
         val layoutDir = LocalLayoutDirection.current
+        val pagerBody: @Composable (Modifier) -> Unit = { pagerModifier ->
         HorizontalPager(
             state = pagerState,
-            userScrollEnabled = !subScreenOpen,
+            // TV: tabs change from the rail only. With user scrolling off the
+            // pager also stops composing pages beyond the edges for focus
+            // search, so the D-pad can never wander into a hidden tab.
+            userScrollEnabled = !subScreenOpen && !isTv,
             // Neighbouring tabs stay composed, so switching tabs never waits
             // on a first composition mid-animation.
-            beyondViewportPageCount = 1,
-            modifier = Modifier
+            beyondViewportPageCount = if (isTv) 0 else 1,
+            modifier = pagerModifier
                 .padding(
                     start = padding.calculateStartPadding(layoutDir),
                     end = padding.calculateEndPadding(layoutDir),
@@ -2163,6 +2253,24 @@ private fun GozarApp(
                 }
             }
         }
+        }
+        if (isTv) {
+            Row(Modifier.fillMaxSize()) {
+                TvNavRail(
+                    items = navItems,
+                    selected = page,
+                    modifier = Modifier.fillMaxHeight().padding(top = padding.calculateTopPadding())
+                )
+                pagerBody(
+                    Modifier
+                        .weight(1f)
+                        .focusRequester(tvContentFocus)
+                        .focusGroup()
+                )
+            }
+        } else {
+            pagerBody(Modifier)
+        }
     }
 }
 
@@ -2271,6 +2379,252 @@ private fun ConnectionScreen(
     val canAct = conn != Connection.DISCONNECTING && (connected || selectedConfig != null)
     val c = ghajarColors
 
+    val isTv = LocalIsTv.current
+    val orbFocus = remember { FocusRequester() }
+    if (isTv) {
+        LaunchedEffect(Unit) {
+            delay(300)
+            runCatching { orbFocus.requestFocus() }
+        }
+    }
+    // Drop the live tunnel and redial the same server: the orb's long press,
+    // and on TV also a visible button.
+    val reconnectNow: () -> Unit = {
+        when {
+            onOpenVpn -> onDisconnect()
+            else -> activeConfig?.let { onConnect(it) } ?: onDisconnect()
+        }
+    }
+
+    // Home sections, in the order and sizes chosen in Personalization.
+    // The connect control and the route can be moved and resized but
+    // never hidden, so the way to connect is always on this screen.
+    val homeLook = LocalGhajarLook.current
+    fun homeSize(id: String) = homeLook.homeSizes[id] ?: "normal"
+    val homeSections: Map<String, @Composable () -> Unit> = mapOf(
+        "orb" to {
+            ConnectOrb(
+                diameter = when (homeSize("orb")) { "compact" -> 196.dp; "large" -> 272.dp; else -> 236.dp },
+                state = conn,
+                picking = picking,
+                enabled = canAct,
+                tunnelDead = deadTunnel,
+                netOffline = netOffline,
+                onClick = {
+                    when {
+                        picking -> onCancelPick()
+                        connected -> onDisconnect()
+                        else -> selectedConfig?.let { onConnect(it) }
+                    }
+                },
+                // Long press on a live tunnel redials the same server. The
+                // OpenVPN path has no ProxyConfig to hand back, so it drops the
+                // tunnel and the engine's own reconnect takes it from there.
+                onReconnect = reconnectNow,
+                // TV: the connect control holds the remote's focus when home opens.
+                orbFocus = if (isTv) orbFocus else null
+            )
+        },
+        "session" to {
+            SessionLine(connectedAt.takeIf { it > 0L }, conn)
+
+            // A gesture nobody is told about does not exist. On TV the
+            // gesture has a visible button instead (see the TV layout).
+            if (conn == Connection.CONNECTED && !isTv) {
+                Text(
+                    t("orb_hold_reconnect"),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = c.textMuted,
+                    textAlign = TextAlign.Center
+                )
+            }
+        },
+        "route" to {
+            // The route: one slab, one row, one tap to the picker. Locked
+            // configs never reveal their endpoint and the built-in engines have
+            // none, exactly as before.
+            //
+            // A tight inset: this slab holds exactly one row, so the default
+            // card padding was drawing a frame around a frame and making the
+            // single most-looked-at line on the screen the tallest thing on it.
+            Slab(spacing = 0.dp, padding = GhajarSpacing.sm, color = lookColor(LookElement.CONFIG_CARD)) {
+                // While OpenVPN owns the tunnel, the route is that profile -
+                // not whichever Xray config happens to still be selected. The
+                // active id is "ovpn:<uuid>", which is never in `configs`, so
+                // this row used to fall back to the selection and name a server
+                // that was not carrying a single byte.
+                val routeSubtitle = when {
+                    onOpenVpn -> ovpnProfile?.let { p ->
+                        "OPENVPN · ⁦${p.host}:${p.port}⁩"
+                    } ?: "OPENVPN"
+                    else -> selectedConfig?.let { cfg ->
+                        val engine = cfg.protocol.uppercase(java.util.Locale.ROOT) +
+                            if (net.gozar.app.engine.SingBoxConfig.handles(cfg)) " · sing-box" else ""
+                        val endpoint = when {
+                            cfg.locked -> t("locked_endpoint")
+                            cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
+                            else -> "⁦${cfg.address}:${cfg.port}⁩"
+                        }
+                        "$engine · $endpoint"
+                    }
+                    // Nothing selected means nothing to say. The row's title
+                    // already reads "no server chosen"; a paragraph explaining
+                    // where OpenVPN lives was a manual printed on the dashboard.
+                    // SlabRow skips a blank subtitle, so the row collapses to
+                    // one line instead of holding space for it.
+                }
+                SlabRow(
+                    title = when {
+                        onOpenVpn -> ovpnProfile?.name?.let(BrandConfig::sanitizePublicText)
+                            ?: "OpenVPN"
+                        else -> selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
+                            ?: t("hub_no_server")
+                    },
+                    subtitle = routeSubtitle,
+                    titleColor = lookColor(LookElement.CONFIG_TEXT),
+                    icon = if (onOpenVpn) Icons.Filled.Security else Icons.Filled.Shield,
+                    accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
+                    chevron = true,
+                    onClick = onOpenPicker
+                )
+            }
+        },
+        "quota" to {
+            // What is left of the service this server came from.
+            //
+            // Every config that arrived from a subscription carries its subId,
+            // and the subscription carries the quota and the expiry the panel
+            // reported. Until now that pair was only readable by opening the
+            // picker and finding the right header - so the number people check
+            // most often was two screens from the connect button.
+            //
+            // Keyed on the server actually carrying traffic, falling back to
+            // the selected one, because "how much is left" is a question about
+            // the service in use. It draws nothing at all when the config is a
+            // hand-pasted one (no subId) or when the panel reported neither a
+            // quota nor an expiry: a card with two dashes on it is a decoration.
+            val routeSub = remember(activeConfig, subscriptions) {
+                activeConfig?.subId?.takeIf { it.isNotBlank() }
+                    ?.let { id -> subscriptions.firstOrNull { it.id == id } }
+            }
+            if (routeSub != null && (routeSub.total > 0 || routeSub.expire > 0)) {
+                SubscriptionQuotaCard(routeSub)
+            }
+        },
+        "traffic" to {
+            // Throughput: one object, two readings, totals underneath.
+            val downParts = formatBytesParts(downSpeed, lang)
+            val upParts = formatBytesParts(upSpeed, lang)
+            TrafficTiles(
+                downValue = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
+                downTotal = t("home_total").format(formatBytes(totalDown, lang)),
+                upValue = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
+                upTotal = t("home_total").format(formatBytes(totalUp, lang)),
+                size = homeSize("traffic")
+            )
+        },
+        "facts" to {
+            // Measured facts. The latency row doubles as the real-delay test:
+            // tapping it replaces the passive handshake reading with a measured
+            // one, so there is a single row about latency, not two.
+            ConnectionFacts(
+                state = conn,
+                serverAddress = if (onOpenVpn) ovpnProfile?.host else activeConfig?.address,
+                serverPort = if (onOpenVpn) ovpnProfile?.port else activeConfig?.port,
+                // ics-openvpn routes the whole device, so a plain request is
+                // already inside the tunnel. Asking through 127.0.0.1:MixedPort
+                // would reach an inbound only the Xray engine publishes, which
+                // is why the IP and location rows sat on a dash for an OpenVPN
+                // session that was carrying traffic perfectly well.
+                throughLocalProxy = !onOpenVpn,
+                measuredDelay = delayResult,
+                delayRunning = delayRunning,
+                onMeasureDelay = {
+                    delayRunning = true
+                    delayResult = null
+                    scope.launch {
+                        // SpeedTest.delay() measures through gozarcore, which
+                        // has no part in an OpenVPN session; that path gets a
+                        // real TCP handshake against the profile's endpoint.
+                        val ms: Int? = if (onOpenVpn) {
+                            ovpnProfile?.let { p ->
+                                (Pinger.ping(p.host, p.port) as? PingResult.Ok)?.ms
+                            }
+                        } else SpeedTest.delay()
+                        delayResult =
+                            if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
+                        delayRunning = false
+                    }
+                }
+            )
+        },
+    )
+    val homeOrder = (homeLook.homeOrder.filter { it in HomeParts } + HomeParts).distinct()
+    val faultBlock: @Composable () -> Unit = {
+        // A failure the user can act on. The engine's message is whatever it
+        // happened to produce; the diagnose button is how that becomes a
+        // cause and a remedy instead of a sentence to screenshot.
+        val faulted = error?.takeIf { it.isNotBlank() && conn != Connection.CONNECTED }
+        if (faulted != null) {
+            SkinError(
+                faulted,
+                retryText = t("doc_action"),
+                onRetry = { showDoctor = true }
+            )
+        } else if (deadTunnel) {
+            // Connected, carrying nothing, and no error string exists to
+            // explain it - the case the diagnosis is most useful for.
+            GhostPill(t("doc_action"), onClick = { showDoctor = true })
+        }
+    }
+
+    if (isTv) {
+        // Android TV: the whole 16:9 panel in two columns - the connect
+        // control on one side, the route, the service and the live readings
+        // on the other - instead of a phone column stretched across the room.
+        // The same sections, in the user's own order within each column.
+        val tvLeft = setOf("orb", "session")
+        Row(
+            modifier
+                .fillMaxSize()
+                .padding(horizontal = GhajarSpacing.xl, vertical = GhajarSpacing.md),
+            horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.xl),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(
+                Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = GhajarSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                homeOrder.filter { it in tvLeft }.forEach { id ->
+                    if (id in HomeCritical || id !in homeLook.homeHidden) androidx.compose.runtime.key(id) { homeSections[id]?.invoke() }
+                }
+                if (conn == Connection.CONNECTED) {
+                    GhostPill(
+                        t("tv_reconnect"),
+                        onClick = reconnectNow,
+                        icon = Icons.Filled.Autorenew,
+                        fillWidth = false
+                    )
+                }
+                faultBlock()
+            }
+            Column(
+                Modifier
+                    .weight(1.2f)
+                    .verticalScroll(rememberScrollState())
+                    .padding(vertical = GhajarSpacing.md),
+                verticalArrangement = Arrangement.spacedBy(GhajarSpacing.md, Alignment.CenterVertically)
+            ) {
+                homeOrder.filter { it !in tvLeft }.forEach { id ->
+                    if (id in HomeCritical || id !in homeLook.homeHidden) androidx.compose.runtime.key(id) { homeSections[id]?.invoke() }
+                }
+            }
+        }
+    } else {
     // One column centred on the connect control. It scrolls only when it must
     // - a short screen, or a large system font - so the orb stays centred
     // everywhere else and nothing is ever clipped.
@@ -2292,192 +2646,13 @@ private fun ConnectionScreen(
             ),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            // Home sections, in the order and sizes chosen in Personalization.
-            // The connect control and the route can be moved and resized but
-            // never hidden, so the way to connect is always on this screen.
-            val homeLook = LocalGhajarLook.current
-            fun homeSize(id: String) = homeLook.homeSizes[id] ?: "normal"
-            val homeSections: Map<String, @Composable () -> Unit> = mapOf(
-                "orb" to {
-                    ConnectOrb(
-                        diameter = when (homeSize("orb")) { "compact" -> 196.dp; "large" -> 272.dp; else -> 236.dp },
-                        state = conn,
-                        picking = picking,
-                        enabled = canAct,
-                        tunnelDead = deadTunnel,
-                        netOffline = netOffline,
-                        onClick = {
-                            when {
-                                picking -> onCancelPick()
-                                connected -> onDisconnect()
-                                else -> selectedConfig?.let { onConnect(it) }
-                            }
-                        },
-                        // Long press on a live tunnel redials the same server. The
-                        // OpenVPN path has no ProxyConfig to hand back, so it drops the
-                        // tunnel and the engine's own reconnect takes it from there.
-                        onReconnect = {
-                            when {
-                                onOpenVpn -> onDisconnect()
-                                else -> activeConfig?.let { onConnect(it) } ?: onDisconnect()
-                            }
-                        }
-                    )
-                },
-                "session" to {
-                    SessionLine(connectedAt.takeIf { it > 0L }, conn)
-
-                    // A gesture nobody is told about does not exist.
-                    if (conn == Connection.CONNECTED) {
-                        Text(
-                            t("orb_hold_reconnect"),
-                            style = MaterialTheme.typography.labelSmall,
-                            color = c.textMuted,
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                },
-                "route" to {
-                    // The route: one slab, one row, one tap to the picker. Locked
-                    // configs never reveal their endpoint and the built-in engines have
-                    // none, exactly as before.
-                    //
-                    // A tight inset: this slab holds exactly one row, so the default
-                    // card padding was drawing a frame around a frame and making the
-                    // single most-looked-at line on the screen the tallest thing on it.
-                    Slab(spacing = 0.dp, padding = GhajarSpacing.sm, color = lookColor(LookElement.CONFIG_CARD)) {
-                        // While OpenVPN owns the tunnel, the route is that profile -
-                        // not whichever Xray config happens to still be selected. The
-                        // active id is "ovpn:<uuid>", which is never in `configs`, so
-                        // this row used to fall back to the selection and name a server
-                        // that was not carrying a single byte.
-                        val routeSubtitle = when {
-                            onOpenVpn -> ovpnProfile?.let { p ->
-                                "OPENVPN · ⁦${p.host}:${p.port}⁩"
-                            } ?: "OPENVPN"
-                            else -> selectedConfig?.let { cfg ->
-                                val engine = cfg.protocol.uppercase(java.util.Locale.ROOT) +
-                                    if (net.gozar.app.engine.SingBoxConfig.handles(cfg)) " · sing-box" else ""
-                                val endpoint = when {
-                                    cfg.locked -> t("locked_endpoint")
-                                    cfg.protocol in setOf("aether", "tor") -> t("builtin_engine")
-                                    else -> "⁦${cfg.address}:${cfg.port}⁩"
-                                }
-                                "$engine · $endpoint"
-                            }
-                            // Nothing selected means nothing to say. The row's title
-                            // already reads "no server chosen"; a paragraph explaining
-                            // where OpenVPN lives was a manual printed on the dashboard.
-                            // SlabRow skips a blank subtitle, so the row collapses to
-                            // one line instead of holding space for it.
-                        }
-                        SlabRow(
-                            title = when {
-                                onOpenVpn -> ovpnProfile?.name?.let(BrandConfig::sanitizePublicText)
-                                    ?: "OpenVPN"
-                                else -> selectedConfig?.name?.let(BrandConfig::sanitizePublicText)
-                                    ?: t("hub_no_server")
-                            },
-                            subtitle = routeSubtitle,
-                            titleColor = lookColor(LookElement.CONFIG_TEXT),
-                            icon = if (onOpenVpn) Icons.Filled.Security else Icons.Filled.Shield,
-                            accent = if (conn == Connection.CONNECTED) c.successGlow else c.primary,
-                            chevron = true,
-                            onClick = onOpenPicker
-                        )
-                    }
-                },
-                "quota" to {
-                    // What is left of the service this server came from.
-                    //
-                    // Every config that arrived from a subscription carries its subId,
-                    // and the subscription carries the quota and the expiry the panel
-                    // reported. Until now that pair was only readable by opening the
-                    // picker and finding the right header - so the number people check
-                    // most often was two screens from the connect button.
-                    //
-                    // Keyed on the server actually carrying traffic, falling back to
-                    // the selected one, because "how much is left" is a question about
-                    // the service in use. It draws nothing at all when the config is a
-                    // hand-pasted one (no subId) or when the panel reported neither a
-                    // quota nor an expiry: a card with two dashes on it is a decoration.
-                    val routeSub = remember(activeConfig, subscriptions) {
-                        activeConfig?.subId?.takeIf { it.isNotBlank() }
-                            ?.let { id -> subscriptions.firstOrNull { it.id == id } }
-                    }
-                    if (routeSub != null && (routeSub.total > 0 || routeSub.expire > 0)) {
-                        SubscriptionQuotaCard(routeSub)
-                    }
-                },
-                "traffic" to {
-                    // Throughput: one object, two readings, totals underneath.
-                    val downParts = formatBytesParts(downSpeed, lang)
-                    val upParts = formatBytesParts(upSpeed, lang)
-                    TrafficTiles(
-                        downValue = "‪${downParts.first}‬ ${downParts.second}${t("unit_per_sec")}",
-                        downTotal = t("home_total").format(formatBytes(totalDown, lang)),
-                        upValue = "‪${upParts.first}‬ ${upParts.second}${t("unit_per_sec")}",
-                        upTotal = t("home_total").format(formatBytes(totalUp, lang)),
-                        size = homeSize("traffic")
-                    )
-                },
-                "facts" to {
-                    // Measured facts. The latency row doubles as the real-delay test:
-                    // tapping it replaces the passive handshake reading with a measured
-                    // one, so there is a single row about latency, not two.
-                    ConnectionFacts(
-                        state = conn,
-                        serverAddress = if (onOpenVpn) ovpnProfile?.host else activeConfig?.address,
-                        serverPort = if (onOpenVpn) ovpnProfile?.port else activeConfig?.port,
-                        // ics-openvpn routes the whole device, so a plain request is
-                        // already inside the tunnel. Asking through 127.0.0.1:MixedPort
-                        // would reach an inbound only the Xray engine publishes, which
-                        // is why the IP and location rows sat on a dash for an OpenVPN
-                        // session that was carrying traffic perfectly well.
-                        throughLocalProxy = !onOpenVpn,
-                        measuredDelay = delayResult,
-                        delayRunning = delayRunning,
-                        onMeasureDelay = {
-                            delayRunning = true
-                            delayResult = null
-                            scope.launch {
-                                // SpeedTest.delay() measures through gozarcore, which
-                                // has no part in an OpenVPN session; that path gets a
-                                // real TCP handshake against the profile's endpoint.
-                                val ms: Int? = if (onOpenVpn) {
-                                    ovpnProfile?.let { p ->
-                                        (Pinger.ping(p.host, p.port) as? PingResult.Ok)?.ms
-                                    }
-                                } else SpeedTest.delay()
-                                delayResult =
-                                    if (ms != null) "${n("$ms")} ${t("unit_ms")}" else t("delay_failed")
-                                delayRunning = false
-                            }
-                        }
-                    )
-                },
-            )
-            val homeOrder = (homeLook.homeOrder.filter { it in HomeParts } + HomeParts).distinct()
             homeOrder.forEach { id ->
                 if (id in HomeCritical || id !in homeLook.homeHidden) androidx.compose.runtime.key(id) { homeSections[id]?.invoke() }
             }
 
-            // A failure the user can act on. The engine's message is whatever it
-            // happened to produce; the diagnose button is how that becomes a
-            // cause and a remedy instead of a sentence to screenshot.
-            val faulted = error?.takeIf { it.isNotBlank() && conn != Connection.CONNECTED }
-            if (faulted != null) {
-                SkinError(
-                    faulted,
-                    retryText = t("doc_action"),
-                    onRetry = { showDoctor = true }
-                )
-            } else if (deadTunnel) {
-                // Connected, carrying nothing, and no error string exists to
-                // explain it - the case the diagnosis is most useful for.
-                GhostPill(t("doc_action"), onClick = { showDoctor = true })
-            }
+            faultBlock()
         }
+    }
     }
 
     if (showDoctor) {
@@ -2733,6 +2908,11 @@ private fun ConfigPickerScreen(
     // thing the panel said anywhere.
     var subDialog by remember { mutableStateOf(false) }
     var subDraftUrl by remember { mutableStateOf("") }
+    // Android TV has no camera to scan a code with: a config or subscription
+    // link is typed (or pasted from the TV keyboard) here instead.
+    val pickerIsTv = LocalIsTv.current
+    var linkDialog by remember { mutableStateOf(false) }
+    var linkDraft by remember { mutableStateOf("") }
 
     val allIds = remember(configs) { configs.map { it.id }.toSet() }
 
@@ -2992,7 +3172,8 @@ private fun ConfigPickerScreen(
             onSsh = { addMenu = false; onSsh() },
             onDnsLab = { addMenu = false; onDnsLab() },
             onSubscription = { addMenu = false; subDialog = true },
-            onProtocolForm = { id -> addMenu = false; onProtocolForm(id) }
+            onProtocolForm = { id -> addMenu = false; onProtocolForm(id) },
+            onLink = { addMenu = false; linkDialog = true }
         )
         }
 
@@ -3418,7 +3599,9 @@ private fun ConfigPickerScreen(
         // y position to one row, which a grid cannot do, so in this mode a
         // long press toggles the one row instead.
         val listLook = LocalGhajarLook.current
-        val twoCols = listLook.columns == 2 || listLook.serverView == "grid"
+        // A TV screen is wide enough for two columns, and the long-press OK
+        // that toggles a row there works with a remote (drag-to-paint does not).
+        val twoCols = listLook.columns == 2 || listLook.serverView == "grid" || pickerIsTv
         // Per-row extras, computed once for the list and only when shown.
         val wantTraffic = "traffic" in listLook.serverFields
         val wantLast = "last" in listLook.serverFields
@@ -3735,6 +3918,42 @@ private fun ConfigPickerScreen(
                     singleLine = true
                 )
             }
+        }
+    }
+
+    if (linkDialog) {
+        val linkFocus = LocalFocusManager.current
+        GlassDialog(
+            onDismiss = { linkDialog = false },
+            title = t("tv_add_link"),
+            confirmLabel = t("add"),
+            dismissLabel = t("cancel"),
+            onConfirm = {
+                val text = linkDraft.trim()
+                linkDialog = false
+                if (text.isNotEmpty()) {
+                    linkDraft = ""
+                    // The same path as a scanned code: a link that is neither
+                    // a config nor a subscription says so instead of failing
+                    // silently.
+                    ImportBus.offerScan(text)
+                }
+            }
+        ) {
+            Text(
+                t("tv_add_link_sub"),
+                style = MaterialTheme.typography.bodySmall,
+                color = ghajarColors.textSecondary
+            )
+            OutlinedTextField(
+                value = linkDraft,
+                onValueChange = { linkDraft = it },
+                singleLine = true,
+                placeholder = { Text("vless:// · vmess:// · https://") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { linkFocus.moveFocus(FocusDirection.Down) }),
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 
@@ -4355,9 +4574,12 @@ private fun AddServerPanel(
     onDnsLab: () -> Unit = {},
     onSubscription: () -> Unit = {},
     onProtocolForm: (String) -> Unit = {},
+    /** Android TV's replacement for the camera scanner: type or paste a link. */
+    onLink: () -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     val t = stringsFn()
+    val panelIsTv = LocalIsTv.current
     val rot by animateFloatAsState(
         targetValue = if (expanded) 45f else 0f,
         animationSpec = tween(300, easing = FastOutSlowInEasing),
@@ -4463,7 +4685,12 @@ private fun AddServerPanel(
                         }
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(GhajarSpacing.sm)) {
                             GlyphTile(Icons.Filled.UploadFile, t("import_from_file"), onImport, Modifier.weight(1f), enabled = !busy)
-                            GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
+                            // No camera on a TV: the scan tile becomes "add from link".
+                            if (panelIsTv) {
+                                GlyphTile(Icons.Filled.Link, t("tv_add_link"), onLink, Modifier.weight(1f), enabled = !busy)
+                            } else {
+                                GlyphTile(Icons.Filled.QrCodeScanner, t("scan_qr"), onScanQr, Modifier.weight(1f), enabled = !busy)
+                            }
                         }
                         // A QR in a screenshot or a saved photo is how most
                         // configs actually arrive - through a chat app, not a
@@ -13357,7 +13584,10 @@ private fun ConfigRow(
     val swipeRed = c.error
     var rowWidth by remember { mutableStateOf(1) }
     var dragX by remember { mutableStateOf(0f) }
-    val dragEnabled = !selectionMode && !checked
+    // Swipe-to-delete is a touch gesture; on TV the row's Delete action (in
+    // its actions row) is the way to remove it.
+    val rowIsTv = LocalIsTv.current
+    val dragEnabled = !selectionMode && !checked && !rowIsTv
 
     val swiping = dragX < -6f
     val haptics = LocalHapticFeedback.current
@@ -13727,6 +13957,15 @@ private fun ConfigRow(
                                     CompactMenuItem(Icons.Filled.QrCode2, t("qr_show")) {
                                         moreMenu = false
                                         qrFor = ConfigShare.toLink(config)
+                                    }
+                                }
+                                // TV: selecting several rows is a long press of
+                                // OK, which nothing on screen tells you; this is
+                                // the visible way in.
+                                if (rowIsTv) {
+                                    CompactMenuItem(Icons.Filled.SelectAll, t("tv_select")) {
+                                        moreMenu = false
+                                        onLongPress()
                                     }
                                 }
                                 CompactMenuItem(Icons.Filled.DriveFileRenameOutline, t("cfg_rename")) {

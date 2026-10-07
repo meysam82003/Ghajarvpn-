@@ -55,6 +55,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -101,7 +102,9 @@ fun ConnectOrb(
     onReconnect: (() -> Unit)? = null,
     /** Personalization's preview draws a style before it is saved. */
     styleOverride: String? = null,
-    diameter: androidx.compose.ui.unit.Dp = 236.dp
+    diameter: androidx.compose.ui.unit.Dp = 236.dp,
+    /** Android TV: lets the home screen hand the remote's focus to this control. */
+    orbFocus: androidx.compose.ui.focus.FocusRequester? = null
 ) {
     val c = ghajarColors
     val lang = LocalLang.current
@@ -219,9 +222,20 @@ fun ConnectOrb(
             },
         contentAlignment = Alignment.Center
     ) {
+        // TV focus: a ring that follows the control's own outline (a circle,
+        // a capsule, a rounded square), so the remote's focus is unmistakable.
+        val focusRadius = when (style) {
+            "soft_square" -> (52 * k).dp
+            "shield" -> (40 * k).dp
+            else -> 999.dp
+        }
         Box(
             Modifier
                 .size(width = w, height = h)
+                .then(
+                    if (orbFocus != null) Modifier.focusRequester(orbFocus) else Modifier
+                )
+                .tvFocusGlow(focusRadius, ring = true, scaleTo = 1.04f)
                 .graphicsLayer { scaleX = press; scaleY = press }
                 .pointerInput(enabled, picking) {
                     awaitEachGesture {
