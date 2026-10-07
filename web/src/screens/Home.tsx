@@ -13,6 +13,7 @@ import { ownedStore, selectedServiceStore, selectService, refreshOwned } from '.
 import { goTab, renewRequest } from '../state/ui'
 import { brandedTitle, fa, formatBytes } from '../lib/format'
 import { statusLabel } from '../components/ShopParts'
+import { DesktopServersSheet, modeLabel } from '../components/DesktopVpn'
 
 /**
  * The home screen, on the Slab skin: the connect control dead centre, the
@@ -47,6 +48,9 @@ export function HomeScreen() {
     return core.onStatus(st => { setCoreState(st); core.servers().then(setServers).catch(() => undefined) })
   }, [])
   const connected = !!coreState?.connected
+  // Engine v2: every protocol, free servers, system proxy and full-device modes.
+  const full = !!core?.groups
+  const hasServer = full && !!coreState?.selectedId
 
   async function loadServers(): Promise<boolean> {
     if (!core || !service) return false
@@ -57,13 +61,21 @@ export function HomeScreen() {
   }
 
   async function act() {
-    if (!linked) { goTab('shop'); return }
+    if (core && (connected || (hasServer && !service))) {
+      // Free or manually added servers connect without an account.
+      setBusy(true); setError(null)
+      try { if (connected) await core.disconnect(); else await core.connect() } catch (e) { setError(coreError(e)) } finally { setBusy(false) }
+      return
+    }
+    if (!linked) { if (full) { setServerSheet(true); return } goTab('shop'); return }
     if (!service) { if (owned.length) setPicker(true); else goTab('shop'); return }
     if (core) {
       setBusy(true); setError(null)
       try {
-        if (connected) await core.disconnect()
-        else { await loadServers(); await core.connect() }
+        // The selected service's servers come in first; a server picked on the
+        // server screen from another group stays the one to connect.
+        await loadServers().catch(e => { if (!hasServer) throw e })
+        await core.connect()
       } catch (e) { setError(coreError(e)) } finally { setBusy(false) }
       return
     }
@@ -75,10 +87,12 @@ export function HomeScreen() {
   return (
     <div class="page pad-lg centered home" style={{ gap: `${gap}px`, ['--home-gap' as any]: `${gap}px` }}>
       <div class="home-hero">
-      <ConnectOrb style={look.orbStyle} enabled={canAct || !linked || owned.length > 0} working={busy || !!coreState?.connecting || connected} onClick={act}
-        label={!linked ? 'ورود و خرید' : core && connected ? 'متصل' : service ? 'اتصال' : owned.length ? 'انتخاب سرویس' : 'خرید سرویس'}
-        hint={!linked ? 'برای شروع، حساب را وصل کن' : core && connected ? 'برای قطع بزن' : !service && !owned.length ? 'سرویسی انتخاب نشده' : null} />
-      <span class="label-small c-muted center">{core && canAct
+      <ConnectOrb style={look.orbStyle} enabled={canAct || !linked || owned.length > 0 || hasServer} working={busy || !!coreState?.connecting || connected} onClick={act}
+        label={core && connected ? 'متصل' : core && hasServer && !service ? 'اتصال' : !linked ? (full ? 'اتصال رایگان' : 'ورود و خرید') : service ? 'اتصال' : owned.length ? 'انتخاب سرویس' : 'خرید سرویس'}
+        hint={core && connected ? `${modeLabel(coreState?.mode)} · برای قطع بزن` : !linked && !hasServer ? (full ? 'سرور رایگان یا حساب قاجار' : 'برای شروع، حساب را وصل کن') : !service && !owned.length && !hasServer ? 'سرویسی انتخاب نشده' : null} />
+      <span class="label-small c-muted center">{core && full && (canAct || hasServer)
+        ? (connected ? `${modeLabel(coreState?.mode)} · ${coreState?.server?.name ?? ''}${coreState?.engine ? ' · ' + coreState.engine : ''}` : 'نوع اتصال و سرور را از «سرورها» انتخاب کن')
+        : core && canAct
         ? (connected ? `مرورگر با افزونهٔ قاجار از این اتصال استفاده می‌کند · فقط مرورگر، نه کل سیستم` : 'با اتصال، مرورگری که افزونهٔ قاجار دارد از VPN استفاده می‌کند؛ بقیهٔ سیستم دست نمی‌خورد')
         : canAct ? 'با یک لمس، همین سرویس به اپ VPN این دستگاه اضافه می‌شود' : linked ? 'از فروشگاه سرویس بخر؛ همین‌جا به اپ VPN اضافه می‌شود' : 'حساب تلگرام را یک‌بار متصل کن تا سرویس‌هایت اینجا بیایند'}</span>
       {core && coreState && !coreState.available ? <span class="label-small c-warning center">هستهٔ اتصال در این نسخه نیست؛ نسخهٔ تازهٔ برنامه را نصب کن.</span> : null}
@@ -94,15 +108,16 @@ export function HomeScreen() {
         </Slab>
       </div>
 
-      {core && canAct ? (
+      {core && (canAct || full) ? (
         <div class="full" style={{ maxWidth: '560px' }}>
           <Slab spacing={0} padding={8}>
-            <SlabRow title={coreState?.server?.name || servers[coreState?.selected ?? 0]?.name || 'سرور خودکار'} subtitle={connected && coreState?.socks ? `پروکسی محلی ${coreState.socks.host}:${coreState.socks.port} · فقط مرورگر` : 'انتخاب سرور برای مرورگر'}
-              icon="dns" chevron onClick={async () => { setServerSheet(true); if (!servers.length) { try { await loadServers() } catch (e) { setError(coreError(e)) } } }} />
+            <SlabRow title={coreState?.server?.name || servers[coreState?.selected ?? 0]?.name || (full ? 'سرورها' : 'سرور خودکار')}
+              subtitle={full ? `${modeLabel(coreState?.mode)} · ${connected && coreState?.socks ? `پراکسی محلی ${coreState.socks.host}:${coreState.socks.port}` : 'سرورها، رایگان‌ها و نوع اتصال'}` : connected && coreState?.socks ? `پروکسی محلی ${coreState.socks.host}:${coreState.socks.port} · فقط مرورگر` : 'انتخاب سرور برای مرورگر'}
+              icon="dns" chevron onClick={async () => { setServerSheet(true); if (!servers.length && service) { try { await loadServers() } catch (e) { setError(coreError(e)) } } }} />
           </Slab>
-          <div class="row gap-sm" style={{ marginTop: '8px' }}>
+          {canAct ? <div class="row gap-sm" style={{ marginTop: '8px' }}>
             <GhostPill text="افزودن به اپ دیگر" icon="add_to_home_screen" onClick={async () => { setBusy(true); try { setDetails(await api.service(service!.username)) } catch (e) { setError(api.publicMessage(e)) } finally { setBusy(false) } }} />
-          </div>
+          </div> : null}
         </div>
       ) : null}
 
@@ -128,7 +143,9 @@ export function HomeScreen() {
         </Sheet>
       ) : null}
 
-      {serverSheet && core ? (
+      {serverSheet && core && full ? (
+        <DesktopServersSheet core={core} status={coreState} onDismiss={() => setServerSheet(false)} onError={m => setError(m)} />
+      ) : serverSheet && core ? (
         <Sheet title="سرور مرورگر" onDismiss={() => setServerSheet(false)}>
           {servers.length === 0 ? <span class="c-muted">سروری برای این سرویس دریافت نشد.</span> : null}
           {servers.map(s => (

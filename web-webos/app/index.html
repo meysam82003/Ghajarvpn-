@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Ghajar VPN</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #050807; color: #E9F4EF; font: 28px Tahoma, sans-serif; }
+  body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 28px; text-align: center; }
+  img { width: 200px; height: 200px; border-radius: 44px; }
+  p { margin: 0; color: #9DB3AA; max-width: 1100px; line-height: 1.7; }
+  button { font: inherit; font-weight: bold; color: #02120B; background: #00A86B; border: 0; border-radius: 999px; padding: 16px 48px; }
+  button:focus { outline: 4px solid #0CE6A0; outline-offset: 6px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<img src="largeIcon.png" alt="">
+<p id="msg">در حال باز کردن قاجار وی پی ان…</p>
+<button id="retry" hidden>تلاش دوباره</button>
+<script>
+  // The app itself is the Ghajar web app (the same one as on phones and
+  // computers), opened in TV mode: driven by the remote, read from a sofa.
+  var APP = 'https://httpuser87890.ir/Faoxima/Ghajarvpn/pwa/?tv=1'
+  var msg = document.getElementById('msg')
+  var retry = document.getElementById('retry')
+  function open() {
+    msg.textContent = 'در حال باز کردن قاجار وی پی ان…'
+    retry.hidden = true
+    if (navigator.onLine === false) return fail()
+    location.replace(APP)
+  }
+  function fail() {
+    msg.textContent = 'اینترنت تلویزیون وصل نیست. اتصال را بررسی کن و دوباره امتحان کن.'
+    retry.hidden = false
+    retry.focus()
+  }
+  retry.addEventListener('click', open)
+  document.addEventListener('keydown', function (e) {
+    if (e.keyCode === 13 && !retry.hidden) open()
+    // Back on this screen leaves the app.
+    if (e.keyCode === 461 && window.webOS && webOS.platformBack) webOS.platformBack()
+  })
+  open()
+</script>
+</body>
+</html>

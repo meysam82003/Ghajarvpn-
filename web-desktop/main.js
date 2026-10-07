@@ -1,11 +1,13 @@
 // Ghajar VPN for Windows, macOS and Linux: the Ghajar web app in its own
 // window, with native notifications and a tray icon so notices keep coming
-// while the window is closed. It carries no VPN core; purchased services are
-// added to a VPN client with the app's own "add to app" links.
+// while the window is closed. It also connects for real: the engine (Xray,
+// sing-box, Psiphon, the protocol helpers) runs the VPN for the browser only,
+// through the system proxy, or for the whole device with a TUN.
 const { app, BrowserWindow, Tray, Menu, shell, ipcMain, session, nativeImage } = require('electron')
 const fs = require('fs')
 const path = require('path')
-const { Core } = require('./core.js')
+const { Engine } = require('./engine/manager.js')
+const { serve } = require('./engine/api.js')
 
 const APP_URL = process.env.GHAJAR_URL || 'https://httpuser87890.ir/Faoxima/Ghajarvpn/pwa/'
 const APP_ID = 'com.ghajarvpn.desktop'
@@ -16,7 +18,7 @@ const BLOCKED_SCHEMES = new Set(['file:', 'javascript:', 'data:', 'blob:', 'abou
 
 let win = null
 let core = null
-// Xray ships next to the app (resources/core); in development it can be pointed at with GHAJAR_CORE_DIR.
+// The cores ship next to the app (resources/core); in development it can be pointed at with GHAJAR_CORE_DIR.
 const CORE_DIR = process.env.GHAJAR_CORE_DIR || (app.isPackaged ? path.join(process.resourcesPath, 'core') : path.join(__dirname, 'core', `${process.platform}-${process.arch}`))
 // Connection attempts: through the system proxy first (a VPN client often
 // sets one), then directly, since Iranian hosts commonly refuse foreign exits.
@@ -170,13 +172,22 @@ function createWindow(hidden) {
   win.loadURL(APP_URL)
 }
 
+const MODE_LABEL = { tun: 'کل دستگاه', apps: 'برنامه‌های انتخابی', system: 'پراکسی سیستم', proxy: 'پراکسی محلی' }
+
 function trayMenu() {
   const st = core ? core.status() : { connected: false }
   return Menu.buildFromTemplate([
-    { label: st.connected ? `🟢 مرورگر متصل است · ${st.server ? st.server.name.slice(0, 40) : ''}` : '⚪️ قطع', enabled: false },
+    { label: st.connected ? `🟢 ${MODE_LABEL[st.mode] || 'متصل'} · ${st.server ? st.server.name.slice(0, 40) : ''}` : '⚪️ قطع', enabled: false },
     st.connected
       ? { label: 'قطع اتصال', click: () => core.disconnect().catch(() => undefined) }
-      : { label: 'اتصال مرورگر', enabled: !!core && core.servers().length > 0, click: () => core.connect().catch(() => undefined) },
+      : { label: 'اتصال', enabled: !!core && !!core.store.selected(), click: () => core.connect().catch(() => undefined) },
+    ...(core ? [{
+      label: 'نوع اتصال',
+      submenu: Object.entries(MODE_LABEL).map(([mode, label]) => ({
+        label, type: 'radio', checked: core.settings().mode === mode,
+        click: () => { core.setSettings({ mode }); if (core.status().connected) core.connect().catch(() => undefined) }
+      }))
+    }] : []),
     { type: 'separator' },
     { label: 'باز کردن قاجار', click: show },
     {
@@ -212,14 +223,34 @@ ipcMain.on('ghajar:focus', show)
 // The web app's connect control, in this app: the core, browser-only.
 ipcMain.handle('ghajar:core', async (_e, op, arg) => {
   if (!core) throw new Error('core not ready')
+  const id = typeof arg === 'string' ? arg : ''
   switch (op) {
     case 'status': return core.status()
+    case 'capabilities': return core.capabilities()
     case 'servers': return core.servers()
-    case 'setService': return core.setService(arg || {})
-    case 'connect': return core.connect(Number.isInteger(arg) ? arg : undefined)
+    case 'groups': return core.groups()
+    case 'settings': return core.settings()
+    case 'setSettings': return core.setSettings(arg && typeof arg === 'object' ? arg : {})
+    case 'setService': await core.store.setService(arg || {}); return core.servers()
+    case 'add': return core.store.addFromText(String(arg || ''))
+    case 'addSubscription': return core.store.addSubscription(String((arg && arg.url) || ''), String((arg && arg.name) || ''))
+    case 'refreshSubscriptions': return core.store.refreshAll()
+    case 'renameSubscription': core.store.renameSubscription(String(arg.id), String(arg.name)); return core.groups()
+    case 'removeSubscription': core.store.removeSubscription(id); return core.groups()
+    case 'removeConfig': core.store.removeConfig(id); return core.groups()
+    case 'favorite': core.store.toggleFavorite(id); return core.groups()
+    case 'select': core.store.select(id); return core.status()
+    case 'shareLink': { const c = core.store.config(id); return c ? require('./engine/parser.js').toShareLink(c) : null }
+    case 'connect': return core.connect(Number.isInteger(arg) || typeof arg === 'string' ? arg : undefined)
     case 'disconnect': return core.disconnect()
     case 'ping': return core.ping()
-    case 'directIran': core.setDirectIran(!!arg); return core.status()
+    case 'test': return core.testDelays(Array.isArray(arg) ? arg.map(String) : undefined)
+    case 'fastest': { const c = await core.fastest(); if (c) core.store.select(c.id); return c ? c.id : '' }
+    case 'refreshFree': return core.refreshFree({ fetchImpl: await viaVpnFetch() })
+    case 'addWarp': return (await core.addWarp({ fetchImpl: await viaVpnFetch() })).id
+    case 'addPsiphon': return core.addPsiphon(String(arg || '')).id
+    case 'runningApps': return core.runningApps()
+    case 'directIran': core.setSettings({ iranDirect: !!arg }); return core.status()
     default: throw new Error('unknown')
   }
 })
@@ -231,6 +262,17 @@ ipcMain.on('ghajar:retry', async () => {
   await useRoute()
   win.loadURL(APP_URL)
 })
+
+/**
+ * fetch for the free sources: Telegram and Cloudflare are filtered in Iran, so
+ * while connected it goes through the VPN's own local HTTP port, like the app.
+ */
+async function viaVpnFetch() {
+  const ses = session.fromPartition('ghajar-feeds')
+  const st = core.status()
+  await ses.setProxy(st.connected && st.http ? { proxyRules: `http://127.0.0.1:${st.http.port}` } : { mode: 'direct' })
+  return (url, init) => ses.fetch(url, init)
+}
 
 async function useRoute() {
   const ses = session.fromPartition('persist:ghajar')
@@ -255,16 +297,16 @@ app.whenReady().then(() => {
     try { fs.writeFileSync(marker, '1') } catch { /* read-only profile */ }
   }
 
-  core = new Core({
+  core = new Engine({
     dataDir: app.getPath('userData'),
     binDir: CORE_DIR,
     onChange: st => {
       if (win && !win.isDestroyed()) win.webContents.send('ghajar:core-status', st)
-      if (tray) { tray.setContextMenu(trayMenu()); tray.setToolTip(st.connected ? 'قاجار وی پی ان · مرورگر متصل' : 'قاجار وی پی ان') }
+      if (tray) { tray.setContextMenu(trayMenu()); tray.setToolTip(st.connected ? `قاجار وی پی ان · ${MODE_LABEL[st.mode] || 'متصل'}` : 'قاجار وی پی ان') }
     }
   })
   // The control port the Ghajar browser extension talks to (127.0.0.1 only).
-  core.serve()
+  serve(core)
 
   createTray()
   createWindow(startHidden)

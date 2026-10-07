@@ -10,6 +10,7 @@ import { registerServiceWorker } from './lib/pwa'
 import { redeemTicket } from './api/client'
 import { refreshOwned } from './state/shop'
 import { tokenStore, syncNativeToken } from './api/account'
+import { startTvMode } from './lib/tv'
 
 applyTheme()
 
@@ -26,6 +27,7 @@ async function boot() {
   if (!location.hash) goTab('home')
   render(<App />, document.getElementById('app')!)
   document.documentElement.classList.add('ready')
+  startTvMode()
   // The splash is gone for good once faded: nothing invisible stays over the page.
   setTimeout(() => document.getElementById('boot')?.remove(), 400)
   void registerServiceWorker()

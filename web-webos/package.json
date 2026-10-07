@@ -1,0 +1,8 @@
+{
+  "name": "ghajar-webos",
+  "version": "1.0.4",
+  "private": true,
+  "description": "Ghajar VPN for LG webOS TVs (the Ghajar web app in TV mode)",
+  "scripts": { "build": "node build.mjs" },
+  "devDependencies": { "@webos-tools/cli": "^3.2.1" }
+}

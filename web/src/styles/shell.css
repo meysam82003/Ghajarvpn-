@@ -232,3 +232,16 @@
 /* QR */
 .qr-box { width: 100%; max-width: min(300px, 70vw); margin: 0 auto; aspect-ratio: 1; background: #F7FAFC; border-radius: 16px; padding: 10px; }
 .qr-box svg, .qr-box img { width: 100%; height: 100%; display: block; }
+
+/* TV mode (LG webOS, Tizen, TV browsers): driven by a remote, read from a sofa. */
+html.tv { cursor: none; }
+@media (min-width: 1600px) { html.tv body { zoom: 1.5; } }
+@media (min-width: 2400px) { html.tv body { zoom: 2.25; } }
+html.tv :focus { outline: none; }
+html.tv button:focus, html.tv a:focus, html.tv [role="button"]:focus, html.tv input:focus, html.tv textarea:focus, html.tv [tabindex]:focus {
+  outline: 3px solid var(--glow); outline-offset: 3px; border-radius: 14px;
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--glow) 25%, transparent), 0 0 28px color-mix(in srgb, var(--glow) 35%, transparent);
+  transform: scale(1.03); transition: transform 120ms, box-shadow 120ms;
+}
+html.tv .orb:focus { border-radius: 50%; transform: scale(1.05); }
+html.tv ::-webkit-scrollbar { width: 0; height: 0; }
