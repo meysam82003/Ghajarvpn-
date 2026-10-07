@@ -25,6 +25,7 @@
 
 const crypto = require('crypto')
 const path = require('path')
+const openvpn = require('./openvpn.js')
 
 // ------------------------------------------------------------------ constants
 
@@ -43,7 +44,7 @@ const MASTERDNS_FAMILY = new Set(['masterdns', 'stormdns', 'cottendns'])
 const ENDPOINT_PROTOCOLS = new Set(['openconnect', 'masque', 'tailscale'])
 
 /** The same, by sing-box type: how a bare object is sorted into "endpoints". */
-const ENDPOINT_TYPES = new Set(['openconnect', 'masque-client', 'tailscale', 'wireguard'])
+const ENDPOINT_TYPES = new Set(['openconnect', 'masque-client', 'tailscale', 'wireguard', 'openvpn-client'])
 
 /** SSH transport modes the helper implements; "direct" needs no helper at all (Sidecars.SSH_MODES). */
 const SSH_MODES = new Set(['payload', 'http-proxy', 'https-proxy', 'tls', 'payload-tls', 'ws', 'wss'])
@@ -380,6 +381,9 @@ function shadowTlsOut(c) {
  */
 function buildSingboxSpec(config) {
   const c = profile(config)
+  // An imported .ovpn (the Android app hands it to ics-openvpn): the
+  // openvpn-client endpoint, see openvpn.js. Throws when the profile cannot run.
+  if (c.protocol === 'openvpn') return openvpn.buildOpenvpnSpec(config)
   if (!PROTOCOLS.has(c.protocol)) return null
   const proxy = buildSingboxOutbound(config)
   const out = ENDPOINT_PROTOCOLS.has(c.protocol) ? { endpoint: proxy } : { outbound: proxy }
@@ -801,6 +805,7 @@ function sidecarPlan(config, ports, prefs) {
 function remoteHosts(config) {
   const c = profile(config)
   const x = extraJson(c)
+  if (c.protocol === 'openvpn') return openvpn.remoteHosts(config).filter((h) => !isIp(h))
   const out = []
   const add = (h) => {
     const s = String(h || '').trim().replace(/^\[|\]$/g, '')
