@@ -74,7 +74,9 @@ jobs:
   # this follows Mygod/slipstream-rust's own .github/actions/build-binary.
   # Optional: when it fails the app ships without slipstream on Windows.
   slipstream-win:
-    runs-on: windows-latest
+    # Upstream's picoquic script asks CMake for "Visual Studio 17 2022";
+    # windows-latest now ships a newer Visual Studio only.
+    runs-on: windows-2022
     timeout-minutes: 45
     continue-on-error: true
     steps:
