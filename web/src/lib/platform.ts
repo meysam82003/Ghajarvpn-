@@ -44,7 +44,7 @@ export interface CoreStatus {
 }
 export interface CoreServer { index: number; id?: string; name: string; protocol: string; host: string; port: number }
 export interface CoreConfig { id: string; name: string; protocol: string; address: string; port: number; favorite: boolean; delay: number | null; family: string; needsCredentials?: boolean }
-export interface CoreGroup { id: string; name: string; url?: string; kind: string; used?: number; total?: number; expire?: number; lastUpdated?: number; configs: CoreConfig[] }
+export interface CoreGroup { id: string; name: string; url?: string; kind: string; used?: number; total?: number; expire?: number; lastUpdated?: number; error?: string; configs: CoreConfig[] }
 export interface CoreSettings { mode: CoreMode; iranDirect: boolean; autoFastest: boolean; apps?: string[]; bypassApps?: string[]; [key: string]: unknown }
 export interface CoreCapabilities { xray: boolean; singbox: boolean; psiphon: boolean; tor: boolean; tun: boolean; apps?: boolean; torBridges?: boolean; aether?: boolean; openvpn?: boolean; ikev2?: boolean; helpers: Record<string, boolean> }
 export interface DesktopCore {
@@ -65,6 +65,8 @@ export interface DesktopCore {
   add?(text: string): Promise<{ added?: number; subscription?: { id: string } }>
   addSubscription?(url: string, name?: string): Promise<{ id: string }>
   refreshSubscriptions?(): Promise<{ id: string; count?: number; error?: string }[]>
+  /** One subscription only (newer engines); fall back to refreshSubscriptions(). */
+  refreshSubscription?(id: string): Promise<unknown>
   renameSubscription?(id: string, name: string): Promise<CoreGroup[]>
   removeSubscription?(id: string): Promise<CoreGroup[]>
   removeConfig?(id: string): Promise<CoreGroup[]>
