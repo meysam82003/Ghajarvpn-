@@ -10,7 +10,8 @@ laptop smartphone desktop_windows add remove expand_more expand_less help schedu
 campaign reviews chat attach_file upload image ios_share add_to_home_screen install_mobile install_desktop
 file_download vpn_key public language lock lock_open cloud_download visibility filter_list sort search
 inventory_2 emoji_events speed timer edit delete more_vert notifications_active notifications_off
-mark_email_read done_all qr_code layers category workspace_premium menu_book grid_view view_list`.split(/\s+/).filter(Boolean)
+mark_email_read done_all qr_code layers category workspace_premium menu_book grid_view view_list
+play_arrow stop arrow_upward swap_vert delete_sweep content_paste upload_file hub timer_off network_check delete_forever edit_off`.split(/\s+/).filter(Boolean)
 const out = {}
 for (const n of names) {
   const svg = readFileSync(`node_modules/@material-design-icons/svg/filled/${n}.svg`, 'utf8')

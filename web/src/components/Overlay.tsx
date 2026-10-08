@@ -1,6 +1,7 @@
 import { ComponentChildren } from 'preact'
 import { createPortal } from 'preact/compat'
 import { useEffect, useRef } from 'preact/hooks'
+import { Icon } from './Icon'
 import { useStore } from '../lib/store'
 import { toastStore } from '../state/ui'
 
@@ -84,6 +85,80 @@ export function Sheet(props: { children: ComponentChildren; onDismiss: () => voi
     document.body
   )
 }
+
+/**
+ * A screen of its own over the whole window (a pushed destination in the
+ * Compose app): a bar with the way back, the title and its own tools, and a
+ * body that fills the rest. Back / Escape close it like any dialog.
+ */
+export function FullPage(props: {
+  title: ComponentChildren
+  subtitle?: ComponentChildren
+  trailing?: ComponentChildren
+  children: ComponentChildren
+  onDismiss: () => void
+  class?: string
+}) {
+  useModal(props.onDismiss, true)
+  return createPortal(
+    <div class="scrim page-scrim">
+      <div class={'fullpage' + (props.class ? ' ' + props.class : '')} role="dialog" aria-modal="true">
+        <header class="fullpage-bar">
+          <button class="icon-btn bounce" aria-label="بازگشت" onClick={props.onDismiss}><Icon name="arrow_back" /></button>
+          <div class="col grow">
+            <h1 class="ellipsis">{props.title}</h1>
+            {props.subtitle ? <span class="label-medium c-text2 ellipsis">{props.subtitle}</span> : null}
+          </div>
+          {props.trailing}
+        </header>
+        <div class="fullpage-body">{props.children}</div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+/**
+ * A DropdownMenu: a small list anchored under the control that opened it.
+ * It is a layer of its own, so Back/Escape close it first and a TV remote
+ * stays inside it.
+ */
+export function Popover(props: { anchor: HTMLElement | null; onDismiss: () => void; children: ComponentChildren; width?: number }) {
+  useModal(props.onDismiss, true)
+  const box = useRef<HTMLDivElement>(null)
+  useEffect(() => { box.current?.querySelector<HTMLElement>('button:not([disabled])')?.focus({ preventScroll: true }) }, [])
+  const r = props.anchor?.getBoundingClientRect()
+  const w = props.width ?? 240
+  const vw = window.innerWidth, vh = window.innerHeight
+  const style: Record<string, string> = { width: `${w}px` }
+  if (r) {
+    // Reading start (the right edge in Persian) lines up with the control's.
+    const rtl = document.documentElement.dir !== 'ltr'
+    let left = rtl ? r.right - w : r.left
+    left = Math.max(8, Math.min(vw - w - 8, left))
+    style.left = `${left}px`
+    if (r.bottom + 260 > vh && r.top > vh / 2) { style.bottom = `${vh - r.top + 6}px`; style.maxHeight = `${r.top - 14}px` }
+    else { style.top = `${r.bottom + 6}px`; style.maxHeight = `${vh - r.bottom - 14}px` }
+  }
+  return createPortal(
+    <div class="scrim menu-scrim" onClick={e => { if (e.target === e.currentTarget) props.onDismiss() }}>
+      <div class="menu" role="menu" ref={box} style={style}>{props.children}</div>
+    </div>,
+    document.body
+  )
+}
+
+export function MenuItem(props: { icon?: string; label: ComponentChildren; onClick: () => void; enabled?: boolean; danger?: boolean; checked?: boolean }) {
+  return (
+    <button class={'menu-item' + (props.danger ? ' danger' : '')} role="menuitem" disabled={props.enabled === false} onClick={props.onClick}>
+      {props.icon ? <Icon name={props.icon} size={18} /> : null}
+      <span class="grow">{props.label}</span>
+      {props.checked ? <Icon name="check" size={18} color="var(--primary)" /> : null}
+    </button>
+  )
+}
+
+export function MenuDivider() { return <span class="menu-divider" /> }
 
 export function ToastHost() {
   const t = useStore(toastStore)

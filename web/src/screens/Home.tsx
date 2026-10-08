@@ -1,19 +1,20 @@
 import { useEffect, useState } from 'preact/hooks'
-import { desktopCore, coreError, CoreStatus, CoreServer } from '../lib/platform'
+import { desktopCore, coreError, CoreStatus, CoreServer, CoreGroup, CoreSettings, DesktopCore } from '../lib/platform'
 import * as api from '../api/client'
 import * as M from '../api/models'
 import { useStore } from '../lib/store'
 import { tokenStore } from '../api/account'
 import { lookStore } from '../theme/look'
 import { Icon } from '../components/Icon'
-import { Slab, SlabRow, StatStrip, GhostPill, LinearProgress } from '../components/Skin'
+import { Slab, SlabRow, SlabDivider, StatStrip, GhostPill, LinearProgress } from '../components/Skin'
 import { Sheet } from '../components/Overlay'
 import { AddToAppSheet } from '../components/AddToApp'
 import { ownedStore, selectedServiceStore, selectService, refreshOwned } from '../state/shop'
 import { goTab, renewRequest } from '../state/ui'
 import { brandedTitle, fa, formatBytes } from '../lib/format'
 import { statusLabel } from '../components/ShopParts'
-import { DesktopServersSheet, modeLabel } from '../components/DesktopVpn'
+import { DesktopServersPage, modeLabel, FlagName, GroupQuotaCard, serviceOf, sessionClock, useSecondTick } from '../components/DesktopVpn'
+import { syncOwnedServices } from '../state/desktopSync'
 
 /**
  * The home screen, on the Slab skin: the connect control dead centre, the
@@ -23,6 +24,13 @@ import { DesktopServersSheet, modeLabel } from '../components/DesktopVpn'
  * can: it gives the selected service to a VPN app on this device.
  */
 export function HomeScreen() {
+  // The desktop app's full engine (every protocol, groups, modes) gets the
+  // Android home; a browser, a phone and the first desktop engine keep theirs.
+  const core = desktopCore()
+  return core?.groups ? <DesktopHome core={core} /> : <WebHome />
+}
+
+function WebHome() {
   const linked = useStore(tokenStore) !== ''
   const owned = useStore(ownedStore)
   const selected = useStore(selectedServiceStore)
@@ -48,9 +56,7 @@ export function HomeScreen() {
     return core.onStatus(st => { setCoreState(st); core.servers().then(setServers).catch(() => undefined) })
   }, [])
   const connected = !!coreState?.connected
-  // Engine v2: every protocol, free servers, system proxy and full-device modes.
-  const full = !!core?.groups
-  const hasServer = full && !!coreState?.selectedId
+  const now = useSecondTick(connected)
 
   async function loadServers(): Promise<boolean> {
     if (!core || !service) return false
@@ -61,20 +67,17 @@ export function HomeScreen() {
   }
 
   async function act() {
-    if (core && (connected || (hasServer && !service))) {
-      // Free or manually added servers connect without an account.
+    if (core && connected) {
       setBusy(true); setError(null)
       try { if (connected) await core.disconnect(); else await core.connect() } catch (e) { setError(coreError(e)) } finally { setBusy(false) }
       return
     }
-    if (!linked) { if (full) { setServerSheet(true); return } goTab('shop'); return }
+    if (!linked) { goTab('shop'); return }
     if (!service) { if (owned.length) setPicker(true); else goTab('shop'); return }
     if (core) {
       setBusy(true); setError(null)
       try {
-        // The selected service's servers come in first; a server picked on the
-        // server screen from another group stays the one to connect.
-        await loadServers().catch(e => { if (!hasServer) throw e })
+        await loadServers()
         await core.connect()
       } catch (e) { setError(coreError(e)) } finally { setBusy(false) }
       return
@@ -87,12 +90,11 @@ export function HomeScreen() {
   return (
     <div class="page pad-lg centered home" style={{ gap: `${gap}px`, ['--home-gap' as any]: `${gap}px` }}>
       <div class="home-hero">
-      <ConnectOrb style={look.orbStyle} enabled={canAct || !linked || owned.length > 0 || hasServer} working={busy || !!coreState?.connecting || connected} onClick={act}
-        label={core && connected ? 'متصل' : core && hasServer && !service ? 'اتصال' : !linked ? (full ? 'اتصال رایگان' : 'ورود و خرید') : service ? 'اتصال' : owned.length ? 'انتخاب سرویس' : 'خرید سرویس'}
-        hint={core && connected ? `${modeLabel(coreState?.mode)} · برای قطع بزن` : !linked && !hasServer ? (full ? 'سرور رایگان یا حساب قاجار' : 'برای شروع، حساب را وصل کن') : !service && !owned.length && !hasServer ? 'سرویسی انتخاب نشده' : null} />
-      <span class="label-small c-muted center">{core && full && (canAct || hasServer)
-        ? (connected ? `${modeLabel(coreState?.mode)} · ${coreState?.server?.name ?? ''}${coreState?.engine ? ' · ' + coreState.engine : ''}` : 'نوع اتصال و سرور را از «سرورها» انتخاب کن')
-        : core && canAct
+      <ConnectOrb style={look.orbStyle} enabled={canAct || !linked || owned.length > 0} working={busy || !!coreState?.connecting} connected={connected} onClick={act}
+        timer={connected && coreState?.since ? sessionClock(now - coreState.since) : null}
+        label={core && connected ? 'متصل' : !linked ? 'ورود و خرید' : service ? 'اتصال' : owned.length ? 'انتخاب سرویس' : 'خرید سرویس'}
+        hint={core && connected ? `${modeLabel(coreState?.mode)} · برای قطع بزن` : !linked ? 'برای شروع، حساب را وصل کن' : !service && !owned.length ? 'سرویسی انتخاب نشده' : null} />
+      <span class="label-small c-muted center">{core && canAct
         ? (connected ? `مرورگر با افزونهٔ قاجار از این اتصال استفاده می‌کند · فقط مرورگر، نه کل سیستم` : 'با اتصال، مرورگری که افزونهٔ قاجار دارد از VPN استفاده می‌کند؛ بقیهٔ سیستم دست نمی‌خورد')
         : canAct ? 'با یک لمس، همین سرویس به اپ VPN این دستگاه اضافه می‌شود' : linked ? 'از فروشگاه سرویس بخر؛ همین‌جا به اپ VPN اضافه می‌شود' : 'حساب تلگرام را یک‌بار متصل کن تا سرویس‌هایت اینجا بیایند'}</span>
       {core && coreState && !coreState.available ? <span class="label-small c-warning center">هستهٔ اتصال در این نسخه نیست؛ نسخهٔ تازهٔ برنامه را نصب کن.</span> : null}
@@ -109,11 +111,11 @@ export function HomeScreen() {
         </Slab>
       </div>
 
-      {core && (canAct || full) ? (
+      {core && canAct ? (
         <div class="full" style={{ maxWidth: '560px' }}>
           <Slab spacing={0} padding={8}>
-            <SlabRow title={coreState?.server?.name || servers[coreState?.selected ?? 0]?.name || (full ? 'سرورها' : 'سرور خودکار')}
-              subtitle={full ? `${modeLabel(coreState?.mode)} · ${connected && coreState?.socks ? `پراکسی محلی ${coreState.socks.host}:${coreState.socks.port}` : 'سرورها، رایگان‌ها و نوع اتصال'}` : connected && coreState?.socks ? `پروکسی محلی ${coreState.socks.host}:${coreState.socks.port} · فقط مرورگر` : 'انتخاب سرور برای مرورگر'}
+            <SlabRow title={coreState?.server?.name || servers[coreState?.selected ?? 0]?.name || 'سرور خودکار'}
+              subtitle={connected && coreState?.socks ? `پروکسی محلی ${coreState.socks.host}:${coreState.socks.port} · فقط مرورگر` : 'انتخاب سرور برای مرورگر'}
               icon="dns" chevron onClick={async () => { setServerSheet(true); if (!servers.length && service) { try { await loadServers() } catch (e) { setError(coreError(e)) } } }} />
           </Slab>
           {canAct ? <div class="row gap-sm" style={{ marginTop: '8px' }}>
@@ -144,9 +146,7 @@ export function HomeScreen() {
         </Sheet>
       ) : null}
 
-      {serverSheet && core && full ? (
-        <DesktopServersSheet core={core} status={coreState} onDismiss={() => setServerSheet(false)} onError={m => setError(m)} />
-      ) : serverSheet && core ? (
+      {serverSheet && core ? (
         <Sheet title="سرور مرورگر" onDismiss={() => setServerSheet(false)}>
           {servers.length === 0 ? <span class="c-muted">سروری برای این سرویس دریافت نشد.</span> : null}
           {servers.map(s => (
@@ -167,6 +167,129 @@ export function HomeScreen() {
         <AddToAppSheet productName={details.productName} username={details.username} subscriptionUrl={details.subscriptionUrl}
           configs={details.outputs} synced={!!(details.subscriptionUrl || details.outputs.length)} onDismiss={() => setDetails(null)} />
       ) : null}
+    </div>
+  )
+}
+
+/**
+ * The desktop home, as the Android home: the connect control and the
+ * session clock, then the route - one row naming the server (and the
+ * service it came from), one tap to the server screen - and what is left of
+ * that service. Bought services, free servers and pasted configs are all
+ * groups on the server screen, so there is a single selection.
+ */
+function DesktopHome(props: { core: DesktopCore }) {
+  const core = props.core
+  const linked = useStore(tokenStore) !== ''
+  const owned = useStore(ownedStore)
+  const look = useStore(lookStore)
+  const [st, setSt] = useState<CoreStatus | null>(null)
+  const [groups, setGroups] = useState<CoreGroup[]>([])
+  const [settings, setSettings] = useState<CoreSettings | null>(null)
+  const [page, setPage] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  function load() {
+    core.groups?.().then(setGroups).catch(() => undefined)
+    core.settings?.().then(setSettings).catch(() => undefined)
+  }
+  useEffect(() => {
+    core.status().then(setSt).catch(() => undefined)
+    load()
+    void syncOwnedServices().then(load)
+    return core.onStatus(s => { setSt(s); load() })
+  }, [])
+
+  const connected = !!st?.connected
+  const connecting = !!st?.connecting && !connected
+  const now = useSecondTick(connected)
+  // While a tunnel is up the route names the server carrying it; otherwise the selected one.
+  const liveId = connected || connecting ? (st?.server?.id || st?.selectedId) : st?.selectedId
+  const entries = groups.flatMap(g => g.configs.map(c => ({ c, g })))
+  const hit = entries.find(x => x.c.id === liveId) ?? entries.find(x => x.c.id === st?.selectedId) ?? null
+  const service = serviceOf(hit?.g, owned)
+  const usable = owned.filter(s => !M.isEnded(s))
+
+  async function act() {
+    setError(null)
+    if (connected || connecting) {
+      setBusy(true)
+      try { await core.disconnect() } catch (e) { setError(coreError(e)) } finally { setBusy(false) }
+      return
+    }
+    if (!hit) {
+      // Nothing chosen yet: a bought service comes in as a group and its first server is used.
+      if (linked && usable.length) {
+        setBusy(true)
+        try {
+          await syncOwnedServices(true)
+          const s = await core.status()
+          setSt(s); load()
+          if (s.selectedId) { await core.connect(); return }
+        } catch (e) { setError(coreError(e)); return } finally { setBusy(false) }
+      }
+      setPage(true)
+      return
+    }
+    if (hit.c.needsCredentials) { setPage(true); return }
+    setBusy(true)
+    try { await core.connect() } catch (e) { setError(coreError(e)) } finally { setBusy(false) }
+  }
+
+  const proto = hit ? hit.c.protocol.toUpperCase() : ''
+  const wide = window.innerWidth >= 1500
+  const gap = look.density === 'compact' ? 8 : look.density === 'spacious' ? 24 : 12
+  return (
+    <div class="page pad-lg centered home desk-home" style={{ gap: `${gap}px`, ['--home-gap' as any]: `${gap}px` }}>
+      <div class="home-hero">
+        <ConnectOrb style={look.orbStyle} diameter={wide ? 272 : 236} enabled={st?.available !== false || connected} working={busy || connecting} connected={connected && !busy} onClick={act}
+          icon={connected ? 'power_settings_new' : connecting ? 'close' : 'bolt'}
+          timer={connected && st?.since ? sessionClock(now - st.since) : null}
+          label={connected ? 'قطع اتصال' : connecting ? 'در حال اتصال' : busy ? 'در حال اتصال' : hit || usable.length ? 'اتصال' : 'انتخاب سرور'}
+          hint={connecting ? 'برای لغو بزن' : !connected && !busy && !hit ? 'سروری انتخاب نشده' : null} />
+        <span class="label-medium c-text2 center">{connected
+          ? `${modeLabel(st?.mode)}${st?.engine ? ' · ' + st.engine : ''}`
+          : `نوع اتصال: ${modeLabel(settings?.mode ?? 'tun')}`}</span>
+        {st && !st.available ? <span class="label-small c-warning center">هستهٔ اتصال در این نسخه نیست؛ نسخهٔ تازهٔ برنامه را نصب کن.</span> : null}
+        {st?.note ? <span class="label-small c-warning center note-line">{st.note}</span> : null}
+      </div>
+
+      <div class="home-side">
+        <div class="full" style={{ maxWidth: '560px' }}>
+          <Slab spacing={0} padding={8}>
+            <SlabRow title={hit ? <FlagName name={hit.c.name || hit.c.address} /> : 'سروری انتخاب نشده'}
+              subtitle={hit ? <span>{proto} · <FlagName name={hit.g.name} /></span> : 'سرویس‌ها، سرورهای رایگان و کانفیگ‌ها'}
+              icon="shield" accent={connected ? 'var(--glow)' : 'var(--primary)'} chevron onClick={() => setPage(true)} />
+          </Slab>
+        </div>
+
+        {service ? <div class="full" style={{ maxWidth: '560px' }}><QuotaCard service={service} /></div>
+          : hit && ((hit.g.total ?? 0) > 0 || (hit.g.expire ?? 0) > 0) ? <div class="full" style={{ maxWidth: '560px' }}><GroupQuotaCard group={hit.g} /></div>
+          : null}
+
+        <div class="full" style={{ maxWidth: '560px' }}>
+          <Slab spacing={0} padding={8}>
+            <SlabRow title="نوع اتصال" icon="tune" value={modeLabel(settings?.mode ?? 'tun')} chevron onClick={() => setPage(true)} />
+            {connected && st?.socks ? <><SlabDivider />
+              <SlabRow title="پراکسی محلی" icon="link" value={<bdi dir="ltr">{st.socks.host}:{st.socks.port}</bdi>} /></> : null}
+          </Slab>
+        </div>
+
+        {!linked || !owned.length ? (
+          <div class="full" style={{ maxWidth: '560px' }}>
+            <Slab spacing={0} padding={8}>
+              <SlabRow title={linked ? 'خرید سرویس' : 'حساب قاجار'} icon="shopping_cart" chevron onClick={() => goTab('shop')}
+                subtitle={linked ? 'سرویس خریداری‌شده خودش در فهرست سرورها می‌آید' : 'حساب را وصل کن تا سرویس‌هایت خودکار در فهرست سرورها بیایند'} />
+            </Slab>
+          </div>
+        ) : null}
+
+        {error ? <div class="full" style={{ maxWidth: '560px' }}><Slab accent="var(--error)" spacing={12}><span class="label-large c-error wrap-any">{error}</span><GhostPill text="تلاش دوباره" accent="var(--error)" onClick={act} /></Slab></div> : null}
+        {busy ? <div class="full" style={{ maxWidth: '560px' }}><LinearProgress /></div> : null}
+      </div>
+
+      {page ? <DesktopServersPage core={core} status={st} onDismiss={() => { setPage(false); load() }} onError={m => setError(m)} /> : null}
     </div>
   )
 }
@@ -204,13 +327,22 @@ function QuotaCard(props: { service: M.OwnedService }) {
  * Drawn with SVG the way the Compose version draws with Canvas: the disc, a
  * lifted wash of the state colour, the ring, the glyph and the label.
  */
-export function ConnectOrb(props: { style: string; enabled: boolean; working: boolean; label: string; hint?: string | null; onClick: () => void; diameter?: number }) {
+export function ConnectOrb(props: {
+  style: string; enabled: boolean; working: boolean; label: string; hint?: string | null; onClick: () => void; diameter?: number
+  /** The tunnel is up: the ring is full and still (it only travels while working). */
+  connected?: boolean
+  /** The session clock (SessionLine), drawn inside the control while connected. */
+  timer?: string | null
+  icon?: string
+}) {
   const D = props.diameter ?? 236
   const style = props.style
   const wide = style === 'pill' || style === 'capsule_glow'
   const w = wide ? D * 1.08 : style === 'soft_square' ? D * 0.82 : D
   const h = wide ? D * 0.44 : style === 'soft_square' ? D * 0.82 : D
-  const tint = props.working ? 'var(--highlight)' : 'var(--primary)'
+  const on = !!props.connected && !props.working
+  const tint = props.working ? 'var(--highlight)' : on ? 'var(--glow)' : 'var(--primary)'
+  const glyph = props.icon ?? 'bolt'
   const stroke = Math.min(w, h) * 0.028
   const inset = stroke * 2.6
   const r = Math.min(w, h) / 2 - inset
@@ -222,11 +354,11 @@ export function ConnectOrb(props: { style: string; enabled: boolean; working: bo
   const k = D / 236
   return (
     <div style={{ width: `${Math.max(D, w)}px`, height: `${D}px`, maxWidth: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' }}>
-      {glow ? <span aria-hidden="true" style={{ position: 'absolute', width: `${w + 20}px`, height: `${h + 20}px`, borderRadius: wide ? '999px' : '50%', background: 'radial-gradient(closest-side, color-mix(in srgb, var(--primary) 14%, transparent), transparent)' }} /> : null}
+      {glow || on ? <span aria-hidden="true" style={{ position: 'absolute', width: `${w + 20}px`, height: `${h + 20}px`, borderRadius: wide ? '999px' : '50%', background: `radial-gradient(closest-side, color-mix(in srgb, ${on ? 'var(--glow)' : 'var(--primary)'} ${on ? 22 : 14}%, transparent), transparent)` }} /> : null}
       <button class="orb" disabled={!props.enabled} onClick={props.onClick} aria-label={props.label}
         style={{ width: `${w}px`, height: `${h}px`, maxWidth: '100%', borderRadius: style === 'shield' ? '0' : `${radius}px`, position: 'relative', overflow: 'hidden',
           clipPath: style === 'shield' ? 'polygon(50% 0, 100% 18%, 100% 60%, 78% 88%, 50% 100%, 22% 88%, 0 60%, 0 18%)' : undefined,
-          border: style === 'capsule_glow' || style === 'soft_square' || style === 'shield' ? `1.5px solid color-mix(in srgb, var(--primary) ${props.enabled ? 80 : 30}%, transparent)` : undefined,
+          border: style === 'capsule_glow' || style === 'soft_square' || style === 'shield' ? `1.5px solid color-mix(in srgb, ${on ? 'var(--glow)' : 'var(--primary)'} ${props.enabled ? 80 : 30}%, transparent)` : undefined,
           background: filled ? `color-mix(in srgb, var(--primary) ${props.enabled ? 100 : 35}%, transparent)` : wide || style === 'soft_square' || style === 'shield' ? 'var(--card2)' : 'transparent' }}>
         {wide || style === 'soft_square' || style === 'shield' ? (
           <span aria-hidden="true" style={{ position: 'absolute', inset: 0, background: filled ? 'linear-gradient(180deg, rgba(255,255,255,.16), transparent)' : 'linear-gradient(180deg, color-mix(in srgb, var(--primary) 12%, transparent), transparent)' }} />
@@ -262,19 +394,24 @@ export function ConnectOrb(props: { style: string; enabled: boolean; working: bo
               <circle cx={w / 2} cy={h / 2} r={r} fill="url(#orbwash)" />
               <circle cx={w / 2} cy={h / 2} r={r} fill="none" stroke="var(--border)" stroke-width={stroke} />
             </>}
+            {on && style !== 'power' ? <circle cx={w / 2} cy={h / 2} r={r} fill="none" stroke={tint} stroke-width={stroke * 1.6} stroke-linecap="round" /> : null}
+            {on && style === 'power' ? <path d={(() => { const g = 40 * Math.PI / 180, a0 = -Math.PI / 2 + g, a1 = -Math.PI / 2 - g + 2 * Math.PI; return `M${w / 2 + r * Math.cos(a0)},${h / 2 + r * Math.sin(a0)} A${r},${r} 0 1 1 ${w / 2 + r * Math.cos(a1)},${h / 2 + r * Math.sin(a1)}` })()}
+              fill="none" stroke={tint} stroke-width={stroke * 1.6} stroke-linecap="round" /> : null}
             {props.working ? <circle class="orb-sweep" cx={w / 2} cy={h / 2} r={r} fill="none" stroke={tint} stroke-width={stroke * 1.6} stroke-linecap="round"
               stroke-dasharray={`${2 * Math.PI * r * 0.22} ${2 * Math.PI * r}`} style={{ transformOrigin: `${w / 2}px ${h / 2}px` }} /> : null}
           </svg>
         )}
         {wide ? (
           <span class="row" style={{ position: 'relative', gap: `${10 * k}px`, padding: `0 ${18 * k}px`, justifyContent: 'center', height: '100%' }}>
-            <Icon name="bolt" size={30 * k} color={ink} />
+            <Icon name={glyph} size={30 * k} color={ink} />
             <span class="title-medium bold ellipsis" style={{ color: textInk, fontSize: `${17 * k}px` }}>{props.label}</span>
+            {props.timer ? <span class="orb-timer" dir="ltr" style={{ color: filled ? ink : 'var(--highlight)', fontSize: `${17 * k}px` }}>{props.timer}</span> : null}
           </span>
         ) : (
           <span class="col" style={{ position: 'relative', alignItems: 'center', justifyContent: 'center', height: '100%', gap: `${8 * k}px`, maxWidth: `${156 * k}px`, margin: '0 auto' }}>
-            <Icon name="bolt" size={44 * k} color={props.enabled ? tint : 'var(--on-disabled)'} />
-            <span class="title-medium bold center clamp2" style={{ color: textInk, fontSize: `${16 * k}px` }}>{props.label}</span>
+            <Icon name={glyph} size={(props.timer ? 38 : 44) * k} color={props.enabled ? tint : 'var(--on-disabled)'} />
+            {props.timer ? <span class="orb-timer" dir="ltr" style={{ fontSize: `${25 * k}px` }}>{props.timer}</span> : null}
+            <span class={'title-medium bold center clamp2' + (props.timer ? ' c-text2' : '')} style={{ color: props.timer ? undefined : textInk, fontSize: `${(props.timer ? 14 : 16) * k}px` }}>{props.label}</span>
             {props.hint ? <span class="label-small c-muted ellipsis" style={{ maxWidth: '100%' }}>{props.hint}</span> : null}
           </span>
         )}
