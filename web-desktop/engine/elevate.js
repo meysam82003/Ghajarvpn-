@@ -21,19 +21,21 @@ function psQuote(s) { return `'${String(s).replace(/'/g, "''")}'` }
  * Starts `binary args` elevated. Returns { stop(), exited: Promise<number|null>, logFile }.
  * `ready` resolves when the log shows `readyPattern` (or rejects with the log tail).
  */
-function runElevated({ binary, args, workDir, readyPattern = /started|tun.*(up|ready)|inbound\/tun/i, timeoutMs = 25000 }) {
+function runElevated({ binary, args, workDir, logFile: ownLog, readyPattern = /started|tun.*(up|ready)|inbound\/tun/i, timeoutMs = 45000 }) {
   fs.mkdirSync(workDir, { recursive: true })
   const stopFile = path.join(workDir, 'tun.stop')
-  const logFile = path.join(workDir, 'tun.log')
+  // The program's own log when it writes one (sing-box log.output), else its redirected output.
+  const logFile = ownLog || path.join(workDir, 'tun.log')
+  const outFile = path.join(workDir, 'tun.out')
   const pidFile = path.join(workDir, 'tun.pid')
-  for (const f of [stopFile, logFile, pidFile]) { try { fs.rmSync(f) } catch { /* fresh */ } }
+  for (const f of [stopFile, logFile, pidFile, outFile]) { try { fs.rmSync(f) } catch { /* fresh */ } }
   const parent = process.pid
   let launcher
 
   if (process.platform === 'win32') {
     const script = write(path.join(workDir, 'tun-watchdog.ps1'), [
       '$ErrorActionPreference = "SilentlyContinue"',
-      `$p = Start-Process -FilePath ${psQuote(binary)} -ArgumentList ${args.map(a => psQuote(`"${a}"`)).join(',')} -WorkingDirectory ${psQuote(workDir)} -WindowStyle Hidden -PassThru -RedirectStandardError ${psQuote(logFile)} -RedirectStandardOutput ${psQuote(logFile + '.out')}`,
+      `$p = Start-Process -FilePath ${psQuote(binary)} -ArgumentList ${args.map(a => psQuote(`"${a}"`)).join(',')} -WorkingDirectory ${psQuote(workDir)} -WindowStyle Hidden -PassThru -RedirectStandardError ${psQuote(outFile)} -RedirectStandardOutput ${psQuote(outFile + '2')}`,
       `Set-Content -Path ${psQuote(pidFile)} -Value $p.Id`,
       `while (-not (Test-Path ${psQuote(stopFile)}) -and (Get-Process -Id ${parent} -ErrorAction SilentlyContinue) -and -not $p.HasExited) { Start-Sleep -Milliseconds 400 }`,
       'if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }',
@@ -47,7 +49,7 @@ function runElevated({ binary, args, workDir, readyPattern = /started|tun.*(up|r
     const cmd = [shQuote(binary), ...args.map(shQuote)].join(' ')
     const script = write(path.join(workDir, 'tun-watchdog.sh'), [
       '#!/bin/sh',
-      `${cmd} >${shQuote(logFile)} 2>&1 &`,
+      `${cmd} >${shQuote(outFile)} 2>&1 &`,
       'SB=$!',
       `echo $SB >${shQuote(pidFile)}`,
       `while [ ! -f ${shQuote(stopFile)} ] && kill -0 ${parent} 2>/dev/null && kill -0 $SB 2>/dev/null; do sleep 0.4; done`,
@@ -72,7 +74,7 @@ function runElevated({ binary, args, workDir, readyPattern = /started|tun.*(up|r
     const until = Date.now() + timeoutMs
     const tick = () => {
       let log = ''
-      try { log = fs.readFileSync(logFile, 'utf8') } catch { /* not yet */ }
+      for (const f of [logFile, outFile]) { try { log += fs.readFileSync(f, 'utf8') + '\n' } catch { /* not yet */ } }
       if (readyPattern.test(log)) return resolve()
       if (/FATAL|panic:|permission denied|operation not permitted|access is denied|configure tun/i.test(log)) return reject(new Error(lastLines(log)))
       if (launchError) return reject(launchError)

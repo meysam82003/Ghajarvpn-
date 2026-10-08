@@ -96,6 +96,7 @@ export function HomeScreen() {
         ? (connected ? `مرورگر با افزونهٔ قاجار از این اتصال استفاده می‌کند · فقط مرورگر، نه کل سیستم` : 'با اتصال، مرورگری که افزونهٔ قاجار دارد از VPN استفاده می‌کند؛ بقیهٔ سیستم دست نمی‌خورد')
         : canAct ? 'با یک لمس، همین سرویس به اپ VPN این دستگاه اضافه می‌شود' : linked ? 'از فروشگاه سرویس بخر؛ همین‌جا به اپ VPN اضافه می‌شود' : 'حساب تلگرام را یک‌بار متصل کن تا سرویس‌هایت اینجا بیایند'}</span>
       {core && coreState && !coreState.available ? <span class="label-small c-warning center">هستهٔ اتصال در این نسخه نیست؛ نسخهٔ تازهٔ برنامه را نصب کن.</span> : null}
+      {core && coreState?.connected && coreState.note ? <span class="label-small c-warning center">{coreState.note}</span> : null}
       </div>
 
       <div class="home-side">

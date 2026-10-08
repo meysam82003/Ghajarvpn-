@@ -37,7 +37,7 @@ export function isAndroidApp(): boolean { return !!nativeBridge() }
 /** The desktop app's VPN engine, when the page runs inside it. */
 export type CoreMode = 'proxy' | 'system' | 'apps' | 'tun'
 export interface CoreStatus {
-  available: boolean; connected: boolean; connecting: boolean; error: string
+  available: boolean; connected: boolean; connecting: boolean; error: string; note?: string
   mode?: CoreMode; engine?: string; since?: number; selectedId?: string; osVpn?: boolean; bootstrap?: number
   socks: { host: string; port: number } | null; http: { host: string; port: number } | null
   server: { id?: string; name: string; protocol: string } | null; service: string; selected: number; directIran: boolean

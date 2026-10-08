@@ -3,13 +3,19 @@
 // while the window is closed. It also connects for real: the engine (Xray,
 // sing-box, Psiphon, the protocol helpers) runs the VPN for the browser only,
 // through the system proxy, or for the whole device with a TUN.
-const { app, BrowserWindow, Tray, Menu, shell, ipcMain, session, nativeImage } = require('electron')
+const { app, BrowserWindow, Tray, Menu, shell, ipcMain, session, nativeImage, net } = require('electron')
+const { pathToFileURL } = require('url')
 const fs = require('fs')
 const path = require('path')
 const { Engine } = require('./engine/manager.js')
 const { serve } = require('./engine/api.js')
 
 const APP_URL = process.env.GHAJAR_URL || 'https://httpuser87890.ir/Faoxima/Ghajarvpn/pwa/'
+// The app's own screens ship inside it (resources/pwa): they open at once,
+// offline too, and are always the version this build was made with. They are
+// served under APP_URL itself, so the API next to it, the account and the
+// saved settings work exactly as on the website.
+const PWA_DIR = app.isPackaged ? path.join(process.resourcesPath, 'pwa') : path.join(__dirname, '..', 'backend', 'Faoxima-1.0.0', 'pwa')
 const APP_ID = 'com.ghajarvpn.desktop'
 const ICON = path.join(__dirname, 'icons', 'icon.png')
 const TRAY_ICON = path.join(__dirname, 'icons', 'tray.png')
@@ -62,7 +68,7 @@ function openPayment(url) {
     backgroundColor: '#ffffff',
     icon: ICON,
     autoHideMenuBar: true,
-    webPreferences: { partition: 'persist:ghajar', contextIsolation: true, sandbox: true, nodeIntegration: false }
+    webPreferences: { partition: 'persist:ghajar-pay', contextIsolation: true, sandbox: true, nodeIntegration: false }
   })
   payWin.removeMenu()
   payWin.on('page-title-updated', e => e.preventDefault())
@@ -123,7 +129,9 @@ function createWindow(hidden) {
     backgroundColor: '#050807',
     icon: ICON,
     autoHideMenuBar: true,
-    show: false,
+    // Shown at once (the bundled screens paint in a moment); the dark
+    // background avoids a white flash meanwhile.
+    show: !hidden,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       partition: 'persist:ghajar',
@@ -136,7 +144,6 @@ function createWindow(hidden) {
     }
   })
   win.removeMenu()
-  if (!hidden) win.once('ready-to-show', () => win.show())
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (inApp(url)) win.loadURL(url)
@@ -220,6 +227,7 @@ app.on('before-quit', () => { quitting = true; if (core) core.disconnect(true).c
 app.on('window-all-closed', () => { /* stays in the tray */ })
 
 ipcMain.on('ghajar:focus', show)
+ipcMain.on('ghajar:app-version', e => { e.returnValue = app.getVersion() })
 // The web app's connect control, in this app: the core, browser-only.
 ipcMain.handle('ghajar:core', async (_e, op, arg) => {
   if (!core) throw new Error('core not ready')
@@ -279,6 +287,40 @@ async function viaVpnFetch() {
   return (url, init) => ses.fetch(url, init)
 }
 
+/** The bundled file for an app-screen address, or null (API, PHP and anything else go to the network). */
+function bundledFile(url) {
+  if (!url.startsWith(APP_URL) || !fs.existsSync(path.join(PWA_DIR, 'index.html'))) return null
+  let rel
+  try { rel = decodeURIComponent(new URL(url).pathname.slice(new URL(APP_URL).pathname.length)) } catch { return null }
+  if (!rel || rel.endsWith('/')) rel += 'index.html'
+  if (/\.php$/i.test(rel)) return null
+  const file = path.normalize(path.join(PWA_DIR, rel))
+  if (!file.startsWith(PWA_DIR + path.sep)) return null
+  return fs.existsSync(file) && fs.statSync(file).isFile() ? file : null
+}
+
+async function serveBundledScreens(ses) {
+  if (!APP_URL.startsWith('https:') || !fs.existsSync(path.join(PWA_DIR, 'index.html'))) return
+  // An older copy of the website's service worker would keep serving its own
+  // cached screens; the bundled ones replace it. Once per app version, and
+  // never holding the window back for more than a moment.
+  const marker = path.join(app.getPath('userData'), 'screens-version')
+  let seen = ''
+  try { seen = fs.readFileSync(marker, 'utf8') } catch { /* first start */ }
+  if (seen !== app.getVersion()) {
+    await Promise.race([
+      ses.clearStorageData({ storages: ['serviceworkers', 'cachestorage'] }).catch(() => undefined),
+      new Promise(resolve => setTimeout(resolve, 2500))
+    ])
+    try { fs.writeFileSync(marker, app.getVersion()) } catch { /* read-only profile */ }
+  }
+  ses.protocol.handle('https', request => {
+    const file = request.method === 'GET' ? bundledFile(request.url) : null
+    if (file) return net.fetch(pathToFileURL(file).toString())
+    return ses.fetch(request, { bypassCustomProtocolHandlers: true })
+  })
+}
+
 async function useRoute() {
   const ses = session.fromPartition('persist:ghajar')
   try {
@@ -287,8 +329,9 @@ async function useRoute() {
   } catch { /* older runtime: keep the current route */ }
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   const ses = session.fromPartition('persist:ghajar')
+  await serveBundledScreens(ses)
   ses.setPermissionRequestHandler((_wc, permission, done) => {
     done(['notifications', 'clipboard-sanitized-write', 'clipboard-read'].includes(permission))
   })

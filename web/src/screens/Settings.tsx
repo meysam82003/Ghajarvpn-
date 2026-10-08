@@ -14,6 +14,10 @@ import { installPrompt, installed, promptInstall, pushState, enablePush, disable
 import { detectPlatform, isDesktopApp, isAndroidApp, isIosSafari, iosVersion, isStandalone, inTelegram, PlatformNames } from '../lib/platform'
 import { fa, formatPrice } from '../lib/format'
 import { APP_VERSION, TELEGRAM_CHANNEL_URL, TELEGRAM_BOT_URL, GITHUB_URL } from '../api/config'
+
+function desktopVersion(): string {
+  return String((window as Window & { ghajarDesktop?: { appVersion?: string } }).ghajarDesktop?.appVersion ?? '')
+}
 import { openExternal } from './Market'
 import { ConnectOrb } from './Home'
 
@@ -318,7 +322,7 @@ function AboutScreen() {
       <ScreenHeader title="درباره" context="نسخه، توسعه‌دهنده و حریم خصوصی" />
       <Slab spacing={8}>
         <span class="title-medium bold c-text">قاجار وی پی ان</span>
-        <span class="label-medium c-text2">نسخهٔ وب و قابل نصب · {fa(APP_VERSION)}</span>
+        <span class="label-medium c-text2">{desktopVersion() ? `نسخهٔ کامپیوتر · ${fa(desktopVersion())}` : `نسخهٔ وب و قابل نصب · ${fa(APP_VERSION)}`}</span>
         <span class="body-small c-text2">همان فروشگاه، همان حساب و همان سرویس‌های برنامهٔ اندروید؛ روی آیفون، اندروید، ویندوز، مک و هر مرورگر. سرویس‌ها با یک لمس به اپ VPN همان دستگاه اضافه می‌شوند.</span>
       </Slab>
       <Rail label="حریم خصوصی" />

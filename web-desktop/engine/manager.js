@@ -186,7 +186,7 @@ class Engine {
     const s = this.state
     const sel = this.store.selected()
     return {
-      available: this.available(), connected: s.connected, connecting: s.connecting, error: s.error,
+      available: this.available(), connected: s.connected, connecting: s.connecting, error: s.error, note: s.connected ? (s.note || '') : '',
       mode: s.mode || this.settings().mode, engine: s.engine, since: s.since,
       socks: s.connected && s.socksPort ? { host: '127.0.0.1', port: s.socksPort } : null,
       http: s.connected && s.httpPort ? { host: '127.0.0.1', port: s.httpPort } : null,
@@ -276,9 +276,23 @@ class Engine {
       const httpPort = await freePort(socksPort === DEFAULT_SOCKS ? DEFAULT_HTTP : socksPort + 1)
       const plan = this.planFor(config)
       await this.startCore(plan.engine, config, settings, socksPort, httpPort)
-      if (mode === 'tun' || mode === 'apps') await this.startTun(socksPort, settings, config, mode)
-      else if (mode === 'system') { await setSystemProxy(true, { httpPort, socksPort }); this.systemProxy = true }
-      this.state = { connected: true, connecting: false, error: '', mode, socksPort, httpPort, server: config, engine: plan.engine, since: Date.now() }
+      let used = mode
+      let note = ''
+      if (mode === 'tun' || mode === 'apps') {
+        try {
+          await this.startTun(socksPort, settings, config, mode)
+        } catch (e) {
+          // No administrator rights (prompt declined) or no TUN on this
+          // machine: stay connected through the system proxy instead of
+          // failing, and say why.
+          if (this.tun) { const t = this.tun; this.tun = null; await t.stop().catch(() => undefined) }
+          await setSystemProxy(true, { httpPort, socksPort })
+          this.systemProxy = true
+          used = 'system'
+          note = 'تونل کل دستگاه بالا نیامد (' + tail(e.message || e, 1) + ')؛ با پراکسی سیستم وصل شد'
+        }
+      } else if (mode === 'system') { await setSystemProxy(true, { httpPort, socksPort }); this.systemProxy = true }
+      this.state = { connected: true, connecting: false, error: '', note, mode: used, socksPort, httpPort, server: config, engine: plan.engine, since: Date.now() }
       this.emit()
       return this.status()
     } catch (e) {
@@ -546,8 +560,12 @@ class Engine {
     const tunDir = path.join(this.runDir, 'tun')
     fs.mkdirSync(tunDir, { recursive: true })
     const cfgPath = path.join(tunDir, 'tun.json')
+    // sing-box writes its own log file (shareable while it runs, which a
+    // redirected stream on Windows is not); the elevated launcher watches it.
+    const logFile = path.join(tunDir, 'tun.log')
+    cfg.log = { ...(cfg.log || {}), level: 'info', timestamp: true, output: logFile }
     fs.writeFileSync(cfgPath, JSON.stringify(cfg))
-    this.tun = runElevated({ binary: this.bin('sing-box'), args: ['run', '-c', cfgPath, '-D', tunDir], workDir: tunDir })
+    this.tun = runElevated({ binary: this.bin('sing-box'), args: ['run', '-c', cfgPath, '-D', tunDir], workDir: tunDir, logFile })
     await this.tun.ready
   }
 

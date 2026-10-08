@@ -1,0 +1,12 @@
+import { _electron as electron } from '../../web/node_modules/playwright/index.mjs'
+const t0 = Date.now()
+const app = await electron.launch({ args: ['--no-sandbox'], executablePath: process.env.ELECTRON_BIN, env: { ...process.env, GHAJAR_URL: '' } })
+console.log('launched', Date.now() - t0)
+const win = await app.firstWindow()
+console.log('firstWindow', Date.now() - t0, win.url())
+win.on('request', r => console.log('req', Date.now() - t0, r.url().slice(0, 100)))
+win.on('requestfinished', r => console.log('done', Date.now() - t0, r.url().slice(0, 100)))
+await win.waitForLoadState('domcontentloaded'); console.log('dcl', Date.now() - t0)
+await win.waitForSelector('.orb', { timeout: 60000 }); console.log('orb', Date.now() - t0)
+console.log(await win.evaluate(() => JSON.stringify(performance.getEntriesByType('navigation')[0].toJSON()).slice(0, 600)))
+await app.close().catch(() => undefined)

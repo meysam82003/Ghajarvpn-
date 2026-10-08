@@ -1,7 +1,7 @@
 {
   "name": "ghajar-app",
   "productName": "GhajarVPN",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "description": "Ghajar VPN shop and account, as a desktop app",
   "author": "Ghajar VPN",
   "license": "UNLICENSED",
@@ -128,6 +128,14 @@
           "geoip-ir.srs",
           "LICENSE",
           "licenses/**"
+        ]
+      },
+      {
+        "from": "../backend/Faoxima-1.0.0/pwa",
+        "to": "pwa",
+        "filter": [
+          "**/*",
+          "!**/*.php"
         ]
       }
     ]

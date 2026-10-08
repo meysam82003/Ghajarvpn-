@@ -2,7 +2,7 @@ import { createStore } from './store'
 import { PUSH_API, CLIENT_HEADER, CLIENT_ID } from '../api/config'
 import { token } from '../api/account'
 import { idbSet } from './idb'
-import { isStandalone } from './platform'
+import { isStandalone, isDesktopApp } from './platform'
 
 /**
  * Installation, the service worker, and Web Push.
@@ -44,6 +44,11 @@ export async function promptInstall(): Promise<boolean> {
 
 export async function registerServiceWorker(): Promise<void> {
   if (!('serviceWorker' in navigator)) return
+  // The desktop app carries its own screens; a website worker would only shadow them.
+  if (isDesktopApp()) {
+    navigator.serviceWorker.getRegistrations().then(rs => rs.forEach(r => void r.unregister())).catch(() => undefined)
+    return
+  }
   try {
     const reg = await navigator.serviceWorker.register('./sw.js', { scope: './' })
     swReady.set(true)

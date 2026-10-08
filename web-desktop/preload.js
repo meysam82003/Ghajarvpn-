@@ -3,6 +3,7 @@ const { contextBridge, ipcRenderer } = require('electron')
 
 contextBridge.exposeInMainWorld('ghajarDesktop', {
   version: 1,
+  appVersion: ipcRenderer.sendSync('ghajar:app-version'),
   focus: () => ipcRenderer.send('ghajar:focus'),
   openExternal: url => ipcRenderer.send('ghajar:open-external', String(url)),
   openPayment: url => ipcRenderer.send('ghajar:open-payment', String(url)),

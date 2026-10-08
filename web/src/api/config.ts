@@ -33,7 +33,7 @@ export const GITHUB_URL = 'https://github.com/meysam82003/Ghajarvpn-'
 export const CLIENT_HEADER = 'X-Ghajar-Client'
 export const CLIENT_ID = 'app'
 
-export const APP_VERSION = '1.0.0'
+export const APP_VERSION = '1.0.5'
 
 /** BrandConfig.sanitizePublicText. */
 export function visible(value: unknown): string {

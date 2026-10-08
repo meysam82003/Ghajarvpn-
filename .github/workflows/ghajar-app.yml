@@ -190,6 +190,16 @@ jobs:
             [ -f "scripts/$s" ] || continue
             bash "scripts/$s" ${{ matrix.cores }} || echo "::warning::$s failed for ${{ matrix.cores }}; its protocols stay greyed out"
           done
+      # Real connections with the cores just built: local proxy everywhere,
+      # and the whole-device TUN plus chosen-apps mode on Linux (as root).
+      - name: Connection test (engine end to end)
+        continue-on-error: true
+        run: |
+          if [ "${{ matrix.target }}" = linux ]; then
+            sudo env "PATH=$PATH" CI=true E2E_TUN=1 CORE_DIR=core/linux-x64 node engine/test/os-e2e.mjs
+          else
+            CORE_DIR=core/mac-$(uname -m | sed 's/x86_64/x64/') node engine/test/os-e2e.mjs
+          fi
       - run: npm run dist:${{ matrix.target }}
       - name: iPhone profile
         if: matrix.target == 'linux'
@@ -253,6 +263,13 @@ jobs:
           for f in xray.exe sing-box.exe geoip.dat geosite.dat; do
             test -s "core/win-x64/$f" || { echo "::error::core/win-x64/$f missing"; exit 1; }
           done
+      # Real connections on Windows with the shipped cores: local proxy,
+      # Windows system proxy, whole-device TUN and chosen-apps mode (the
+      # runner is an administrator, so the elevation needs no prompt here).
+      - name: Connection test (engine end to end)
+        continue-on-error: true
+        shell: bash
+        run: CI=true CORE_DIR=core/win-x64 node engine/test/os-e2e.mjs
       - run: npm run dist:win
       - uses: actions/upload-artifact@v4
         with:
