@@ -11,6 +11,7 @@ import { redeemTicket } from './api/client'
 import { refreshOwned } from './state/shop'
 import { tokenStore, syncNativeToken } from './api/account'
 import { startTvMode } from './lib/tv'
+import { startDesktopSync } from './state/desktopSync'
 
 applyTheme()
 
@@ -28,6 +29,7 @@ async function boot() {
   render(<App />, document.getElementById('app')!)
   document.documentElement.classList.add('ready')
   startTvMode()
+  startDesktopSync()
   // The splash is gone for good once faded: nothing invisible stays over the page.
   setTimeout(() => document.getElementById('boot')?.remove(), 400)
   void registerServiceWorker()

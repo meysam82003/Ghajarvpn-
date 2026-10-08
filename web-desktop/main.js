@@ -221,7 +221,40 @@ function setLogin(on) {
   app.setLoginItemSettings({ openAtLogin: on, openAsHidden: true, args: ['--hidden'] })
 }
 
-app.on('second-instance', show)
+// ghajarvpn://import?url=…&name=… (the shop's "add to Ghajar" link opened
+// from a browser): the subscription goes straight into the server list.
+const DEEP_LINK = 'ghajarvpn'
+if (process.defaultApp) app.setAsDefaultProtocolClient(DEEP_LINK, process.execPath, [path.resolve(process.argv[1] || '.')])
+else app.setAsDefaultProtocolClient(DEEP_LINK)
+let pendingLink = process.argv.find(a => a.startsWith(DEEP_LINK + '://')) || ''
+
+function openDeepLink(link) {
+  if (!link) return
+  if (!core) { pendingLink = link; return }
+  let u
+  try { u = new URL(link) } catch { return }
+  const target = u.searchParams.get('url') || ''
+  const name = u.searchParams.get('name') || ''
+  show()
+  if (!/^https?:\/\//i.test(target)) return
+  core.store.addSubscription(target, name)
+    .then(sub => {
+      const first = core.store.data.configs.find(c => c.subId === sub.id)
+      if (first) core.store.select(first.id)
+      notify('سرویس به قاجار اضافه شد', name || 'اشتراک')
+    })
+    .catch(e => notify('افزودن اشتراک نشد', String((e && e.message) || e)))
+}
+
+function notify(title, body) {
+  try { new (require('electron').Notification)({ title, body, icon: ICON }).show() } catch { /* no notifications */ }
+}
+
+app.on('second-instance', (_e, argv) => {
+  show()
+  openDeepLink(argv.find(a => a.startsWith(DEEP_LINK + '://')))
+})
+app.on('open-url', (event, link) => { event.preventDefault(); openDeepLink(link) })
 app.on('activate', show)
 app.on('before-quit', () => { quitting = true; if (core) core.disconnect(true).catch(() => undefined) })
 app.on('window-all-closed', () => { /* stays in the tray */ })
@@ -254,6 +287,7 @@ ipcMain.handle('ghajar:core', async (_e, op, arg) => {
     case 'ping': return core.ping()
     case 'test': return core.testDelays(Array.isArray(arg) ? arg.map(String) : undefined)
     case 'fastest': { const c = await core.fastest(); if (c) core.store.select(c.id); return c ? c.id : '' }
+    case 'refreshSubscription': return core.store.refreshSubscription(id)
     case 'refreshFree': return core.refreshFree({ fetchImpl: await viaVpnFetch() })
     case 'addWarp': return (await core.addWarp({ fetchImpl: await viaVpnFetch() })).id
     case 'addPsiphon': return core.addPsiphon(String(arg || '')).id
@@ -280,6 +314,28 @@ ipcMain.on('ghajar:retry', async () => {
  * fetch for the free sources: Telegram and Cloudflare are filtered in Iran, so
  * while connected it goes through the VPN's own local HTTP port, like the app.
  */
+/**
+ * fetch for subscriptions: the way a browser on this computer would reach the
+ * panel (system proxy settings), then directly, then through the VPN itself
+ * when it is connected, each with its own time limit.
+ */
+async function smartFetch(url, init = {}) {
+  const st = core ? core.status() : { connected: false }
+  const attempts = [{ mode: 'system' }, { mode: 'direct' }]
+  if (st.connected && st.http) attempts.push({ proxyRules: `http://127.0.0.1:${st.http.port}` })
+  let lastError
+  for (const route of attempts) {
+    const ses = session.fromPartition('ghajar-subs-' + (route.mode || 'vpn'))
+    try {
+      await ses.setProxy(route)
+      const ac = new AbortController()
+      const timer = setTimeout(() => ac.abort(), 15000)
+      try { return await ses.fetch(url, { ...init, signal: ac.signal }) } finally { clearTimeout(timer) }
+    } catch (e) { lastError = e }
+  }
+  throw new Error('اشتراک در دسترس نیست: ' + ((lastError && lastError.message) || 'شبکه'))
+}
+
 async function viaVpnFetch() {
   const ses = session.fromPartition('ghajar-feeds')
   const st = core.status()
@@ -346,6 +402,7 @@ app.whenReady().then(async () => {
   }
 
   core = new Engine({
+    fetchImpl: (url, init) => smartFetch(url, init),
     dataDir: app.getPath('userData'),
     binDir: CORE_DIR,
     onChange: st => {
@@ -355,6 +412,8 @@ app.whenReady().then(async () => {
   })
   // The control port the Ghajar browser extension talks to (127.0.0.1 only).
   serve(core)
+  core.startAutoRefresh()
+  if (pendingLink) { const l = pendingLink; pendingLink = ''; setTimeout(() => openDeepLink(l), 1500) }
 
   createTray()
   createWindow(startHidden)

@@ -349,7 +349,7 @@ jobs:
           TAG="ghajar-app-v${VERSION}"
           TITLE="قاجار وی پی ان — نسخهٔ نصبی ویندوز، مک، لینوکس، اندروید تی‌وی، ال‌جی و آیفون ${VERSION}"
           cat > notes.md <<'NOTES'
-          ## نصب
+          ## 💻 📺 نسخه‌های ویندوز، مک، لینوکس، اندروید تی‌وی و ال‌جی
 
           | دستگاه | فایل | روش |
           |---|---|---|
@@ -366,6 +366,19 @@ jobs:
           NOTES
           sed -i 's/^          //' notes.md
           ls -la files
+          # The app's own release of the same version (e.g. 1.1.2, made by
+          # android.yml for the phone APKs) gets these files too, next to the
+          # phone APKs, which are left exactly as they are; its notes gain the
+          # install table once, below the existing text.
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            gh release upload "$VERSION" files/* --clobber
+            body=$(gh release view "$VERSION" --json body --jq .body)
+            if ! printf '%s' "$body" | grep -q 'ghajar-app-files'; then
+              { printf '%s\n\n---\n<!-- ghajar-app-files -->\n' "$body"; cat notes.md; } > merged.md
+              gh release edit "$VERSION" --notes-file merged.md
+            fi
+            gh release view "$VERSION" --json url,assets --jq '.url, (.assets[] | .name)'
+          fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Files this release no longer ships.
             for gone in GhajarVPN-android.apk GhajarVPN-chrome-extension.zip GhajarVPN-firefox-extension.xpi; do

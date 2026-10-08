@@ -21,6 +21,7 @@ contextBridge.exposeInMainWorld('ghajarDesktop', {
     add: text => ipcRenderer.invoke('ghajar:core', 'add', String(text)),
     addSubscription: (url, name) => ipcRenderer.invoke('ghajar:core', 'addSubscription', { url: String(url), name: String(name || '') }),
     refreshSubscriptions: () => ipcRenderer.invoke('ghajar:core', 'refreshSubscriptions'),
+    refreshSubscription: id => ipcRenderer.invoke('ghajar:core', 'refreshSubscription', String(id)),
     renameSubscription: (id, name) => ipcRenderer.invoke('ghajar:core', 'renameSubscription', { id: String(id), name: String(name) }),
     removeSubscription: id => ipcRenderer.invoke('ghajar:core', 'removeSubscription', String(id)),
     removeConfig: id => ipcRenderer.invoke('ghajar:core', 'removeConfig', String(id)),

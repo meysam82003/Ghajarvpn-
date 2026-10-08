@@ -18,6 +18,17 @@ function parseUserInfo(header) {
   return { used: (out.upload || 0) + (out.download || 0), total: out.total || 0, expire: out.expire || 0 }
 }
 
+/** One subscription however it is written: trailing slash, host case, or wrapped by the app's relay (sub.php?u=base64). */
+function subKey(url) {
+  let u
+  try { u = new URL(String(url).trim()) } catch { return String(url).trim() }
+  const wrapped = /\/sub\.php$/i.test(u.pathname) && u.searchParams.get('u')
+  if (wrapped) {
+    try { return subKey(Buffer.from(wrapped.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString('utf8')) } catch { /* not ours */ }
+  }
+  return `${u.protocol}//${u.host.toLowerCase()}${u.pathname.replace(/\/+$/, '')}${u.search}`
+}
+
 function titleFrom(header) {
   const v = String(header || '').trim()
   if (!v) return ''
@@ -26,12 +37,30 @@ function titleFrom(header) {
 }
 
 class Store {
-  constructor({ dataDir, parser }) {
+  constructor({ dataDir, parser, fetchImpl }) {
+    this.fetchImpl = fetchImpl || ((...a) => fetch(...a))
     this.file = path.join(dataDir, 'vpn-store.json')
     this.parser = parser
     this.data = { subscriptions: [], configs: [], selectedId: '', settings: {}, warp: null, freeUpdated: 0, delays: {} }
     try { Object.assign(this.data, JSON.parse(fs.readFileSync(this.file, 'utf8'))) } catch { /* first run */ }
     this.listeners = new Set()
+    this.dedupe()
+  }
+
+  /** Folds subscriptions that are the same link (older versions could add one twice). */
+  dedupe() {
+    const seen = new Map()
+    const drop = new Set()
+    for (const s of this.data.subscriptions) {
+      if (!s.url) continue
+      const k = subKey(s.url)
+      if (seen.has(k)) drop.add(s.id); else seen.set(k, s)
+    }
+    if (!drop.size) return
+    this.data.subscriptions = this.data.subscriptions.filter(s => !drop.has(s.id))
+    this.data.configs = this.data.configs.filter(c => !drop.has(c.subId))
+    if (!this.config(this.data.selectedId)) this.data.selectedId = (this.data.configs[0] || {}).id || ''
+    this.save()
   }
 
   save() {
@@ -51,13 +80,13 @@ class Store {
   /** Groups for the server screen: each subscription, then manual configs, then free ones. */
   groups() {
     const by = id => this.data.configs.filter(c => c.subId === id)
-    const subs = this.data.subscriptions.map(s => ({ id: s.id, name: s.name, url: s.url, kind: s.kind || 'subscription', used: s.used || 0, total: s.total || 0, expire: s.expire || 0, lastUpdated: s.lastUpdated || 0, configs: by(s.id) }))
+    const subs = this.data.subscriptions.map(s => ({ id: s.id, name: s.name, url: s.url, kind: s.kind || 'subscription', used: s.used || 0, total: s.total || 0, expire: s.expire || 0, lastUpdated: s.lastUpdated || 0, error: s.error || '', configs: by(s.id) }))
     const manual = by(MANUAL)
     return [...subs, ...(manual.length ? [{ id: MANUAL, name: 'کانفیگ‌های دستی', kind: 'manual', configs: manual }] : [])]
   }
 
   /** Text pasted or a file opened: share links, a subscription URL, JSON, YAML, WireGuard .conf… */
-  async addFromText(text, { fetchImpl = fetch } = {}) {
+  async addFromText(text, { fetchImpl = this.fetchImpl } = {}) {
     const t = String(text || '').trim()
     // Like the phone's paste path: a lone http(s) URL is a subscription, not an http proxy.
     if (/^https?:\/\/\S+$/i.test(t)) {
@@ -72,23 +101,44 @@ class Store {
     return { added: fresh.length }
   }
 
-  async addSubscription(url, name = '', { fetchImpl = fetch, kind = 'subscription', id } = {}) {
-    const existing = this.data.subscriptions.find(s => s.url === url)
+  /**
+   * Adds (or finds) a subscription and fetches it. The group exists even when
+   * the first fetch fails (no network yet, panel busy): it is retried by the
+   * automatic refresh, and its error is shown on the group.
+   */
+  async addSubscription(url, name = '', { fetchImpl = this.fetchImpl, kind = 'subscription', id } = {}) {
+    const k = subKey(url)
+    const existing = this.data.subscriptions.find(s => s.url && subKey(s.url) === k)
     const sub = existing || { id: id || crypto.randomUUID(), name: name || 'اشتراک', url, kind }
     if (!existing) this.data.subscriptions.push(sub)
-    if (name) sub.name = name
-    await this.refreshSubscription(sub.id, { fetchImpl })
+    // A name given by the shop (the product) stays; the panel's title does not replace it.
+    if (name) { sub.name = name; sub.nameLocked = true }
+    try {
+      await this.refreshSubscription(sub.id, { fetchImpl })
+    } catch (e) {
+      sub.error = String((e && e.message) || e)
+      this.save()
+      if (!this.data.configs.some(c => c.subId === sub.id)) throw e
+    }
     return sub
   }
 
-  async refreshSubscription(id, { fetchImpl = fetch } = {}) {
+  async refreshSubscription(id, { fetchImpl = this.fetchImpl } = {}) {
     const sub = this.data.subscriptions.find(s => s.id === id)
     if (!sub || !sub.url) return 0
-    const res = await fetchImpl(sub.url, { headers: { 'User-Agent': 'v2rayN/7.0', Accept: '*/*' }, redirect: 'follow' })
-    if (!res.ok) throw new Error(`اشتراک پاسخ نداد (${res.status})`)
-    const body = await res.text()
+    let res, body
+    try {
+      res = await fetchImpl(sub.url, { headers: { 'User-Agent': 'v2rayN/7.0', Accept: '*/*' }, redirect: 'follow' })
+      if (!res.ok) throw new Error(`اشتراک پاسخ نداد (${res.status})`)
+      body = await res.text()
+    } catch (e) {
+      sub.error = String((e && e.message) || e).slice(0, 200)
+      this.save()
+      throw e
+    }
     const configs = this.parser.parseBundle(body)
-    if (!configs.length) throw new Error('اشتراک کانفیگی برنگرداند')
+    if (!configs.length) { sub.error = 'اشتراک کانفیگی برنگرداند'; this.save(); throw new Error(sub.error) }
+    delete sub.error
     const info = parseUserInfo(res.headers.get('subscription-userinfo'))
     const title = titleFrom(res.headers.get('profile-title'))
     Object.assign(sub, info, { lastUpdated: Date.now() }, title && !sub.nameLocked ? { name: title } : {})
@@ -102,10 +152,11 @@ class Store {
     return next.length
   }
 
-  async refreshAll({ fetchImpl = fetch } = {}) {
+  async refreshAll({ fetchImpl = this.fetchImpl, olderThan = 0 } = {}) {
     const results = []
     for (const s of this.data.subscriptions) {
-      if (s.kind === FREE) continue
+      if (s.kind === FREE || !s.url) continue
+      if (olderThan && !s.error && Date.now() - (s.lastUpdated || 0) < olderThan) continue
       try { results.push({ id: s.id, count: await this.refreshSubscription(s.id, { fetchImpl }) }) }
       catch (e) { results.push({ id: s.id, error: String(e.message || e) }) }
     }
@@ -145,7 +196,7 @@ class Store {
   delays() { return this.data.delays || {} }
 
   /** Upserts one service delivered by the shop (subscription first, configs as a fallback). */
-  async setService({ name, configs = [], subscriptionUrl = '' }, { fetchImpl = fetch } = {}) {
+  async setService({ name, configs = [], subscriptionUrl = '' }, { fetchImpl = this.fetchImpl } = {}) {
     if (subscriptionUrl) {
       try { return await this.addSubscription(subscriptionUrl, name, { fetchImpl }) } catch (e) { if (!configs.length) throw e }
     }
@@ -161,4 +212,4 @@ class Store {
   }
 }
 
-module.exports = { Store, parseUserInfo, titleFrom, MANUAL, FREE }
+module.exports = { Store, parseUserInfo, titleFrom, subKey, MANUAL, FREE }

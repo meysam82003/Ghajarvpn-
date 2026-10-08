@@ -3,7 +3,7 @@ import { Sheet } from './Overlay'
 import { Icon } from './Icon'
 import { GhostPill, PillButton, TextButton, LinearProgress, Rail } from './Skin'
 import { AppLinks, appsFor, launchUrl, openScheme, AppLink, Sub } from '../lib/applinks'
-import { detectPlatform, PlatformNames, nativeBridge } from '../lib/platform'
+import { detectPlatform, PlatformNames, nativeBridge, desktopCore, coreError } from '../lib/platform'
 import { qrSvg } from '../lib/qr'
 import { copyText, toast } from '../state/ui'
 import { fa, ltr } from '../lib/format'
@@ -50,6 +50,17 @@ export function AddToAppSheet(props: {
   const files = props.configs.map(fileFor).filter((f): f is FileOut => f != null)
 
   async function open(app: AppLink) {
+    // Inside the desktop app, "Ghajar (desktop)" is this very app: add the
+    // service to its own server list directly instead of opening a link.
+    const core = desktopCore()
+    if (app.id === 'ghajar-desktop' && core?.groups) {
+      try {
+        await core.setService({ name: props.productName || 'Ghajar VPN', configs: props.configs, subscriptionUrl: props.subscriptionUrl ?? '' })
+        toast('سرویس به قاجار اضافه شد؛ سرورهایش در «سرورها» آماده‌اند')
+        props.onDismiss()
+      } catch (e) { toast(coreError(e)) }
+      return
+    }
     const url = launchUrl(app, sub, platform)
     if (!url) return
     const took = await openScheme(url)

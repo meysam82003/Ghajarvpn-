@@ -127,13 +127,13 @@ class Engine {
    * binDir: where the cores live (xray, sing-box, psiphon, ghajar-helper,
    * juicity, the DNS tunnel clients, geoip/geosite data).
    */
-  constructor({ dataDir, binDir, onChange, probeUrl }) {
+  constructor({ dataDir, binDir, onChange, probeUrl, fetchImpl }) {
     this.probeUrl = probeUrl || xray.PROBE_URL
     this.dataDir = dataDir
     this.binDir = binDir
     this.runDir = path.join(dataDir, 'run')
     fs.mkdirSync(this.runDir, { recursive: true })
-    this.store = new Store({ dataDir, parser })
+    this.store = new Store({ dataDir, parser, fetchImpl })
     this.onChange = onChange || (() => {})
     this.children = []
     this.tun = null
@@ -706,7 +706,8 @@ class Engine {
     const F = free.FREE || {}
     const good = configs.filter(c => delays[c.id] > 0 && delays[c.id] <= (F.MAX_LATENCY_MS || 2500))
       .sort((a, b) => delays[a.id] - delays[b.id]).slice(0, F.MAX_MANAGED_CONFIGS || 35)
-    good.forEach((c, i) => { if (!c.name) c.name = `Ghajarvpn ${i + 1}` })
+    // Named as the phone app names them (FreeConfigs reconcile): the channel each came from is not shown.
+    good.forEach((c, i) => { c.name = `${(free.FREE && free.FREE.CONFIG_NAME) || 'Ghajarvpn'} ${i + 1}` })
     this.store.setFree(good)
     this.store.setDelays(Object.fromEntries(good.map(c => [c.id, delays[c.id]])))
     return good.length
@@ -739,6 +740,17 @@ class Engine {
     this.store.data.configs = [...this.store.data.configs.filter(c => c.subId !== 'warp'), ...configs.map(c => ({ ...c, subId: 'warp', source: 'WARP' }))]
     this.store.save()
     return this.store.data.configs.find(c => c.subId === 'warp')
+  }
+
+  /**
+   * Keeps subscriptions current without a button: soon after start, every 30
+   * minutes, and failed ones again on each connection.
+   */
+  startAutoRefresh() {
+    const tick = olderThan => this.store.refreshAll({ olderThan }).catch(() => undefined)
+    setTimeout(() => tick(10 * 60_000), 4000)
+    this.refreshTimer = setInterval(() => tick(25 * 60_000), 30 * 60_000)
+    if (this.refreshTimer.unref) this.refreshTimer.unref()
   }
 
   /** Programs running now, for the per-app picker: [{ name }] sorted, without system noise. */
