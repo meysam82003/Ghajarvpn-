@@ -33,7 +33,31 @@ fun GhajarNotificationSettings() {
         channelRevision++
         if (enabled) scope.launch { GhajarNotificationMonitor.refresh(context.applicationContext) }
     }
+    var updateReminders by remember { mutableStateOf(GhajarUpdateNotifier.enabled(context)) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("یادآوری بروزرسانی‌ها")
+                Text("اگر نسخهٔ جدیدتری منتشر شود، حداکثر روزی یک بار یادآوری می‌شود.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = updateReminders, onCheckedChange = {
+                updateReminders = it
+                GhajarUpdateNotifier.setEnabled(context, it)
+            })
+        }
+        var idle by remember { mutableStateOf(GhajarIdleNotification.enabled(context)) }
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("اعلان «قاجار VPN خاموش است»")
+                Text("وقتی VPN خاموش است، اعلانی با دکمهٔ «اتصال» در نوار اعلان می‌ماند.", style = MaterialTheme.typography.bodySmall)
+            }
+            Switch(checked = idle, onCheckedChange = {
+                idle = it
+                if (!it || VpnState.state.value != Connection.CONNECTED) GhajarIdleNotification.setEnabled(context.applicationContext, it)
+                else context.getSharedPreferences("ghajar_notif_prefs", 0).edit().putBoolean("idle_notification", true).apply()
+            })
+        }
+        HorizontalDivider(color = ghajarColors.border)
         Text(if (enabled) "اعلان‌های گوشی فعال هستند" else "برای دریافت پیام‌ها خارج از اپ، اعلان‌های گوشی را فعال کن.")
         Text("اعلان‌های جدید و شناور اینجا و در نوار اعلانات نمایش داده می‌شوند. دریافت در پس‌زمینه ممکن است با تأخیر انجام شود.", style = MaterialTheme.typography.bodySmall)
         OutlinedButton(onClick = {

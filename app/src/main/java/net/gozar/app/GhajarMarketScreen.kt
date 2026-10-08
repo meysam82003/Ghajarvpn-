@@ -176,7 +176,7 @@ fun GhajarMarketScreen(
         error = null
         runCatching { api.marketShops() }
             .onSuccess { feed = it }
-            .onFailure { error = it.message ?: "فهرست فروشگاه‌ها در دسترس نیست" }
+            .onFailure { error = shopError(it, "فهرست فروشگاه‌ها در دسترس نیست") }
         busy = false
     }
 
@@ -518,7 +518,7 @@ private fun MarketOrderPage(
         scope.launch {
             runCatching { api.marketSubmitReceipt(order.id, uri, note) }
                 .onSuccess { message = it; pollKey++ }
-                .onFailure { message = it.message ?: "ارسال رسید انجام نشد" }
+                .onFailure { message = shopError(it, "ارسال رسید انجام نشد") }
             sending = false
         }
     }
@@ -552,7 +552,15 @@ private fun MarketOrderPage(
 
         val live = status
         when (live?.status) {
-            MARKET_STATUS_PAID -> MarketDelivery(live, api, store, onRetry = { pollKey++ })
+            MARKET_STATUS_PAID -> if (live.kind == "wallet") Slab(accent = c.primary, spacing = GhajarSpacing.sm) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Check, null, tint = c.primary, modifier = Modifier.size(20.dp))
+                    Spacer(Modifier.width(GhajarSpacing.sm))
+                    Text("پرداخت انجام شد", fontWeight = FontWeight.Bold, color = c.textPrimary)
+                }
+                InfoLine("کیف پول شارژ شد", localizeDigits(formatToman(live.amount.takeIf { it > 0 } ?: order.amount), lang) + " تومان")
+                InfoLine("موجودی فعلی", localizeDigits(formatToman(live.walletBalance), lang) + " تومان")
+            } else MarketDelivery(live, api, store, onRetry = { pollKey++ })
 
             MARKET_STATUS_REJECTED -> SkinError(
                 "فروشنده این پرداخت را رد کرد."
@@ -719,9 +727,10 @@ internal fun MarketDelivery(
     LaunchedEffect(status.id, status.subscription, status.configs.size) {
         if (!synced && (status.subscription.isNotBlank() || status.configs.isNotEmpty())) {
             importing = true
+            MarketServiceIndex.remember(context, status.username, status.shopId)
             runCatching { api.importServiceOnce(store, marketServiceDetails(status, "سرویس فروشگاه")) }
                 .onSuccess { count -> synced = true; imported = if (count > 0) "به لیست سرورها اضافه شد." else "این سرویس در لیست سرورها هست." }
-                .onFailure { imported = it.message ?: "افزودن انجام نشد" }
+                .onFailure { imported = shopError(it, "افزودن انجام نشد") }
             importing = false
         }
     }
@@ -772,7 +781,7 @@ internal fun MarketDelivery(
                                     if (count > 0) "به لیست سرورها اضافه شد."
                                     else "این سرویس در لیست سرورها هست."
                                 },
-                                { it.message ?: "افزودن انجام نشد" }
+                                { shopError(it, "افزودن انجام نشد") }
                             )
                         importing = false
                     }
@@ -802,7 +811,7 @@ private fun MarketRegisterPage(api: GhajarStoreApi, onBack: () -> Unit) {
         busy = true
         runCatching { api.marketTerms() }
             .onSuccess { terms = it }
-            .onFailure { error = it.message ?: "قوانین خوانده نشد" }
+            .onFailure { error = shopError(it, "قوانین خوانده نشد") }
         busy = false
     }
 
@@ -1033,4 +1042,20 @@ internal fun StorePill(
         }
         else -> PillButton(text, onClick, modifier, icon, enabled, accent, minHeight, fillWidth)
     }
+}
+
+/**
+ * Which marketplace shop sold a service, by its panel username: written when
+ * the service is imported, read when «تمدید» is pressed on its group in the
+ * servers list, so a renewal goes to the right shop even when the service's
+ * link is the seller panel's own and names no shop.
+ */
+internal object MarketServiceIndex {
+    private const val PREFS = "ghajar_market_services"
+    fun remember(context: android.content.Context, username: String, shopId: Int) {
+        if (username.isBlank() || shopId <= 0) return
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putInt("u_$username", shopId).apply()
+    }
+    fun shopOf(context: android.content.Context, username: String): Int? =
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getInt("u_$username", 0).takeIf { it > 0 }
 }

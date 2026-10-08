@@ -154,3 +154,21 @@ internal object GhajarCommerceRules {
         if (message.any { it in '\u0600'..'\u06ff' }) BrandConfig.sanitizePublicText(message).take(500)
         else "عملیات کامل نشد؛ اتصال اینترنت و وضعیت سفارش را بررسی کن."
 }
+
+/**
+ * A shop failure as the buyer should read it: the panel's own Persian
+ * message, a plain network sentence, or [fallback] - never an exception's
+ * English text with the shop's host name in it ("Unable to resolve host …").
+ */
+internal fun shopError(error: Throwable, fallback: String): String {
+    val msg = error.message.orEmpty()
+    runCatching { GhajarLog.e("Store", error.javaClass.simpleName + ": " + msg) }
+    if (msg.any { it in '؀'..'ۿ' }) return BrandConfig.sanitizePublicText(msg).take(500)
+    return when (error) {
+        is java.net.UnknownHostException, is java.net.NoRouteToHostException, is java.net.ConnectException ->
+            "فروشگاه در دسترس نیست؛ اتصال اینترنت یا VPN را بررسی کن و دوباره تلاش کن."
+        is java.net.SocketTimeoutException -> "فروشگاه به‌موقع پاسخ نداد؛ دوباره تلاش کن."
+        is javax.net.ssl.SSLException -> "اتصال امن به فروشگاه برقرار نشد؛ دوباره تلاش کن."
+        else -> fallback
+    }
+}

@@ -119,7 +119,10 @@ object GhajarLog {
             } else msg
         )
 
-    private fun log(level: GhajarLogLevel, tag: String, msg: String) {
+    private fun log(level: GhajarLogLevel, tag: String, raw: String) {
+        // 1.1.1: redacted before it reaches memory, logcat or the file, not
+        // only on export - a log is copied, screenshotted and pasted.
+        val msg = runCatching { redact(raw) }.getOrDefault(raw)
         val entry = GhajarLogEntry(System.currentTimeMillis(), level, tag, msg)
         synchronized(ringLock) {
             if (ring.size >= MAX_MEMORY_ENTRIES) ring.removeFirst()
@@ -233,6 +236,11 @@ object GhajarLog {
      */
     internal val redactionPatterns: List<Pair<Regex, String>> = listOf(
         Regex("(?i)bearer\\s+[A-Za-z0-9\\-_.]{8,}") to "Bearer [REDACTED]",
+        Regex("(?i)basic\\s+[A-Za-z0-9+/=]{8,}") to "Basic [REDACTED]",
+        // Subscription links: the path or query token is the account.
+        Regex("(?i)(https?://[^\\s/]+/(?:sub|subs|subscription|link|s|api/v1/client/subscribe)/)[A-Za-z0-9_\\-=.%]{8,}") to "$1[REDACTED]",
+        Regex("(?i)([?&](?:token|key|auth|sid|uuid|sub)=)[^&\\s]{6,}") to "$1[REDACTED]",
+        Regex("(?i)((?:set-)?cookie\\s*:\\s*)[^\\r\\n]+") to "$1[REDACTED]",
         // Helper engines that print their own secrets: MasterDnsVPN/StormDNS
         // log "Active Encryption Key: …", and TOML/JSON engine configs carry
         // ENCRYPTION_KEY / obfs keys.
@@ -269,9 +277,8 @@ object GhajarLog {
 
     /**
      * Internal rather than private so the pattern set is unit-tested. It is
-     * applied only to the copy that leaves the device; the in-app log view is
-     * untouched, so a user debugging their own connection still sees
-     * everything.
+     * applied to every message as it is logged (memory, logcat and file), and
+     * again to the exported copy.
      */
     internal fun redact(text: String): String =
         redactionPatterns.fold(text) { acc, (pattern, replacement) -> pattern.replace(acc, replacement) }

@@ -19,6 +19,14 @@ object VpnState {
     private val _picking = MutableStateFlow(false)
     val picking: StateFlow<Boolean> = _picking.asStateFlow()
 
+    /** Name of the server the tunnel actually carries, as the service last saw it. */
+    private val _activeName = MutableStateFlow<String?>(null)
+    val activeName: StateFlow<String?> = _activeName.asStateFlow()
+    fun setActiveName(name: String?) { _activeName.value = name?.takeIf { it.isNotBlank() } }
+
+    /** The tunnel moved to another config without a new connect (next server, auto-select). */
+    fun setActiveId(id: String) { _activeId.value = id }
+
     private val _connectedAt = MutableStateFlow(0L)
     val connectedAt: StateFlow<Long> = _connectedAt.asStateFlow()
 
@@ -41,7 +49,7 @@ object VpnState {
     }
     fun setDisconnected() {
         GhajarLog.i("VpnState", "state -> DISCONNECTED (was ${_state.value}, id was ${_activeId.value})")
-        _picking.value = false; _activeId.value = null; _connectedAt.value = 0L; _state.value = Connection.DISCONNECTED
+        _picking.value = false; _activeId.value = null; _activeName.value = null; _connectedAt.value = 0L; _state.value = Connection.DISCONNECTED
     }
 }
 

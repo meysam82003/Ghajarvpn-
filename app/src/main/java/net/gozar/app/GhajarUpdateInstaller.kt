@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
@@ -19,14 +20,89 @@ import java.security.MessageDigest
 import java.security.cert.CertificateFactory
 import kotlin.coroutines.coroutineContext
 
-/** Single shared bus so both the periodic background check and the manual
- * "check for updates" button in Settings/About surface the exact same
- * download+verify+install dialog instead of two divergent update flows. */
+/**
+ * The one update state the whole app reads: the Home "بروزرسانی جدید" button,
+ * the update dialog, About -> Versions and the reminder notification. The
+ * download lives here, in a process-wide scope, so leaving the app, rotating
+ * or recreating the activity never resets or loses it.
+ */
 object GhajarUpdateFlow {
     private val _available = MutableStateFlow<UpdateChecker.Result.Available?>(null)
+    /** A release newer than the installed one; null when up to date. */
     val available = _available.asStateFlow()
-    fun offer(result: UpdateChecker.Result.Available) { _available.value = result }
-    fun clear() { _available.value = null }
+    private val _dialog = MutableStateFlow(false)
+    val dialogOpen = _dialog.asStateFlow()
+
+    /** 0 offer, 1 downloading, 2 verifying, 3 ready, 4 error. */
+    val stage = MutableStateFlow(0)
+    val progress = MutableStateFlow(0f)
+    val error = MutableStateFlow<String?>(null)
+    val readyFile = MutableStateFlow<File?>(null)
+    private var job: kotlinx.coroutines.Job? = null
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.Main.immediate)
+
+    fun offer(result: UpdateChecker.Result.Available, open: Boolean = true) {
+        if (_available.value?.version != result.version) { stage.value = 0; progress.value = 0f; error.value = null; readyFile.value = null }
+        _available.value = result
+        if (open) _dialog.value = true
+    }
+    fun open() { if (_available.value != null) _dialog.value = true }
+    /** Closing is refused while a download or check is running: only «لغو دانلود» stops it. */
+    fun dismiss() { if (stage.value != 1 && stage.value != 2) _dialog.value = false }
+    /** The installed app caught up (or passed) the offered version. */
+    fun clearIfInstalled(installed: String) {
+        val a = _available.value ?: return
+        if (!UpdateChecker.isNewer(a.version, installed)) { _available.value = null; _dialog.value = false; stage.value = 0 }
+    }
+
+    fun cancel() {
+        job?.cancel(); job = null
+        stage.value = 0; progress.value = 0f
+    }
+
+    fun start(context: Context, onPage: (String) -> Unit) {
+        val upd = _available.value ?: return
+        val apk = upd.apk
+        if (apk == null) { onPage(upd.url); return }
+        if (job?.isActive == true) return
+        val app = context.applicationContext
+        stage.value = 1; progress.value = 0f; error.value = null
+        job = scope.launch {
+            when (val result = GhajarUpdateInstaller.download(app, apk) { read, total ->
+                progress.value = if (total > 0) (read.toFloat() / total.toFloat()).coerceIn(0f, 1f) else 0f
+            }) {
+                is GhajarUpdateInstaller.DownloadResult.Cancelled -> stage.value = 0
+                is GhajarUpdateInstaller.DownloadResult.Failed -> {
+                    error.value = "دانلود ناموفق بود؛ اتصال را بررسی کن و دوباره تلاش کن."
+                    stage.value = 4
+                }
+                is GhajarUpdateInstaller.DownloadResult.Success -> {
+                    stage.value = 2
+                    val checksum = withContext(Dispatchers.IO) { GhajarUpdateInstaller.verifySha256(result.file, upd.apkSha256) }
+                    val signature = withContext(Dispatchers.IO) { GhajarUpdateInstaller.verifySignatureMatchesInstalled(app, result.file) }
+                    val refused = when {
+                        checksum is GhajarUpdateInstaller.VerifyResult.ChecksumMismatch ->
+                            "فایل دانلودشده با نسخهٔ منتشرشده مطابقت ندارد؛ ممکن است دانلود خراب شده باشد. دوباره تلاش کن."
+                        // 1.1.1: no hash published means no install. A file
+                        // that cannot be checked is not handed to the installer.
+                        checksum is GhajarUpdateInstaller.VerifyResult.Unavailable -> checksum.reason
+                        signature is GhajarUpdateInstaller.VerifyResult.SignatureMismatch -> signature.reason
+                        signature is GhajarUpdateInstaller.VerifyResult.Unavailable -> signature.reason
+                        else -> null
+                    }
+                    if (refused != null) {
+                        result.file.delete()
+                        error.value = refused
+                        stage.value = 4
+                        return@launch
+                    }
+                    readyFile.value = result.file
+                    stage.value = 3
+                    if (GhajarUpdateInstaller.canInstallPackages(app)) runCatching { GhajarUpdateInstaller.install(app, result.file) }
+                }
+            }
+        }
+    }
 }
 
 /**

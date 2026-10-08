@@ -320,7 +320,11 @@ data class GhajarMarketOrderStatus(
     val amount: Long,
     val username: String,
     val configs: List<String>,
-    val subscription: String
+    val subscription: String,
+    /** purchase, renew, wallet or test; "wallet" means a top-up with no service. */
+    val kind: String = "purchase",
+    /** The buyer's balance at this shop after a top-up. */
+    val walletBalance: Long = 0
 )
 
 data class GhajarMarketOwnShop(
@@ -541,7 +545,9 @@ data class GhajarPurchaseRequest(
     val customTimeDays: Int? = null,
     val customUsername: String? = null,
     val note: String? = null,
-    val discountCode: String? = null
+    val discountCode: String? = null,
+    /** The panel's dollar-pricing quote that came with the product list. */
+    val fxQuote: String? = null
 )
 
 data class GhajarPurchaseResult(
@@ -557,54 +563,13 @@ data class GhajarPurchaseResult(
 data class GhajarTrialPanel(val code: String, val name: String, val remaining: Int? = null)
 data class GhajarTrialOptions(val panels: List<GhajarTrialPanel>, val remaining: Int?, val canRequest: Boolean)
 
-data class GhajarRenewProduct(
-    val code: String,
-    val name: String,
-    val volumeGb: Int,
-    val timeDays: Int,
-    val price: Long,
-    val showPrice: Boolean,
-    val note: String,
-    val isCurrentPlan: Boolean = false
-)
-
-data class GhajarRenewCustomOptions(
-    val enabled: Boolean,
-    val forced: Boolean,
-    val pricePerGb: Long,
-    val pricePerDay: Long,
-    val minVolumeGb: Int,
-    val maxVolumeGb: Int,
-    val minTimeDays: Int,
-    val maxTimeDays: Int
-)
-
-data class GhajarRenewOptions(
-    val username: String,
-    val panelName: String,
-    val products: List<GhajarRenewProduct>,
-    val currentPlanCode: String?,
-    val showPrice: Boolean,
-    val discountPercent: Int,
-    val balance: Long,
-    val custom: GhajarRenewCustomOptions
-)
-
-data class GhajarRenewResult(
-    val completed: Boolean,
-    val requiresPayment: Boolean,
-    val username: String,
-    val amountDue: Long,
-    val balance: Long,
-    val price: Long,
-    val orderId: String?
-)
-
-class GhajarApiException(message: String, val httpCode: Int = 0) : IllegalStateException(message)
+class GhajarApiException(message: String, val httpCode: Int = 0, val details: JSONObject? = null) : IllegalStateException(message)
 
 /** Native client matched to the API shipped in Ghajar_vpnbot_-3-1.zip. */
 class GhajarStoreApi(context: Context) {
     private val appContext = context.applicationContext
+    /** The last dollar-pricing quote seen per panel, from the product list. */
+    private val fxQuoteCache = java.util.concurrent.ConcurrentHashMap<String, String>()
     private val account = GhajarAccountStore(appContext)
 
     val isLinked: Boolean get() = account.token().isNotBlank()
@@ -766,6 +731,7 @@ class GhajarStoreApi(context: Context) {
         val all = action("services", params = params).payloadArray().objects().mapNotNull { row ->
             val id = row.optString("id")
             if (id.isBlank()) return@mapNotNull null
+            row.optString("fx_quote").takeUnless { it.isBlank() || it == "null" }?.let { fxQuoteCache[countryId] = it }
             GhajarProduct(
                 id = id,
                 name = visible(row.optString("name", "سرویس قاجار")),
@@ -791,6 +757,7 @@ class GhajarStoreApi(context: Context) {
                 "time_days" to timeDays.toString()
             )
         ).payloadObject()
+        payload.optString("fx_quote").takeUnless { it.isBlank() || it == "null" }?.let { fxQuoteCache[countryId] = it }
         return GhajarCustomQuote(
             price = payload.optNullableDouble("price")?.toLong(),
             trafficMin = payload.optInt("traffic_min"),
@@ -800,7 +767,7 @@ class GhajarStoreApi(context: Context) {
         )
     }
 
-    suspend fun ownedServices(maxPages: Int = 10): List<GhajarOwnedService> {
+    suspend fun ownedServices(maxPages: Int = 100): List<GhajarOwnedService> {
         val collected = mutableListOf<GhajarOwnedService>()
         var page = 1
         var pages = 1
@@ -809,7 +776,8 @@ class GhajarStoreApi(context: Context) {
                 "invoices",
                 params = mapOf("page" to page.toString(), "limit" to "10")
             ).payloadObject()
-            payload.optJSONArray("items").orEmpty().objects().mapNotNullTo(collected) { row ->
+            val rows = payload.optJSONArray("items").orEmpty().objects()
+            rows.mapNotNullTo(collected) { row ->
                 val username = row.optString("username")
                 if (username.isBlank()) return@mapNotNullTo null
                 // `user_info` is the panel's own answer, cached on the invoice
@@ -832,7 +800,10 @@ class GhajarStoreApi(context: Context) {
                     soldAt = row.optNullableLong("time_sell")
                 )
             }
-            pages = payload.optInt("total_pages", 1).coerceAtLeast(1).coerceAtMost(maxPages)
+            // A server that omits total_pages still pages: keep going while a
+            // page comes back full, so accounts with >10 services aren't cut.
+            val reported = payload.optInt("total_pages", 0)
+            pages = (if (reported > 0) reported else if (rows.size >= 10) page + 1 else page).coerceAtMost(maxPages)
             page++
         } while (page <= pages)
         return collected.distinctBy { it.username }
@@ -854,7 +825,7 @@ class GhajarStoreApi(context: Context) {
                 name = visible(row.optString("name", "پلن قاجار")),
                 volumeGb = row.optInt("volume_gb"),
                 timeDays = row.optInt("time_days"),
-                price = row.optNullableDouble("price")?.toLong() ?: 0,
+                price = renewalToman(row.get("price").toString()),
                 showPrice = row.optBoolean("show_price", true),
                 note = visible(row.optString("note"))
             )
@@ -869,16 +840,21 @@ class GhajarStoreApi(context: Context) {
             currentPlanCode = currentCode,
             showPrice = payload.optBoolean("show_price", true),
             discountPercent = payload.optInt("discount"),
-            balance = payload.optNullableDouble("balance")?.toLong() ?: 0,
+            balance = renewalBalance(payload.opt("balance")?.toString()),
+            productFxQuote = payload.optJSONObject("fx_quote")?.optString("product")?.takeUnless { it.isBlank() || it == "null" },
+            customFxQuote = payload.optJSONObject("fx_quote")?.optString("custom")?.takeUnless { it.isBlank() || it == "null" },
             custom = GhajarRenewCustomOptions(
                 enabled = custom?.optBoolean("enabled") ?: false,
                 forced = custom?.optBoolean("force") ?: false,
-                pricePerGb = custom?.optNullableLong("price_per_gb") ?: 0,
-                pricePerDay = custom?.optNullableLong("price_per_day") ?: 0,
+                pricePerGb = custom?.opt("price_per_gb")?.takeUnless { it == JSONObject.NULL }
+                    ?.let { renewalToman(it.toString()) } ?: 0,
+                pricePerDay = custom?.opt("price_per_day")?.takeUnless { it == JSONObject.NULL }
+                    ?.let { renewalToman(it.toString()) } ?: 0,
                 minVolumeGb = custom?.optInt("min_volume_gb") ?: 0,
                 maxVolumeGb = custom?.optInt("max_volume_gb") ?: 0,
                 minTimeDays = custom?.optInt("min_time_days") ?: 0,
-                maxTimeDays = custom?.optInt("max_time_days") ?: 0
+                maxTimeDays = custom?.optInt("max_time_days") ?: 0,
+                fxRoundStep = custom?.optLong("fx_round_step") ?: 0
             )
         )
     }
@@ -894,7 +870,8 @@ class GhajarStoreApi(context: Context) {
         productCode: String? = null,
         customVolumeGb: Int? = null,
         customTimeDays: Int? = null,
-        discountCode: String? = null
+        discountCode: String? = null,
+        fxQuote: String? = null
     ): GhajarRenewResult {
         val body = JSONObject().put("username", username)
         if (productCode != null) {
@@ -903,13 +880,25 @@ class GhajarStoreApi(context: Context) {
             body.put(
                 "custom",
                 JSONObject()
-                    .put("traffic_gb", customVolumeGb ?: 0)
+                    .put("volume_gb", customVolumeGb ?: 0)
                     .put("time_days", customTimeDays ?: 0)
             )
         }
         discountCode?.takeIf { it.isNotBlank() }?.let { body.put("discount_code", it) }
 
-        val root = action("service_renew_confirm", method = "POST", body = body, allowPaymentRequired = true)
+        fxQuote?.takeIf { it.isNotBlank() }?.let { body.put("fx_quote", it) }
+        val root = try {
+            action("service_renew_confirm", method = "POST", body = body, allowPaymentRequired = true)
+        } catch (e: GhajarApiException) {
+            val conflict = e.details
+            if (e.httpCode == 409 && conflict?.optString("code") == "price_changed") {
+                throw GhajarRenewQuoteRejected(
+                    renewalToman(conflict.get("price").toString()),
+                    conflict.optString("fx_quote").takeUnless { it.isBlank() || it == "null" }
+                )
+            }
+            throw e
+        }
         val payload = root.payloadObject()
         val paymentObject = when {
             root.optBoolean("requires_payment") -> root
@@ -921,9 +910,9 @@ class GhajarStoreApi(context: Context) {
                 completed = false,
                 requiresPayment = true,
                 username = paymentObject.optString("username", username),
-                amountDue = paymentObject.optNullableDouble("amount_due")?.toLong() ?: 0,
-                balance = paymentObject.optNullableDouble("balance")?.toLong() ?: 0,
-                price = paymentObject.optNullableDouble("price")?.toLong() ?: 0,
+                amountDue = renewalToman(paymentObject.get("amount_due").toString()),
+                balance = renewalBalance(paymentObject.opt("balance")?.toString()),
+                price = renewalToman(paymentObject.get("price").toString()),
                 orderId = paymentObject.optString("order_id").takeIf { it.isNotBlank() }
             )
         }
@@ -932,7 +921,7 @@ class GhajarStoreApi(context: Context) {
             requiresPayment = false,
             username = username,
             amountDue = 0,
-            balance = payload.optNullableDouble("balance")?.toLong() ?: 0,
+            balance = renewalBalance(payload.opt("balance_after")?.toString() ?: payload.opt("balance")?.toString()),
             price = 0,
             orderId = null
         )
@@ -1097,8 +1086,19 @@ class GhajarStoreApi(context: Context) {
         request.customUsername?.takeIf { it.isNotBlank() }?.let { body.put("custom_username", it) }
         request.note?.takeIf { it.isNotBlank() }?.let { body.put("custom_note", it) }
         request.discountCode?.takeIf { it.isNotBlank() }?.let { body.put("discount_code", it) }
-
-        val root = action("purchase", method = "POST", body = body, allowPaymentRequired = true)
+        // Dollar-priced panels sign every quote; the purchase used to go out
+        // without one, so the server answered "price changed" every time.
+        // The quote is sent, and when the rate moved since the list was
+        // read, the purchase is sent once more with the server's fresh quote.
+        (request.fxQuote ?: fxQuoteCache[request.countryId])?.takeIf { it.isNotBlank() }?.let { body.put("fx_quote", it) }
+        val root = try {
+            action("purchase", method = "POST", body = body, allowPaymentRequired = true)
+        } catch (e: GhajarApiException) {
+            val fresh = e.details?.takeIf { e.httpCode == 409 && it.optString("code") == "price_changed" }
+                ?.optString("fx_quote")?.takeUnless { it.isBlank() || it == "null" } ?: throw e
+            fxQuoteCache[request.countryId] = fresh
+            action("purchase", method = "POST", body = body.put("fx_quote", fresh), allowPaymentRequired = true)
+        }
         val payload = root.payloadObject()
         val paymentObject = when {
             root.optBoolean("requires_payment") -> root
@@ -1289,17 +1289,24 @@ class GhajarStoreApi(context: Context) {
         // seller panel blocked from this network, or not answering yet) the
         // configs the server already sent are imported instead, so a paid
         // service is never left undelivered.
-        val url = service.subscriptionUrl?.takeIf { it.startsWith("https://") }
+        // Stored with its scheme: a link saved as "panel.example/sub/x" made
+        // every later «آپدیت ساب» fail with "no protocol".
+        val url = service.subscriptionUrl?.trim()?.takeIf { it.isNotBlank() }
+            ?.let { if (Regex("^https?://", RegexOption.IGNORE_CASE).containsMatchIn(it)) it else "https://" + it.removePrefix("//") }
         val fetched = url?.let { runCatching { SubscriptionFetcher.fetchFull(it) }.getOrNull() }
             ?.takeIf { it.configs.isNotEmpty() }
         if (url != null && fetched == null && joined.isBlank()) {
             throw GhajarApiException("سرویس صادر شد، اما ساب هنوز کانفیگ ندارد؛ از «سرویس‌های من» دوباره دریافت کن.")
         }
-        val imported = if (url != null && fetched != null) {
+        // Each service is its own group, even when two share a plan name.
+        val groupName = listOf(service.productName.ifBlank { "سرویس قاجار" }, service.username)
+            .filter { it.isNotBlank() }.distinct().joinToString(" · ")
+        val imported = if (url != null && (fetched != null || joined.isNotBlank())) {
+            val list = fetched?.configs ?: ConfigParser.parseBundle(joined)
             withContext(Dispatchers.Main) {
                 val existing = store.subscriptions.value.firstOrNull { it.url == url }
-                val subscription = existing ?: Subscription(name = service.productName.ifBlank { "سرویس قاجار" }, url = url)
-                val info = fetched.userInfo
+                val subscription = existing ?: Subscription(name = groupName, url = url)
+                val info = fetched?.userInfo
                 store.upsertSubscription(subscription.copy(
                     used = info?.used ?: subscription.used,
                     total = info?.total ?: subscription.total,
@@ -1309,8 +1316,8 @@ class GhajarStoreApi(context: Context) {
                     // the app knows which panel service a subscription is,
                     // and it is what makes one-tap renewal possible later.
                     serviceUsername = service.username
-                ), fetched.configs)
-                fetched.configs.size
+                ), list)
+                list.size
             }
         } else {
             val configs = ConfigParser.parseBundle(joined)
@@ -1320,7 +1327,7 @@ class GhajarStoreApi(context: Context) {
                     existing.protocol == candidate.protocol && existing.address == candidate.address &&
                         existing.port == candidate.port && existing.uuid == candidate.uuid && existing.password == candidate.password
                 } }
-                if (missing.isNotEmpty()) store.addToLocalSub(service.productName.ifBlank { "سرویس قاجار" }, missing)
+                if (missing.isNotEmpty()) store.addToLocalSub(groupName, missing)
             }
             configs.size
         }
@@ -1662,7 +1669,9 @@ class GhajarStoreApi(context: Context) {
             configs = payload.optJSONArray("configs").orEmpty().let { array ->
                 (0 until array.length()).mapNotNull { array.optString(it).takeIf { s -> s.isNotBlank() } }
             },
-            subscription = payload.optString("subscription")
+            subscription = payload.optString("subscription"),
+            kind = payload.optString("kind", "purchase"),
+            walletBalance = payload.optNullableDouble("wallet_balance")?.toLong() ?: 0
         )
     }
 
@@ -2032,6 +2041,7 @@ class GhajarStoreApi(context: Context) {
         allowPaymentRequired: Boolean = false,
         allowLinkGate: Boolean = false
     ): JSONObject {
+        val renewalWrite = body?.optString("actions") == "service_renew_confirm"
         fun viaProxy() = performRequest(
             url, method, bearer, body, allowPaymentRequired, allowLinkGate,
             proxy = Proxy(Proxy.Type.SOCKS, InetSocketAddress("127.0.0.1", MixedPort.value))
@@ -2048,6 +2058,7 @@ class GhajarStoreApi(context: Context) {
             try {
                 return viaProxy()
             } catch (throughTunnel: IOException) {
+                if (renewalWrite) throw throughTunnel
                 GhajarLog.w("Store", "tunnel-first attempt for ${url.host} failed " +
                     "(${throughTunnel.javaClass.simpleName}); trying direct again")
                 directBlockedUntil = 0L
@@ -2058,6 +2069,7 @@ class GhajarStoreApi(context: Context) {
             performRequest(url, method, bearer, body, allowPaymentRequired, allowLinkGate, proxy = null)
                 .also { directBlockedUntil = 0L }
         } catch (direct: IOException) {
+            if (renewalWrite) throw direct
             GhajarLog.w("Store", "direct request to ${url.host} failed " +
                 "(${direct.javaClass.simpleName}: ${direct.message}); retrying via local tunnel proxy")
             directBlockedUntil = System.currentTimeMillis() + DIRECT_BLOCK_MEMO_MS
@@ -2091,6 +2103,10 @@ class GhajarStoreApi(context: Context) {
         val connection = (if (proxy != null) url.openConnection(proxy) else url.openConnection()) as HttpURLConnection
         connection.apply {
             requestMethod = method
+            if (url.query?.contains("actions=service_renew_options") == true) {
+                useCaches = false
+                setRequestProperty("Cache-Control", "no-cache, no-store")
+            }
             connectTimeout = CONNECT_TIMEOUT
             readTimeout = READ_TIMEOUT
             setRequestProperty("Accept", "application/json")
@@ -2142,7 +2158,7 @@ class GhajarStoreApi(context: Context) {
         if (allowLinkGate && code in 200..299 && envelope.optString("link_status") == "linked" &&
             envelope.optString("gate") in setOf("force_join", "phone_required")) return envelope
         if (code !in 200..299 || !envelope.optBoolean("status", true)) {
-            throw GhajarApiException(visible(envelope.optString("msg", "خطای فروشگاه ($code)")), code)
+            throw GhajarApiException(visible(envelope.optString("msg", "خطای فروشگاه ($code)")), code, envelope.optJSONObject("obj"))
         }
         return envelope
     }

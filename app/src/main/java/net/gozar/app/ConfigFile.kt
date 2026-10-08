@@ -102,7 +102,8 @@ object ConfigFile {
         configs: List<ProxyConfig>,
         subs: List<Subscription>,
         settings: JSONObject,
-        password: String?
+        password: String?,
+        includeOpenVpn: Boolean = true
     ): ByteArray {
         val cfgArr = JSONArray()
         configs.forEach { cfgArr.put(it.toJson()) }
@@ -115,7 +116,7 @@ object ConfigFile {
             .put("pauseOnScreenOff", ovpn.pauseOnScreenOff)
             .put("encryptProfiles", ovpn.encryptProfiles)
         val profilesArr = JSONArray()
-        GhajarOpenVpnBridge.exportProfiles(context).forEach { bytes ->
+        if (includeOpenVpn) GhajarOpenVpnBridge.exportProfiles(context).forEach { bytes ->
             profilesArr.put(Base64.encodeToString(bytes, Base64.NO_WRAP))
         }
         val root = JSONObject()

@@ -17,6 +17,21 @@ import org.json.JSONObject
 import java.util.concurrent.Executors
 
 enum class PerAppMode { OFF, ALLOWLIST, BLOCKLIST }
+
+/** A named per-app rule ("بانک", "بازی"…): its apps either go only through the VPN or stay outside it. */
+data class PerAppProfile(val id: String, val name: String, val mode: PerAppMode, val apps: Set<String>) {
+    fun toJson(): org.json.JSONObject = org.json.JSONObject().put("id", id).put("name", name).put("mode", mode.name)
+        .put("apps", org.json.JSONArray(apps.toList()))
+    companion object {
+        const val MAX = 10
+        fun fromJson(o: org.json.JSONObject): PerAppProfile? = runCatching {
+            val arr = o.optJSONArray("apps")
+            PerAppProfile(o.getString("id"), o.optString("name").ifBlank { "پروفایل" },
+                PerAppMode.valueOf(o.optString("mode", "BLOCKLIST")).takeIf { it != PerAppMode.OFF } ?: PerAppMode.BLOCKLIST,
+                if (arr == null) emptySet() else (0 until arr.length()).map { arr.getString(it) }.toSet())
+        }.getOrNull()
+    }
+}
 enum class ThemeMode { SYSTEM, LIGHT, DARK, AMOLED }
 class ConfigStore private constructor(context: Context) {
     private val appCtx: Context = context.applicationContext
@@ -302,6 +317,16 @@ class ConfigStore private constructor(context: Context) {
     fun setVpnShareEnabled(enabled: Boolean) {
         _vpnShareEnabled.value = enabled
         prefs.edit().putBoolean(KEY_VPN_SHARE, enabled).apply()
+        if (!enabled) setVpnShareExpiresAt(0L)
+    }
+
+    /** When sharing switches itself off (epoch ms); 0 = until turned off. Enforced by GozarVpnService. */
+    private val _vpnShareExpiresAt = MutableStateFlow(prefs.getLong(KEY_VPN_SHARE_EXPIRES, 0L))
+    val vpnShareExpiresAt: StateFlow<Long> = _vpnShareExpiresAt.asStateFlow()
+
+    fun setVpnShareExpiresAt(at: Long) {
+        _vpnShareExpiresAt.value = at
+        prefs.edit().putLong(KEY_VPN_SHARE_EXPIRES, at).apply()
     }
 
     /** SOCKS5 credential Xray requires from every VPN-Share client. Without
@@ -440,106 +465,6 @@ class ConfigStore private constructor(context: Context) {
         prefs.edit().putBoolean(KEY_NEWEST_FIRST, enabled).apply()
     }
 
-    /**
-     * The DNS Tunnel profile.
-     *
-     * Stored as separate values rather than one blob because each is
-     * independently missing in the common case: someone has a resolver and a
-     * domain but no key yet, and a screen that can only save a complete
-     * profile makes them retype the parts they already had.
-     *
-     * None of this is guessable. A resolver's IP alone cannot build a tunnel -
-     * the domain names a zone whose nameserver is the tunnel server, and the
-     * public key is what the client verifies the far end with. So the tunnel
-     * is offered only when all three exist, and never reported as connected
-     * on the strength of a resolver that merely answers.
-     */
-    private val _dnsTunnelDomain = MutableStateFlow(prefs.getString(KEY_DNSTT_DOMAIN, "") ?: "")
-    val dnsTunnelDomain: StateFlow<String> = _dnsTunnelDomain.asStateFlow()
-
-    fun setDnsTunnelDomain(value: String) {
-        val v = value.trim().trim('.')
-        _dnsTunnelDomain.value = v
-        prefs.edit().putString(KEY_DNSTT_DOMAIN, v).apply()
-    }
-
-    /**
-     * The tunnel server's public key, as the tunnel implementation prints it.
-     *
-     * Never defaulted and never generated here. A client that accepts any key
-     * has no way to tell the tunnel server from whoever is between them, which
-     * on the networks this app is used on is the whole threat.
-     */
-    private val _dnsTunnelKey = MutableStateFlow(prefs.getString(KEY_DNSTT_KEY, "") ?: "")
-    val dnsTunnelKey: StateFlow<String> = _dnsTunnelKey.asStateFlow()
-
-    fun setDnsTunnelKey(value: String) {
-        val v = value.trim()
-        _dnsTunnelKey.value = v
-        prefs.edit().putString(KEY_DNSTT_KEY, v).apply()
-    }
-
-    /** Which imported resolver the tunnel sends its queries through. */
-    private val _dnsTunnelResolver = MutableStateFlow(prefs.getString(KEY_DNSTT_RESOLVER, "") ?: "")
-    val dnsTunnelResolver: StateFlow<String> = _dnsTunnelResolver.asStateFlow()
-
-    fun setDnsTunnelResolver(id: String) {
-        _dnsTunnelResolver.value = id
-        prefs.edit().putString(KEY_DNSTT_RESOLVER, id).apply()
-    }
-
-    /** A name for the profile, so more than one can be told apart later. */
-    private val _dnsTunnelName = MutableStateFlow(prefs.getString(KEY_DNSTT_NAME, "") ?: "")
-    val dnsTunnelName: StateFlow<String> = _dnsTunnelName.asStateFlow()
-
-    fun setDnsTunnelName(value: String) {
-        _dnsTunnelName.value = value.trim()
-        prefs.edit().putString(KEY_DNSTT_NAME, value.trim()).apply()
-    }
-
-    /**
-     * Reconnect the tunnel by itself when the path drops.
-     *
-     * Off by default. An automatic reconnect that silently falls back to no
-     * tunnel is worse than a visible failure, so this only ever retries the
-     * tunnel - never a plain connection in its place.
-     */
-    private val _dnsTunnelAutoReconnect =
-        MutableStateFlow(prefs.getBoolean(KEY_DNSTT_RECONNECT, false))
-    val dnsTunnelAutoReconnect: StateFlow<Boolean> = _dnsTunnelAutoReconnect.asStateFlow()
-
-    fun setDnsTunnelAutoReconnect(enabled: Boolean) {
-        _dnsTunnelAutoReconnect.value = enabled
-        prefs.edit().putBoolean(KEY_DNSTT_RECONNECT, enabled).apply()
-    }
-
-    /**
-     * What to do when the resolver in use stops answering.
-     *
-     * Defaults to staying put. Moving to another resolver behind the user's
-     * back means their lookups start going somewhere they did not choose,
-     * which for DNS is the exposure they picked a resolver to avoid - so the
-     * safe default is a visible failure, and the other option is opt-in.
-     */
-    private val _dnsFailPolicy = MutableStateFlow(readDnsFailPolicy())
-    val dnsFailPolicy: StateFlow<DnsFailPolicy> = _dnsFailPolicy.asStateFlow()
-
-    private fun readDnsFailPolicy(): DnsFailPolicy {
-        val name = prefs.getString(KEY_DNS_FAIL_POLICY, null) ?: return DnsFailPolicy.STAY
-        return runCatching { DnsFailPolicy.valueOf(name) }.getOrDefault(DnsFailPolicy.STAY)
-    }
-
-    fun setDnsFailPolicy(policy: DnsFailPolicy) {
-        _dnsFailPolicy.value = policy
-        prefs.edit().putString(KEY_DNS_FAIL_POLICY, policy.name).apply()
-    }
-
-    /** True only when every part a tunnel cannot work without is present. */
-    val dnsTunnelConfigured: Boolean
-        get() = _dnsTunnelDomain.value.isNotBlank() &&
-            _dnsTunnelKey.value.isNotBlank() &&
-            _dnsTunnelResolver.value.isNotBlank()
-
     private val _autoRefreshHours = MutableStateFlow(prefs.getInt(KEY_AUTOREFRESH, DEFAULT_AUTOREFRESH))
     val autoRefreshHours: StateFlow<Int> = _autoRefreshHours.asStateFlow()
 
@@ -660,9 +585,47 @@ class ConfigStore private constructor(context: Context) {
 
     fun addImported(imported: List<ProxyConfig>): Int {
         if (imported.isEmpty()) return 0
-        _configs.value = _configs.value + imported
+        // A received «اشتراک قاجار» share becomes its own group, drawn like a
+        // subscription (its quota and time as the group's bar). Everything
+        // else is added as before.
+        val (shared, plain) = imported.partition { net.gozar.app.gsb2.Gsb2.Meta.of(it) != null }
+        var subs = _subscriptions.value
+        val tagged = shared.groupBy { net.gozar.app.gsb2.Gsb2.Meta.of(it)!!.shareId }.flatMap { (shareId, list) ->
+            val meta = net.gozar.app.gsb2.Gsb2.Meta.of(list.first())!!
+            val url = net.gozar.app.gsb2.Gvpn.urlFor(shareId)
+            val sub = subs.firstOrNull { it.url == url } ?: Subscription(
+                name = meta.shareName.ifBlank { "اشتراک قاجار" }, url = url,
+                total = meta.quotaBytes, expire = if (meta.expiresAt > 0) meta.expiresAt / 1000 else 0L,
+                lastUpdated = System.currentTimeMillis()
+            ).also { subs = listOf(it) + subs }
+            list.map { it.copy(subId = sub.id) }
+        }
+        val replaced = tagged.map { it.subId }.toSet()
+        _configs.value = _configs.value.filterNot { it.subId in replaced } + plain + tagged
+        if (subs !== _subscriptions.value) { _subscriptions.value = subs; persistSubscriptions() }
         persistConfigs()
         return imported.size
+    }
+
+    /** Keeps a received share's group bar in step with what the tunnel counted. */
+    fun updateGvpnUsage(shareId: String, used: Long) {
+        val url = net.gozar.app.gsb2.Gvpn.urlFor(shareId)
+        if (_subscriptions.value.none { it.url == url && it.used != used }) return
+        _subscriptions.value = _subscriptions.value.map { if (it.url == url) it.copy(used = used) else it }
+        persistSubscriptions()
+    }
+
+    /** Removes a received share and everything in it. */
+    fun deleteGvpnShare(shareId: String) {
+        val url = net.gozar.app.gsb2.Gvpn.urlFor(shareId)
+        val subIds = _subscriptions.value.filter { it.url == url }.map { it.id }.toSet()
+        val gone = _configs.value.filter { it.subId in subIds || net.gozar.app.gsb2.Gsb2.Meta.of(it)?.shareId == shareId }.map { it.id }.toSet()
+        if (gone.isEmpty() && subIds.isEmpty()) return
+        _configs.value = _configs.value.filterNot { it.id in gone }
+        _subscriptions.value = _subscriptions.value.filterNot { it.id in subIds }
+        if (_selectedId.value in gone) setSelectedId(null)
+        persistConfigs()
+        persistSubscriptions()
     }
 
     fun delete(id: String) {
@@ -864,15 +827,6 @@ class ConfigStore private constructor(context: Context) {
         put("fragment", _fragment.value)
         put("rotateMinutes", _rotateMinutes.value)
         put("zeptunTunnel", _zeptunTunnel.value)
-        // The tunnel's domain, resolver and name travel in a backup. Its
-        // public key deliberately does not: a backup is a file that gets
-        // shared, and the key is the one part of this profile that is a
-        // credential. It is retyped on the new device.
-        put("dnsFailPolicy", _dnsFailPolicy.value.name)
-        put("dnsTunnelDomain", _dnsTunnelDomain.value)
-        put("dnsTunnelResolver", _dnsTunnelResolver.value)
-        put("dnsTunnelName", _dnsTunnelName.value)
-        put("dnsTunnelAutoReconnect", _dnsTunnelAutoReconnect.value)
         put("newestFirst", _newestFirst.value)
         put("reduceMotion", _reduceMotion.value)
         put("dynamicAccent", _dynamicAccent.value)
@@ -907,6 +861,8 @@ class ConfigStore private constructor(context: Context) {
         put("lang", _lang.value.name)
         put("perAppMode", _perAppMode.value.name)
         put("perAppList", JSONArray(_perAppList.value.toList()))
+        put("perAppProfiles", JSONArray().apply { _perAppProfiles.value.forEach { put(it.toJson()) } })
+        put("perAppActive", _activePerAppProfile.value ?: "")
         put("selectedId", _selectedId.value ?: "")
         // Personalization travels with a full backup (colours, layout, styles,
         // saved presets). It holds no secrets, so the backup's own security
@@ -937,15 +893,6 @@ class ConfigStore private constructor(context: Context) {
         if (o.has("customDns")) setCustomDns(o.optString("customDns"))
         if (o.has("rotateMinutes")) setRotateMinutes(o.optInt("rotateMinutes", 0))
         if (o.has("zeptunTunnel")) setZeptunTunnel(o.getBoolean("zeptunTunnel"))
-        if (o.has("dnsFailPolicy")) runCatching {
-            setDnsFailPolicy(DnsFailPolicy.valueOf(o.optString("dnsFailPolicy")))
-        }
-        if (o.has("dnsTunnelDomain")) setDnsTunnelDomain(o.optString("dnsTunnelDomain"))
-        if (o.has("dnsTunnelResolver")) setDnsTunnelResolver(o.optString("dnsTunnelResolver"))
-        if (o.has("dnsTunnelName")) setDnsTunnelName(o.optString("dnsTunnelName"))
-        if (o.has("dnsTunnelAutoReconnect")) {
-            setDnsTunnelAutoReconnect(o.getBoolean("dnsTunnelAutoReconnect"))
-        }
         if (o.has("newestFirst")) setNewestFirst(o.getBoolean("newestFirst"))
         if (o.has("reduceMotion")) setReduceMotion(o.getBoolean("reduceMotion"))
         if (o.has("dynamicAccent")) setDynamicAccent(o.getBoolean("dynamicAccent"))
@@ -984,6 +931,11 @@ class ConfigStore private constructor(context: Context) {
         o.optString("perAppMode").takeIf { it.isNotEmpty() }?.let { v ->
             runCatching { setPerAppMode(PerAppMode.valueOf(v)) }
         }
+        o.optJSONArray("perAppProfiles")?.let { arr ->
+            _perAppProfiles.value = (0 until arr.length()).mapNotNull { PerAppProfile.fromJson(arr.getJSONObject(it)) }.take(PerAppProfile.MAX)
+            persistPerAppProfiles()
+            setActivePerAppProfileId(o.optString("perAppActive").takeIf { id -> id.isNotBlank() && _perAppProfiles.value.any { it.id == id } })
+        }
         o.optJSONArray("perAppList")?.let { arr ->
             setPerAppList((0 until arr.length()).map { arr.getString(it) }.toSet())
         }
@@ -994,13 +946,20 @@ class ConfigStore private constructor(context: Context) {
     }
 
     fun restoreBackup(configs: List<ProxyConfig>, subs: List<Subscription>, settings: JSONObject?) {
-        _configs.value = configs
-        _subscriptions.value = subs
-        persistConfigs()
-        persistSubscriptions()
+        // A backup written with the servers unticked carries none: the ones
+        // on the phone stay. Received «اشتراک قاجار» shares are never in a
+        // backup and always stay.
+        if (configs.isNotEmpty() || subs.isNotEmpty()) {
+            val keptSubs = _subscriptions.value.filter { net.gozar.app.gsb2.Gvpn.isGvpnUrl(it.url) }
+            val keptConfigs = _configs.value.filter { net.gozar.app.gsb2.Gsb2.Meta.of(it) != null }
+            _configs.value = configs + keptConfigs
+            _subscriptions.value = subs + keptSubs
+            persistConfigs()
+            persistSubscriptions()
+        }
         settings?.let { restoreSettings(it) }
         val wanted = settings?.optString("selectedId").orEmpty()
-        setSelectedId(if (configs.any { it.id == wanted }) wanted else configs.firstOrNull()?.id)
+        if (configs.isNotEmpty()) setSelectedId(if (configs.any { it.id == wanted }) wanted else configs.firstOrNull()?.id)
     }
 
     data class MergeReport(
@@ -1120,11 +1079,70 @@ class ConfigStore private constructor(context: Context) {
     fun setPerAppMode(mode: PerAppMode) {
         _perAppMode.value = mode
         prefs.edit().putString(KEY_PERAPP_MODE, mode.name).apply()
+        if (mode == PerAppMode.OFF) setActivePerAppProfileId(null)
+        else syncActiveProfile()
     }
 
     fun setPerAppList(pkgs: Set<String>) {
         _perAppList.value = pkgs
         prefs.edit().putStringSet(KEY_PERAPP_LIST, pkgs).apply()
+        syncActiveProfile()
+    }
+
+    // ---- named per-app profiles ----
+
+    private val _perAppProfiles = MutableStateFlow(loadPerAppProfiles())
+    val perAppProfiles: StateFlow<List<PerAppProfile>> = _perAppProfiles
+    private val _activePerAppProfile = MutableStateFlow(prefs.getString("perapp_active_profile", null))
+    val activePerAppProfile: StateFlow<String?> = _activePerAppProfile
+
+    private fun loadPerAppProfiles(): List<PerAppProfile> = runCatching {
+        val arr = JSONArray(prefs.getString("perapp_profiles", "[]"))
+        (0 until arr.length()).mapNotNull { PerAppProfile.fromJson(arr.getJSONObject(it)) }
+    }.getOrDefault(emptyList())
+
+    private fun persistPerAppProfiles() {
+        prefs.edit().putString("perapp_profiles", JSONArray().apply { _perAppProfiles.value.forEach { put(it.toJson()) } }.toString()).apply()
+    }
+
+    private fun setActivePerAppProfileId(id: String?) {
+        _activePerAppProfile.value = id
+        prefs.edit().putString("perapp_active_profile", id).apply()
+    }
+
+    /** The active profile follows edits made on the list and the mode. */
+    private fun syncActiveProfile() {
+        val id = _activePerAppProfile.value ?: return
+        val mode = _perAppMode.value.takeIf { it != PerAppMode.OFF } ?: return
+        _perAppProfiles.value = _perAppProfiles.value.map { if (it.id == id) it.copy(mode = mode, apps = _perAppList.value) else it }
+        persistPerAppProfiles()
+    }
+
+    /** Creates (or renames/updates) a profile; returns false when ten already exist. */
+    fun savePerAppProfile(name: String, mode: PerAppMode, apps: Set<String>, id: String? = null): Boolean {
+        val clean = name.trim().take(40).ifBlank { return false }
+        val list = _perAppProfiles.value
+        if (id == null && list.size >= PerAppProfile.MAX) return false
+        val profile = PerAppProfile(id ?: UUID.randomUUID().toString(), clean, if (mode == PerAppMode.OFF) PerAppMode.BLOCKLIST else mode, apps)
+        _perAppProfiles.value = if (list.any { it.id == profile.id }) list.map { if (it.id == profile.id) profile else it } else list + profile
+        persistPerAppProfiles()
+        if (id == null) applyPerAppProfile(profile.id)
+        return true
+    }
+
+    fun deletePerAppProfile(id: String) {
+        _perAppProfiles.value = _perAppProfiles.value.filterNot { it.id == id }
+        persistPerAppProfiles()
+        if (_activePerAppProfile.value == id) applyPerAppProfile(null)
+    }
+
+    /** Makes a profile the live per-app rule; null turns per-app routing off. */
+    fun applyPerAppProfile(id: String?) {
+        val p = _perAppProfiles.value.firstOrNull { it.id == id }
+        setActivePerAppProfileId(p?.id)
+        _perAppMode.value = p?.mode ?: PerAppMode.OFF
+        _perAppList.value = p?.apps ?: _perAppList.value
+        prefs.edit().putString(KEY_PERAPP_MODE, _perAppMode.value.name).putStringSet(KEY_PERAPP_LIST, _perAppList.value).apply()
     }
 
     fun togglePerApp(pkg: String) {
@@ -1202,6 +1220,7 @@ class ConfigStore private constructor(context: Context) {
         private const val KEY_ONION = "onion_routing"
         private const val KEY_BLOCK_WHEN_OFF = "block_when_off"
         private const val KEY_VPN_SHARE = "vpn_share_enabled"
+        private const val KEY_VPN_SHARE_EXPIRES = "vpn_share_expires_at"
         private const val KEY_VPN_SHARE_USER = "vpn_share_user"
         private const val KEY_VPN_SHARE_PASS = "vpn_share_pass"
         const val SORT_ADDED = "added"
@@ -1209,12 +1228,6 @@ class ConfigStore private constructor(context: Context) {
         const val SORT_FASTEST = "fastest"
         private const val KEY_THEME = "theme_mode"
         private const val KEY_UI_THEME = "ui_theme"
-        private const val KEY_DNS_FAIL_POLICY = "dns_fail_policy"
-        private const val KEY_DNSTT_DOMAIN = "dnstt_domain"
-        private const val KEY_DNSTT_KEY = "dnstt_key"
-        private const val KEY_DNSTT_RESOLVER = "dnstt_resolver"
-        private const val KEY_DNSTT_NAME = "dnstt_name"
-        private const val KEY_DNSTT_RECONNECT = "dnstt_reconnect"
         private const val KEY_NEWEST_FIRST = "newest_first"
         private const val KEY_AETHER_SEED_CLEANED = "aether_seed_cleaned_v1"
         private const val KEY_AUTOREFRESH = "auto_refresh_hours"

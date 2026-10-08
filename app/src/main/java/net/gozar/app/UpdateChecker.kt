@@ -43,8 +43,9 @@ object UpdateChecker {
                     if (name.isBlank() || assetUrl.isBlank()) null
                     else ReleaseAsset(name, assetUrl, a.optLong("size"))
                 }
-                val apk = abis.firstNotNullOfOrNull { abi -> assets.find { it.name.endsWith("-$abi.apk", true) } }
-                    ?: assets.firstOrNull { it.name.endsWith(".apk", true) }
+                // Never an APK built for another ABI: only this device's
+                // split, or a universal build that says so in its name.
+                val apk = apkFor(assets, abis)
                 val sumsUrl = assets.firstOrNull { it.name.equals("SHA256SUMS.txt", true) }?.url
                 val sha256 = apk?.let { a -> sumsUrl?.let { parseSha256Sums(get(it), a.name) } }
                 Result.Available(
@@ -58,6 +59,49 @@ object UpdateChecker {
                 Result.Failed
             }
         }
+
+    internal fun apkFor(assets: List<ReleaseAsset>, abis: List<String>): ReleaseAsset? =
+        abis.firstNotNullOfOrNull { abi -> assets.find { it.name.endsWith("-$abi.apk", true) } }
+            ?: assets.firstOrNull { it.name.endsWith(".apk", true) && it.name.contains("universal", true) }
+
+    /** One entry of About -> Versions: what GitHub says about a release, nothing invented. */
+    data class ReleaseInfo(
+        val version: String,
+        val publishedAt: String,
+        val prerelease: Boolean,
+        val notes: String,
+        val url: String,
+        val apk: ReleaseAsset?,
+        val sha256Url: String?
+    )
+
+    private const val LIST = "https://api.github.com/repos/meysam82003/Ghajarvpn-/releases"
+
+    /** A page of releases, newest first. Throws on network failure; the caller shows a plain message. */
+    suspend fun releases(page: Int, abis: List<String> = android.os.Build.SUPPORTED_ABIS.toList()): List<ReleaseInfo> =
+        withContext(Dispatchers.IO) {
+            JSONArray(get("$LIST?per_page=15&page=$page")).objects().filter { !it.optBoolean("draft") }.map { o ->
+                val assets = o.optJSONArray("assets").orEmptyArray().objects().mapNotNull { a ->
+                    val name = a.optString("name"); val u = a.optString("browser_download_url")
+                    if (name.isBlank() || u.isBlank()) null else ReleaseAsset(name, u, a.optLong("size"))
+                }
+                ReleaseInfo(
+                    version = o.optString("tag_name").removePrefix("v").removePrefix("V").trim(),
+                    publishedAt = o.optString("published_at").take(10),
+                    prerelease = o.optBoolean("prerelease"),
+                    notes = o.optString("body"),
+                    url = o.optString("html_url").ifEmpty { RELEASES },
+                    apk = apkFor(assets, abis),
+                    sha256Url = assets.firstOrNull { it.name.equals("SHA256SUMS.txt", true) }?.url
+                )
+            }
+        }
+
+    /** The update offer for one listed release (newer than the installed one only). */
+    suspend fun offerFor(r: ReleaseInfo): Result.Available = withContext(Dispatchers.IO) {
+        val sha = r.apk?.let { a -> r.sha256Url?.let { runCatching { parseSha256Sums(get(it), a.name) }.getOrNull() } }
+        Result.Available(r.version, r.url, r.notes, r.apk, sha)
+    }
 
     private fun get(url: String): String {
         val conn = (URL(url).openConnection() as HttpURLConnection).apply {

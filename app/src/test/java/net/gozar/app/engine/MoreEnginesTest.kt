@@ -6,6 +6,7 @@ import net.gozar.app.TorBridges
 import net.gozar.app.TorController
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -36,12 +37,11 @@ class MoreEnginesTest {
     }
 
     @Test
-    fun juicityLinkAndConfig() {
+    fun juicityProfilesAreKeptButNotRunIn111() {
         val c = ConfigParser.parse("juicity://11111111-2222-3333-4444-555555555555:pw@j.example.com:443?congestion_control=bbr&sni=j.example.com#j")!!
-        val l = Sidecars.launch(JSONObject(SingBoxConfig.spec(c)!!).getJSONObject("sidecar"))
-        assertEquals("libjuicity.so", l.binary)
-        val cfg = JSONObject(l.files.getValue("juicity.json"))
-        assertEquals("127.0.0.1:{port}", cfg.getString("listen")); assertEquals("j.example.com:443", cfg.getString("server"))
+        assertEquals("juicity", c.protocol)
+        assertTrue(RemovedCores.isRemoved(c))
+        assertFalse(SingBoxConfig.handles(c))
         assertEquals(c.copy(id = "x"), ConfigParser.parse(ConfigShare.toLink(c))!!.copy(id = "x"))
     }
 

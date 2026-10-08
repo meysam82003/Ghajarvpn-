@@ -909,7 +909,9 @@ private fun OrbCategory(draft: GhajarLook, set: (GhajarLook) -> Unit, previewSta
     val c = ghajarColors
     var state by remember(previewState) { mutableStateOf(previewState) }
     val names = mapOf(
-        "circle" to tr("دایره (فعلی)", "Circle (current)"),
+        "circle" to tr("کلاسیک گرد", "Classic round"),
+        "ring" to tr("حلقه", "Ring"),
+        "compact" to tr("فشرده", "Compact"),
         "pill" to tr("قرص گرد", "Rounded pill"),
         "capsule_glow" to tr("کپسول درخشان", "Capsule glow"),
         "soft_square" to tr("مربع نرم", "Soft square"),

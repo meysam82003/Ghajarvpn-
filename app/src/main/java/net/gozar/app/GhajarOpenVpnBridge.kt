@@ -142,7 +142,7 @@ object GhajarOpenVpnBridge {
             app.getSystemService(NotificationManager::class.java).createNotificationChannels(
                 listOf(
                     NotificationChannel(OpenVPNService.NOTIFICATION_CHANNEL_BG_ID, "اتصال OVPN قاجار", NotificationManager.IMPORTANCE_LOW),
-                    NotificationChannel(OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID, "وضعیت OVPN قاجار", NotificationManager.IMPORTANCE_LOW),
+                    NotificationChannel(OpenVPNService.NOTIFICATION_CHANNEL_NEWSTATUS_ID, "وضعیت OVPN قاجار", NotificationManager.IMPORTANCE_HIGH),
                     NotificationChannel(OpenVPNService.NOTIFICATION_CHANNEL_USERREQ_ID, "درخواست امنیتی OVPN", NotificationManager.IMPORTANCE_HIGH)
                 )
             )
@@ -656,7 +656,21 @@ object GhajarOpenVpnBridge {
 
     private fun parse(raw: String): VpnProfile {
         val parser = OvpnConfigParser()
-        parser.parseConfig(StringReader(raw))
+        parser.parseConfig(StringReader(repairProfile(raw)))
         return parser.convertProfile()
+    }
+
+    /**
+     * Repairs profiles shared around with a client <cert> but no <key>. OpenVPN
+     * refuses those outright ("you must use --cert and --key together"); when
+     * the profile also logs in with a username/password the cert is useless
+     * without its key anyway, so it is dropped and the login carries the auth.
+     */
+    internal fun repairProfile(raw: String): String {
+        val hasCert = Regex("(?m)^\\s*(<cert>|cert\\s)").containsMatchIn(raw)
+        val hasKey = Regex("(?m)^\\s*(<key>|key\\s|<pkcs12>|pkcs12\\s)").containsMatchIn(raw)
+        val userPass = Regex("(?m)^\\s*(<auth-user-pass>|auth-user-pass)").containsMatchIn(raw)
+        if (!hasCert || hasKey || !userPass) return raw
+        return raw.replace(Regex("(?s)<cert>.*?</cert>"), "").replace(Regex("(?m)^\\s*cert\\s.*$"), "")
     }
 }

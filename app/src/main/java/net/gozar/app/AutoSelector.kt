@@ -167,9 +167,9 @@ class AutoSelector(
          * measure something the selector will never pick.
          */
         fun interchangeable(all: List<ProxyConfig>): List<ProxyConfig> =
-            all.filter { it.protocol.trim().lowercase() !in SKIP_PROTOCOLS }
+            all.filter { it.protocol.trim().lowercase() !in SKIP_PROTOCOLS && net.gozar.app.gsb2.Gsb2.Meta.of(it) == null }
 
-        private val SKIP_PROTOCOLS = setOf("tor", "aether")
+        private val SKIP_PROTOCOLS = setOf("tor", "aether") + net.gozar.app.engine.RemovedCores.PROTOCOLS
         private const val TAG = "GhajarAuto"
         private const val INTERVAL_MS = 60_000L
         private const val MAX_CONCURRENCY = 4

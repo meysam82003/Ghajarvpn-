@@ -20,14 +20,7 @@ object SingBoxConfig {
 
     /** Protocols this app sends to sing-box. ShadowsocksR is not here: the pinned source registers it only as a removed stub. */
     val PROTOCOLS = setOf("tuic", "hysteria", "anytls", "ssh", "snell", "openconnect", "masque",
-        "dnstt", "vaydns", "noizdns", "masterdns", "stormdns", "cottendns", "slipstream",
-        "amneziawg", "mieru", "brook", "juicity", "naive", "shadowtls", "sstp", "softether", "tailscale", "tailcat")
-
-    /** DNS tunnels whose server forwards to a SOCKS5 or SSH upstream. */
-    val DNSTT_FAMILY = setOf("dnstt", "vaydns", "noizdns", "slipstream")
-
-    /** DNS tunnels whose client serves SOCKS5 itself. */
-    val MASTERDNS_FAMILY = setOf("masterdns", "stormdns", "cottendns")
+        "amneziawg", "mieru", "brook", "naive", "shadowtls", "sstp", "softether", "tailscale", "tailcat", SingBoxFull.PROTOCOL)
 
     /** Protocols carried as sing-box endpoints rather than outbounds. */
     private val ENDPOINTS = setOf("openconnect", "masque", "tailscale")
@@ -41,6 +34,7 @@ object SingBoxConfig {
      */
     fun spec(config: ProxyConfig): String? {
         if (!handles(config)) return null
+        if (config.protocol == SingBoxFull.PROTOCOL) return SingBoxFull.configOf(config)?.let { JSONObject().put("full", it).toString() }
         val proxy = proxy(config)
         val out = JSONObject().put(if (config.protocol in ENDPOINTS) "endpoint" else "outbound", proxy)
         if (config.protocol == "shadowtls") out.put("extraOutbounds", org.json.JSONArray().put(shadowTlsOut(config)))
@@ -53,6 +47,7 @@ object SingBoxConfig {
     /** The complete configuration for `sing-box run`, with the SOCKS inbound on [socksPort]. */
     fun full(spec: String, socksPort: Int, logLevel: String = "info"): String {
         val s = JSONObject(spec)
+        s.optJSONObject("full")?.let { return SingBoxFull.runnable(it, socksPort, logLevel) }
         val root = JSONObject()
             .put("log", JSONObject().put("level", logLevel).put("timestamp", false))
             // A server given by name needs a resolver in this sing-box
@@ -73,7 +68,6 @@ object SingBoxConfig {
         root.put("route", JSONObject()
             .put("final", "proxy")
             .put("default_domain_resolver", JSONObject().put("server", "local")))
-        remoteDns(root, DnsTunnelPrefs.current.remoteDns)
         return root.toString()
     }
 
@@ -133,7 +127,7 @@ object SingBoxConfig {
                 o.put("type", "shadowsocks").put("method", ss.optString("method")).put("password", ss.optString("password"))
                     .put("detour", "shadowtls-out")
             }
-            "amneziawg", "mieru", "brook", "juicity", "sstp", "softether" -> {
+            "amneziawg", "mieru", "brook", "sstp", "softether" -> {
                 o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
             }
             "ssh" -> {
@@ -223,23 +217,6 @@ object SingBoxConfig {
                     .putIf("derp_map_url", c.host.takeIf { it.startsWith("https://") || it.startsWith("http://") })
                 c.mode.toIntOrNull()?.takeIf { it > 0 }?.let { o.put("derp_region", it) }
             }
-            "masterdns", "stormdns", "cottendns" -> {
-                o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
-            }
-            "dnstt", "vaydns", "noizdns", "slipstream" -> {
-                // What the tunnel server forwards to: an SSH server (the
-                // common setup) or a SOCKS5 proxy.
-                if (c.method == "ssh") {
-                    o.put("type", "ssh").put("server", "127.0.0.1").put("server_port", 0)
-                        .put("user", c.uuid.ifBlank { "root" })
-                        .putIf("password", c.password)
-                    if (c.privateKey.isNotBlank()) o.put("private_key", JSONArray().put(c.privateKey))
-                } else {
-                    o.put("type", "socks").put("server", "127.0.0.1").put("server_port", 0).put("version", "5")
-                        .putIf("username", c.uuid)
-                        .putIf("password", c.password)
-                }
-            }
             else -> throw IllegalArgumentException("not a sing-box protocol: ${c.protocol}")
         }
         return o
@@ -258,10 +235,6 @@ object SingBoxConfig {
 
     /** The helper process a profile needs in front of sing-box, or null. */
     internal fun sidecar(c: ProxyConfig): JSONObject? = when (c.protocol) {
-        in DNSTT_FAMILY -> dnstt(c).put("kind", c.protocol).apply {
-            val x = c.extraJson()
-            listOf("recordType", "dnsttCompat", "maxQnameLen", "clientIdSize", "noiz", "stealth", "authoritative", "cc", "cert").forEach { k -> if (x.has(k)) put(k, x.get(k)) }
-        }
         "ssh" -> sshTransport(c)?.let { t ->
             JSONObject(t.toString()).put("kind", "sshtransport").put("host", c.address).put("port", c.port)
         }
@@ -277,16 +250,6 @@ object SingBoxConfig {
         "sstp" -> JSONObject().put("kind", "sstp").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
             .put("user", c.uuid).put("password", c.password).put("sni", c.sni).put("auth", c.method.ifBlank { "auto" })
             .put("allowInsecure", c.allowInsecure).put("pin", c.pinnedCertSha256).put("mtu", c.mtu.takeIf { it in 576..1500 } ?: 1400)
-        "juicity" -> JSONObject().put("kind", "juicity").put("server", (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + c.port)
-            .put("uuid", c.uuid).put("password", c.password).put("sni", c.sni).put("allowInsecure", c.allowInsecure)
-            .put("cc", c.method).put("pin", c.pinnedCertSha256)
-        in MASTERDNS_FAMILY -> {
-            val x = c.extraJson()
-            val first = if (c.address.isBlank()) "" else (if (c.address.contains(':')) "[${c.address}]" else c.address) + ":" + (if (c.port in 1..65535) c.port else 53)
-            JSONObject().put("kind", c.protocol).put("domain", c.host).put("key", c.password)
-                .put("enc", x.optInt("enc", 1)).put("transport", c.mode)
-                .put("resolvers", (listOf(first) + x.optString("resolvers").split(',', '\n', ' ')).map { it.trim() }.filter { it.isNotEmpty() }.distinct().joinToString(","))
-        }
         else -> null
     }
 
@@ -301,21 +264,6 @@ object SingBoxConfig {
     /** The SSH disguise, or null for plain SSH. */
     internal fun sshTransport(c: ProxyConfig): JSONObject? =
         c.extraJson().optJSONObject("transport")?.takeIf { it.optString("mode") in Sidecars.SSH_MODES }
-
-    /** DNS tunnel fields. For DNS tunnel profiles, [ProxyConfig.host] is the tunnel domain. */
-    internal fun dnstt(c: ProxyConfig): JSONObject {
-        val transport = c.mode.takeIf { it == "doh" || it == "dot" } ?: "udp"
-        val resolver = when (transport) {
-            "doh" -> c.path.ifBlank { "https://${c.address}/dns-query" }
-            else -> {
-                val port = if (c.port in 1..65535) c.port else if (transport == "dot") 853 else 53
-                val host = if (c.address.contains(':')) "[${c.address}]" else c.address
-                "$host:$port"
-            }
-        }
-        return JSONObject().put("transport", transport).put("resolver", resolver)
-            .put("domain", c.host).put("pubkey", c.publicKey)
-    }
 
     private fun tls(c: ProxyConfig, forceOn: Boolean): JSONObject {
         val t = JSONObject().put("enabled", forceOn || c.security == "tls")

@@ -28,7 +28,7 @@ import java.io.File
  * Nothing here pretends. A core is [Availability.Available] only when its
  * code or binary is actually present in this APK.
  */
-enum class EngineId { XRAY, PSIPHON, OPENVPN, IKEV2, TOR, AETHER, ZEPTUN_TUN, DNS_TUNNEL, SINGBOX }
+enum class EngineId { XRAY, PSIPHON, OPENVPN, IKEV2, TOR, AETHER, ZEPTUN_TUN, SINGBOX }
 
 sealed class Availability {
     object Available : Availability()
@@ -98,39 +98,20 @@ object CoreManager {
                 license = "MIT", integration = "JNI (libzeptun.so, libzeptun-jni.so), used for proxy-only cores"),
             availability = { if (ZeptunEngine.available) Availability.Available else Availability.Missing(ZeptunEngine.loadError ?: "libzeptun not in this build") },
             running = { ZeptunEngine.isRunning }),
-        engine(EngineId.DNS_TUNNEL, "DNS tunnels",
-            EngineCapabilities(listOf("DNSTT (UDP/DoT/DoH)", "VayDNS", "NoizDNS", "Slipstream (QUIC over DNS)",
-                "MasterDnsVPN", "StormDNS", "CottenDNS"), ownsTun = false, providesSocks = true,
-                license = "CC0 (dnstt, VayDNS) · AGPL-3.0 (NoizDNS) · Apache-2.0 (Slipstream) · MIT (MasterDNS family)",
-                integration = "separate executables (scripts/build-dnstt.sh, build-dns-tunnels.sh, build-slipstream.sh) -> sing-box -> zeptun"),
-            availability = { ctx ->
-                val present = listOf("libdnstt.so", "libvaydns.so", "libnoizdns.so", "libslipstream.so",
-                    "libmasterdns.so", "libstormdns.so", "libcottendns.so").filter { nativeFile(ctx, it) }
-                when {
-                    present.isEmpty() -> Availability.Missing("no DNS tunnel client in this build")
-                    !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("sing-box (carries the tunnels) not in this build")
-                    else -> Availability.Experimental("${present.size}/7 clients present; not device verified")
-                }
-            },
-            running = { SingBoxController.isRunning() && SingBoxController.sidecarKind() in setOf("dnstt", "vaydns", "noizdns",
-                "slipstream", "masterdns", "stormdns", "cottendns") }),
         engine(EngineId.SINGBOX, "sing-box",
             // Connect path: GozarVpnService EXTRA_SINGBOX -> SingBoxController (local SOCKS5) -> zeptun tun.
             // Protocol list = SingBoxConfig.PROTOCOLS, audited against the pinned source (v1.15.0-alpha.9);
             // ShadowsocksR is only a removed stub there and is not offered.
             EngineCapabilities(listOf("TUIC v5", "Hysteria (v1)", "AnyTLS", "SSH (direct, payload, HTTP/HTTPS proxy, TLS-SNI, payload+TLS, WS, WSS)",
                 "Snell v4/v6", "OpenConnect (AnyConnect, GlobalProtect, Fortinet, F5, Pulse, NC)", "NaiveProxy (Cronet)", "ShadowTLS v1-3",
-                "AmneziaWG 1.x/2.0", "Mieru", "Brook", "Juicity", "SSTP (PAP / MS-CHAPv2, crypto binding)", "SoftEther VPN protocol (Virtual Hub, DHCP / static)",
+                "AmneziaWG 1.x/2.0", "Mieru", "Brook", "SSTP (PAP / MS-CHAPv2, crypto binding)", "SoftEther VPN protocol (Virtual Hub, DHCP / static)",
                 "MASQUE CONNECT-IP (RFC 9484, HTTP/3 · 2 · 1)",
                 "Tailscale / Headscale (userspace node, exit node)", "Tailcat (DERP relay)"),
                 ownsTun = false, providesSocks = true, license = "GPL-3.0-or-later",
-                integration = "executable libsingbox.so built in CI (scripts/build-singbox.sh), SOCKS5 -> zeptun"),
+                integration = "executable libsingbox.so built in CI (scripts/build-singbox.sh), SOCKS5 -> Xray tun"),
             availability = { ctx ->
                 when {
                     !nativeFile(ctx, "libsingbox.so") -> Availability.Missing("libsingbox.so not in this build")
-                    !ZeptunEngine.available -> Availability.Missing(
-                        "zeptun (needed to carry sing-box) did not load" + (ZeptunEngine.loadError?.let { ": $it" } ?: "")
-                    )
                     else -> Availability.Available
                 }
             },
@@ -165,6 +146,7 @@ object CoreManager {
      * configuration. Returns null when ready, or the reason it is not.
      */
     fun prepare(context: Context, config: net.gozar.app.ProxyConfig): String? {
+        if (RemovedCores.isRemoved(config)) return RemovedCores.MESSAGE
         val id = engineFor(config)
         when (val a = runCatching { engine(id).availability(context) }.getOrElse { Availability.Missing(it.javaClass.simpleName) }) {
             is Availability.Missing -> return "${engine(id).displayName}: ${a.why}"

@@ -36,23 +36,19 @@ class ProtocolFormsTest {
             "softether" to mapOf("server" to "se.example.com", "hub" to "VPN", "user" to "u", "pass" to "p"),
             "ssh" to mapOf("server" to "h.example.com", "port" to "22", "user" to "u", "pass" to "p", "mode" to "payload-tls",
                 "sni" to "cdn.example.com", "payload" to "GET / HTTP/1.1[crlf][crlf]"),
-            "dnstt" to mapOf("variant" to "vaydns", "domain" to "t.example.com", "pubkey" to key, "transport" to "dot", "resolver" to "1.1.1.1:853"),
-            "masterdns" to mapOf("variant" to "stormdns", "domain" to "v.example.com", "key" to "k", "resolvers" to "8.8.8.8\n1.1.1.1"),
             "tuic" to mapOf("server" to "t.example.com", "uuid" to "11111111-2222-3333-4444-555555555555", "pass" to "p"),
             "hysteria2" to mapOf("server" to "h.example.com", "pass" to "p", "obfs" to "o"),
             "anytls" to mapOf("server" to "a.example.com", "pass" to "p"),
-            "juicity" to mapOf("server" to "j.example.com", "uuid" to "11111111-2222-3333-4444-555555555555", "pass" to "p"),
             "naive" to mapOf("server" to "n.example.com", "user" to "u", "pass" to "p", "quic" to "true"),
             "mieru" to mapOf("server" to "m.example.com", "port" to "2999", "user" to "u", "pass" to "p"),
             "wireguard" to mapOf("privkey" to wgKey, "address" to "10.0.0.2/32", "peerkey" to wgKey, "endpoint" to "198.51.100.7:51820", "jc" to "4", "s1" to "30"),
             "tor" to mapOf("bridges" to "obfs4 192.0.2.10:443 0123456789ABCDEF0123456789ABCDEF01234567 cert=AAAA iat-mode=0")
         )
-        val expect = mapOf("dnstt" to "vaydns", "masterdns" to "stormdns", "ssh" to "ssh", "naive" to "naive", "wireguard" to "amneziawg", "hysteria2" to "hysteria2")
+        val expect = mapOf("ssh" to "ssh", "naive" to "naive", "wireguard" to "amneziawg", "hysteria2" to "hysteria2")
         cases.forEach { (id, v) ->
             val c = ProtocolForms.build(id, v).getOrElse { throw AssertionError("$id: ${it.message}") }
             assertEquals(id, expect[id] ?: id, c.protocol)
         }
-        assertEquals("k", ok("masterdns", cases.getValue("masterdns")).password)
         assertEquals("payload-tls", ok("ssh", cases.getValue("ssh")).extraJson().getJSONObject("transport").getString("mode"))
     }
 
