@@ -378,6 +378,8 @@ jobs:
               gh release edit "$VERSION" --notes-file merged.md
             fi
             gh release view "$VERSION" --json url,assets --jq '.url, (.assets[] | .name)'
+            # The app's own release carries everything: no separate ghajar-app-v release.
+            exit 0
           fi
           if gh release view "$TAG" >/dev/null 2>&1; then
             # Files this release no longer ships.
